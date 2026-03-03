@@ -17,6 +17,7 @@ import (
 type TriggerRequest struct {
 	Payload     json.RawMessage `json:"payload,omitempty"`
 	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
+	Priority    int             `json:"priority,omitempty"`
 }
 
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +74,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		Payload:     req.Payload,
 		TriggeredBy: domain.TriggerManual,
 		ScheduledAt: req.ScheduledAt,
+		Priority:    req.Priority,
 		ExpiresAt:   &expiresAt,
 	}
 

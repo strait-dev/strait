@@ -72,6 +72,7 @@ type JobRun struct {
 	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
 	ExpiresAt   *time.Time      `json:"expires_at,omitempty"`
 	ParentRunID string          `json:"parent_run_id,omitempty"`
+	Priority    int             `json:"priority"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
 

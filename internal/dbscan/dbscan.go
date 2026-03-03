@@ -37,6 +37,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.NextRetryAt,
 		&run.ExpiresAt,
 		&parentRunID,
+		&run.Priority,
 		&run.CreatedAt,
 	)
 	if err != nil {
