@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 type TriggerRequest struct {
@@ -24,7 +24,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, http.StatusNotFound, "job not found")
 			return
 		}

@@ -6,9 +6,9 @@ import (
 	"net/http"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/store"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/robfig/cron/v3"
 )
 
@@ -93,7 +93,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, http.StatusNotFound, "job not found")
 			return
 		}
@@ -125,7 +125,7 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, http.StatusNotFound, "job not found")
 			return
 		}
@@ -187,7 +187,7 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, http.StatusNotFound, "job not found")
 			return
 		}

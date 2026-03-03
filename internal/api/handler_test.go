@@ -13,8 +13,6 @@ import (
 	"orchestrator/internal/config"
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
-
-	"github.com/jackc/pgx/v5"
 )
 
 func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *Server {
@@ -150,7 +148,7 @@ func TestHandleGetJob_Success(t *testing.T) {
 func TestHandleGetJob_NotFound(t *testing.T) {
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
-			return nil, pgx.ErrNoRows
+			return nil, store.ErrJobNotFound
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)

@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"fmt"
 	"slices"
 )
 
@@ -23,14 +22,14 @@ var validTransitions = map[RunStatus][]RunStatus{
 func ValidateTransition(from, to RunStatus) error {
 	transitions, ok := validTransitions[from]
 	if !ok {
-		return fmt.Errorf("unknown from status: %s", from)
+		return &UnknownStatusError{Status: from}
 	}
 
 	if slices.Contains(transitions, to) {
 		return nil
 	}
 
-	return fmt.Errorf("invalid transition: %s -> %s", from, to)
+	return &TransitionError{From: from, To: to}
 }
 
 func MustTransition(from, to RunStatus) {

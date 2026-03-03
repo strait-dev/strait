@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"orchestrator/internal/domain"
+
 	"github.com/spf13/viper"
 )
 
@@ -46,13 +48,13 @@ func Load() (*Config, error) {
 	cfg.PollerInterval = viper.GetDuration("POLLER_INTERVAL")
 
 	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
+		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
 	}
 	if cfg.InternalSecret == "" {
-		return nil, fmt.Errorf("INTERNAL_SECRET is required")
+		return nil, &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "is required"}
 	}
 	if len(cfg.JWTSigningKey) < 32 {
-		return nil, fmt.Errorf("JWT_SIGNING_KEY must be at least 32 characters")
+		return nil, &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
 	}
 
 	return &cfg, nil

@@ -3,12 +3,14 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -65,6 +67,9 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 
 	job, err := scanJob(q.db.QueryRow(ctx, query, id))
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrJobNotFound
+		}
 		return nil, fmt.Errorf("get job: %w", err)
 	}
 
@@ -83,6 +88,9 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 
 	job, err := scanJob(q.db.QueryRow(ctx, query, projectID, slug))
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrJobNotFound
+		}
 		return nil, fmt.Errorf("get job by slug: %w", err)
 	}
 

@@ -15,7 +15,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
 )
 
 type contextKey string
@@ -151,7 +150,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 	// Fetch current run to validate FSM transition dynamically
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrRunNotFound) {
 			respondError(w, http.StatusNotFound, "run not found")
 			return
 		}
@@ -213,7 +212,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 	// Fetch current run to validate FSM transition dynamically
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrRunNotFound) {
 			respondError(w, http.StatusNotFound, "run not found")
 			return
 		}

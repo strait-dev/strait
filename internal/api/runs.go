@@ -7,16 +7,16 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/store"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 )
 
 func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrRunNotFound) {
 			respondError(w, http.StatusNotFound, "run not found")
 			return
 		}
@@ -77,7 +77,7 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, store.ErrRunNotFound) {
 			respondError(w, http.StatusNotFound, "run not found")
 			return
 		}

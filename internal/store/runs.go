@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"orchestrator/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -90,6 +92,9 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrRunNotFound
+		}
 		return nil, fmt.Errorf("get run: %w", err)
 	}
 
@@ -216,7 +221,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 
 	for _, key := range keys {
 		if _, ok := allowedColumns[key]; !ok {
-			return fmt.Errorf("unsupported update field: %s", key)
+			return &domain.FieldError{Field: key}
 		}
 
 		value := fields[key]

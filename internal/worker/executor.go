@@ -220,7 +220,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("endpoint returned %d: %s", resp.StatusCode, string(respBody))
+		return nil, &domain.EndpointError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	if len(respBody) > 0 {

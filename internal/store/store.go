@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	ErrJobNotFound = errors.New("job not found")
 	ErrRunNotFound = errors.New("run not found")
 	ErrRunConflict = errors.New("run status update conflict")
 )
