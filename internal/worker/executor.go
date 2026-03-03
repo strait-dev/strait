@@ -111,29 +111,38 @@ func (e *Executor) Run(ctx context.Context) {
 }
 
 func (e *Executor) poll(ctx context.Context) {
-	run, err := e.queue.Dequeue(ctx)
+	available := e.pool.Available()
+	if available <= 0 {
+		return
+	}
+
+	runs, err := e.queue.DequeueN(ctx, available)
 	if err != nil {
 		e.logger.Error("dequeue failed", "error", err)
 		return
 	}
-	if run == nil {
+	if len(runs) == 0 {
 		return
 	}
 
-	e.logger.Info(
-		"dequeued run",
-		"run_id", run.ID,
-		"job_id", run.JobID,
-		"project_id", run.ProjectID,
-		"attempt", run.Attempt,
-	)
+	e.logger.Info("dequeued runs", "count", len(runs))
 
-	// Use detached context for in-flight work — shutdown stops polling but
-	// lets running jobs complete naturally (bounded by their timeout).
-	execCtx := context.WithoutCancel(ctx)
-	e.pool.Submit(ctx, func() {
-		e.execute(execCtx, run)
-	})
+	for i := range runs {
+		run := runs[i]
+		e.logger.Info(
+			"dequeued run",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"project_id", run.ProjectID,
+			"attempt", run.Attempt,
+			"priority", run.Priority,
+		)
+
+		execCtx := context.WithoutCancel(ctx)
+		e.pool.Submit(ctx, func() {
+			e.execute(execCtx, &run)
+		})
+	}
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {

@@ -47,6 +47,10 @@ func (p *Pool) ActiveCount() int {
 	return len(p.sem)
 }
 
+func (p *Pool) Available() int {
+	return cap(p.sem) - len(p.sem)
+}
+
 // Shutdown waits for all in-flight work to complete.
 func (p *Pool) Shutdown() {
 	p.wg.Wait()
