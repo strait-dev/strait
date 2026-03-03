@@ -1,0 +1,221 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"orchestrator/internal/domain"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
+)
+
+type contextKey string
+
+const ctxRunIDKey contextKey = "run_id"
+
+func (s *Server) runTokenAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+			respondError(w, http.StatusUnauthorized, "missing or invalid authorization header")
+			return
+		}
+
+		tokenString := strings.TrimPrefix(auth, "Bearer ")
+
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(s.config.JWTSigningKey), nil
+		})
+		if err != nil || !token.Valid {
+			respondError(w, http.StatusUnauthorized, "invalid run token")
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			respondError(w, http.StatusUnauthorized, "invalid token claims")
+			return
+		}
+
+		subject, err := claims.GetSubject()
+		if err != nil || subject == "" {
+			respondError(w, http.StatusUnauthorized, "missing run ID in token")
+			return
+		}
+
+		urlRunID := chi.URLParam(r, "runID")
+		if subject != urlRunID {
+			respondError(w, http.StatusForbidden, "token does not match run ID")
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), ctxRunIDKey, subject)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Type    string          `json:"type"`
+		Level   string          `json:"level,omitempty"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Message == "" {
+		respondError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+
+	eventType := domain.EventType(req.Type)
+	if eventType == "" {
+		eventType = domain.EventLog
+	}
+
+	if req.Level == "" {
+		req.Level = "info"
+	}
+
+	event := &domain.RunEvent{
+		RunID:   runID,
+		Type:    eventType,
+		Level:   req.Level,
+		Message: req.Message,
+		Data:    req.Data,
+	}
+
+	if err := s.store.InsertEvent(r.Context(), event); err != nil {
+		slog.Error("failed to insert event", "run_id", runID, "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to insert event")
+		return
+	}
+
+	if s.pubsub != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"type":       "event",
+			"event_type": string(eventType),
+			"run_id":     runID,
+			"level":      req.Level,
+			"message":    req.Message,
+			"data":       req.Data,
+			"timestamp":  time.Now().UTC(),
+		})
+		channel := fmt.Sprintf("run:%s", runID)
+		_ = s.pubsub.Publish(r.Context(), channel, payload)
+	}
+
+	respondJSON(w, http.StatusCreated, event)
+}
+
+func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+
+	if err := s.store.UpdateHeartbeat(r.Context(), runID); err != nil {
+		slog.Error("failed to update heartbeat", "run_id", runID, "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to update heartbeat")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Result json.RawMessage `json:"result,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	now := time.Now()
+	fields := map[string]any{
+		"finished_at": now,
+	}
+	if len(req.Result) > 0 {
+		fields["result"] = req.Result
+	}
+
+	err := s.store.UpdateRunStatus(r.Context(), runID, domain.StatusExecuting, domain.StatusCompleted, fields)
+	if err != nil {
+		slog.Error("failed to complete run", "run_id", runID, "error", err)
+		respondError(w, http.StatusConflict, "failed to complete run: "+err.Error())
+		return
+	}
+
+	if s.pubsub != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"type":      "status_change",
+			"run_id":    runID,
+			"from":      "executing",
+			"to":        "completed",
+			"timestamp": now.UTC(),
+		})
+		channel := fmt.Sprintf("run:%s", runID)
+		_ = s.pubsub.Publish(r.Context(), channel, payload)
+	}
+
+	run, _ := s.store.GetRun(r.Context(), runID)
+	respondJSON(w, http.StatusOK, run)
+}
+
+func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Error string `json:"error"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Error == "" {
+		respondError(w, http.StatusBadRequest, "error message is required")
+		return
+	}
+
+	now := time.Now()
+	err := s.store.UpdateRunStatus(r.Context(), runID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
+		"finished_at": now,
+		"error":       req.Error,
+	})
+	if err != nil {
+		slog.Error("failed to fail run", "run_id", runID, "error", err)
+		respondError(w, http.StatusConflict, "failed to update run: "+err.Error())
+		return
+	}
+
+	if s.pubsub != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"type":      "status_change",
+			"run_id":    runID,
+			"from":      "executing",
+			"to":        "failed",
+			"error":     req.Error,
+			"timestamp": now.UTC(),
+		})
+		channel := fmt.Sprintf("run:%s", runID)
+		_ = s.pubsub.Publish(r.Context(), channel, payload)
+	}
+
+	run, _ := s.store.GetRun(r.Context(), runID)
+	respondJSON(w, http.StatusOK, run)
+}
