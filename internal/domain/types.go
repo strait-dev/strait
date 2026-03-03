@@ -22,6 +22,12 @@ const (
 	StatusExpired      RunStatus = "expired"
 )
 
+const (
+	TriggerManual = "manual"
+	TriggerCron   = "cron"
+	TriggerSpawn  = "spawn"
+)
+
 type EventType string
 
 const (

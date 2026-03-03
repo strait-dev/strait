@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"time"
@@ -11,7 +12,7 @@ import (
 func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Internal-Secret")
-		if secret == "" || secret != s.config.InternalSecret {
+		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
 			respondError(w, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}

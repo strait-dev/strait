@@ -45,5 +45,15 @@ func Load() (*Config, error) {
 	cfg.StaleThreshold = viper.GetDuration("STALE_THRESHOLD")
 	cfg.PollerInterval = viper.GetDuration("POLLER_INTERVAL")
 
+	if cfg.DatabaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required")
+	}
+	if cfg.InternalSecret == "" {
+		return nil, fmt.Errorf("INTERNAL_SECRET is required")
+	}
+	if len(cfg.JWTSigningKey) < 32 {
+		return nil, fmt.Errorf("JWT_SIGNING_KEY must be at least 32 characters")
+	}
+
 	return &cfg, nil
 }

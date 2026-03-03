@@ -1,20 +1,26 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	run, err := s.store.GetRun(r.Context(), runID)
-	if err != nil || run == nil {
-		respondError(w, http.StatusNotFound, "run not found")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
 		return
 	}
 

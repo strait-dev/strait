@@ -14,6 +14,16 @@ import (
 	"orchestrator/internal/domain"
 )
 
+// webhookClient is a shared HTTP client for webhook delivery.
+var webhookClient = &http.Client{
+	Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        20,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     60 * time.Second,
+	},
+}
+
 // WebhookPayload is sent to the job's webhook URL on terminal states.
 type WebhookPayload struct {
 	RunID     string          `json:"run_id"`
@@ -67,17 +77,24 @@ func SendWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {
 		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := webhookClient.Do(req)
 	if err != nil {
 		slog.Error("webhook delivery failed", "run_id", run.ID, "url", job.WebhookURL, "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
-	slog.Info("webhook delivered",
-		"run_id", run.ID,
-		"url", job.WebhookURL,
-		"status", resp.StatusCode,
-	)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		slog.Info("webhook delivered",
+			"run_id", run.ID,
+			"url", job.WebhookURL,
+			"status", resp.StatusCode,
+		)
+	} else {
+		slog.Warn("webhook delivery failed",
+			"run_id", run.ID,
+			"url", job.WebhookURL,
+			"status", resp.StatusCode,
+		)
+	}
 }

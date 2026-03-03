@@ -23,7 +23,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 	}
 
 	if run.TriggeredBy == "" {
-		run.TriggeredBy = "manual"
+		run.TriggeredBy = domain.TriggerManual
 	}
 
 	if run.Status == "" {
@@ -228,7 +228,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	}
 
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("run status update conflict for id %s from %s", id, from)
+		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 	}
 
 	return nil
@@ -243,7 +243,7 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	}
 
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("run not found: %s", id)
+		return fmt.Errorf("%w: %s", ErrRunNotFound, id)
 	}
 
 	return nil
@@ -370,6 +370,37 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list child runs rows: %w", err)
+	}
+
+	return runs, nil
+}
+
+func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, created_at
+		FROM job_runs
+		WHERE status = 'dequeued' AND started_at < NOW() - $1::interval
+		ORDER BY started_at ASC`
+
+	rows, err := q.db.Query(ctx, query, threshold.String())
+	if err != nil {
+		return nil, fmt.Errorf("list stale dequeued runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0)
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list stale dequeued runs scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list stale dequeued runs rows: %w", err)
 	}
 
 	return runs, nil

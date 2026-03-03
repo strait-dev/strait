@@ -34,6 +34,7 @@ func (r *Reaper) Run(ctx context.Context) {
 			slog.Info("reaper stopping")
 			return
 		case <-ticker.C:
+			r.reapStaleDequeued(ctx)
 			r.reapStale(ctx)
 			r.reapExpired(ctx)
 		}
@@ -79,5 +80,25 @@ func (r *Reaper) reapExpired(ctx context.Context) {
 		}
 
 		slog.Warn("run marked expired", "run_id", run.ID, "job_id", run.JobID, "from_status", run.Status)
+	}
+}
+
+func (r *Reaper) reapStaleDequeued(ctx context.Context) {
+	runs, err := r.store.ListStaleDequeued(ctx, r.staleThreshold)
+	if err != nil {
+		slog.Error("failed to list stale dequeued runs", "error", err)
+		return
+	}
+
+	for _, run := range runs {
+		err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, map[string]any{
+			"started_at": nil,
+		})
+		if err != nil {
+			slog.Error("failed to re-queue stale dequeued run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+			continue
+		}
+
+		slog.Warn("stale dequeued run re-queued", "run_id", run.ID, "job_id", run.JobID)
 	}
 }

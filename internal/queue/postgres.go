@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,7 +32,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	}
 
 	if run.TriggeredBy == "" {
-		run.TriggeredBy = "manual"
+		run.TriggeredBy = domain.TriggerManual
 	}
 
 	run.Status = domain.StatusQueued
@@ -87,6 +88,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 			FROM job_runs
 			WHERE status = 'queued'
 			  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
+			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
@@ -97,7 +99,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 
 	run, err := scanRun(q.db.QueryRow(ctx, query))
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("dequeue run: %w", err)
@@ -113,6 +115,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			FROM job_runs
 			WHERE status = 'queued'
 			  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
+			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
@@ -136,7 +139,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, n)
 	for rows.Next() {
 		run, err := scanRun(rows)
 		if err != nil {

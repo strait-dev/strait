@@ -2,12 +2,18 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"orchestrator/internal/domain"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+)
+
+var (
+	ErrRunNotFound = errors.New("run not found")
+	ErrRunConflict = errors.New("run status update conflict")
 )
 
 type DBTX interface {
@@ -37,6 +43,7 @@ type RunStore interface {
 	ListDueRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 }
 
 type EventStore interface {

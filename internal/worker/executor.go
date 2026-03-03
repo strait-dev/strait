@@ -43,7 +43,14 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		pool:         cfg.Pool,
 		queue:        cfg.Queue,
 		store:        cfg.Store,
-		httpClient:   &http.Client{},
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+			},
+		},
 		pollInterval: cfg.PollInterval,
 		heartbeat:    NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
 		publisher:    cfg.Publisher,
@@ -114,8 +121,11 @@ func (e *Executor) poll(ctx context.Context) {
 		"attempt", run.Attempt,
 	)
 
+	// Use detached context for in-flight work — shutdown stops polling but
+	// lets running jobs complete naturally (bounded by their timeout).
+	execCtx := context.WithoutCancel(ctx)
 	e.pool.Submit(ctx, func() {
-		e.execute(ctx, run)
+		e.execute(execCtx, run)
 	})
 }
 
@@ -235,7 +245,11 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	)
 	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "completed"})
 	run.Status = domain.StatusCompleted
-	go SendWebhook(ctx, job, run)
+	e.pool.Submit(context.Background(), func() {
+		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer wCancel()
+		SendWebhook(webhookCtx, job, run)
+	})
 }
 
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, errMsg string) {
@@ -293,7 +307,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	}
 	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "failed", "error": errMsg})
 	run.Status = domain.StatusFailed
-	go SendWebhook(ctx, job, run)
+	e.pool.Submit(context.Background(), func() {
+		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer wCancel()
+		SendWebhook(webhookCtx, job, run)
+	})
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
@@ -343,7 +361,11 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	}
 	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "timed_out"})
 	run.Status = domain.StatusTimedOut
-	go SendWebhook(ctx, job, run)
+	e.pool.Submit(context.Background(), func() {
+		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer wCancel()
+		SendWebhook(webhookCtx, job, run)
+	})
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {

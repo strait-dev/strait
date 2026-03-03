@@ -48,6 +48,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateURL(req.EndpointURL); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
+		return
+	}
+
 	if req.MaxAttempts == 0 {
 		req.MaxAttempts = 3
 	}

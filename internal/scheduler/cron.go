@@ -50,7 +50,7 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	run := domain.JobRun{
 		JobID:       job.ID,
 		ProjectID:   job.ProjectID,
-		TriggeredBy: "cron",
+		TriggeredBy: domain.TriggerCron,
 	}
 
 	if err := cs.queue.Enqueue(ctx, &run); err != nil {
@@ -65,6 +65,6 @@ func (cs *CronScheduler) Start() {
 	cs.cron.Start()
 }
 
-func (cs *CronScheduler) Stop() {
-	cs.cron.Stop()
+func (cs *CronScheduler) Stop() context.Context {
+	return cs.cron.Stop()
 }

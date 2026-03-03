@@ -71,7 +71,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		Status:      status,
 		Attempt:     1,
 		Payload:     req.Payload,
-		TriggeredBy: "manual",
+		TriggeredBy: domain.TriggerManual,
 		ScheduledAt: req.ScheduledAt,
 		ExpiresAt:   &expiresAt,
 	}

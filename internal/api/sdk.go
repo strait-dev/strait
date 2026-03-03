@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,9 +11,11 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type contextKey string
@@ -145,6 +148,17 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch current run to validate FSM transition dynamically
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
 	now := time.Now()
 	fields := map[string]any{
 		"finished_at": now,
@@ -153,10 +167,14 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		fields["result"] = req.Result
 	}
 
-	err := s.store.UpdateRunStatus(r.Context(), runID, domain.StatusExecuting, domain.StatusCompleted, fields)
+	err = s.store.UpdateRunStatus(r.Context(), runID, run.Status, domain.StatusCompleted, fields)
 	if err != nil {
 		slog.Error("failed to complete run", "run_id", runID, "error", err)
-		respondError(w, http.StatusConflict, "failed to complete run: "+err.Error())
+		if errors.Is(err, store.ErrRunConflict) {
+			respondError(w, http.StatusConflict, "run status conflict")
+		} else {
+			respondError(w, http.StatusInternalServerError, "failed to update run")
+		}
 		return
 	}
 
@@ -164,7 +182,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		payload, _ := json.Marshal(map[string]any{
 			"type":      "status_change",
 			"run_id":    runID,
-			"from":      "executing",
+			"from":      string(run.Status),
 			"to":        "completed",
 			"timestamp": now.UTC(),
 		})
@@ -172,8 +190,8 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		_ = s.pubsub.Publish(r.Context(), channel, payload)
 	}
 
-	run, _ := s.store.GetRun(r.Context(), runID)
-	respondJSON(w, http.StatusOK, run)
+	updatedRun, _ := s.store.GetRun(r.Context(), runID)
+	respondJSON(w, http.StatusOK, updatedRun)
 }
 
 func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
@@ -192,14 +210,29 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch current run to validate FSM transition dynamically
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
 	now := time.Now()
-	err := s.store.UpdateRunStatus(r.Context(), runID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
+	err = s.store.UpdateRunStatus(r.Context(), runID, run.Status, domain.StatusFailed, map[string]any{
 		"finished_at": now,
 		"error":       req.Error,
 	})
 	if err != nil {
 		slog.Error("failed to fail run", "run_id", runID, "error", err)
-		respondError(w, http.StatusConflict, "failed to update run: "+err.Error())
+		if errors.Is(err, store.ErrRunConflict) {
+			respondError(w, http.StatusConflict, "run status conflict")
+		} else {
+			respondError(w, http.StatusInternalServerError, "failed to update run")
+		}
 		return
 	}
 
@@ -207,7 +240,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		payload, _ := json.Marshal(map[string]any{
 			"type":      "status_change",
 			"run_id":    runID,
-			"from":      "executing",
+			"from":      string(run.Status),
 			"to":        "failed",
 			"error":     req.Error,
 			"timestamp": now.UTC(),
@@ -216,8 +249,8 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		_ = s.pubsub.Publish(r.Context(), channel, payload)
 	}
 
-	run, _ := s.store.GetRun(r.Context(), runID)
-	respondJSON(w, http.StatusOK, run)
+	updatedRun, _ := s.store.GetRun(r.Context(), runID)
+	respondJSON(w, http.StatusOK, updatedRun)
 }
 
 func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
@@ -248,7 +281,7 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		JobID:       job.ID,
 		ProjectID:   job.ProjectID,
 		Payload:     req.Payload,
-		TriggeredBy: "spawn",
+		TriggeredBy: domain.TriggerSpawn,
 		ParentRunID: parentRunID,
 	}
 

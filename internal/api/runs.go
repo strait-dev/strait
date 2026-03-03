@@ -90,7 +90,10 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.UpdateRunStatus(r.Context(), run.ID, run.Status, domain.StatusCanceled, nil); err != nil {
+	if err := s.store.UpdateRunStatus(r.Context(), run.ID, run.Status, domain.StatusCanceled, map[string]any{
+		"finished_at": time.Now(),
+		"error":       "canceled by user",
+	}); err != nil {
 		respondError(w, http.StatusConflict, "failed to cancel run")
 		return
 	}

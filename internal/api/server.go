@@ -2,7 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/pubsub"
@@ -107,7 +111,9 @@ func respondJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if data != nil {
-		_ = json.NewEncoder(w).Encode(data)
+		if err := json.NewEncoder(w).Encode(data); err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -117,7 +123,32 @@ func respondError(w http.ResponseWriter, status int, message string) {
 
 func decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20)) // 1MB limit
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
+}
+
+// validateURL checks that a URL is valid and doesn't target private networks.
+func validateURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL must use http or https scheme")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("URL must have a host")
+	}
+
+	// Block private/internal IPs (SSRF protection)
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL must not point to private or loopback addresses")
+		}
+	}
+
+	return nil
 }

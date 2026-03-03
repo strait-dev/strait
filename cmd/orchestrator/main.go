@@ -93,7 +93,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("init telemetry: %w", err)
 	}
-	defer shutdownTracer(ctx)
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		shutdownTracer(shutdownCtx)
+	}()
 
 	// Connect to Postgres
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)

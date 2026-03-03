@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/queue"
@@ -14,6 +15,7 @@ type Scheduler struct {
 	cron   *CronScheduler
 	poller *DelayedPoller
 	reaper *Reaper
+	wg     sync.WaitGroup
 }
 
 func New(cfg *config.Config, s store.Store, q queue.Queue) *Scheduler {
@@ -30,14 +32,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.cron.Start()
-	go s.poller.Run(ctx)
-	go s.reaper.Run(ctx)
+	s.wg.Add(2)
+	go func() { defer s.wg.Done(); s.poller.Run(ctx) }()
+	go func() { defer s.wg.Done(); s.reaper.Run(ctx) }()
 
 	slog.Info("scheduler started")
 	return nil
 }
 
 func (s *Scheduler) Stop() {
-	s.cron.Stop()
+	stopCtx := s.cron.Stop()
+	<-stopCtx.Done()
+	s.wg.Wait()
 	slog.Info("scheduler stopped")
 }
