@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/dbscan"
 
 	"github.com/google/uuid"
 )
@@ -53,9 +54,9 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		run.ProjectID,
 		run.Status,
 		run.Attempt,
-		nilIfEmptyRawMessage(run.Payload),
-		nilIfEmptyRawMessage(run.Result),
-		nilIfEmptyString(run.Error),
+		dbscan.NilIfEmptyRawMessage(run.Payload),
+		dbscan.NilIfEmptyRawMessage(run.Result),
+		dbscan.NilIfEmptyString(run.Error),
 		run.TriggeredBy,
 		run.ScheduledAt,
 		run.StartedAt,
@@ -63,7 +64,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		run.HeartbeatAt,
 		run.NextRetryAt,
 		run.ExpiresAt,
-		nilIfEmptyString(run.ParentRunID),
+		dbscan.NilIfEmptyString(run.ParentRunID),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create run: %w", err)
@@ -80,7 +81,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 		FROM job_runs
 		WHERE id = $1`
 
-	run, err := scanRun(q.db.QueryRow(ctx, query, id))
+	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
 	if err != nil {
 		return nil, fmt.Errorf("get run: %w", err)
 	}
@@ -106,7 +107,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 
 	runs := make([]domain.JobRun, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list runs by job scan: %w", err)
 		}
@@ -154,7 +155,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 
 	runs := make([]domain.JobRun, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list runs by project scan: %w", err)
 		}
@@ -204,11 +205,11 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 
 		value := fields[key]
 		if raw, ok := value.(json.RawMessage); ok {
-			value = nilIfEmptyRawMessage(raw)
+			value = dbscan.NilIfEmptyRawMessage(raw)
 		}
 		if key == "error" {
 			if text, ok := value.(string); ok {
-				value = nilIfEmptyString(text)
+				value = dbscan.NilIfEmptyString(text)
 			}
 		}
 
@@ -266,7 +267,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 
 	runs := make([]domain.JobRun, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list stale runs scan: %w", err)
 		}
@@ -297,7 +298,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 
 	runs := make([]domain.JobRun, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list due runs scan: %w", err)
 		}
@@ -330,7 +331,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 
 	runs := make([]domain.JobRun, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list expired runs scan: %w", err)
 		}
@@ -361,7 +362,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 
 	runs := make([]domain.JobRun, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list child runs scan: %w", err)
 		}
@@ -392,7 +393,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 
 	runs := make([]domain.JobRun, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list stale dequeued runs scan: %w", err)
 		}
@@ -404,54 +405,4 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	}
 
 	return runs, nil
-}
-
-type runScanTarget interface {
-	Scan(dest ...any) error
-}
-
-func scanRun(scanner runScanTarget) (*domain.JobRun, error) {
-	var run domain.JobRun
-	var payload []byte
-	var result []byte
-	var runError *string
-	var parentRunID *string
-
-	err := scanner.Scan(
-		&run.ID,
-		&run.JobID,
-		&run.ProjectID,
-		&run.Status,
-		&run.Attempt,
-		&payload,
-		&result,
-		&runError,
-		&run.TriggeredBy,
-		&run.ScheduledAt,
-		&run.StartedAt,
-		&run.FinishedAt,
-		&run.HeartbeatAt,
-		&run.NextRetryAt,
-		&run.ExpiresAt,
-		&parentRunID,
-		&run.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if payload != nil {
-		run.Payload = json.RawMessage(payload)
-	}
-	if result != nil {
-		run.Result = json.RawMessage(result)
-	}
-	if runError != nil {
-		run.Error = *runError
-	}
-	if parentRunID != nil {
-		run.ParentRunID = *parentRunID
-	}
-
-	return &run, nil
 }

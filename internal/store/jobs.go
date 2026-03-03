@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/dbscan"
 
 	"github.com/google/uuid"
 )
@@ -31,15 +32,15 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.ProjectID,
 		job.Name,
 		job.Slug,
-		nilIfEmptyString(job.Description),
-		nilIfEmptyString(job.Cron),
-		nilIfEmptyRawMessage(job.PayloadSchema),
+		dbscan.NilIfEmptyString(job.Description),
+		dbscan.NilIfEmptyString(job.Cron),
+		dbscan.NilIfEmptyRawMessage(job.PayloadSchema),
 		job.EndpointURL,
 		job.MaxAttempts,
 		job.TimeoutSecs,
 		job.Enabled,
-		nilIfEmptyString(job.WebhookURL),
-		nilIfEmptyString(job.WebhookSecret),
+		dbscan.NilIfEmptyString(job.WebhookURL),
+		dbscan.NilIfEmptyString(job.WebhookSecret),
 	).Scan(&job.CreatedAt, &job.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
@@ -131,15 +132,15 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		query,
 		job.Name,
 		job.Slug,
-		nilIfEmptyString(job.Description),
-		nilIfEmptyString(job.Cron),
-		nilIfEmptyRawMessage(job.PayloadSchema),
+		dbscan.NilIfEmptyString(job.Description),
+		dbscan.NilIfEmptyString(job.Cron),
+		dbscan.NilIfEmptyRawMessage(job.PayloadSchema),
 		job.EndpointURL,
 		job.MaxAttempts,
 		job.TimeoutSecs,
 		job.Enabled,
-		nilIfEmptyString(job.WebhookURL),
-		nilIfEmptyString(job.WebhookSecret),
+		dbscan.NilIfEmptyString(job.WebhookURL),
+		dbscan.NilIfEmptyString(job.WebhookSecret),
 		job.ID,
 	).Scan(&job.UpdatedAt)
 	if err != nil {
@@ -239,18 +240,4 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	}
 
 	return &job, nil
-}
-
-func nilIfEmptyString(value string) any {
-	if value == "" {
-		return nil
-	}
-	return value
-}
-
-func nilIfEmptyRawMessage(value json.RawMessage) any {
-	if len(value) == 0 {
-		return nil
-	}
-	return value
 }

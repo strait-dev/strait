@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/dbscan"
 
 	"github.com/google/uuid"
 )
@@ -26,9 +27,9 @@ func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error
 		event.ID,
 		event.RunID,
 		event.Type,
-		nilIfEmptyString(event.Level),
+		dbscan.NilIfEmptyString(event.Level),
 		event.Message,
-		nilIfEmptyRawMessage(event.Data),
+		dbscan.NilIfEmptyRawMessage(event.Data),
 	).Scan(&event.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)

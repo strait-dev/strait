@@ -2,11 +2,11 @@ package queue
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
 
@@ -60,9 +60,9 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		run.ProjectID,
 		run.Status,
 		run.Attempt,
-		nilIfEmptyRawMessage(run.Payload),
-		nilIfEmptyRawMessage(run.Result),
-		nilIfEmptyString(run.Error),
+		dbscan.NilIfEmptyRawMessage(run.Payload),
+		dbscan.NilIfEmptyRawMessage(run.Result),
+		dbscan.NilIfEmptyString(run.Error),
 		run.TriggeredBy,
 		run.ScheduledAt,
 		run.StartedAt,
@@ -70,7 +70,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		run.HeartbeatAt,
 		run.NextRetryAt,
 		run.ExpiresAt,
-		nilIfEmptyString(run.ParentRunID),
+		dbscan.NilIfEmptyString(run.ParentRunID),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("enqueue run: %w", err)
@@ -97,7 +97,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		          next_retry_at, expires_at, parent_run_id, created_at`, domain.StatusDequeued, domain.StatusQueued)
 
-	run, err := scanRun(q.db.QueryRow(ctx, query))
+	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -141,7 +141,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 
 	runs := make([]domain.JobRun, 0, n)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := dbscan.ScanRun(rows)
 		if err != nil {
 			return nil, fmt.Errorf("dequeue runs scan: %w", err)
 		}
@@ -153,68 +153,4 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	}
 
 	return runs, nil
-}
-
-type runScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanRun(scanner runScanner) (*domain.JobRun, error) {
-	var run domain.JobRun
-	var payload []byte
-	var result []byte
-	var runError *string
-	var parentRunID *string
-
-	err := scanner.Scan(
-		&run.ID,
-		&run.JobID,
-		&run.ProjectID,
-		&run.Status,
-		&run.Attempt,
-		&payload,
-		&result,
-		&runError,
-		&run.TriggeredBy,
-		&run.ScheduledAt,
-		&run.StartedAt,
-		&run.FinishedAt,
-		&run.HeartbeatAt,
-		&run.NextRetryAt,
-		&run.ExpiresAt,
-		&parentRunID,
-		&run.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if payload != nil {
-		run.Payload = json.RawMessage(payload)
-	}
-	if result != nil {
-		run.Result = json.RawMessage(result)
-	}
-	if runError != nil {
-		run.Error = *runError
-	}
-	if parentRunID != nil {
-		run.ParentRunID = *parentRunID
-	}
-
-	return &run, nil
-}
-
-func nilIfEmptyString(value string) any {
-	if value == "" {
-		return nil
-	}
-	return value
-}
-
-func nilIfEmptyRawMessage(value json.RawMessage) any {
-	if len(value) == 0 {
-		return nil
-	}
-	return value
 }
