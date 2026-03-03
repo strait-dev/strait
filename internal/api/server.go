@@ -40,6 +40,11 @@ type APIStore interface {
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 }
 
+// Pinger checks service health.
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
 type Server struct {
 	router         chi.Router
 	store          APIStore
@@ -47,15 +52,17 @@ type Server struct {
 	pubsub         pubsub.Publisher
 	config         *config.Config
 	metricsHandler http.Handler
+	pinger         Pinger
 }
 
-func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler) *Server {
+func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, pinger Pinger) *Server {
 	srv := &Server{
 		store:          s,
 		queue:          q,
 		pubsub:         pub,
 		config:         cfg,
 		metricsHandler: metricsHandler,
+		pinger:         pinger,
 	}
 	srv.router = srv.routes()
 	return srv
@@ -144,6 +151,14 @@ func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusServiceUnavailable, "database not ready")
 		return
 	}
+
+	if s.pinger != nil {
+		if err := s.pinger.Ping(r.Context()); err != nil {
+			respondError(w, http.StatusServiceUnavailable, "redis not ready")
+			return
+		}
+	}
+
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 

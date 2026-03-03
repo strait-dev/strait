@@ -28,7 +28,6 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -151,16 +150,19 @@ func run() error {
 
 	// Connect to Redis for pubsub
 	var pub pubsub.Publisher
-	if cfg.RedisURL != "" {
-		opts, err := redis.ParseURL(cfg.RedisURL)
-		if err != nil {
-			return fmt.Errorf("parse redis url: %w", err)
-		}
-		rdb := redis.NewClient(opts)
+	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs)
+	if err != nil {
+		return fmt.Errorf("create redis client: %w", err)
+	}
+	if rdb != nil {
 		if err := rdb.Ping(ctx).Err(); err != nil {
 			return fmt.Errorf("ping redis: %w", err)
 		}
-		slog.Info("connected to redis")
+		if cfg.RedisSentinelMaster != "" {
+			slog.Info("connected to redis via sentinel", "master", cfg.RedisSentinelMaster)
+		} else {
+			slog.Info("connected to redis")
+		}
 		pub = pubsub.NewRedisPublisher(rdb)
 		defer rdb.Close()
 	}
@@ -170,7 +172,11 @@ func run() error {
 
 	// Start API server
 	if cfg.Mode == "api" || cfg.Mode == "all" {
-		srv := api.NewServer(cfg, queries, q, pub, metricsHandler)
+		var pinger api.Pinger
+		if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
+			pinger = redisPub
+		}
+		srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger)
 		httpServer := &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Port),
 			Handler:           srv,

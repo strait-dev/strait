@@ -2,10 +2,41 @@ package pubsub
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// NewRedisClient creates a Redis client, using Sentinel failover when configured.
+func NewRedisClient(redisURL, sentinelMaster string, sentinelAddrs []string) (*redis.Client, error) {
+	if sentinelMaster != "" && len(sentinelAddrs) > 0 {
+		opts := &redis.FailoverOptions{
+			MasterName:    sentinelMaster,
+			SentinelAddrs: sentinelAddrs,
+		}
+		if redisURL != "" {
+			parsedOpts, err := redis.ParseURL(redisURL)
+			if err == nil {
+				opts.Password = parsedOpts.Password
+				opts.DB = parsedOpts.DB
+			}
+		}
+
+		return redis.NewFailoverClient(opts), nil
+	}
+
+	if redisURL == "" {
+		return nil, nil
+	}
+
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse redis url: %w", err)
+	}
+
+	return redis.NewClient(opts), nil
+}
 
 type RedisPublisher struct {
 	client *redis.Client
@@ -51,6 +82,11 @@ func (r *RedisPublisher) Subscribe(ctx context.Context, channel string) (*Subscr
 	}()
 
 	return &Subscription{Ch: ch, cancel: cancel}, nil
+}
+
+// Ping checks Redis connectivity.
+func (r *RedisPublisher) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
 }
 
 func (r *RedisPublisher) Close() error {
