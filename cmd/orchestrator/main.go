@@ -14,6 +14,7 @@ import (
 
 	"orchestrator/internal/api"
 	"orchestrator/internal/config"
+	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
 	"orchestrator/internal/scheduler"
 	"orchestrator/internal/store"
@@ -26,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/sync/errgroup"
+	"github.com/redis/go-redis/v9"
 )
 
 var version = "dev"
@@ -106,12 +108,28 @@ func run() error {
 	queries := store.New(pool)
 	q := queue.NewPostgresQueue(pool)
 
+	// Connect to Redis for pubsub
+	var pub pubsub.Publisher
+	if cfg.RedisURL != "" {
+		opts, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			return fmt.Errorf("parse redis url: %w", err)
+		}
+		rdb := redis.NewClient(opts)
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			return fmt.Errorf("ping redis: %w", err)
+		}
+		slog.Info("connected to redis")
+		pub = pubsub.NewRedisPublisher(rdb)
+		defer rdb.Close()
+	}
+
 	// Error group for concurrent goroutines
 	g, gCtx := errgroup.WithContext(ctx)
 
 	// Start API server
 	if cfg.Mode == "api" || cfg.Mode == "all" {
-		srv := api.NewServer(cfg, queries, q)
+		srv := api.NewServer(cfg, queries, q, pub)
 		httpServer := &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Port),
 			Handler:           srv,
@@ -144,6 +162,7 @@ func run() error {
 			Store:             queries,
 			PollInterval:      cfg.PollerInterval,
 			HeartbeatInterval: cfg.HeartbeatInterval,
+			Publisher:         pub,
 		})
 
 		g.Go(func() error {
