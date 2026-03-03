@@ -129,6 +129,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			TriggeredBy: domain.TriggerManual,
 			ScheduledAt: item.ScheduledAt,
 			Priority:    item.Priority,
+			JobVersion:  job.Version,
 			ExpiresAt:   &expiresAt,
 		}
 

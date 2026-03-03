@@ -28,6 +28,7 @@ type mockAPIStore struct {
 	createAPIKeyFn            func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn    func(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	revokeAPIKeyFn            func(ctx context.Context, id string) error
+	listJobVersionsByJobFn    func(ctx context.Context, jobID string) ([]domain.JobVersion, error)
 	getAPIKeyByHashFn         func(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	touchAPIKeyLastUsedFn     func(ctx context.Context, id string) error
 	updateHeartbeatFn         func(ctx context.Context, id string) error
@@ -144,6 +145,13 @@ func (m *mockAPIStore) RevokeAPIKey(ctx context.Context, id string) error {
 		return m.revokeAPIKeyFn(ctx, id)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) ListJobVersionsByJob(ctx context.Context, jobID string) ([]domain.JobVersion, error) {
+	if m.listJobVersionsByJobFn != nil {
+		return m.listJobVersionsByJobFn(ctx, jobID)
+	}
+	return nil, nil
 }
 
 func (m *mockAPIStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {

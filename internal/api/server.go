@@ -41,6 +41,7 @@ type APIStore interface {
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id string) error
+	ListJobVersionsByJob(ctx context.Context, jobID string) ([]domain.JobVersion, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
@@ -118,6 +119,7 @@ func (s *Server) routes() chi.Router {
 				r.Delete("/", s.handleDeleteJob)
 				r.With(httprate.LimitByIP(10, time.Minute)).Post("/trigger", s.handleTriggerJob)
 				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
+				r.Get("/versions", s.handleListJobVersions)
 			})
 		})
 

@@ -100,6 +100,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		ScheduledAt:    req.ScheduledAt,
 		Priority:       req.Priority,
 		IdempotencyKey: idempotencyKey,
+		JobVersion:     job.Version,
 		ExpiresAt:      &expiresAt,
 	}
 
