@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,5 +62,48 @@ func TestDelayedPoller_NoDueRuns(t *testing.T) {
 
 	if transitioned.Load() != 0 {
 		t.Fatalf("expected 0 transitions, got %d", transitioned.Load())
+	}
+}
+
+func TestDelayedPoller_ListDueRunsError(t *testing.T) {
+	var listCalls atomic.Int32
+	ms := &mockPollerStore{
+		listDueRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
+			listCalls.Add(1)
+			return nil, errors.New("list failed")
+		},
+	}
+
+	p := NewDelayedPoller(ms, 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	p.Run(ctx)
+
+	if listCalls.Load() < 2 {
+		t.Fatalf("expected poller to continue after errors, got %d list calls", listCalls.Load())
+	}
+}
+
+func TestDelayedPoller_UpdateRunStatusError(t *testing.T) {
+	var updateCalls atomic.Int32
+	ms := &mockPollerStore{
+		listDueRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
+			return []domain.JobRun{{ID: "run-1", JobID: "job-1", Status: domain.StatusDelayed}}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			updateCalls.Add(1)
+			return errors.New("update failed")
+		},
+	}
+
+	p := NewDelayedPoller(ms, 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	p.Run(ctx)
+
+	if updateCalls.Load() < 2 {
+		t.Fatalf("expected poller to continue after update errors, got %d update calls", updateCalls.Load())
 	}
 }
