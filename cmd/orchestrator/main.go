@@ -102,8 +102,17 @@ func run() error {
 		}
 	}()
 
-	// Connect to Postgres
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	// Connect to Postgres with pool tuning
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("parse postgres config: %w", err)
+	}
+	poolConfig.MaxConns = cfg.DBMaxConns
+	poolConfig.MinConns = cfg.DBMinConns
+	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
@@ -112,7 +121,12 @@ func run() error {
 	if err := pool.Ping(ctx); err != nil {
 		return fmt.Errorf("ping postgres: %w", err)
 	}
-	slog.Info("connected to postgres")
+	slog.Info("connected to postgres",
+		"max_conns", cfg.DBMaxConns,
+		"min_conns", cfg.DBMinConns,
+		"max_conn_lifetime", cfg.DBMaxConnLifetime,
+		"max_conn_idle_time", cfg.DBMaxConnIdleTime,
+	)
 
 	// Run migrations
 	if err := runMigrations(cfg.DatabaseURL); err != nil {

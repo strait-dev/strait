@@ -53,6 +53,18 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.PollerInterval != 5*time.Second {
 		t.Fatalf("PollerInterval = %v, want %v", cfg.PollerInterval, 5*time.Second)
 	}
+	if cfg.DBMaxConns != 25 {
+		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 25)
+	}
+	if cfg.DBMinConns != 5 {
+		t.Fatalf("DBMinConns = %d, want %d", cfg.DBMinConns, 5)
+	}
+	if cfg.DBMaxConnLifetime != 30*time.Minute {
+		t.Fatalf("DBMaxConnLifetime = %v, want %v", cfg.DBMaxConnLifetime, 30*time.Minute)
+	}
+	if cfg.DBMaxConnIdleTime != 5*time.Minute {
+		t.Fatalf("DBMaxConnIdleTime = %v, want %v", cfg.DBMaxConnIdleTime, 5*time.Minute)
+	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {

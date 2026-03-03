@@ -23,6 +23,12 @@ type Config struct {
 	StaleThreshold    time.Duration `mapstructure:"STALE_THRESHOLD"`
 	PollerInterval    time.Duration `mapstructure:"POLLER_INTERVAL"`
 	OTELEndpoint      string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+
+	// Database connection pool tuning
+	DBMaxConns        int32         `mapstructure:"DB_MAX_CONNS"`
+	DBMinConns        int32         `mapstructure:"DB_MIN_CONNS"`
+	DBMaxConnLifetime time.Duration `mapstructure:"DB_MAX_CONN_LIFETIME"`
+	DBMaxConnIdleTime time.Duration `mapstructure:"DB_MAX_CONN_IDLE_TIME"`
 }
 
 func Load() (*Config, error) {
@@ -34,6 +40,10 @@ func Load() (*Config, error) {
 	viper.SetDefault("REAPER_INTERVAL", 30*time.Second)
 	viper.SetDefault("STALE_THRESHOLD", 60*time.Second)
 	viper.SetDefault("POLLER_INTERVAL", 5*time.Second)
+	viper.SetDefault("DB_MAX_CONNS", 25)
+	viper.SetDefault("DB_MIN_CONNS", 5)
+	viper.SetDefault("DB_MAX_CONN_LIFETIME", 30*time.Minute)
+	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
 
 	viper.AutomaticEnv()
 
@@ -46,6 +56,10 @@ func Load() (*Config, error) {
 	cfg.ReaperInterval = viper.GetDuration("REAPER_INTERVAL")
 	cfg.StaleThreshold = viper.GetDuration("STALE_THRESHOLD")
 	cfg.PollerInterval = viper.GetDuration("POLLER_INTERVAL")
+	cfg.DBMaxConnLifetime = viper.GetDuration("DB_MAX_CONN_LIFETIME")
+	cfg.DBMaxConnIdleTime = viper.GetDuration("DB_MAX_CONN_IDLE_TIME")
+	cfg.DBMaxConns = viper.GetInt32("DB_MAX_CONNS")
+	cfg.DBMinConns = viper.GetInt32("DB_MIN_CONNS")
 
 	if cfg.DatabaseURL == "" {
 		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
