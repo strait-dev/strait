@@ -14,8 +14,11 @@ import (
 	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
+	"orchestrator/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -34,6 +37,7 @@ type Executor struct {
 	pollInterval time.Duration
 	heartbeat    *HeartbeatSender
 	publisher    pubsub.Publisher
+	metrics      *telemetry.Metrics
 	logger       *slog.Logger
 }
 
@@ -45,6 +49,7 @@ type ExecutorConfig struct {
 	Publisher         pubsub.Publisher
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration
+	Metrics           *telemetry.Metrics
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -63,6 +68,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		pollInterval: cfg.PollInterval,
 		heartbeat:    NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
 		publisher:    cfg.Publisher,
+		metrics:      cfg.Metrics,
 		logger:       slog.Default(),
 	}
 }
@@ -111,12 +117,16 @@ func (e *Executor) Run(ctx context.Context) {
 }
 
 func (e *Executor) poll(ctx context.Context) {
+	start := time.Now()
 	available := e.pool.Available()
 	if available <= 0 {
 		return
 	}
 
 	runs, err := e.queue.DequeueN(ctx, available)
+	if e.metrics != nil {
+		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())
+	}
 	if err != nil {
 		e.logger.Error("dequeue failed", "error", err)
 		return
@@ -201,6 +211,12 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.Dispatch")
 	defer span.End()
+	start := time.Now()
+	defer func() {
+		if e.metrics != nil {
+			e.metrics.DispatchDuration.Record(ctx, time.Since(start).Seconds())
+		}
+	}()
 
 	var body io.Reader
 	if len(run.Payload) > 0 {
@@ -219,6 +235,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 
 	resp, err := e.httpClient.Do(req) //nolint:gosec // URL from validated job config
 	if err != nil {
+		if e.metrics != nil {
+			e.metrics.DispatchErrors.Add(ctx, 1)
+		}
 		return nil, fmt.Errorf("http dispatch: %w", err)
 	}
 	defer resp.Body.Close()
@@ -261,6 +280,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
+	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusCompleted)
 
 	e.logger.Info(
 		"run completed",
@@ -307,6 +327,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
+			e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusQueued)
 			e.logger.Info(
 				"run re-enqueued for retry",
 				"run_id", run.ID,
@@ -333,6 +354,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
+	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusFailed)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "failed", "error": errMsg})
 	run.Status = domain.StatusFailed
 	e.pool.Submit(context.Background(), func() {
@@ -371,6 +393,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
+			e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusQueued)
 			e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
 		}
 		return
@@ -390,6 +413,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
+	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusTimedOut)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "timed_out"})
 	run.Status = domain.StatusTimedOut
 	e.pool.Submit(context.Background(), func() {
@@ -417,6 +441,18 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		)
 		return
 	}
+	e.recordRunTransition(ctx, run.Status, domain.StatusSystemFailed)
 	e.publishEvent(ctx, run, map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
 	// No webhook for system failures — job may not be available
+}
+
+func (e *Executor) recordRunTransition(ctx context.Context, fromStatus, toStatus domain.RunStatus) {
+	if e.metrics == nil {
+		return
+	}
+
+	e.metrics.RunTransitions.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("from", string(fromStatus)),
+		attribute.String("to", string(toStatus)),
+	))
 }

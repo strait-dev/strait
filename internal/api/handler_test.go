@@ -25,7 +25,7 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 	if pub != nil {
 		p = pub
 	}
-	return NewServer(cfg, s, q, p)
+	return NewServer(cfg, s, q, p, nil)
 }
 
 func authedRequest(method, path string, body string) *http.Request {

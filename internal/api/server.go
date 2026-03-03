@@ -40,19 +40,21 @@ type APIStore interface {
 }
 
 type Server struct {
-	router chi.Router
-	store  APIStore
-	queue  queue.Queue
-	pubsub pubsub.Publisher
-	config *config.Config
+	router         chi.Router
+	store          APIStore
+	queue          queue.Queue
+	pubsub         pubsub.Publisher
+	config         *config.Config
+	metricsHandler http.Handler
 }
 
-func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher) *Server {
+func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler) *Server {
 	srv := &Server{
-		store:  s,
-		queue:  q,
-		pubsub: pub,
-		config: cfg,
+		store:          s,
+		queue:          q,
+		pubsub:         pub,
+		config:         cfg,
+		metricsHandler: metricsHandler,
 	}
 	srv.router = srv.routes()
 	return srv
@@ -76,6 +78,9 @@ func (s *Server) routes() chi.Router {
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
+	if s.metricsHandler != nil {
+		r.Handle("/metrics", s.metricsHandler)
+	}
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.internalSecretAuth)

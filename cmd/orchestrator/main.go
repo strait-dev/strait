@@ -102,6 +102,18 @@ func run() error {
 		}
 	}()
 
+	metrics, metricsHandler, shutdownMetrics, err := telemetry.InitMetrics("orchestrator")
+	if err != nil {
+		return fmt.Errorf("init metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := shutdownMetrics(shutdownCtx); err != nil {
+			slog.Error("failed to shutdown metrics", "error", err)
+		}
+	}()
+
 	// Connect to Postgres with pool tuning
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
@@ -158,7 +170,7 @@ func run() error {
 
 	// Start API server
 	if cfg.Mode == "api" || cfg.Mode == "all" {
-		srv := api.NewServer(cfg, queries, q, pub)
+		srv := api.NewServer(cfg, queries, q, pub, metricsHandler)
 		httpServer := &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Port),
 			Handler:           srv,
@@ -192,6 +204,7 @@ func run() error {
 			PollInterval:      cfg.PollerInterval,
 			HeartbeatInterval: cfg.HeartbeatInterval,
 			Publisher:         pub,
+			Metrics:           metrics,
 		})
 
 		g.Go(func() error {
