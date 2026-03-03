@@ -70,12 +70,19 @@ type APIKeyStore interface {
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 }
 
+type JobVersionStore interface {
+	CreateJobVersion(ctx context.Context, v *domain.JobVersion) error
+	ListJobVersionsByJob(ctx context.Context, jobID string) ([]domain.JobVersion, error)
+	GetJobVersion(ctx context.Context, jobID string, version int) (*domain.JobVersion, error)
+}
+
 type Store interface {
 	JobStore
 	RunStore
 	EventStore
 	WebhookDeliveryStore
 	APIKeyStore
+	JobVersionStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS job_versions;
+ALTER TABLE job_runs DROP COLUMN IF EXISTS job_version;
+ALTER TABLE jobs DROP COLUMN IF EXISTS version;

@@ -21,15 +21,16 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	if job.ID == "" {
 		job.ID = uuid.Must(uuid.NewV7()).String()
 	}
+	job.Version = 1
 
 	query := `
 		INSERT INTO jobs (
 			id, project_id, name, slug, description, cron, payload_schema,
 			endpoint_url, max_attempts, timeout_secs, enabled,
-			webhook_url, webhook_secret, run_ttl_secs
+			webhook_url, webhook_secret, run_ttl_secs, version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		RETURNING created_at, updated_at`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 1)
+		RETURNING created_at, updated_at, version`
 
 	var runTTL *int
 	if job.RunTTLSecs > 0 {
@@ -53,7 +54,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.WebhookURL),
 		dbscan.NilIfEmptyString(job.WebhookSecret),
 		runTTL,
-	).Scan(&job.CreatedAt, &job.UpdatedAt)
+	).Scan(&job.CreatedAt, &job.UpdatedAt, &job.Version)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
 	}
@@ -67,7 +68,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE id = $1`
 
@@ -88,7 +89,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -109,7 +110,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at DESC`
@@ -141,6 +142,13 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	defer span.End()
 
 	query := `
+		WITH snapshot AS (
+			INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
+				endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
+			SELECT $14, id, version, name, slug, description, cron, payload_schema,
+				endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs
+			FROM jobs WHERE id = $13
+		)
 		UPDATE jobs
 		SET name = $1,
 		    slug = $2,
@@ -154,9 +162,10 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    webhook_url = $10,
 		    webhook_secret = $11,
 		    run_ttl_secs = $12,
+		    version = version + 1,
 		    updated_at = NOW()
 		WHERE id = $13
-		RETURNING updated_at`
+		RETURNING updated_at, version`
 
 	var runTTL *int
 	if job.RunTTLSecs > 0 {
@@ -179,7 +188,8 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.WebhookSecret),
 		runTTL,
 		job.ID,
-	).Scan(&job.UpdatedAt)
+		uuid.Must(uuid.NewV7()).String(),
+	).Scan(&job.UpdatedAt, &job.Version)
 	if err != nil {
 		return fmt.Errorf("update job: %w", err)
 	}
@@ -206,7 +216,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -261,6 +271,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&webhookURL,
 		&webhookSecret,
 		&runTTLSecs,
+		&job.Version,
 		&job.CreatedAt,
 		&job.UpdatedAt,
 	)

@@ -151,6 +151,7 @@ func TestScanRun_AllFields(t *testing.T) {
 			strPtr("parent-001"),          // ParentRunID
 			5,                             // Priority
 			strPtr("idem-abc"),            // IdempotencyKey
+			3,                             // JobVersion
 			now,                           // CreatedAt
 		},
 	}
@@ -233,6 +234,7 @@ func TestScanRun_NilOptionals(t *testing.T) {
 			(*string)(nil),             // ParentRunID
 			0,                          // Priority
 			(*string)(nil),             // IdempotencyKey
+			0,                          // JobVersion
 			now,                        // CreatedAt
 		},
 	}

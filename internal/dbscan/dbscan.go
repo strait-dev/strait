@@ -40,6 +40,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&parentRunID,
 		&run.Priority,
 		&idempotencyKey,
+		&run.JobVersion,
 		&run.CreatedAt,
 	)
 	if err != nil {

@@ -52,6 +52,7 @@ type Job struct {
 	WebhookURL    string          `json:"webhook_url,omitempty"`
 	WebhookSecret string          `json:"webhook_secret,omitempty"`
 	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
+	Version       int             `json:"version"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
@@ -75,6 +76,7 @@ type JobRun struct {
 	ParentRunID    string          `json:"parent_run_id,omitempty"`
 	Priority       int             `json:"priority"`
 	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	JobVersion     int             `json:"job_version"`
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
@@ -116,6 +118,24 @@ type APIKey struct {
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+}
+
+type JobVersion struct {
+	ID            string          `json:"id"`
+	JobID         string          `json:"job_id"`
+	Version       int             `json:"version"`
+	Name          string          `json:"name"`
+	Slug          string          `json:"slug"`
+	Description   string          `json:"description,omitempty"`
+	Cron          string          `json:"cron,omitempty"`
+	PayloadSchema json.RawMessage `json:"payload_schema,omitempty"`
+	EndpointURL   string          `json:"endpoint_url"`
+	MaxAttempts   int             `json:"max_attempts"`
+	TimeoutSecs   int             `json:"timeout_secs"`
+	WebhookURL    string          `json:"webhook_url,omitempty"`
+	WebhookSecret string          `json:"webhook_secret,omitempty"`
+	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
 }
 
 func (s RunStatus) IsTerminal() bool {
