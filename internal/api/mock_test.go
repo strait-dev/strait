@@ -11,19 +11,21 @@ import (
 
 // mockAPIStore implements APIStore for testing.
 type mockAPIStore struct {
-	createJobFn              func(ctx context.Context, job *domain.Job) error
-	getJobFn                 func(ctx context.Context, id string) (*domain.Job, error)
-	getJobBySlugFn           func(ctx context.Context, projectID, slug string) (*domain.Job, error)
-	listJobsFn               func(ctx context.Context, projectID string) ([]domain.Job, error)
-	updateJobFn              func(ctx context.Context, job *domain.Job) error
-	getRunFn                 func(ctx context.Context, id string) (*domain.JobRun, error)
-	getRunByIdempotencyKeyFn func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
-	listRunsByProjectFn      func(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	updateRunStatusFn        func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	listChildRunsFn          func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
-	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
-	updateHeartbeatFn        func(ctx context.Context, id string) error
-	queueStatsFn             func(ctx context.Context) (*store.QueueStats, error)
+	createJobFn               func(ctx context.Context, job *domain.Job) error
+	getJobFn                  func(ctx context.Context, id string) (*domain.Job, error)
+	getJobBySlugFn            func(ctx context.Context, projectID, slug string) (*domain.Job, error)
+	listJobsFn                func(ctx context.Context, projectID string) ([]domain.Job, error)
+	updateJobFn               func(ctx context.Context, job *domain.Job) error
+	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
+	getRunByIdempotencyKeyFn  func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
+	listRunsByProjectFn       func(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	listChildRunsFn           func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	insertEventFn             func(ctx context.Context, event *domain.RunEvent) error
+	listEventsByRunFilteredFn func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
+	listWebhookDeliveriesFn   func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	updateHeartbeatFn         func(ctx context.Context, id string) error
+	queueStatsFn              func(ctx context.Context) (*store.QueueStats, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -101,6 +103,20 @@ func (m *mockAPIStore) InsertEvent(ctx context.Context, event *domain.RunEvent) 
 		return m.insertEventFn(ctx, event)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error) {
+	if m.listEventsByRunFilteredFn != nil {
+		return m.listEventsByRunFilteredFn(ctx, runID, level, eventType)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+	if m.listWebhookDeliveriesFn != nil {
+		return m.listWebhookDeliveriesFn(ctx, status, limit)
+	}
+	return nil, nil
 }
 
 func (m *mockAPIStore) UpdateHeartbeat(ctx context.Context, id string) error {

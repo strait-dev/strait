@@ -51,12 +51,22 @@ type RunStore interface {
 type EventStore interface {
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error)
+	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
+}
+
+type WebhookDeliveryStore interface {
+	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
 }
 
 type Store interface {
 	JobStore
 	RunStore
 	EventStore
+	WebhookDeliveryStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

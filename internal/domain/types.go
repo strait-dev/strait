@@ -88,6 +88,22 @@ type RunEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type WebhookDelivery struct {
+	ID             string     `json:"id"`
+	RunID          string     `json:"run_id"`
+	JobID          string     `json:"job_id"`
+	WebhookURL     string     `json:"webhook_url"`
+	Status         string     `json:"status"`
+	Attempts       int        `json:"attempts"`
+	MaxAttempts    int        `json:"max_attempts"`
+	LastStatusCode *int       `json:"last_status_code,omitempty"`
+	LastError      string     `json:"last_error,omitempty"`
+	NextRetryAt    *time.Time `json:"next_retry_at,omitempty"`
+	DeliveredAt    *time.Time `json:"delivered_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
 func (s RunStatus) IsTerminal() bool {
 	switch s {
 	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:

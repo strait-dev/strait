@@ -93,3 +93,60 @@ func (q *Queries) ListEvents(ctx context.Context, runID string) ([]domain.RunEve
 
 	return events, nil
 }
+
+func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEventsByRunFiltered")
+	defer span.End()
+
+	baseQuery := `
+		SELECT id, run_id, type, level, message, data, created_at
+		FROM run_events
+		WHERE run_id = $1`
+
+	args := []any{runID}
+	param := 2
+
+	if level != "" {
+		baseQuery += fmt.Sprintf(" AND level = $%d", param)
+		args = append(args, level)
+		param++
+	}
+
+	if eventType != "" {
+		baseQuery += fmt.Sprintf(" AND type = $%d", param)
+		args = append(args, eventType)
+		param++
+	}
+
+	baseQuery += " ORDER BY created_at ASC"
+
+	rows, err := q.db.Query(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list events filtered: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]domain.RunEvent, 0)
+	for rows.Next() {
+		var event domain.RunEvent
+		var lvl *string
+		var data []byte
+
+		err := rows.Scan(
+			&event.ID, &event.RunID, &event.Type, &lvl,
+			&event.Message, &data, &event.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("list events filtered scan: %w", err)
+		}
+		if lvl != nil {
+			event.Level = *lvl
+		}
+		if data != nil {
+			event.Data = json.RawMessage(data)
+		}
+		events = append(events, event)
+	}
+
+	return events, rows.Err()
+}
