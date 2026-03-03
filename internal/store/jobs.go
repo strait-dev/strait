@@ -26,10 +26,15 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		INSERT INTO jobs (
 			id, project_id, name, slug, description, cron, payload_schema,
 			endpoint_url, max_attempts, timeout_secs, enabled,
-			webhook_url, webhook_secret
+			webhook_url, webhook_secret, run_ttl_secs
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING created_at, updated_at`
+
+	var runTTL *int
+	if job.RunTTLSecs > 0 {
+		runTTL = &job.RunTTLSecs
+	}
 
 	err := q.db.QueryRow(
 		ctx,
@@ -47,6 +52,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.Enabled,
 		dbscan.NilIfEmptyString(job.WebhookURL),
 		dbscan.NilIfEmptyString(job.WebhookSecret),
+		runTTL,
 	).Scan(&job.CreatedAt, &job.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
@@ -61,7 +67,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
 		FROM jobs
 		WHERE id = $1`
 
@@ -82,7 +88,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -103,7 +109,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at DESC`
@@ -147,9 +153,15 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    enabled = $9,
 		    webhook_url = $10,
 		    webhook_secret = $11,
+		    run_ttl_secs = $12,
 		    updated_at = NOW()
-		WHERE id = $12
+		WHERE id = $13
 		RETURNING updated_at`
+
+	var runTTL *int
+	if job.RunTTLSecs > 0 {
+		runTTL = &job.RunTTLSecs
+	}
 
 	err := q.db.QueryRow(
 		ctx,
@@ -165,6 +177,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		job.Enabled,
 		dbscan.NilIfEmptyString(job.WebhookURL),
 		dbscan.NilIfEmptyString(job.WebhookSecret),
+		runTTL,
 		job.ID,
 	).Scan(&job.UpdatedAt)
 	if err != nil {
@@ -193,7 +206,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, created_at, updated_at
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -231,6 +244,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var payloadSchema []byte
 	var webhookURL *string
 	var webhookSecret *string
+	var runTTLSecs *int
 
 	err := scanner.Scan(
 		&job.ID,
@@ -246,6 +260,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&job.Enabled,
 		&webhookURL,
 		&webhookSecret,
+		&runTTLSecs,
 		&job.CreatedAt,
 		&job.UpdatedAt,
 	)
@@ -267,6 +282,9 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	}
 	if webhookSecret != nil {
 		job.WebhookSecret = *webhookSecret
+	}
+	if runTTLSecs != nil {
+		job.RunTTLSecs = *runTTLSecs
 	}
 
 	return &job, nil

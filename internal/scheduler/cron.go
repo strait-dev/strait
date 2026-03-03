@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/queue"
@@ -62,6 +63,11 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 		JobID:       job.ID,
 		ProjectID:   job.ProjectID,
 		TriggeredBy: domain.TriggerCron,
+	}
+
+	if job.RunTTLSecs > 0 {
+		exp := time.Now().Add(time.Duration(job.RunTTLSecs) * time.Second)
+		run.ExpiresAt = &exp
 	}
 
 	if err := cs.queue.Enqueue(ctx, &run); err != nil {

@@ -51,6 +51,7 @@ type Job struct {
 	Enabled       bool            `json:"enabled"`
 	WebhookURL    string          `json:"webhook_url,omitempty"`
 	WebhookSecret string          `json:"webhook_secret,omitempty"`
+	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }

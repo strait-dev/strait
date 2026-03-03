@@ -22,6 +22,7 @@ type CreateJobRequest struct {
 	EndpointURL   string          `json:"endpoint_url"`
 	MaxAttempts   int             `json:"max_attempts"`
 	TimeoutSecs   int             `json:"timeout_secs"`
+	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
 }
 
 type UpdateJobRequest struct {
@@ -33,6 +34,7 @@ type UpdateJobRequest struct {
 	EndpointURL   *string          `json:"endpoint_url,omitempty"`
 	MaxAttempts   *int             `json:"max_attempts,omitempty"`
 	TimeoutSecs   *int             `json:"timeout_secs,omitempty"`
+	RunTTLSecs    *int             `json:"run_ttl_secs,omitempty"`
 	Enabled       *bool            `json:"enabled,omitempty"`
 }
 
@@ -78,6 +80,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		EndpointURL:   req.EndpointURL,
 		MaxAttempts:   req.MaxAttempts,
 		TimeoutSecs:   req.TimeoutSecs,
+		RunTTLSecs:    req.RunTTLSecs,
 		Enabled:       true,
 	}
 
@@ -170,6 +173,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TimeoutSecs != nil {
 		job.TimeoutSecs = *req.TimeoutSecs
+	}
+	if req.RunTTLSecs != nil {
+		job.RunTTLSecs = *req.RunTTLSecs
 	}
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled

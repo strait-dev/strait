@@ -65,7 +65,12 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	runID := uuid.Must(uuid.NewV7()).String()
 	now := time.Now()
-	expiresAt := now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+	var expiresAt time.Time
+	if job.RunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	} else {
+		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+	}
 
 	claims := jwt.RegisteredClaims{
 		Subject:   runID,
