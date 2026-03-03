@@ -95,6 +95,19 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Propagate cancellation to child runs
+	children, err := s.store.ListChildRuns(r.Context(), run.ID)
+	if err == nil {
+		for _, child := range children {
+			if !child.Status.IsTerminal() {
+				_ = s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
+					"finished_at": time.Now(),
+					"error":       "parent run canceled",
+				})
+			}
+		}
+	}
+
 	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to get updated run")
@@ -102,4 +115,14 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, updatedRun)
+}
+
+func (s *Server) handleListChildRuns(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+	children, err := s.store.ListChildRuns(r.Context(), runID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list children")
+		return
+	}
+	respondJSON(w, http.StatusOK, children)
 }

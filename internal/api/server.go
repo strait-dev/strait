@@ -68,6 +68,7 @@ func (s *Server) routes() chi.Router {
 				r.Get("/", s.handleGetRun)
 				r.Delete("/", s.handleCancelRun)
 				r.Get("/stream", s.handleRunStream)
+				r.Get("/children", s.handleListChildRuns)
 			})
 		})
 
@@ -81,6 +82,7 @@ func (s *Server) routes() chi.Router {
 			r.Post("/heartbeat", s.handleSDKHeartbeat)
 			r.Post("/complete", s.handleSDKComplete)
 			r.Post("/fail", s.handleSDKFail)
+			r.Post("/spawn", s.handleSDKSpawn)
 		})
 	})
 
