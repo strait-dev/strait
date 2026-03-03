@@ -166,7 +166,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		return
 	}
 
-	e.handleSuccess(ctx, run, result)
+	e.handleSuccess(ctx, run, job, result)
 }
 
 func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, error) {
@@ -207,7 +207,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	return nil, nil
 }
 
-func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, result json.RawMessage) {
+func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage) {
 	now := time.Now()
 	fields := map[string]any{
 		"finished_at": now,
@@ -234,6 +234,8 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, result
 		"attempt", run.Attempt,
 	)
 	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "completed"})
+	run.Status = domain.StatusCompleted
+	go SendWebhook(ctx, job, run)
 }
 
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, errMsg string) {
@@ -290,6 +292,8 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		return
 	}
 	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "failed", "error": errMsg})
+	run.Status = domain.StatusFailed
+	go SendWebhook(ctx, job, run)
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
@@ -338,6 +342,8 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		return
 	}
 	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "timed_out"})
+	run.Status = domain.StatusTimedOut
+	go SendWebhook(ctx, job, run)
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
@@ -356,4 +362,5 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		return
 	}
 	e.publishEvent(ctx, run, "status_change", map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
+	// No webhook for system failures — job may not be available
 }

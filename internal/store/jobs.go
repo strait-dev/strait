@@ -18,9 +18,10 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	query := `
 		INSERT INTO jobs (
 			id, project_id, name, slug, description, cron, payload_schema,
-			endpoint_url, max_attempts, timeout_secs, enabled
+			endpoint_url, max_attempts, timeout_secs, enabled,
+			webhook_url, webhook_secret
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at, updated_at`
 
 	err := q.db.QueryRow(
@@ -37,6 +38,8 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.MaxAttempts,
 		job.TimeoutSecs,
 		job.Enabled,
+		nilIfEmptyString(job.WebhookURL),
+		nilIfEmptyString(job.WebhookSecret),
 	).Scan(&job.CreatedAt, &job.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
@@ -48,7 +51,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
 		FROM jobs
 		WHERE id = $1`
 
@@ -63,7 +66,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error) {
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -78,7 +81,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at DESC`
@@ -117,8 +120,10 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    max_attempts = $7,
 		    timeout_secs = $8,
 		    enabled = $9,
+		    webhook_url = $10,
+		    webhook_secret = $11,
 		    updated_at = NOW()
-		WHERE id = $10
+		WHERE id = $12
 		RETURNING updated_at`
 
 	err := q.db.QueryRow(
@@ -133,6 +138,8 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		job.MaxAttempts,
 		job.TimeoutSecs,
 		job.Enabled,
+		nilIfEmptyString(job.WebhookURL),
+		nilIfEmptyString(job.WebhookSecret),
 		job.ID,
 	).Scan(&job.UpdatedAt)
 	if err != nil {
@@ -155,7 +162,7 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -191,6 +198,8 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var description *string
 	var cron *string
 	var payloadSchema []byte
+	var webhookURL *string
+	var webhookSecret *string
 
 	err := scanner.Scan(
 		&job.ID,
@@ -204,6 +213,8 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&job.MaxAttempts,
 		&job.TimeoutSecs,
 		&job.Enabled,
+		&webhookURL,
+		&webhookSecret,
 		&job.CreatedAt,
 		&job.UpdatedAt,
 	)
@@ -219,6 +230,12 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	}
 	if payloadSchema != nil {
 		job.PayloadSchema = json.RawMessage(payloadSchema)
+	}
+	if webhookURL != nil {
+		job.WebhookURL = *webhookURL
+	}
+	if webhookSecret != nil {
+		job.WebhookSecret = *webhookSecret
 	}
 
 	return &job, nil
