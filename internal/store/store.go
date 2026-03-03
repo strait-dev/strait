@@ -36,6 +36,7 @@ type JobStore interface {
 type RunStore interface {
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error

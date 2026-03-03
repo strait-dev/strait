@@ -44,6 +44,25 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	idempotencyKey := r.Header.Get("X-Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = r.Header.Get("Idempotency-Key")
+	}
+	if idempotencyKey != "" {
+		existingRun, err := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to check idempotency key")
+			return
+		}
+		if existingRun != nil {
+			respondJSON(w, http.StatusCreated, map[string]any{
+				"id":     existingRun.ID,
+				"status": existingRun.Status,
+			})
+			return
+		}
+	}
+
 	runID := uuid.Must(uuid.NewV7()).String()
 	now := time.Now()
 	expiresAt := now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
@@ -66,16 +85,17 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	run := &domain.JobRun{
-		ID:          runID,
-		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
-		Status:      status,
-		Attempt:     1,
-		Payload:     req.Payload,
-		TriggeredBy: domain.TriggerManual,
-		ScheduledAt: req.ScheduledAt,
-		Priority:    req.Priority,
-		ExpiresAt:   &expiresAt,
+		ID:             runID,
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		Status:         status,
+		Attempt:        1,
+		Payload:        req.Payload,
+		TriggeredBy:    domain.TriggerManual,
+		ScheduledAt:    req.ScheduledAt,
+		Priority:       req.Priority,
+		IdempotencyKey: idempotencyKey,
+		ExpiresAt:      &expiresAt,
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {

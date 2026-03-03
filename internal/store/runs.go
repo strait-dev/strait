@@ -44,11 +44,11 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		INSERT INTO job_runs (
 			id, job_id, project_id, status, attempt, payload, result, error,
 			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			next_retry_at, expires_at, parent_run_id, priority
+			next_retry_at, expires_at, parent_run_id, priority, idempotency_key
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, $17
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 		)
 		RETURNING created_at`
 
@@ -72,6 +72,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		run.ExpiresAt,
 		dbscan.NilIfEmptyString(run.ParentRunID),
 		run.Priority,
+		dbscan.NilIfEmptyString(run.IdempotencyKey),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create run: %w", err)
@@ -87,7 +88,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE id = $1`
 
@@ -102,6 +103,28 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	return run, nil
 }
 
+func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetRunByIdempotencyKey")
+	defer span.End()
+
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
+		FROM job_runs
+		WHERE job_id = $1 AND idempotency_key = $2`
+
+	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, jobID, idempotencyKey))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get run by idempotency key: %w", err)
+	}
+
+	return run, nil
+}
+
 func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByJob")
 	defer span.End()
@@ -109,7 +132,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE job_id = $1
 		ORDER BY created_at DESC
@@ -144,7 +167,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	baseQuery := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE project_id = $1`
 
@@ -282,7 +305,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE status = '%s' AND heartbeat_at < NOW() - $1::interval
 		ORDER BY heartbeat_at ASC`, domain.StatusExecuting)
@@ -316,7 +339,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE status = '%s' AND scheduled_at <= NOW()
 		ORDER BY scheduled_at ASC`, domain.StatusDelayed)
@@ -350,7 +373,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE status IN ('%s', '%s')
 		  AND expires_at IS NOT NULL
@@ -386,7 +409,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE parent_run_id = $1
 		ORDER BY created_at ASC`
@@ -420,7 +443,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM job_runs
 		WHERE status = '%s' AND started_at < NOW() - $1::interval
 		ORDER BY started_at ASC`, domain.StatusDequeued)

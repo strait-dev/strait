@@ -29,6 +29,7 @@ type APIStore interface {
 	ListJobs(ctx context.Context, projectID string) ([]domain.Job, error)
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)

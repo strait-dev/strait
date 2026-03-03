@@ -19,6 +19,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var result []byte
 	var runError *string
 	var parentRunID *string
+	var idempotencyKey *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -38,6 +39,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.ExpiresAt,
 		&parentRunID,
 		&run.Priority,
+		&idempotencyKey,
 		&run.CreatedAt,
 	)
 	if err != nil {
@@ -55,6 +57,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if parentRunID != nil {
 		run.ParentRunID = *parentRunID
+	}
+	if idempotencyKey != nil {
+		run.IdempotencyKey = *idempotencyKey
 	}
 
 	return &run, nil

@@ -48,11 +48,11 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		INSERT INTO job_runs (
 			id, job_id, project_id, status, attempt, payload, result, error,
 			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			next_retry_at, expires_at, parent_run_id, priority
+			next_retry_at, expires_at, parent_run_id, priority, idempotency_key
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, $17
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 		)
 		RETURNING created_at`
 
@@ -76,6 +76,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		run.ExpiresAt,
 		dbscan.NilIfEmptyString(run.ParentRunID),
 		run.Priority,
+		dbscan.NilIfEmptyString(run.IdempotencyKey),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("enqueue run: %w", err)
@@ -103,7 +104,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		)
 		RETURNING id, job_id, project_id, status, attempt, payload, result, error,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, created_at`, domain.StatusDequeued, domain.StatusQueued)
+		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at`, domain.StatusDequeued, domain.StatusQueued)
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query))
 	if err != nil {
@@ -136,11 +137,11 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			WHERE id IN (SELECT id FROM claimed)
 			RETURNING id, job_id, project_id, status, attempt, payload, result, error,
 			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			          next_retry_at, expires_at, parent_run_id, priority, created_at
+			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		)
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, created_at
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, created_at
 		FROM updated
 		ORDER BY created_at ASC`, domain.StatusQueued, domain.StatusDequeued)
 

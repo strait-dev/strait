@@ -56,24 +56,25 @@ type Job struct {
 }
 
 type JobRun struct {
-	ID          string          `json:"id"`
-	JobID       string          `json:"job_id"`
-	ProjectID   string          `json:"project_id"`
-	Status      RunStatus       `json:"status"`
-	Attempt     int             `json:"attempt"`
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	TriggeredBy string          `json:"triggered_by"`
-	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
-	StartedAt   *time.Time      `json:"started_at,omitempty"`
-	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
-	HeartbeatAt *time.Time      `json:"heartbeat_at,omitempty"`
-	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
-	ExpiresAt   *time.Time      `json:"expires_at,omitempty"`
-	ParentRunID string          `json:"parent_run_id,omitempty"`
-	Priority    int             `json:"priority"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID             string          `json:"id"`
+	JobID          string          `json:"job_id"`
+	ProjectID      string          `json:"project_id"`
+	Status         RunStatus       `json:"status"`
+	Attempt        int             `json:"attempt"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	Result         json.RawMessage `json:"result,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	TriggeredBy    string          `json:"triggered_by"`
+	ScheduledAt    *time.Time      `json:"scheduled_at,omitempty"`
+	StartedAt      *time.Time      `json:"started_at,omitempty"`
+	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
+	HeartbeatAt    *time.Time      `json:"heartbeat_at,omitempty"`
+	NextRetryAt    *time.Time      `json:"next_retry_at,omitempty"`
+	ExpiresAt      *time.Time      `json:"expires_at,omitempty"`
+	ParentRunID    string          `json:"parent_run_id,omitempty"`
+	Priority       int             `json:"priority"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 type RunEvent struct {
