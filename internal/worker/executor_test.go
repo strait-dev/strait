@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -411,6 +412,114 @@ func TestExecutor_Poll_EmptyQueue(t *testing.T) {
 	}
 	if got := exec.pool.ActiveCount(); got != 0 {
 		t.Fatalf("pool active count = %d, want 0", got)
+	}
+}
+
+func TestExecutor_GracefulShutdown(t *testing.T) {
+	jobStarted := make(chan struct{})
+	jobCanProceed := make(chan struct{})
+
+	var startedOnce sync.Once
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		startedOnce.Do(func() { close(jobStarted) })
+		<-jobCanProceed
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok": true}`))
+	}))
+	defer ts.Close()
+
+	var transitionsMu sync.Mutex
+	transitions := make([]string, 0, 2)
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{
+			ID:          id,
+			EndpointURL: ts.URL,
+			MaxAttempts: 3,
+			TimeoutSecs: 30,
+		}, nil
+	}
+	store.updateRunStatusFn = func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		transitionsMu.Lock()
+		transitions = append(transitions, fmt.Sprintf("%s->%s", from, to))
+		transitionsMu.Unlock()
+		return nil
+	}
+
+	var dequeueCount atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			if dequeueCount.Add(1) == 1 {
+				return []domain.JobRun{{
+					ID:      "run-shutdown-1",
+					JobID:   "job-1",
+					Status:  domain.StatusDequeued,
+					Attempt: 1,
+				}}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(5)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		HTTPClient:        ts.Client(),
+		PollInterval:      5 * time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+
+	runDone := make(chan struct{})
+	go func() {
+		exec.Run(ctx)
+		close(runDone)
+	}()
+
+	select {
+	case <-jobStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for job to start")
+	}
+
+	cancel()
+
+	select {
+	case <-runDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() did not exit after context cancellation")
+	}
+
+	close(jobCanProceed)
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		pool.Shutdown()
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pool.Shutdown() did not return")
+	}
+
+	transitionsMu.Lock()
+	defer transitionsMu.Unlock()
+
+	if len(transitions) < 2 {
+		t.Fatalf("expected at least 2 transitions, got %d: %v", len(transitions), transitions)
+	}
+	if transitions[0] != "dequeued->executing" {
+		t.Errorf("first transition = %s, want dequeued->executing", transitions[0])
+	}
+	last := transitions[len(transitions)-1]
+	if last != "executing->completed" {
+		t.Errorf("last transition = %s, want executing->completed", last)
 	}
 }
 
