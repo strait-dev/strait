@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"orchestrator/internal/config"
+	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
 	"orchestrator/internal/store"
 
@@ -16,13 +17,15 @@ type Server struct {
 	router chi.Router
 	store  store.Store
 	queue  queue.Queue
+	pubsub pubsub.Publisher
 	config *config.Config
 }
 
-func NewServer(cfg *config.Config, s store.Store, q queue.Queue) *Server {
+func NewServer(cfg *config.Config, s store.Store, q queue.Queue, pub pubsub.Publisher) *Server {
 	srv := &Server{
 		store:  s,
 		queue:  q,
+		pubsub: pub,
 		config: cfg,
 	}
 	srv.router = srv.routes()
@@ -63,7 +66,20 @@ func (s *Server) routes() chi.Router {
 			r.Route("/{runID}", func(r chi.Router) {
 				r.Get("/", s.handleGetRun)
 				r.Delete("/", s.handleCancelRun)
+				r.Get("/stream", s.handleRunStream)
 			})
+		})
+
+		r.Get("/stats", s.handleStats)
+	})
+
+	r.Route("/sdk/v1", func(r chi.Router) {
+		r.Use(s.runTokenAuth)
+		r.Route("/runs/{runID}", func(r chi.Router) {
+			r.Post("/log", s.handleSDKLog)
+			r.Post("/heartbeat", s.handleSDKHeartbeat)
+			r.Post("/complete", s.handleSDKComplete)
+			r.Post("/fail", s.handleSDKFail)
 		})
 	})
 
