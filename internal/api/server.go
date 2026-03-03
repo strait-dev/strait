@@ -45,6 +45,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(chimw.Recoverer)
 
 	r.Get("/health", s.handleHealth)
+	r.Get("/health/ready", s.handleHealthReady)
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.internalSecretAuth)
@@ -88,6 +89,16 @@ func (s *Server) routes() chi.Router {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
+	// Verify database connectivity via a lightweight query
+	_, err := s.store.QueueStats(r.Context())
+	if err != nil {
+		respondError(w, http.StatusServiceUnavailable, "database not ready")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func respondJSON(w http.ResponseWriter, status int, data any) {
