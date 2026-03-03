@@ -32,6 +32,10 @@ type Config struct {
 
 	RateLimitRequests int           `mapstructure:"RATE_LIMIT_REQUESTS"`
 	RateLimitWindow   time.Duration `mapstructure:"RATE_LIMIT_WINDOW"`
+
+	// CORS settings
+	CORSAllowedOrigins   []string `mapstructure:"CORS_ALLOWED_ORIGINS"`
+	CORSAllowCredentials bool     `mapstructure:"CORS_ALLOW_CREDENTIALS"`
 }
 
 func Load() (*Config, error) {
@@ -49,6 +53,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	viper.SetDefault("RATE_LIMIT_REQUESTS", 100)
 	viper.SetDefault("RATE_LIMIT_WINDOW", time.Minute)
+	viper.SetDefault("CORS_ALLOWED_ORIGINS", []string{"*"})
+	viper.SetDefault("CORS_ALLOW_CREDENTIALS", false)
 
 	viper.AutomaticEnv()
 
@@ -66,6 +72,8 @@ func Load() (*Config, error) {
 	cfg.DBMaxConns = viper.GetInt32("DB_MAX_CONNS")
 	cfg.DBMinConns = viper.GetInt32("DB_MIN_CONNS")
 	cfg.RateLimitWindow = viper.GetDuration("RATE_LIMIT_WINDOW")
+	cfg.CORSAllowedOrigins = viper.GetStringSlice("CORS_ALLOWED_ORIGINS")
+	cfg.CORSAllowCredentials = viper.GetBool("CORS_ALLOW_CREDENTIALS")
 
 	if cfg.DatabaseURL == "" {
 		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}

@@ -30,6 +30,9 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", ww.Status(),
 			"duration_ms", time.Since(start).Milliseconds(),
+			"bytes", ww.BytesWritten(),
+			"remote_addr", r.RemoteAddr,
+			"user_agent", r.UserAgent(),
 			"request_id", chimw.GetReqID(r.Context()),
 		)
 	})
