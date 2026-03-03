@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"orchestrator/internal/domain"
+
+	"go.opentelemetry.io/otel"
 )
 
 type QueueStats struct {
@@ -14,6 +16,9 @@ type QueueStats struct {
 }
 
 func (q *Queries) QueueStats(ctx context.Context) (*QueueStats, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.QueueStats")
+	defer span.End()
+
 	query := fmt.Sprintf(`
 		SELECT
 			COALESCE(SUM(CASE WHEN status = '%s' THEN 1 ELSE 0 END), 0) AS queued,

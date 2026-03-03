@@ -14,6 +14,8 @@ import (
 	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
+
+	"go.opentelemetry.io/otel"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -135,6 +137,9 @@ func (e *Executor) poll(ctx context.Context) {
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.Execute")
+	defer span.End()
+
 	job, err := e.store.GetJob(ctx, run.JobID)
 	if err != nil || job == nil {
 		e.logger.Error(
@@ -185,6 +190,9 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 }
 
 func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.Dispatch")
+	defer span.End()
+
 	var body io.Reader
 	if len(run.Payload) > 0 {
 		body = bytes.NewReader(run.Payload)
@@ -223,6 +231,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 }
 
 func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleSuccess")
+	defer span.End()
+
 	now := time.Now()
 	fields := map[string]any{
 		"finished_at": now,
@@ -258,6 +269,9 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 }
 
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, errMsg string) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleFailure")
+	defer span.End()
+
 	e.logger.Warn(
 		"run failed",
 		"run_id", run.ID,
@@ -320,6 +334,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleTimeout")
+	defer span.End()
+
 	e.logger.Warn(
 		"run timed out",
 		"run_id", run.ID,
@@ -374,6 +391,9 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleSystemFailure")
+	defer span.End()
+
 	now := time.Now()
 	err := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusSystemFailed, map[string]any{
 		"finished_at": now,

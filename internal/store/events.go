@@ -9,9 +9,13 @@ import (
 	"orchestrator/internal/domain"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.InsertEvent")
+	defer span.End()
+
 	if event.ID == "" {
 		event.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -39,6 +43,9 @@ func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error
 }
 
 func (q *Queries) ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEvents")
+	defer span.End()
+
 	query := `
 		SELECT id, run_id, type, level, message, data, created_at
 		FROM run_events

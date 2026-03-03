@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel"
 )
 
 type PostgresQueue struct {
@@ -23,6 +24,9 @@ func NewPostgresQueue(db store.DBTX) *PostgresQueue {
 }
 
 func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.Enqueue")
+	defer span.End()
+
 	if run.ID == "" {
 		run.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -80,6 +84,9 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 }
 
 func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.Dequeue")
+	defer span.End()
+
 	query := fmt.Sprintf(`
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
@@ -109,6 +116,9 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 }
 
 func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.DequeueN")
+	defer span.End()
+
 	query := fmt.Sprintf(`
 		WITH claimed AS (
 			SELECT id

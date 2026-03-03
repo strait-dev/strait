@@ -9,6 +9,7 @@ import (
 	"orchestrator/internal/queue"
 
 	"github.com/robfig/cron/v3"
+	"go.opentelemetry.io/otel"
 )
 
 // CronStore is the subset of store operations needed by CronScheduler.
@@ -31,6 +32,9 @@ func NewCronScheduler(s CronStore, q queue.Queue) *CronScheduler {
 }
 
 func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cron.LoadJobs")
+	defer span.End()
+
 	jobs, err := cs.store.ListCronJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("list cron jobs: %w", err)
@@ -51,6 +55,9 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 }
 
 func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cron.TriggerJob")
+	defer span.End()
+
 	run := domain.JobRun{
 		JobID:       job.ID,
 		ProjectID:   job.ProjectID,

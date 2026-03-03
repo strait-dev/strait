@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+
+	"go.opentelemetry.io/otel"
 )
 
 // ReaperStore is the subset of store operations needed by Reaper.
@@ -49,6 +51,9 @@ func (r *Reaper) Run(ctx context.Context) {
 }
 
 func (r *Reaper) reapStale(ctx context.Context) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapStale")
+	defer span.End()
+
 	runs, err := r.store.ListStaleRuns(ctx, r.staleThreshold)
 	if err != nil {
 		slog.Error("failed to list stale runs", "error", err)
@@ -70,6 +75,9 @@ func (r *Reaper) reapStale(ctx context.Context) {
 }
 
 func (r *Reaper) reapExpired(ctx context.Context) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapExpired")
+	defer span.End()
+
 	runs, err := r.store.ListExpiredRuns(ctx)
 	if err != nil {
 		slog.Error("failed to list expired runs", "error", err)
@@ -91,6 +99,9 @@ func (r *Reaper) reapExpired(ctx context.Context) {
 }
 
 func (r *Reaper) reapStaleDequeued(ctx context.Context) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapStaleDequeued")
+	defer span.End()
+
 	runs, err := r.store.ListStaleDequeued(ctx, r.staleThreshold)
 	if err != nil {
 		slog.Error("failed to list stale dequeued runs", "error", err)

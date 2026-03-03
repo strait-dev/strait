@@ -9,9 +9,13 @@ import (
 	"orchestrator/internal/domain"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateJob")
+	defer span.End()
+
 	if job.ID == "" {
 		job.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -50,6 +54,9 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 }
 
 func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJob")
+	defer span.End()
+
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
 		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
@@ -65,6 +72,9 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 }
 
 func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobBySlug")
+	defer span.End()
+
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
 		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
@@ -80,6 +90,9 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 }
 
 func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobs")
+	defer span.End()
+
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
 		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at
@@ -110,6 +123,9 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 }
 
 func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateJob")
+	defer span.End()
+
 	query := `
 		UPDATE jobs
 		SET name = $1,
@@ -151,6 +167,9 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 }
 
 func (q *Queries) DeleteJob(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteJob")
+	defer span.End()
+
 	query := `DELETE FROM jobs WHERE id = $1`
 
 	if _, err := q.db.Exec(ctx, query, id); err != nil {
@@ -161,6 +180,9 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 }
 
 func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListCronJobs")
+	defer span.End()
+
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
 		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, created_at, updated_at

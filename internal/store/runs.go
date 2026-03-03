@@ -12,9 +12,13 @@ import (
 	"orchestrator/internal/domain"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRun")
+	defer span.End()
+
 	if run.ID == "" {
 		run.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -74,6 +78,9 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 }
 
 func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetRun")
+	defer span.End()
+
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -90,6 +97,9 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 }
 
 func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByJob")
+	defer span.End()
+
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -122,6 +132,9 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 }
 
 func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByProject")
+	defer span.End()
+
 	baseQuery := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -170,6 +183,9 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 }
 
 func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateRunStatus")
+	defer span.End()
+
 	if err := domain.ValidateTransition(from, to); err != nil {
 		return fmt.Errorf("invalid status transition: %w", err)
 	}
@@ -236,6 +252,9 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 }
 
 func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateHeartbeat")
+	defer span.End()
+
 	query := `UPDATE job_runs SET heartbeat_at = NOW() WHERE id = $1`
 
 	tag, err := q.db.Exec(ctx, query, id)
@@ -251,6 +270,9 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 }
 
 func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStaleRuns")
+	defer span.End()
+
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -282,6 +304,9 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 }
 
 func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListDueRuns")
+	defer span.End()
+
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -313,6 +338,9 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 }
 
 func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListExpiredRuns")
+	defer span.End()
+
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -346,6 +374,9 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 }
 
 func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListChildRuns")
+	defer span.End()
+
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -377,6 +408,9 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 }
 
 func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStaleDequeued")
+	defer span.End()
+
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
