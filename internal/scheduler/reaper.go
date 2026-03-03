@@ -6,16 +6,23 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
 )
 
+// ReaperStore is the subset of store operations needed by Reaper.
+type ReaperStore interface {
+	ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
+	ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+}
+
 type Reaper struct {
-	store          store.Store
+	store          ReaperStore
 	interval       time.Duration
 	staleThreshold time.Duration
 }
 
-func NewReaper(s store.Store, interval, staleThreshold time.Duration) *Reaper {
+func NewReaper(s ReaperStore, interval, staleThreshold time.Duration) *Reaper {
 	return &Reaper{
 		store:          s,
 		interval:       interval,

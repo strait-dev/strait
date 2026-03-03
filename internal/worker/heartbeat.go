@@ -4,17 +4,20 @@ import (
 	"context"
 	"log/slog"
 	"time"
-
-	"orchestrator/internal/store"
 )
+
+// HeartbeatStore is the subset of store operations needed by HeartbeatSender.
+type HeartbeatStore interface {
+	UpdateHeartbeat(ctx context.Context, id string) error
+}
 
 // HeartbeatSender periodically updates heartbeat_at for a running job.
 type HeartbeatSender struct {
-	store    store.Store
+	store    HeartbeatStore
 	interval time.Duration
 }
 
-func NewHeartbeatSender(s store.Store, interval time.Duration) *HeartbeatSender {
+func NewHeartbeatSender(s HeartbeatStore, interval time.Duration) *HeartbeatSender {
 	return &HeartbeatSender{
 		store:    s,
 		interval: interval,

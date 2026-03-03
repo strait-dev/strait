@@ -13,14 +13,20 @@ import (
 	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
-	"orchestrator/internal/store"
 )
+
+// ExecutorStore is the subset of store operations needed by Executor.
+type ExecutorStore interface {
+	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	UpdateHeartbeat(ctx context.Context, id string) error
+}
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool         *Pool
 	queue        queue.Queue
-	store        store.Store
+	store        ExecutorStore
 	httpClient   *http.Client
 	pollInterval time.Duration
 	heartbeat    *HeartbeatSender
@@ -32,7 +38,7 @@ type Executor struct {
 type ExecutorConfig struct {
 	Pool              *Pool
 	Queue             queue.Queue
-	Store             store.Store
+	Store             ExecutorStore
 	Publisher         pubsub.Publisher
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration

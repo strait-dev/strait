@@ -7,18 +7,22 @@ import (
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/queue"
-	"orchestrator/internal/store"
 
 	"github.com/robfig/cron/v3"
 )
 
+// CronStore is the subset of store operations needed by CronScheduler.
+type CronStore interface {
+	ListCronJobs(ctx context.Context) ([]domain.Job, error)
+}
+
 type CronScheduler struct {
 	cron  *cron.Cron
-	store store.Store
+	store CronStore
 	queue queue.Queue
 }
 
-func NewCronScheduler(s store.Store, q queue.Queue) *CronScheduler {
+func NewCronScheduler(s CronStore, q queue.Queue) *CronScheduler {
 	return &CronScheduler{
 		cron:  cron.New(),
 		store: s,

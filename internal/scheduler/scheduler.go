@@ -8,8 +8,14 @@ import (
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/queue"
-	"orchestrator/internal/store"
 )
+
+// SchedulerStore combines the store interfaces required by all scheduler components.
+type SchedulerStore interface {
+	CronStore
+	PollerStore
+	ReaperStore
+}
 
 type Scheduler struct {
 	cron   *CronScheduler
@@ -18,7 +24,7 @@ type Scheduler struct {
 	wg     sync.WaitGroup
 }
 
-func New(cfg *config.Config, s store.Store, q queue.Queue) *Scheduler {
+func New(cfg *config.Config, s SchedulerStore, q queue.Queue) *Scheduler {
 	return &Scheduler{
 		cron:   NewCronScheduler(s, q),
 		poller: NewDelayedPoller(s, cfg.PollerInterval),

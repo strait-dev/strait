@@ -1,14 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	"orchestrator/internal/config"
+	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
 	"orchestrator/internal/store"
@@ -17,15 +20,31 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
+// APIStore is the subset of store operations needed by the API handlers.
+type APIStore interface {
+	CreateJob(ctx context.Context, job *domain.Job) error
+	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
+	ListJobs(ctx context.Context, projectID string) ([]domain.Job, error)
+	UpdateJob(ctx context.Context, job *domain.Job) error
+	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	InsertEvent(ctx context.Context, event *domain.RunEvent) error
+	UpdateHeartbeat(ctx context.Context, id string) error
+	QueueStats(ctx context.Context) (*store.QueueStats, error)
+}
+
 type Server struct {
 	router chi.Router
-	store  store.Store
+	store  APIStore
 	queue  queue.Queue
 	pubsub pubsub.Publisher
 	config *config.Config
 }
 
-func NewServer(cfg *config.Config, s store.Store, q queue.Queue, pub pubsub.Publisher) *Server {
+func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher) *Server {
 	srv := &Server{
 		store:  s,
 		queue:  q,

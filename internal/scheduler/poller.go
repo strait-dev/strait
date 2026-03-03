@@ -6,15 +6,20 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
 )
 
+// PollerStore is the subset of store operations needed by DelayedPoller.
+type PollerStore interface {
+	ListDueRuns(ctx context.Context) ([]domain.JobRun, error)
+	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+}
+
 type DelayedPoller struct {
-	store    store.Store
+	store    PollerStore
 	interval time.Duration
 }
 
-func NewDelayedPoller(s store.Store, interval time.Duration) *DelayedPoller {
+func NewDelayedPoller(s PollerStore, interval time.Duration) *DelayedPoller {
 	return &DelayedPoller{
 		store:    s,
 		interval: interval,
