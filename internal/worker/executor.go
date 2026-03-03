@@ -17,30 +17,33 @@ import (
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
-	pool         *Pool
-	queue        queue.Queue
-	store        store.Store
-	httpClient   *http.Client
-	pollInterval time.Duration
-	logger       *slog.Logger
+	pool              *Pool
+	queue             queue.Queue
+	store             store.Store
+	httpClient        *http.Client
+	pollInterval      time.Duration
+	heartbeat         *HeartbeatSender
+	logger            *slog.Logger
 }
 
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
-	Pool         *Pool
-	Queue        queue.Queue
-	Store        store.Store
-	PollInterval time.Duration
+	Pool              *Pool
+	Queue             queue.Queue
+	Store             store.Store
+	PollInterval      time.Duration
+	HeartbeatInterval time.Duration
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	return &Executor{
-		pool:         cfg.Pool,
-		queue:        cfg.Queue,
-		store:        cfg.Store,
-		httpClient:   &http.Client{},
-		pollInterval: cfg.PollInterval,
-		logger:       slog.Default(),
+		pool:              cfg.Pool,
+		queue:             cfg.Queue,
+		store:             cfg.Store,
+		httpClient:        &http.Client{},
+		pollInterval:      cfg.PollInterval,
+		heartbeat:         NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
+		logger:            slog.Default(),
 	}
 }
 
@@ -110,6 +113,11 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		return
 	}
 	run.Status = domain.StatusExecuting
+
+	// Start heartbeat
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	defer hbCancel()
+	go e.heartbeat.Run(hbCtx, run.ID)
 
 	timeout := time.Duration(job.TimeoutSecs) * time.Second
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
