@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -27,6 +28,8 @@ type mockAPIStore struct {
 	createAPIKeyFn            func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn    func(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	revokeAPIKeyFn            func(ctx context.Context, id string) error
+	getAPIKeyByHashFn         func(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	touchAPIKeyLastUsedFn     func(ctx context.Context, id string) error
 	updateHeartbeatFn         func(ctx context.Context, id string) error
 	queueStatsFn              func(ctx context.Context) (*store.QueueStats, error)
 }
@@ -139,6 +142,20 @@ func (m *mockAPIStore) ListAPIKeysByProject(ctx context.Context, projectID strin
 func (m *mockAPIStore) RevokeAPIKey(ctx context.Context, id string) error {
 	if m.revokeAPIKeyFn != nil {
 		return m.revokeAPIKeyFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+	if m.getAPIKeyByHashFn != nil {
+		return m.getAPIKeyByHashFn(ctx, keyHash)
+	}
+	return nil, fmt.Errorf("api key not found")
+}
+
+func (m *mockAPIStore) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
+	if m.touchAPIKeyLastUsedFn != nil {
+		return m.touchAPIKeyLastUsedFn(ctx, id)
 	}
 	return nil
 }

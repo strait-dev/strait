@@ -41,6 +41,8 @@ type APIStore interface {
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id string) error
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 }
@@ -104,7 +106,7 @@ func (s *Server) routes() chi.Router {
 	}
 
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(s.internalSecretAuth)
+		r.Use(s.apiKeyOrSecretAuth)
 
 		r.Route("/jobs", func(r chi.Router) {
 			r.Post("/", s.handleCreateJob)
