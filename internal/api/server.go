@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/riandyrn/otelchi"
 )
 
 // APIStore is the subset of store operations needed by the API handlers.
@@ -64,6 +65,7 @@ func (s *Server) routes() chi.Router {
 
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
+	r.Use(otelchi.Middleware("orchestrator", otelchi.WithChiRoutes(r)))
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
 
