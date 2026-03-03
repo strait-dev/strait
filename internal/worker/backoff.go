@@ -15,7 +15,7 @@ import (
 // attempt 2 -> ~2s
 // attempt 3 -> ~4s
 // attempt 4 -> ~8s
-// ...capped at maxDelay (default 1 hour)
+// ...capped at maxDelay (default 1 hour).
 func NextRetryDelay(attempt int) time.Duration {
 	const (
 		base     = 1 * time.Second
@@ -27,13 +27,11 @@ func NextRetryDelay(attempt int) time.Duration {
 	}
 
 	delay := time.Duration(float64(base) * math.Pow(2, float64(attempt-1)))
-	if delay > maxDelay {
-		delay = maxDelay
-	}
+	delay = min(delay, maxDelay)
 
 	// Add +-20% jitter.
 	jitterRange := float64(delay) * 0.2
-	jitter := time.Duration(rand.Float64()*2*jitterRange - jitterRange)
+	jitter := time.Duration(rand.Float64()*2*jitterRange - jitterRange) //nolint:gosec // jitter doesn't need crypto rand
 
 	return delay + jitter
 }

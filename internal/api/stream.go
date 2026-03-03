@@ -43,14 +43,14 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	if s.pubsub == nil {
-		slog.Error("pubsub not configured", "run_id", runID)
+		slog.Error("pubsub not configured", "run_id", runID) //nolint:gosec // structured logging sanitizes values
 		return
 	}
 
 	channel := fmt.Sprintf("run:%s", runID)
 	sub, err := s.pubsub.Subscribe(r.Context(), channel)
 	if err != nil {
-		slog.Error("failed to subscribe", "run_id", runID, "error", err)
+		slog.Error("failed to subscribe", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
 		return
 	}
 	defer sub.Close()

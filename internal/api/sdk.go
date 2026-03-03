@@ -103,7 +103,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.InsertEvent(r.Context(), event); err != nil {
-		slog.Error("failed to insert event", "run_id", runID, "error", err)
+		slog.Error("failed to insert event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
 		respondError(w, http.StatusInternalServerError, "failed to insert event")
 		return
 	}
@@ -129,7 +129,7 @@ func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	if err := s.store.UpdateHeartbeat(r.Context(), runID); err != nil {
-		slog.Error("failed to update heartbeat", "run_id", runID, "error", err)
+		slog.Error("failed to update heartbeat", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
 		respondError(w, http.StatusInternalServerError, "failed to update heartbeat")
 		return
 	}
@@ -169,7 +169,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 
 	err = s.store.UpdateRunStatus(r.Context(), runID, run.Status, domain.StatusCompleted, fields)
 	if err != nil {
-		slog.Error("failed to complete run", "run_id", runID, "error", err)
+		slog.Error("failed to complete run", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
 		if errors.Is(err, store.ErrRunConflict) {
 			respondError(w, http.StatusConflict, "run status conflict")
 		} else {
@@ -227,7 +227,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		"error":       req.Error,
 	})
 	if err != nil {
-		slog.Error("failed to fail run", "run_id", runID, "error", err)
+		slog.Error("failed to fail run", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
 		if errors.Is(err, store.ErrRunConflict) {
 			respondError(w, http.StatusConflict, "run status conflict")
 		} else {

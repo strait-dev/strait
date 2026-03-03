@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/domain"
 	"orchestrator/internal/dbscan"
+	"orchestrator/internal/domain"
 
 	"github.com/google/uuid"
 )

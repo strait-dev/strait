@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"time"
 
@@ -46,9 +47,9 @@ type ExecutorConfig struct {
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	return &Executor{
-		pool:         cfg.Pool,
-		queue:        cfg.Queue,
-		store:        cfg.Store,
+		pool:  cfg.Pool,
+		queue: cfg.Queue,
+		store: cfg.Store,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
@@ -64,21 +65,19 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 }
 
-func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, eventType string, data map[string]any) {
+func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data map[string]any) {
 	if e.publisher == nil {
 		return
 	}
 
 	event := map[string]any{
-		"type":       eventType,
+		"type":       "status_change",
 		"run_id":     run.ID,
 		"job_id":     run.JobID,
 		"project_id": run.ProjectID,
 		"timestamp":  time.Now().UTC(),
 	}
-	for k, v := range data {
-		event[k] = v
-	}
+	maps.Copy(event, data)
 
 	payload, err := json.Marshal(event)
 	if err != nil {
@@ -161,7 +160,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		return
 	}
 	run.Status = domain.StatusExecuting
-	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "dequeued", "to": "executing"})
+	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
 	// Start heartbeat
 	hbCtx, hbCancel := context.WithCancel(ctx)
@@ -201,7 +200,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	req.Header.Set("X-Job-ID", run.JobID)
 	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
 
-	resp, err := e.httpClient.Do(req)
+	resp, err := e.httpClient.Do(req) //nolint:gosec // URL from validated job config
 	if err != nil {
 		return nil, fmt.Errorf("http dispatch: %w", err)
 	}
@@ -249,7 +248,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
 	)
-	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "completed"})
+	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "completed"})
 	run.Status = domain.StatusCompleted
 	e.pool.Submit(context.Background(), func() {
 		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -292,7 +291,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"attempt", run.Attempt+1,
 				"next_retry_at", retryAt,
 			)
-			e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
+			e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
 		}
 		return
 	}
@@ -311,7 +310,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "failed", "error": errMsg})
+	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "failed", "error": errMsg})
 	run.Status = domain.StatusFailed
 	e.pool.Submit(context.Background(), func() {
 		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -346,7 +345,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
-			e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
+			e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
 		}
 		return
 	}
@@ -365,7 +364,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "timed_out"})
+	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "timed_out"})
 	run.Status = domain.StatusTimedOut
 	e.pool.Submit(context.Background(), func() {
 		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -389,6 +388,6 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		)
 		return
 	}
-	e.publishEvent(ctx, run, "status_change", map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
+	e.publishEvent(ctx, run, map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
 	// No webhook for system failures — job may not be available
 }

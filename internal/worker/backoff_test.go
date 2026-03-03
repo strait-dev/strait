@@ -43,7 +43,7 @@ func TestNextRetryDelay_ZeroAttempt(t *testing.T) {
 
 func TestNextRetryDelay_Jitter(t *testing.T) {
 	seen := make(map[time.Duration]bool)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		delay := NextRetryDelay(1)
 		seen[delay.Truncate(time.Millisecond)] = true
 	}

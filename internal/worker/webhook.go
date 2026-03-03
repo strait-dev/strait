@@ -77,7 +77,7 @@ func SendWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {
 		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
 	}
 
-	resp, err := webhookClient.Do(req)
+	resp, err := webhookClient.Do(req) //nolint:gosec // URL from validated job config
 	if err != nil {
 		slog.Error("webhook delivery failed", "run_id", run.ID, "url", job.WebhookURL, "error", err)
 		return
@@ -85,13 +85,13 @@ func SendWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		slog.Info("webhook delivered",
+		slog.Info("webhook delivered", //nolint:gosec // structured logging sanitizes values
 			"run_id", run.ID,
 			"url", job.WebhookURL,
 			"status", resp.StatusCode,
 		)
 	} else {
-		slog.Warn("webhook delivery failed",
+		slog.Warn("webhook delivery failed", //nolint:gosec // structured logging sanitizes values
 			"run_id", run.ID,
 			"url", job.WebhookURL,
 			"status", resp.StatusCode,

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -18,8 +19,8 @@ import (
 	"orchestrator/internal/queue"
 	"orchestrator/internal/scheduler"
 	"orchestrator/internal/store"
-	"orchestrator/internal/worker"
 	"orchestrator/internal/telemetry"
+	"orchestrator/internal/worker"
 	"orchestrator/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -27,8 +28,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"golang.org/x/sync/errgroup"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/errgroup"
 )
 
 var version = "dev"
@@ -96,7 +97,9 @@ func run() error {
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
-		shutdownTracer(shutdownCtx)
+		if err := shutdownTracer(shutdownCtx); err != nil {
+			slog.Error("failed to shutdown tracer", "error", err)
+		}
 	}()
 
 	// Connect to Postgres
@@ -234,7 +237,7 @@ func runMigrations(databaseURL string) error {
 		return fmt.Errorf("create migrator: %w", err)
 	}
 
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 
