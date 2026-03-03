@@ -172,3 +172,11 @@ func (m *mockPublisher) Close() error {
 	}
 	return nil
 }
+
+type mockPinger struct {
+	err error
+}
+
+func (m *mockPinger) Ping(_ context.Context) error {
+	return m.err
+}

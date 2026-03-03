@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -981,5 +982,62 @@ func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
 	}
 	if updated.RunTTLSecs != 600 {
 		t.Fatalf("expected run_ttl_secs=600, got %d", updated.RunTTLSecs)
+	}
+}
+
+func TestHealthReady_RedisDown(t *testing.T) {
+	ms := &mockAPIStore{
+		queueStatsFn: func(ctx context.Context) (*store.QueueStats, error) {
+			return &store.QueueStats{Queued: 0, Executing: 0, Delayed: 0}, nil
+		},
+	}
+
+	pinger := &mockPinger{err: fmt.Errorf("redis connection refused")}
+
+	srv := newTestServerWithPinger(t, ms, &mockQueue{}, nil, pinger)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	}
+}
+
+func TestHealthReady_NoPinger(t *testing.T) {
+	ms := &mockAPIStore{
+		queueStatsFn: func(ctx context.Context) (*store.QueueStats, error) {
+			return &store.QueueStats{Queued: 0, Executing: 0, Delayed: 0}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestHealthReady_RedisOK(t *testing.T) {
+	ms := &mockAPIStore{
+		queueStatsFn: func(ctx context.Context) (*store.QueueStats, error) {
+			return &store.QueueStats{Queued: 0, Executing: 0, Delayed: 0}, nil
+		},
+	}
+
+	pinger := &mockPinger{err: nil}
+	srv := newTestServerWithPinger(t, ms, &mockQueue{}, nil, pinger)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 }

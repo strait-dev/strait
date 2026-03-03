@@ -12,6 +12,7 @@ import (
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/domain"
+	"orchestrator/internal/pubsub"
 	"orchestrator/internal/store"
 )
 
@@ -26,6 +27,19 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 		p = pub
 	}
 	return NewServer(cfg, s, q, p, nil, nil)
+}
+
+func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, pinger Pinger) *Server {
+	t.Helper()
+	cfg := &config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+	}
+	var p pubsub.Publisher
+	if pub != nil {
+		p = pub
+	}
+	return NewServer(cfg, s, q, p, nil, pinger)
 }
 
 func authedRequest(method, path string, body string) *http.Request {
