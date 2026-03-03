@@ -856,3 +856,130 @@ func TestHandleSDKFail_InvalidBody(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestHandleTriggerJob_RunTTLSecs(t *testing.T) {
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, RunTTLSecs: 600}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			capturedRun = run
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if capturedRun.ExpiresAt == nil {
+		t.Fatal("expected ExpiresAt to be set")
+	}
+	expected := time.Now().Add(600 * time.Second)
+	diff := capturedRun.ExpiresAt.Sub(expected)
+	if diff < -5*time.Second || diff > 5*time.Second {
+		t.Errorf("ExpiresAt diff = %v, want within 5s", diff)
+	}
+}
+
+func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, RunTTLSecs: 0}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			capturedRun = run
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if capturedRun.ExpiresAt == nil {
+		t.Fatal("expected ExpiresAt to be set")
+	}
+	expected := time.Now().Add(120 * time.Second)
+	diff := capturedRun.ExpiresAt.Sub(expected)
+	if diff < -5*time.Second || diff > 5*time.Second {
+		t.Errorf("ExpiresAt diff = %v, want within 5s", diff)
+	}
+}
+
+func TestHandleCreateJob_WithRunTTL(t *testing.T) {
+	ms := &mockAPIStore{
+		createJobFn: func(_ context.Context, job *domain.Job) error {
+			job.ID = "job-ttl"
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","name":"Job","slug":"job","endpoint_url":"https://example.com","run_ttl_secs":300}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp["run_ttl_secs"] != float64(300) {
+		t.Fatalf("expected run_ttl_secs=300, got %v", resp["run_ttl_secs"])
+	}
+}
+
+func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
+	var updated *domain.Job
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Name: "Old", EndpointURL: "https://example.com", Enabled: true, RunTTLSecs: 0}, nil
+		},
+		updateJobFn: func(_ context.Context, job *domain.Job) error {
+			updated = job
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"run_ttl_secs":600}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if updated == nil {
+		t.Fatal("expected UpdateJob to be called")
+	}
+	if updated.RunTTLSecs != 600 {
+		t.Fatalf("expected run_ttl_secs=600, got %d", updated.RunTTLSecs)
+	}
+}

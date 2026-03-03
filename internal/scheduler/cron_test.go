@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"orchestrator/internal/domain"
 )
@@ -120,5 +121,60 @@ func TestCronScheduler_TriggerJob(t *testing.T) {
 	}
 	if enqueued.TriggeredBy != "cron" {
 		t.Fatalf("expected triggered_by cron, got %q", enqueued.TriggeredBy)
+	}
+}
+
+func TestCronScheduler_TriggerJob_WithTTL(t *testing.T) {
+	var capturedRun *domain.JobRun
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			capturedRun = run
+			return nil
+		},
+	}
+	cs := NewCronScheduler(&mockCronStore{}, mq)
+
+	job := domain.Job{
+		ID:         "job-ttl",
+		ProjectID:  "proj-1",
+		RunTTLSecs: 600,
+	}
+	cs.triggerJob(context.Background(), job)
+
+	if capturedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if capturedRun.ExpiresAt == nil {
+		t.Fatal("expected ExpiresAt to be set")
+	}
+	expected := time.Now().Add(600 * time.Second)
+	diff := capturedRun.ExpiresAt.Sub(expected)
+	if diff < -5*time.Second || diff > 5*time.Second {
+		t.Errorf("ExpiresAt diff = %v, want within 5s", diff)
+	}
+}
+
+func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
+	var capturedRun *domain.JobRun
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			capturedRun = run
+			return nil
+		},
+	}
+	cs := NewCronScheduler(&mockCronStore{}, mq)
+
+	job := domain.Job{
+		ID:         "job-no-ttl",
+		ProjectID:  "proj-1",
+		RunTTLSecs: 0,
+	}
+	cs.triggerJob(context.Background(), job)
+
+	if capturedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if capturedRun.ExpiresAt != nil {
+		t.Fatalf("expected ExpiresAt to be nil, got %v", capturedRun.ExpiresAt)
 	}
 }
