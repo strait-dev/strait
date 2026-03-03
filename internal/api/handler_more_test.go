@@ -1041,3 +1041,278 @@ func TestHealthReady_RedisOK(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
+
+func TestHandleListRunEvents_Success(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	ms := &mockAPIStore{
+		listEventsByRunFilteredFn: func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error) {
+			if runID != "run-123" {
+				t.Errorf("runID = %s, want run-123", runID)
+			}
+			return []domain.RunEvent{
+				{ID: "evt-1", RunID: "run-123", Type: "log", Level: "info", Message: "started", CreatedAt: now},
+				{ID: "evt-2", RunID: "run-123", Type: "log", Level: "error", Message: "failed", CreatedAt: now},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/runs/run-123/events", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+
+	var events []domain.RunEvent
+	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(events) != 2 {
+		t.Errorf("len(events) = %d, want 2", len(events))
+	}
+}
+
+func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
+	var gotLevel string
+	ms := &mockAPIStore{
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+			gotLevel = level
+			return []domain.RunEvent{}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events?level=error", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotLevel != "error" {
+		t.Errorf("level = %q, want %q", gotLevel, "error")
+	}
+}
+
+func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
+	var gotType string
+	ms := &mockAPIStore{
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+			gotType = eventType
+			return []domain.RunEvent{}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events?type=heartbeat", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotType != "heartbeat" {
+		t.Errorf("type = %q, want %q", gotType, "heartbeat")
+	}
+}
+
+func TestHandleListRunEvents_StoreError(t *testing.T) {
+	ms := &mockAPIStore{
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListRunEvents_EmptyResult(t *testing.T) {
+	ms := &mockAPIStore{
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+			return []domain.RunEvent{}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var events []domain.RunEvent
+	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("len(events) = %d, want 0", len(events))
+	}
+}
+
+func TestHandleListWebhookDeliveries_Success(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+			return []domain.WebhookDelivery{
+				{ID: "del-1", RunID: "run-1", JobID: "job-1", WebhookURL: "https://example.com/hook", Status: "delivered", Attempts: 1, MaxAttempts: 3, CreatedAt: now, UpdatedAt: now},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+
+	var deliveries []domain.WebhookDelivery
+	if err := json.Unmarshal(w.Body.Bytes(), &deliveries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(deliveries) != 1 {
+		t.Errorf("len = %d, want 1", len(deliveries))
+	}
+}
+
+func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
+	var gotStatus string
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+			gotStatus = status
+			return []domain.WebhookDelivery{}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?status=pending", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotStatus != "pending" {
+		t.Errorf("status = %q, want %q", gotStatus, "pending")
+	}
+}
+
+func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
+	var gotLimit int
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+			gotLimit = limit
+			return []domain.WebhookDelivery{}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=10", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotLimit != 10 {
+		t.Errorf("limit = %d, want 10", gotLimit)
+	}
+}
+
+func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
+	var gotLimit int
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+			gotLimit = limit
+			return []domain.WebhookDelivery{}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotLimit != 50 {
+		t.Errorf("limit = %d, want 50 (default)", gotLimit)
+	}
+}
+
+func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
+	var gotLimit int
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+			gotLimit = limit
+			return []domain.WebhookDelivery{}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=200", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotLimit != 100 {
+		t.Errorf("limit = %d, want 100 (capped)", gotLimit)
+	}
+}
+
+func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=abc", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=-5", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
