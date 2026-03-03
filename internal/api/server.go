@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 	"github.com/riandyrn/otelchi"
 )
 
@@ -69,6 +70,9 @@ func (s *Server) routes() chi.Router {
 	r.Use(otelchi.Middleware("orchestrator", otelchi.WithChiRoutes(r)))
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
+	if s.config.RateLimitRequests > 0 {
+		r.Use(httprate.LimitByIP(s.config.RateLimitRequests, s.config.RateLimitWindow))
+	}
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
@@ -84,7 +88,7 @@ func (s *Server) routes() chi.Router {
 				r.Get("/", s.handleGetJob)
 				r.Patch("/", s.handleUpdateJob)
 				r.Delete("/", s.handleDeleteJob)
-				r.Post("/trigger", s.handleTriggerJob)
+				r.With(httprate.LimitByIP(10, time.Minute)).Post("/trigger", s.handleTriggerJob)
 			})
 		})
 

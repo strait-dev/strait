@@ -65,6 +65,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.DBMaxConnIdleTime != 5*time.Minute {
 		t.Fatalf("DBMaxConnIdleTime = %v, want %v", cfg.DBMaxConnIdleTime, 5*time.Minute)
 	}
+	if cfg.RateLimitRequests != 100 {
+		t.Fatalf("RateLimitRequests = %d, want %d", cfg.RateLimitRequests, 100)
+	}
+	if cfg.RateLimitWindow != time.Minute {
+		t.Fatalf("RateLimitWindow = %v, want %v", cfg.RateLimitWindow, time.Minute)
+	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {

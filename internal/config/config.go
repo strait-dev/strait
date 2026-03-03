@@ -29,6 +29,9 @@ type Config struct {
 	DBMinConns        int32         `mapstructure:"DB_MIN_CONNS"`
 	DBMaxConnLifetime time.Duration `mapstructure:"DB_MAX_CONN_LIFETIME"`
 	DBMaxConnIdleTime time.Duration `mapstructure:"DB_MAX_CONN_IDLE_TIME"`
+
+	RateLimitRequests int           `mapstructure:"RATE_LIMIT_REQUESTS"`
+	RateLimitWindow   time.Duration `mapstructure:"RATE_LIMIT_WINDOW"`
 }
 
 func Load() (*Config, error) {
@@ -44,6 +47,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("DB_MIN_CONNS", 5)
 	viper.SetDefault("DB_MAX_CONN_LIFETIME", 30*time.Minute)
 	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
+	viper.SetDefault("RATE_LIMIT_REQUESTS", 100)
+	viper.SetDefault("RATE_LIMIT_WINDOW", time.Minute)
 
 	viper.AutomaticEnv()
 
@@ -60,6 +65,7 @@ func Load() (*Config, error) {
 	cfg.DBMaxConnIdleTime = viper.GetDuration("DB_MAX_CONN_IDLE_TIME")
 	cfg.DBMaxConns = viper.GetInt32("DB_MAX_CONNS")
 	cfg.DBMinConns = viper.GetInt32("DB_MIN_CONNS")
+	cfg.RateLimitWindow = viper.GetDuration("RATE_LIMIT_WINDOW")
 
 	if cfg.DatabaseURL == "" {
 		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
