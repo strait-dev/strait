@@ -19,6 +19,7 @@ import (
 	"orchestrator/internal/scheduler"
 	"orchestrator/internal/store"
 	"orchestrator/internal/worker"
+	"orchestrator/internal/telemetry"
 	"orchestrator/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -86,6 +87,13 @@ func run() error {
 	// Context with signal cancellation
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Initialize OpenTelemetry tracing
+	shutdownTracer, err := telemetry.Init(ctx, "orchestrator", cfg.OTELEndpoint)
+	if err != nil {
+		return fmt.Errorf("init telemetry: %w", err)
+	}
+	defer shutdownTracer(ctx)
 
 	// Connect to Postgres
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
