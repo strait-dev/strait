@@ -5,6 +5,7 @@ package store_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -646,7 +647,7 @@ func TestUpdateRunStatus_WithFields(t *testing.T) {
 	if got.Status != domain.StatusCompleted {
 		t.Fatalf("status = %q, want %q", got.Status, domain.StatusCompleted)
 	}
-	if !bytes.Equal(got.Result, []byte(`{"ok":true}`)) {
+	if !jsonEqual(got.Result, []byte(`{"ok":true}`)) {
 		t.Fatalf("result = %s, want %s", string(got.Result), `{"ok":true}`)
 	}
 	if got.Error != "execution failed" {
@@ -769,7 +770,7 @@ func TestInsertEvent(t *testing.T) {
 	if got.ID != event.ID || got.RunID != event.RunID || got.Type != event.Type || got.Level != event.Level || got.Message != event.Message {
 		t.Fatalf("event mismatch: got %+v want %+v", got, *event)
 	}
-	if !bytes.Equal(got.Data, event.Data) {
+	if !jsonEqual(got.Data, event.Data) {
 		t.Fatalf("event data = %s, want %s", string(got.Data), string(event.Data))
 	}
 }
@@ -947,7 +948,7 @@ func assertJobEqual(t *testing.T, want, got *domain.Job) {
 		t.Fatalf("job mismatch: got %+v want %+v", *got, *want)
 	}
 
-	if !bytes.Equal(got.PayloadSchema, want.PayloadSchema) {
+	if !jsonEqual(got.PayloadSchema, want.PayloadSchema) {
 		t.Fatalf("payload_schema mismatch: got %s want %s", string(got.PayloadSchema), string(want.PayloadSchema))
 	}
 
@@ -979,10 +980,10 @@ func assertRunEqual(t *testing.T, want, got *domain.JobRun) {
 		t.Fatalf("run mismatch: got %+v want %+v", *got, *want)
 	}
 
-	if !bytes.Equal(got.Payload, want.Payload) {
+	if !jsonEqual(got.Payload, want.Payload) {
 		t.Fatalf("payload mismatch: got %s want %s", string(got.Payload), string(want.Payload))
 	}
-	if !bytes.Equal(got.Result, want.Result) {
+	if !jsonEqual(got.Result, want.Result) {
 		t.Fatalf("result mismatch: got %s want %s", string(got.Result), string(want.Result))
 	}
 
@@ -1062,4 +1063,20 @@ func assertEventTimesAsc(t *testing.T, events []domain.RunEvent) {
 
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
+}
+
+func jsonEqual(a, b []byte) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	var va, vb any
+	if err := json.Unmarshal(a, &va); err != nil {
+		return bytes.Equal(a, b)
+	}
+	if err := json.Unmarshal(b, &vb); err != nil {
+		return bytes.Equal(a, b)
+	}
+	ra, _ := json.Marshal(va)
+	rb, _ := json.Marshal(vb)
+	return bytes.Equal(ra, rb)
 }

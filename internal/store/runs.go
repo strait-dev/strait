@@ -33,7 +33,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		run.TriggeredBy = domain.TriggerManual
 	}
 
-	if run.Status == "" {
+	if run.Status == "" || run.Status == domain.StatusQueued {
 		run.Status = domain.StatusQueued
 		if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
 			run.Status = domain.StatusDelayed
