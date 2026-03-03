@@ -47,24 +47,30 @@ type ExecutorConfig struct {
 	Queue             queue.Queue
 	Store             ExecutorStore
 	Publisher         pubsub.Publisher
+	HTTPClient        *http.Client
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration
 	Metrics           *telemetry.Metrics
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
-	return &Executor{
-		pool:  cfg.Pool,
-		queue: cfg.Queue,
-		store: cfg.Store,
-		httpClient: &http.Client{
+	httpClient := cfg.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 10,
 				IdleConnTimeout:     90 * time.Second,
 				TLSHandshakeTimeout: 10 * time.Second,
 			},
-		},
+		}
+	}
+
+	return &Executor{
+		pool:         cfg.Pool,
+		queue:        cfg.Queue,
+		store:        cfg.Store,
+		httpClient:   httpClient,
 		pollInterval: cfg.PollInterval,
 		heartbeat:    NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
 		publisher:    cfg.Publisher,

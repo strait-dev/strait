@@ -1,0 +1,576 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"orchestrator/internal/domain"
+	"orchestrator/internal/queue"
+)
+
+type statusUpdateCall struct {
+	id     string
+	from   domain.RunStatus
+	to     domain.RunStatus
+	fields map[string]any
+}
+
+type mockExecutorStore struct {
+	getJobFn          func(ctx context.Context, id string) (*domain.Job, error)
+	updateRunStatusFn func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateHeartbeatFn func(ctx context.Context, id string) error
+
+	mu              sync.Mutex
+	statusCalls     []statusUpdateCall
+	heartbeatRunIDs []string
+}
+
+func (m *mockExecutorStore) GetJob(ctx context.Context, id string) (*domain.Job, error) {
+	if m.getJobFn == nil {
+		return nil, nil
+	}
+	return m.getJobFn(ctx, id)
+}
+
+func (m *mockExecutorStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+	m.mu.Lock()
+	m.statusCalls = append(m.statusCalls, statusUpdateCall{
+		id:     id,
+		from:   from,
+		to:     to,
+		fields: maps.Clone(fields),
+	})
+	m.mu.Unlock()
+
+	if m.updateRunStatusFn == nil {
+		return nil
+	}
+	return m.updateRunStatusFn(ctx, id, from, to, fields)
+}
+
+func (m *mockExecutorStore) UpdateHeartbeat(ctx context.Context, id string) error {
+	m.mu.Lock()
+	m.heartbeatRunIDs = append(m.heartbeatRunIDs, id)
+	m.mu.Unlock()
+
+	if m.updateHeartbeatFn == nil {
+		return nil
+	}
+	return m.updateHeartbeatFn(ctx, id)
+}
+
+func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	calls := make([]statusUpdateCall, len(m.statusCalls))
+	copy(calls, m.statusCalls)
+	return calls
+}
+
+type mockExecQueue struct {
+	enqueueFn  func(ctx context.Context, run *domain.JobRun) error
+	dequeueFn  func(ctx context.Context) (*domain.JobRun, error)
+	dequeueNFn func(ctx context.Context, n int) ([]domain.JobRun, error)
+}
+
+func (m *mockExecQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
+	if m.enqueueFn == nil {
+		return nil
+	}
+	return m.enqueueFn(ctx, run)
+}
+
+func (m *mockExecQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
+	if m.dequeueFn == nil {
+		return nil, nil
+	}
+	return m.dequeueFn(ctx)
+}
+
+func (m *mockExecQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
+	if m.dequeueNFn == nil {
+		return nil, nil
+	}
+	return m.dequeueNFn(ctx, n)
+}
+
+var _ queue.Queue = (*mockExecQueue)(nil)
+
+func testRun(attempt int) *domain.JobRun {
+	return &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+		Status:    domain.StatusDequeued,
+		Attempt:   attempt,
+		Payload:   json.RawMessage(`{"hello":"world"}`),
+	}
+}
+
+func testJob(endpoint string, maxAttempts, timeoutSecs int) *domain.Job {
+	return &domain.Job{
+		ID:          "job-1",
+		ProjectID:   "proj-1",
+		EndpointURL: endpoint,
+		MaxAttempts: maxAttempts,
+		TimeoutSecs: timeoutSecs,
+	}
+}
+
+func newTestExecutor(t *testing.T, store *mockExecutorStore, q queue.Queue, heartbeatInterval time.Duration, httpClient *http.Client) *Executor {
+	t.Helper()
+
+	pool := NewPool(4)
+	t.Cleanup(pool.Shutdown)
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: heartbeatInterval,
+		HTTPClient:        httpClient,
+	})
+	return exec
+}
+
+func waitForSignal(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+func TestExecutor_Dispatch_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Run-ID") != "run-1" {
+			t.Fatalf("X-Run-ID = %q, want %q", r.Header.Get("X-Run-ID"), "run-1")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusExecuting {
+		t.Fatalf("first transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusExecuting)
+	}
+	if calls[1].from != domain.StatusExecuting || calls[1].to != domain.StatusCompleted {
+		t.Fatalf("second transition = %s->%s, want %s->%s", calls[1].from, calls[1].to, domain.StatusExecuting, domain.StatusCompleted)
+	}
+
+	gotResult, ok := calls[1].fields["result"].(json.RawMessage)
+	if !ok {
+		t.Fatalf("result field type = %T, want json.RawMessage", calls[1].fields["result"])
+	}
+	if string(gotResult) != `{"ok":true}` {
+		t.Fatalf("result = %s, want %s", string(gotResult), `{"ok":true}`)
+	}
+	if run.Status != domain.StatusCompleted {
+		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusCompleted)
+	}
+}
+
+func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("upstream exploded"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	job := testJob(server.URL, 1, 5)
+	run := testRun(1)
+
+	_, err := exec.dispatch(context.Background(), job, run)
+	if err == nil {
+		t.Fatal("dispatch error = nil, want EndpointError")
+	}
+
+	var endpointErr *domain.EndpointError
+	if !errors.As(err, &endpointErr) {
+		t.Fatalf("dispatch error type = %T, want *domain.EndpointError", err)
+	}
+	if endpointErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("endpoint status = %d, want %d", endpointErr.StatusCode, http.StatusInternalServerError)
+	}
+	if endpointErr.Body != "upstream exploded" {
+		t.Fatalf("endpoint body = %q, want %q", endpointErr.Body, "upstream exploded")
+	}
+
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusFailed {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	}
+}
+
+func TestExecutor_Dispatch_Timeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		attempt     int
+		maxAttempts int
+		wantStatus  domain.RunStatus
+	}{
+		{name: "retry queued", attempt: 1, maxAttempts: 2, wantStatus: domain.StatusQueued},
+		{name: "final timed out", attempt: 2, maxAttempts: 2, wantStatus: domain.StatusTimedOut},
+	}
+
+	timeoutTransport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})
+	httpClient := &http.Client{Transport: timeoutTransport}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockExecutorStore{}
+			store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+				return testJob("http://timeout.test", tt.maxAttempts, 1), nil
+			}
+
+			exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, httpClient)
+			run := testRun(tt.attempt)
+
+			exec.execute(context.Background(), run)
+
+			calls := store.statusUpdates()
+			if len(calls) != 2 {
+				t.Fatalf("status update calls = %d, want 2", len(calls))
+			}
+			if calls[1].to != tt.wantStatus {
+				t.Fatalf("final status = %s, want %s", calls[1].to, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestExecutor_Dispatch_RetryOnFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("temporary failure"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusQueued {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusQueued)
+	}
+	attempt, ok := calls[1].fields["attempt"].(int)
+	if !ok {
+		t.Fatalf("attempt field type = %T, want int", calls[1].fields["attempt"])
+	}
+	if attempt != 2 {
+		t.Fatalf("attempt field = %d, want 2", attempt)
+	}
+}
+
+func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("hard failure"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 2, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusFailed {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	}
+	if run.Status != domain.StatusFailed {
+		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusFailed)
+	}
+}
+
+func TestExecutor_HandleSystemFailure(t *testing.T) {
+	store := &mockExecutorStore{}
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, nil)
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+
+	exec.handleSystemFailure(context.Background(), run, "db unavailable")
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].from != domain.StatusExecuting || calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusExecuting, domain.StatusSystemFailed)
+	}
+}
+
+func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
+	pool := NewPool(1)
+	defer pool.Shutdown()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-release
+	})
+	waitForSignal(t, started, "blocking task did not start")
+
+	var called atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(context.Context, int) ([]domain.JobRun, error) {
+			called.Add(1)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             &mockExecutorStore{},
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	if called.Load() != 0 {
+		t.Fatalf("DequeueN call count = %d, want 0", called.Load())
+	}
+
+	close(release)
+}
+
+func TestExecutor_Poll_EmptyQueue(t *testing.T) {
+	var dequeueCalls atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			dequeueCalls.Add(1)
+			if n <= 0 {
+				t.Fatalf("dequeue n = %d, want > 0", n)
+			}
+			return []domain.JobRun{}, nil
+		},
+	}
+
+	exec := newTestExecutor(t, &mockExecutorStore{}, q, time.Hour, nil)
+	exec.poll(context.Background())
+
+	if dequeueCalls.Load() != 1 {
+		t.Fatalf("DequeueN call count = %d, want 1", dequeueCalls.Load())
+	}
+	if got := exec.pool.ActiveCount(); got != 0 {
+		t.Fatalf("pool active count = %d, want 0", got)
+	}
+}
+
+func TestExecutor_Poll_DequeueError(t *testing.T) {
+	var dequeueCalls atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(context.Context, int) ([]domain.JobRun, error) {
+			dequeueCalls.Add(1)
+			return nil, errors.New("queue down")
+		},
+	}
+
+	exec := newTestExecutor(t, &mockExecutorStore{}, q, time.Hour, nil)
+	exec.poll(context.Background())
+
+	if dequeueCalls.Load() != 1 {
+		t.Fatalf("DequeueN call count = %d, want 1", dequeueCalls.Load())
+	}
+}
+
+func TestExecutor_Execute_JobLookupFails(t *testing.T) {
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return nil, errors.New("job lookup failed")
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, nil)
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("final status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
+	}
+}
+
+func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
+	hit := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		hit <- struct{}{}
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+	store.updateRunStatusFn = func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		if from == domain.StatusDequeued && to == domain.StatusExecuting {
+			return errors.New("write conflict")
+		}
+		return nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+
+	select {
+	case <-hit:
+		t.Fatal("dispatch was called after transition failure")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestHeartbeatSender_Run(t *testing.T) {
+	beats := make(chan struct{}, 10)
+	store := &mockExecutorStore{}
+	store.updateHeartbeatFn = func(context.Context, string) error {
+		beats <- struct{}{}
+		return nil
+	}
+
+	hb := NewHeartbeatSender(store, 10*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		hb.Run(ctx, "run-1")
+		close(done)
+	}()
+
+	for i := range 2 {
+		select {
+		case <-beats:
+		case <-time.After(300 * time.Millisecond):
+			t.Fatalf("heartbeat %d not received in time", i+1)
+		}
+	}
+
+	cancel()
+	waitForSignal(t, done, "heartbeat sender did not stop after cancel")
+}
+
+func TestExecutor_Dispatch_EmptyResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+	if _, ok := calls[1].fields["result"]; ok {
+		t.Fatal("result field present for empty response, want absent")
+	}
+}
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestExecutor_NilMetrics(t *testing.T) {
+	errTransport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("network down")
+	})
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              NewPool(1),
+		Queue:             &mockExecQueue{},
+		Store:             &mockExecutorStore{},
+		HTTPClient:        &http.Client{Transport: errTransport},
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+	t.Cleanup(exec.pool.Shutdown)
+
+	job := testJob("http://example.invalid", 1, 5)
+	run := testRun(1)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("dispatch panicked with nil metrics: %v", r)
+		}
+	}()
+
+	if _, err := exec.dispatch(context.Background(), job, run); err == nil {
+		t.Fatal("dispatch error = nil, want non-nil")
+	}
+}
