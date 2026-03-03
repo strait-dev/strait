@@ -15,6 +15,7 @@ import (
 	"orchestrator/internal/api"
 	"orchestrator/internal/config"
 	"orchestrator/internal/queue"
+	"orchestrator/internal/scheduler"
 	"orchestrator/internal/store"
 	"orchestrator/internal/worker"
 	"orchestrator/migrations"
@@ -138,10 +139,11 @@ func run() error {
 	if cfg.Mode == "worker" || cfg.Mode == "all" {
 		p := worker.NewPool(cfg.WorkerConcurrency)
 		exec := worker.NewExecutor(worker.ExecutorConfig{
-			Pool:         p,
-			Queue:        q,
-			Store:        queries,
-			PollInterval: cfg.PollerInterval,
+			Pool:              p,
+			Queue:             q,
+			Store:             queries,
+			PollInterval:      cfg.PollerInterval,
+			HeartbeatInterval: cfg.HeartbeatInterval,
 		})
 
 		g.Go(func() error {
@@ -153,6 +155,19 @@ func run() error {
 			<-gCtx.Done()
 			slog.Info("shutting down worker pool")
 			p.Shutdown()
+			return nil
+		})
+
+		// Start scheduler (cron, delayed poller, reaper)
+		sched := scheduler.New(cfg, queries, q)
+		if err := sched.Start(gCtx); err != nil {
+			return fmt.Errorf("start scheduler: %w", err)
+		}
+
+		g.Go(func() error {
+			<-gCtx.Done()
+			slog.Info("shutting down scheduler")
+			sched.Stop()
 			return nil
 		})
 	}
