@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+
+	"orchestrator/internal/domain"
 )
 
 type QueueStats struct {
@@ -12,13 +14,15 @@ type QueueStats struct {
 }
 
 func (q *Queries) QueueStats(ctx context.Context) (*QueueStats, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
-			COALESCE(SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END), 0) AS queued,
-			COALESCE(SUM(CASE WHEN status = 'executing' THEN 1 ELSE 0 END), 0) AS executing,
-			COALESCE(SUM(CASE WHEN status = 'delayed' THEN 1 ELSE 0 END), 0) AS delayed
+			COALESCE(SUM(CASE WHEN status = '%s' THEN 1 ELSE 0 END), 0) AS queued,
+			COALESCE(SUM(CASE WHEN status = '%s' THEN 1 ELSE 0 END), 0) AS executing,
+			COALESCE(SUM(CASE WHEN status = '%s' THEN 1 ELSE 0 END), 0) AS delayed
 		FROM job_runs
-		WHERE status IN ('queued', 'executing', 'delayed')`
+		WHERE status IN ('%s', '%s', '%s')`,
+		domain.StatusQueued, domain.StatusExecuting, domain.StatusDelayed,
+		domain.StatusQueued, domain.StatusExecuting, domain.StatusDelayed)
 
 	var stats QueueStats
 	err := q.db.QueryRow(ctx, query).Scan(&stats.Queued, &stats.Executing, &stats.Delayed)

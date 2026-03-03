@@ -80,13 +80,13 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 }
 
 func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE job_runs
-		SET status = 'dequeued', started_at = NOW()
+		SET status = '%s', started_at = NOW()
 		WHERE id = (
 			SELECT id
 			FROM job_runs
-			WHERE status = 'queued'
+			WHERE status = '%s'
 			  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
 			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
 			ORDER BY created_at ASC
@@ -95,7 +95,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		)
 		RETURNING id, job_id, project_id, status, attempt, payload, result, error,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, created_at`
+		          next_retry_at, expires_at, parent_run_id, created_at`, domain.StatusDequeued, domain.StatusQueued)
 
 	run, err := scanRun(q.db.QueryRow(ctx, query))
 	if err != nil {
@@ -109,11 +109,11 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 }
 
 func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
-	query := `
+	query := fmt.Sprintf(`
 		WITH claimed AS (
 			SELECT id
 			FROM job_runs
-			WHERE status = 'queued'
+			WHERE status = '%s'
 			  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
 			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
 			ORDER BY created_at ASC
@@ -121,7 +121,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			LIMIT $1
 		), updated AS (
 			UPDATE job_runs
-			SET status = 'dequeued', started_at = NOW()
+			SET status = '%s', started_at = NOW()
 			WHERE id IN (SELECT id FROM claimed)
 			RETURNING id, job_id, project_id, status, attempt, payload, result, error,
 			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
@@ -131,7 +131,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM updated
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC`, domain.StatusQueued, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, n)
 	if err != nil {

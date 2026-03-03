@@ -250,13 +250,13 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 }
 
 func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
-		WHERE status = 'executing' AND heartbeat_at < NOW() - $1::interval
-		ORDER BY heartbeat_at ASC`
+		WHERE status = '%s' AND heartbeat_at < NOW() - $1::interval
+		ORDER BY heartbeat_at ASC`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {
@@ -281,13 +281,13 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 }
 
 func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
-		WHERE status = 'delayed' AND scheduled_at <= NOW()
-		ORDER BY scheduled_at ASC`
+		WHERE status = '%s' AND scheduled_at <= NOW()
+		ORDER BY scheduled_at ASC`, domain.StatusDelayed)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -312,15 +312,15 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 }
 
 func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
-		WHERE status IN ('delayed', 'queued')
+		WHERE status IN ('%s', '%s')
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= NOW()
-		ORDER BY expires_at ASC`
+		ORDER BY expires_at ASC`, domain.StatusDelayed, domain.StatusQueued)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -376,13 +376,13 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 }
 
 func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
-		WHERE status = 'dequeued' AND started_at < NOW() - $1::interval
-		ORDER BY started_at ASC`
+		WHERE status = '%s' AND started_at < NOW() - $1::interval
+		ORDER BY started_at ASC`, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {
