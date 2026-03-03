@@ -117,11 +117,13 @@ func (s *Server) routes() chi.Router {
 				r.Patch("/", s.handleUpdateJob)
 				r.Delete("/", s.handleDeleteJob)
 				r.With(httprate.LimitByIP(10, time.Minute)).Post("/trigger", s.handleTriggerJob)
+				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
 			})
 		})
 
 		r.Route("/runs", func(r chi.Router) {
 			r.Get("/", s.handleListRuns)
+			r.Post("/bulk-cancel", s.handleBulkCancelRuns)
 			r.Route("/{runID}", func(r chi.Router) {
 				r.Get("/", s.handleGetRun)
 				r.Delete("/", s.handleCancelRun)
