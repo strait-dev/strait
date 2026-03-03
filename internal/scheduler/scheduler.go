@@ -1,0 +1,43 @@
+package scheduler
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"orchestrator/internal/config"
+	"orchestrator/internal/queue"
+	"orchestrator/internal/store"
+)
+
+type Scheduler struct {
+	cron   *CronScheduler
+	poller *DelayedPoller
+	reaper *Reaper
+}
+
+func New(cfg *config.Config, s store.Store, q queue.Queue) *Scheduler {
+	return &Scheduler{
+		cron:   NewCronScheduler(s, q),
+		poller: NewDelayedPoller(s, cfg.PollerInterval),
+		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold),
+	}
+}
+
+func (s *Scheduler) Start(ctx context.Context) error {
+	if err := s.cron.LoadJobs(ctx); err != nil {
+		return fmt.Errorf("load cron jobs: %w", err)
+	}
+
+	s.cron.Start()
+	go s.poller.Run(ctx)
+	go s.reaper.Run(ctx)
+
+	slog.Info("scheduler started")
+	return nil
+}
+
+func (s *Scheduler) Stop() {
+	s.cron.Stop()
+	slog.Info("scheduler stopped")
+}
