@@ -11,19 +11,21 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
 	"orchestrator/internal/store"
 )
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
-	pool              *Pool
-	queue             queue.Queue
-	store             store.Store
-	httpClient        *http.Client
-	pollInterval      time.Duration
-	heartbeat         *HeartbeatSender
-	logger            *slog.Logger
+	pool         *Pool
+	queue        queue.Queue
+	store        store.Store
+	httpClient   *http.Client
+	pollInterval time.Duration
+	heartbeat    *HeartbeatSender
+	publisher    pubsub.Publisher
+	logger       *slog.Logger
 }
 
 // ExecutorConfig holds configuration for the Executor.
@@ -31,19 +33,49 @@ type ExecutorConfig struct {
 	Pool              *Pool
 	Queue             queue.Queue
 	Store             store.Store
+	Publisher         pubsub.Publisher
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	return &Executor{
-		pool:              cfg.Pool,
-		queue:             cfg.Queue,
-		store:             cfg.Store,
-		httpClient:        &http.Client{},
-		pollInterval:      cfg.PollInterval,
-		heartbeat:         NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
-		logger:            slog.Default(),
+		pool:         cfg.Pool,
+		queue:        cfg.Queue,
+		store:        cfg.Store,
+		httpClient:   &http.Client{},
+		pollInterval: cfg.PollInterval,
+		heartbeat:    NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
+		publisher:    cfg.Publisher,
+		logger:       slog.Default(),
+	}
+}
+
+func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, eventType string, data map[string]any) {
+	if e.publisher == nil {
+		return
+	}
+
+	event := map[string]any{
+		"type":       eventType,
+		"run_id":     run.ID,
+		"job_id":     run.JobID,
+		"project_id": run.ProjectID,
+		"timestamp":  time.Now().UTC(),
+	}
+	for k, v := range data {
+		event[k] = v
+	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		e.logger.Error("failed to marshal event", "error", err)
+		return
+	}
+
+	channel := fmt.Sprintf("run:%s", run.ID)
+	if err := e.publisher.Publish(ctx, channel, payload); err != nil {
+		e.logger.Error("failed to publish event", "run_id", run.ID, "error", err)
 	}
 }
 
@@ -113,6 +145,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		return
 	}
 	run.Status = domain.StatusExecuting
+	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "dequeued", "to": "executing"})
 
 	// Start heartbeat
 	hbCtx, hbCancel := context.WithCancel(ctx)
@@ -200,6 +233,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, result
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
 	)
+	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "completed"})
 }
 
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, errMsg string) {
@@ -236,6 +270,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"attempt", run.Attempt+1,
 				"next_retry_at", retryAt,
 			)
+			e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
 		}
 		return
 	}
@@ -252,7 +287,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", err,
 		)
+		return
 	}
+	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "failed", "error": errMsg})
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
@@ -280,6 +317,8 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				"job_id", run.JobID,
 				"error", err,
 			)
+		} else {
+			e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
 		}
 		return
 	}
@@ -296,7 +335,9 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", err,
 		)
+		return
 	}
+	e.publishEvent(ctx, run, "status_change", map[string]any{"from": "executing", "to": "timed_out"})
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
@@ -312,5 +353,7 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 			"job_id", run.JobID,
 			"error", err,
 		)
+		return
 	}
+	e.publishEvent(ctx, run, "status_change", map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
 }
