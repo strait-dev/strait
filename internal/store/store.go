@@ -62,11 +62,20 @@ type WebhookDeliveryStore interface {
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
 }
 
+type APIKeyStore interface {
+	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error)
+	RevokeAPIKey(ctx context.Context, id string) error
+	TouchAPIKeyLastUsed(ctx context.Context, id string) error
+}
+
 type Store interface {
 	JobStore
 	RunStore
 	EventStore
 	WebhookDeliveryStore
+	APIKeyStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

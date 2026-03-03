@@ -38,6 +38,9 @@ type APIStore interface {
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
 	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error)
+	RevokeAPIKey(ctx context.Context, id string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 }
@@ -127,6 +130,12 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Get("/webhook-deliveries", s.handleListWebhookDeliveries)
+
+		r.Route("/api-keys", func(r chi.Router) {
+			r.Post("/", s.handleCreateAPIKey)
+			r.Get("/", s.handleListAPIKeys)
+			r.Delete("/{keyID}", s.handleRevokeAPIKey)
+		})
 
 		r.Get("/stats", s.handleStats)
 	})

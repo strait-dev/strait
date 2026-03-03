@@ -104,6 +104,20 @@ type WebhookDelivery struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
+// APIKey represents a per-project API key for authentication.
+type APIKey struct {
+	ID         string     `json:"id"`
+	ProjectID  string     `json:"project_id"`
+	Name       string     `json:"name"`
+	KeyHash    string     `json:"-"`
+	KeyPrefix  string     `json:"key_prefix"`
+	Scopes     []string   `json:"scopes"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+}
+
 func (s RunStatus) IsTerminal() bool {
 	switch s {
 	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:

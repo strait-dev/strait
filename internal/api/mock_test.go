@@ -24,6 +24,9 @@ type mockAPIStore struct {
 	insertEventFn             func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn   func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	createAPIKeyFn            func(ctx context.Context, key *domain.APIKey) error
+	listAPIKeysByProjectFn    func(ctx context.Context, projectID string) ([]domain.APIKey, error)
+	revokeAPIKeyFn            func(ctx context.Context, id string) error
 	updateHeartbeatFn         func(ctx context.Context, id string) error
 	queueStatsFn              func(ctx context.Context) (*store.QueueStats, error)
 }
@@ -117,6 +120,27 @@ func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, status string,
 		return m.listWebhookDeliveriesFn(ctx, status, limit)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
+	if m.createAPIKeyFn != nil {
+		return m.createAPIKeyFn(ctx, key)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error) {
+	if m.listAPIKeysByProjectFn != nil {
+		return m.listAPIKeysByProjectFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) RevokeAPIKey(ctx context.Context, id string) error {
+	if m.revokeAPIKeyFn != nil {
+		return m.revokeAPIKeyFn(ctx, id)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) UpdateHeartbeat(ctx context.Context, id string) error {
