@@ -47,6 +47,7 @@ type Store interface {
 	JobStore
 	RunStore
 	EventStore
+	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 
 type Queries struct {
