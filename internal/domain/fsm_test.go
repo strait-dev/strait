@@ -1,13 +1,18 @@
 package domain
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestValidateTransition_AllValidTransitions(t *testing.T) {
 	for from, toStatuses := range validTransitions {
 		for _, to := range toStatuses {
-			if err := ValidateTransition(from, to); err != nil {
-				t.Fatalf("expected valid transition %s -> %s, got error: %v", from, to, err)
-			}
+			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
+				if err := ValidateTransition(from, to); err != nil {
+					t.Errorf("expected valid transition %s -> %s, got error: %v", from, to, err)
+				}
+			})
 		}
 	}
 }
@@ -32,21 +37,25 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if err := ValidateTransition(tc.from, tc.to); err == nil {
-			t.Fatalf("expected invalid transition %s -> %s to fail", tc.from, tc.to)
-		}
+		t.Run(fmt.Sprintf("%s->%s", tc.from, tc.to), func(t *testing.T) {
+			if err := ValidateTransition(tc.from, tc.to); err == nil {
+				t.Errorf("expected invalid transition %s -> %s to fail", tc.from, tc.to)
+			}
+		})
 	}
 }
 
 func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 	for _, status := range TerminalStatuses() {
-		transitions, ok := validTransitions[status]
-		if !ok {
-			t.Fatalf("terminal status %s not found in validTransitions", status)
-		}
-		if len(transitions) != 0 {
-			t.Fatalf("terminal status %s should not have transitions", status)
-		}
+		t.Run(string(status), func(t *testing.T) {
+			transitions, ok := validTransitions[status]
+			if !ok {
+				t.Errorf("terminal status %s not found in validTransitions", status)
+			}
+			if len(transitions) != 0 {
+				t.Errorf("terminal status %s should not have transitions", status)
+			}
+		})
 	}
 }
 
@@ -70,9 +79,11 @@ func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if got := tc.status.IsTerminal(); got != tc.expected {
-			t.Fatalf("status %s IsTerminal() = %v, expected %v", tc.status, got, tc.expected)
-		}
+		t.Run(string(tc.status), func(t *testing.T) {
+			if got := tc.status.IsTerminal(); got != tc.expected {
+				t.Errorf("status %s IsTerminal() = %v, expected %v", tc.status, got, tc.expected)
+			}
+		})
 	}
 }
 
@@ -93,9 +104,11 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 	}
 
 	for _, status := range allStatuses {
-		if _, ok := validTransitions[status]; !ok {
-			t.Fatalf("status %s is missing from validTransitions map", status)
-		}
+		t.Run(string(status), func(t *testing.T) {
+			if _, ok := validTransitions[status]; !ok {
+				t.Errorf("status %s is missing from validTransitions map", status)
+			}
+		})
 	}
 
 	if len(validTransitions) != len(allStatuses) {

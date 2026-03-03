@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -19,10 +20,12 @@ func TestNextRetryDelay(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		delay := NextRetryDelay(tt.attempt)
-		if delay < tt.expectedMin || delay > tt.expectedMax {
-			t.Errorf("attempt %d: delay %v not in range [%v, %v]", tt.attempt, delay, tt.expectedMin, tt.expectedMax)
-		}
+		t.Run(fmt.Sprintf("attempt_%d", tt.attempt), func(t *testing.T) {
+			delay := NextRetryDelay(tt.attempt)
+			if delay < tt.expectedMin || delay > tt.expectedMax {
+				t.Errorf("attempt %d: delay %v not in range [%v, %v]", tt.attempt, delay, tt.expectedMin, tt.expectedMax)
+			}
+		})
 	}
 }
 
