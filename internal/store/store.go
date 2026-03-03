@@ -36,6 +36,7 @@ type RunStore interface {
 	ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	ListDueRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
+	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 }
 
 type EventStore interface {

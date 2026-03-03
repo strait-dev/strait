@@ -219,3 +219,43 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 	run, _ := s.store.GetRun(r.Context(), runID)
 	respondJSON(w, http.StatusOK, run)
 }
+
+func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
+	parentRunID := chi.URLParam(r, "runID")
+
+	var req struct {
+		JobSlug   string          `json:"job_slug"`
+		ProjectID string          `json:"project_id"`
+		Payload   json.RawMessage `json:"payload,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.JobSlug == "" || req.ProjectID == "" {
+		respondError(w, http.StatusBadRequest, "job_slug and project_id are required")
+		return
+	}
+
+	job, err := s.store.GetJobBySlug(r.Context(), req.ProjectID, req.JobSlug)
+	if err != nil || job == nil {
+		respondError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	run := &domain.JobRun{
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		Payload:     req.Payload,
+		TriggeredBy: "spawn",
+		ParentRunID: parentRunID,
+	}
+
+	if err := s.queue.Enqueue(r.Context(), run); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to enqueue child run")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, run)
+}

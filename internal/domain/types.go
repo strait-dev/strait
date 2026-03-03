@@ -43,6 +43,8 @@ type Job struct {
 	MaxAttempts   int             `json:"max_attempts"`
 	TimeoutSecs   int             `json:"timeout_secs"`
 	Enabled       bool            `json:"enabled"`
+	WebhookURL    string          `json:"webhook_url,omitempty"`
+	WebhookSecret string          `json:"webhook_secret,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
@@ -63,6 +65,7 @@ type JobRun struct {
 	HeartbeatAt *time.Time      `json:"heartbeat_at,omitempty"`
 	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
 	ExpiresAt   *time.Time      `json:"expires_at,omitempty"`
+	ParentRunID string          `json:"parent_run_id,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
 

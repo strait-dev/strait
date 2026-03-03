@@ -37,11 +37,11 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		INSERT INTO job_runs (
 			id, job_id, project_id, status, attempt, payload, result, error,
 			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			next_retry_at, expires_at
+			next_retry_at, expires_at, parent_run_id
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15
+			$9, $10, $11, $12, $13, $14, $15, $16
 		)
 		RETURNING created_at`
 
@@ -63,6 +63,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		run.HeartbeatAt,
 		run.NextRetryAt,
 		run.ExpiresAt,
+		nilIfEmptyString(run.ParentRunID),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create run: %w", err)
@@ -75,7 +76,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, created_at
+		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
 		WHERE id = $1`
 
@@ -91,7 +92,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, created_at
+		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
 		WHERE job_id = $1
 		ORDER BY created_at DESC
@@ -123,7 +124,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	baseQuery := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, created_at
+		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
 		WHERE project_id = $1`
 
@@ -252,7 +253,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, created_at
+		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
 		WHERE status = 'executing' AND heartbeat_at < NOW() - $1::interval
 		ORDER BY heartbeat_at ASC`
@@ -283,7 +284,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, created_at
+		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
 		WHERE status = 'delayed' AND scheduled_at <= NOW()
 		ORDER BY scheduled_at ASC`
@@ -314,7 +315,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, created_at
+		       next_retry_at, expires_at, parent_run_id, created_at
 		FROM job_runs
 		WHERE status IN ('delayed', 'queued')
 		  AND expires_at IS NOT NULL
@@ -343,6 +344,37 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	return runs, nil
 }
 
+func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error) {
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, created_at
+		FROM job_runs
+		WHERE parent_run_id = $1
+		ORDER BY created_at ASC`
+
+	rows, err := q.db.Query(ctx, query, parentRunID)
+	if err != nil {
+		return nil, fmt.Errorf("list child runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0)
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list child runs scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list child runs rows: %w", err)
+	}
+
+	return runs, nil
+}
+
 type runScanTarget interface {
 	Scan(dest ...any) error
 }
@@ -352,6 +384,7 @@ func scanRun(scanner runScanTarget) (*domain.JobRun, error) {
 	var payload []byte
 	var result []byte
 	var runError *string
+	var parentRunID *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -369,6 +402,7 @@ func scanRun(scanner runScanTarget) (*domain.JobRun, error) {
 		&run.HeartbeatAt,
 		&run.NextRetryAt,
 		&run.ExpiresAt,
+		&parentRunID,
 		&run.CreatedAt,
 	)
 	if err != nil {
@@ -383,6 +417,9 @@ func scanRun(scanner runScanTarget) (*domain.JobRun, error) {
 	}
 	if runError != nil {
 		run.Error = *runError
+	}
+	if parentRunID != nil {
+		run.ParentRunID = *parentRunID
 	}
 
 	return &run, nil
