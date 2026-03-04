@@ -20,6 +20,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var runError *string
 	var parentRunID *string
 	var idempotencyKey *string
+	var workflowStepRunID *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -42,6 +43,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&idempotencyKey,
 		&run.JobVersion,
 		&run.CreatedAt,
+		&workflowStepRunID,
 	)
 	if err != nil {
 		return nil, err
@@ -61,6 +63,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if idempotencyKey != nil {
 		run.IdempotencyKey = *idempotencyKey
+	}
+	if workflowStepRunID != nil {
+		run.WorkflowStepRunID = *workflowStepRunID
 	}
 
 	return &run, nil

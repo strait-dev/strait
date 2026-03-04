@@ -153,6 +153,7 @@ func TestScanRun_AllFields(t *testing.T) {
 			strPtr("idem-abc"),            // IdempotencyKey
 			3,                             // JobVersion
 			now,                           // CreatedAt
+			strPtr("step-run-001"),        // WorkflowStepRunID
 		},
 	}
 
@@ -197,6 +198,9 @@ func TestScanRun_AllFields(t *testing.T) {
 	if run.IdempotencyKey != "idem-abc" {
 		t.Errorf("IdempotencyKey = %q, want %q", run.IdempotencyKey, "idem-abc")
 	}
+	if run.WorkflowStepRunID != "step-run-001" {
+		t.Errorf("WorkflowStepRunID = %q, want %q", run.WorkflowStepRunID, "step-run-001")
+	}
 	if run.ScheduledAt == nil {
 		t.Error("ScheduledAt is nil, want non-nil")
 	}
@@ -236,6 +240,7 @@ func TestScanRun_NilOptionals(t *testing.T) {
 			(*string)(nil),             // IdempotencyKey
 			0,                          // JobVersion
 			now,                        // CreatedAt
+			(*string)(nil),             // WorkflowStepRunID
 		},
 	}
 
@@ -258,6 +263,9 @@ func TestScanRun_NilOptionals(t *testing.T) {
 	}
 	if run.IdempotencyKey != "" {
 		t.Errorf("IdempotencyKey = %q, want empty", run.IdempotencyKey)
+	}
+	if run.WorkflowStepRunID != "" {
+		t.Errorf("WorkflowStepRunID = %q, want empty", run.WorkflowStepRunID)
 	}
 	if run.ScheduledAt != nil {
 		t.Errorf("ScheduledAt = %v, want nil", run.ScheduledAt)
