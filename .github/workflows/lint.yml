@@ -31,3 +31,15 @@ jobs:
         with:
           version: latest
           args: --timeout=5m ./...
+
+      - name: Publish lint summary
+        if: always()
+        run: |
+          pkg_count=$(go list ./... | wc -l | tr -d ' ')
+          {
+            echo "## Lint Metrics"
+            echo ""
+            echo "- Packages linted: **${pkg_count}**"
+            echo "- Tests executed in this action: **0**"
+            echo "- Notes: test counts and per-package coverage are published by the Test workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
