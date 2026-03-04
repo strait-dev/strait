@@ -35,6 +35,13 @@ type Config struct {
 	RateLimitRequests int           `mapstructure:"RATE_LIMIT_REQUESTS"`
 	RateLimitWindow   time.Duration `mapstructure:"RATE_LIMIT_WINDOW"`
 
+	// Sequin CDC settings
+	SequinBaseURL      string `mapstructure:"SEQUIN_BASE_URL"`
+	SequinConsumerName string `mapstructure:"SEQUIN_CONSUMER_NAME"`
+	SequinAPIToken     string `mapstructure:"SEQUIN_API_TOKEN"`
+	SequinBatchSize    int    `mapstructure:"SEQUIN_BATCH_SIZE"`
+	SequinWaitTimeMs   int    `mapstructure:"SEQUIN_WAIT_TIME_MS"`
+
 	// CORS settings
 	CORSAllowedOrigins   []string `mapstructure:"CORS_ALLOWED_ORIGINS"`
 	CORSAllowCredentials bool     `mapstructure:"CORS_ALLOW_CREDENTIALS"`
@@ -55,6 +62,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	viper.SetDefault("RATE_LIMIT_REQUESTS", 100)
 	viper.SetDefault("RATE_LIMIT_WINDOW", time.Minute)
+	viper.SetDefault("SEQUIN_BATCH_SIZE", 10)
+	viper.SetDefault("SEQUIN_WAIT_TIME_MS", 5000)
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", []string{"*"})
 	viper.SetDefault("CORS_ALLOW_CREDENTIALS", false)
 
