@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -12,9 +13,13 @@ import (
 )
 
 var (
-	ErrJobNotFound = errors.New("job not found")
-	ErrRunNotFound = errors.New("run not found")
-	ErrRunConflict = errors.New("run status update conflict")
+	ErrJobNotFound             = errors.New("job not found")
+	ErrRunNotFound             = errors.New("run not found")
+	ErrRunConflict             = errors.New("run status update conflict")
+	ErrWorkflowNotFound        = errors.New("workflow not found")
+	ErrWorkflowStepNotFound    = errors.New("workflow step not found")
+	ErrWorkflowRunNotFound     = errors.New("workflow run not found")
+	ErrWorkflowStepRunNotFound = errors.New("workflow step run not found")
 )
 
 type DBTX interface {
@@ -76,6 +81,52 @@ type JobVersionStore interface {
 	GetJobVersion(ctx context.Context, jobID string, version int) (*domain.JobVersion, error)
 }
 
+type WorkflowStore interface {
+	CreateWorkflow(ctx context.Context, w *domain.Workflow) error
+	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
+	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
+	ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error)
+	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
+	DeleteWorkflow(ctx context.Context, id string) error
+}
+
+type WorkflowStepStore interface {
+	CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error
+	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	GetWorkflowStep(ctx context.Context, id string) (*domain.WorkflowStep, error)
+	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
+}
+
+// StepDepResult is returned by IncrementStepDeps for each step whose deps_completed was incremented.
+type StepDepResult struct {
+	StepRunID     string
+	StepRef       string
+	DepsCompleted int
+	DepsRequired  int
+	JobID         string
+	Condition     json.RawMessage
+	Payload       json.RawMessage
+	WorkflowRunID string
+}
+
+type WorkflowRunStore interface {
+	CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error
+	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
+	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
+	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+}
+
+type WorkflowStepRunStore interface {
+	CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error
+	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
+	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]StepDepResult, error)
+	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+}
+
 type Store interface {
 	JobStore
 	RunStore
@@ -83,6 +134,10 @@ type Store interface {
 	WebhookDeliveryStore
 	APIKeyStore
 	JobVersionStore
+	WorkflowStore
+	WorkflowStepStore
+	WorkflowRunStore
+	WorkflowStepRunStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 
