@@ -37,7 +37,7 @@ func TestReaper_ReapStale(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapStale(context.Background())
 
 	if transitioned.Load() != 2 {
@@ -68,7 +68,7 @@ func TestReaper_ReapExpired(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapExpired(context.Background())
 
 	if transitioned.Load() != 1 {
@@ -102,7 +102,7 @@ func TestReaper_ReapStaleDequeued(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapStaleDequeued(context.Background())
 
 	if transitioned.Load() != 1 {
@@ -128,7 +128,7 @@ func TestReaper_NoStaleRuns(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapStale(context.Background())
 	r.reapExpired(context.Background())
 	r.reapStaleDequeued(context.Background())
@@ -153,7 +153,7 @@ func TestReaper_RunLoop(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, 50*time.Millisecond, 30*time.Second)
+	r := NewReaper(ms, 50*time.Millisecond, 30*time.Second, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
@@ -176,7 +176,7 @@ func TestReaper_ReapStale_ListError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapStale(context.Background())
 
 	if transitioned.Load() != 0 {
@@ -204,7 +204,7 @@ func TestReaper_ReapStale_UpdateError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapStale(context.Background())
 
 	if updateCalls.Load() != 2 {
@@ -227,7 +227,7 @@ func TestReaper_ReapExpired_ListError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapExpired(context.Background())
 
 	if transitioned.Load() != 0 {
@@ -255,7 +255,7 @@ func TestReaper_ReapExpired_UpdateError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapExpired(context.Background())
 
 	if updateCalls.Load() != 2 {
@@ -278,7 +278,7 @@ func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapStaleDequeued(context.Background())
 
 	if transitioned.Load() != 0 {
@@ -306,7 +306,7 @@ func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second)
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
 	r.reapStaleDequeued(context.Background())
 
 	if updateCalls.Load() != 2 {

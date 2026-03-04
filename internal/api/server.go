@@ -46,6 +46,21 @@ type APIStore interface {
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
+	CreateWorkflow(ctx context.Context, w *domain.Workflow) error
+	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
+	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
+	ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error)
+	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
+	DeleteWorkflow(ctx context.Context, id string) error
+	CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error
+	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
+	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
+	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
+	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 }
 
 // Pinger checks service health.
@@ -53,24 +68,37 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-type Server struct {
-	router         chi.Router
-	store          APIStore
-	queue          queue.Queue
-	pubsub         pubsub.Publisher
-	config         *config.Config
-	metricsHandler http.Handler
-	pinger         Pinger
+// WorkflowCallback is called after a run reaches a terminal state via SDK or cancel.
+type WorkflowCallback interface {
+	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
-func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, pinger Pinger) *Server {
+type WorkflowTrigger interface {
+	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+}
+
+type Server struct {
+	router           chi.Router
+	store            APIStore
+	queue            queue.Queue
+	pubsub           pubsub.Publisher
+	config           *config.Config
+	metricsHandler   http.Handler
+	pinger           Pinger
+	workflowCallback WorkflowCallback
+	workflowEngine   WorkflowTrigger
+}
+
+func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, pinger Pinger, wfCallback WorkflowCallback, workflowEngine WorkflowTrigger) *Server {
 	srv := &Server{
-		store:          s,
-		queue:          q,
-		pubsub:         pub,
-		config:         cfg,
-		metricsHandler: metricsHandler,
-		pinger:         pinger,
+		store:            s,
+		queue:            q,
+		pubsub:           pub,
+		config:           cfg,
+		metricsHandler:   metricsHandler,
+		pinger:           pinger,
+		workflowCallback: wfCallback,
+		workflowEngine:   workflowEngine,
 	}
 	srv.router = srv.routes()
 	return srv
@@ -144,6 +172,27 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Get("/stats", s.handleStats)
+
+		r.Route("/workflows", func(r chi.Router) {
+			r.Post("/", s.handleCreateWorkflow)
+			r.Get("/", s.handleListWorkflows)
+			r.Route("/{workflowID}", func(r chi.Router) {
+				r.Get("/", s.handleGetWorkflow)
+				r.Patch("/", s.handleUpdateWorkflow)
+				r.Delete("/", s.handleDeleteWorkflow)
+				r.Post("/trigger", s.handleTriggerWorkflow)
+				r.Get("/runs", s.handleListWorkflowRuns)
+			})
+		})
+
+		r.Route("/workflow-runs", func(r chi.Router) {
+			r.Get("/", s.handleListWorkflowRunsByProject)
+			r.Route("/{workflowRunID}", func(r chi.Router) {
+				r.Get("/", s.handleGetWorkflowRun)
+				r.Delete("/", s.handleCancelWorkflowRun)
+				r.Get("/steps", s.handleListWorkflowStepRuns)
+			})
+		})
 	})
 
 	r.Route("/sdk/v1", func(r chi.Router) {

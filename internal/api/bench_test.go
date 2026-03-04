@@ -53,7 +53,7 @@ func BenchmarkHandleTriggerJob(b *testing.B) {
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
-	srv := NewServer(benchmarkConfig(), ms, mq, nil, nil, nil)
+	srv := NewServer(benchmarkConfig(), ms, mq, nil, nil, nil, nil, nil)
 	body := `{"payload":{"key":"value"}}`
 	var reqCount atomic.Uint64
 
@@ -83,7 +83,7 @@ func BenchmarkHandleBulkTrigger(b *testing.B) {
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
-	srv := NewServer(benchmarkConfig(), ms, mq, nil, nil, nil)
+	srv := NewServer(benchmarkConfig(), ms, mq, nil, nil, nil, nil, nil)
 	body := `{"items":[{},{},{},{},{},{},{},{},{},{}]}`
 
 	b.ReportAllocs()
@@ -114,7 +114,7 @@ func BenchmarkHandleBulkCancel(b *testing.B) {
 			return nil, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil)
+	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
 	body := `{"run_ids":["run-1","run-2","run-3","run-4","run-5","run-6","run-7","run-8","run-9","run-10"]}`
 
 	b.ReportAllocs()
@@ -139,7 +139,7 @@ func BenchmarkHandleStats(b *testing.B) {
 			return &store.QueueStats{Queued: 10, Executing: 4, Delayed: 2}, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil)
+	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -173,7 +173,7 @@ func BenchmarkHandleListJobs(b *testing.B) {
 			return jobs, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil)
+	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -205,7 +205,7 @@ func BenchmarkAPIKeyAuth(b *testing.B) {
 			return &store.QueueStats{Queued: 1, Executing: 1, Delayed: 1}, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil)
+	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
 	auth := "Bearer " + rawKey
 
 	b.ReportAllocs()
@@ -244,7 +244,7 @@ func TestConcurrentTrigger(t *testing.T) {
 	wg.Add(goroutines)
 	errs := make([]error, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			w := httptest.NewRecorder()
@@ -291,7 +291,7 @@ func TestConcurrentBulkTrigger(t *testing.T) {
 	wg.Add(goroutines)
 	errs := make([]error, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			w := httptest.NewRecorder()
@@ -322,7 +322,7 @@ func TestConcurrentBulkCancel(t *testing.T) {
 
 	runs := make(map[string]domain.RunStatus, totalRuns)
 	cancelAttempts := make(map[string]int, totalRuns)
-	for i := 0; i < totalRuns; i++ {
+	for i := range totalRuns {
 		runs[fmt.Sprintf("run-%d", i)] = domain.StatusExecuting
 	}
 
@@ -357,12 +357,12 @@ func TestConcurrentBulkCancel(t *testing.T) {
 	wg.Add(goroutines)
 	errs := make([]error, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			start := idx * runsPerRequest
 			runIDs := make([]string, 0, runsPerRequest)
-			for j := 0; j < runsPerRequest; j++ {
+			for j := range runsPerRequest {
 				runIDs = append(runIDs, "run-"+strconv.Itoa(start+j))
 			}
 			payload, err := json.Marshal(map[string]any{"run_ids": runIDs})
@@ -403,7 +403,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 
 	var enqueueCount atomic.Int64
 	runs := make(map[string]domain.RunStatus, bulkCancelOps*runsPerBulkCancel)
-	for i := 0; i < bulkCancelOps*runsPerBulkCancel; i++ {
+	for i := range bulkCancelOps * runsPerBulkCancel {
 		runs[fmt.Sprintf("mix-run-%d", i)] = domain.StatusExecuting
 	}
 
@@ -434,7 +434,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 		},
 		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, limit int, _ *time.Time) ([]domain.JobRun, error) {
 			out := make([]domain.JobRun, 0, limit)
-			for i := 0; i < limit; i++ {
+			for i := range limit {
 				out = append(out, domain.JobRun{ID: fmt.Sprintf("list-%d", i), ProjectID: projectID, Status: domain.StatusQueued})
 			}
 			return out, nil
@@ -455,7 +455,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 	wg.Add(goroutines)
 	errs := make([]error, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			w := httptest.NewRecorder()
@@ -471,7 +471,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 			case 1:
 				start := (idx / 4) * runsPerBulkCancel
 				runIDs := make([]string, 0, runsPerBulkCancel)
-				for j := 0; j < runsPerBulkCancel; j++ {
+				for j := range runsPerBulkCancel {
 					runIDs = append(runIDs, fmt.Sprintf("mix-run-%d", start+j))
 				}
 				payload, err := json.Marshal(map[string]any{"run_ids": runIDs})
@@ -528,7 +528,7 @@ func TestBurstTraffic(t *testing.T) {
 	var reqCount atomic.Uint64
 
 	const requests = 200
-	for i := 0; i < requests; i++ {
+	for i := range requests {
 		w := httptest.NewRecorder()
 		r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"burst":true}}`)
 		r.RemoteAddr = uniqueRemoteAddr(&reqCount)
@@ -566,10 +566,10 @@ func TestSustainedLoad(t *testing.T) {
 	wg.Add(workers)
 	errs := make([]error, workers)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		go func(idx int) {
 			defer wg.Done()
-			for j := 0; j < requestsPerWorker; j++ {
+			for j := range requestsPerWorker {
 				w := httptest.NewRecorder()
 				r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"sustained":true}}`)
 				r.RemoteAddr = uniqueRemoteAddr(&reqCount)
@@ -621,7 +621,7 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 	wg.Add(goroutines)
 	errs := make([]error, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			w := httptest.NewRecorder()

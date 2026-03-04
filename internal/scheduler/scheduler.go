@@ -28,7 +28,7 @@ func New(cfg *config.Config, s SchedulerStore, q queue.Queue) *Scheduler {
 	return &Scheduler{
 		cron:   NewCronScheduler(s, q),
 		poller: NewDelayedPoller(s, cfg.PollerInterval),
-		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold),
+		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, nil),
 	}
 }
 

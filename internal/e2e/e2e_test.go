@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 	testServer = api.NewServer(&config.Config{
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "test-jwt-key-must-be-at-least-32-chars-long",
-	}, testStore, testQueue, nil, nil, nil)
+	}, testStore, testQueue, nil, nil, nil, nil, nil)
 
 	code := m.Run()
 	testEnv.Cleanup(ctx)

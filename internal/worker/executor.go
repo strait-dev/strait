@@ -28,17 +28,24 @@ type ExecutorStore interface {
 	UpdateHeartbeat(ctx context.Context, id string) error
 }
 
+// WorkflowCallback is called after a job run reaches a terminal state.
+// Nil-safe: if nil, no callback is invoked.
+type WorkflowCallback interface {
+	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
+}
+
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
-	pool         *Pool
-	queue        queue.Queue
-	store        ExecutorStore
-	httpClient   *http.Client
-	pollInterval time.Duration
-	heartbeat    *HeartbeatSender
-	publisher    pubsub.Publisher
-	metrics      *telemetry.Metrics
-	logger       *slog.Logger
+	pool             *Pool
+	queue            queue.Queue
+	store            ExecutorStore
+	httpClient       *http.Client
+	pollInterval     time.Duration
+	heartbeat        *HeartbeatSender
+	publisher        pubsub.Publisher
+	metrics          *telemetry.Metrics
+	workflowCallback WorkflowCallback
+	logger           *slog.Logger
 }
 
 // ExecutorConfig holds configuration for the Executor.
@@ -51,6 +58,7 @@ type ExecutorConfig struct {
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration
 	Metrics           *telemetry.Metrics
+	WorkflowCallback  WorkflowCallback
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -67,15 +75,26 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 
 	return &Executor{
-		pool:         cfg.Pool,
-		queue:        cfg.Queue,
-		store:        cfg.Store,
-		httpClient:   httpClient,
-		pollInterval: cfg.PollInterval,
-		heartbeat:    NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
-		publisher:    cfg.Publisher,
-		metrics:      cfg.Metrics,
-		logger:       slog.Default(),
+		pool:             cfg.Pool,
+		queue:            cfg.Queue,
+		store:            cfg.Store,
+		httpClient:       httpClient,
+		pollInterval:     cfg.PollInterval,
+		heartbeat:        NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
+		publisher:        cfg.Publisher,
+		metrics:          cfg.Metrics,
+		workflowCallback: cfg.WorkflowCallback,
+		logger:           slog.Default(),
+	}
+}
+
+func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
+	if e.workflowCallback == nil {
+		return
+	}
+
+	if err := e.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
+		e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
 	}
 }
 
@@ -296,6 +315,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "completed"})
 	run.Status = domain.StatusCompleted
+	e.notifyWorkflowCallback(ctx, run)
 	e.pool.Submit(context.Background(), func() {
 		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer wCancel()
@@ -363,6 +383,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusFailed)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "failed", "error": errMsg})
 	run.Status = domain.StatusFailed
+	e.notifyWorkflowCallback(ctx, run)
 	e.pool.Submit(context.Background(), func() {
 		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer wCancel()
@@ -422,6 +443,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusTimedOut)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "timed_out"})
 	run.Status = domain.StatusTimedOut
+	e.notifyWorkflowCallback(ctx, run)
 	e.pool.Submit(context.Background(), func() {
 		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer wCancel()
@@ -449,6 +471,8 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	}
 	e.recordRunTransition(ctx, run.Status, domain.StatusSystemFailed)
 	e.publishEvent(ctx, run, map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
+	run.Status = domain.StatusSystemFailed
+	e.notifyWorkflowCallback(ctx, run)
 	// No webhook for system failures — job may not be available
 }
 

@@ -177,6 +177,14 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.workflowCallback != nil {
+		completedRun := *run
+		completedRun.Status = domain.StatusCompleted
+		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &completedRun); cbErr != nil {
+			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
+		}
+	}
+
 	if s.pubsub != nil {
 		payload, _ := json.Marshal(map[string]any{
 			"type":      "status_change",
@@ -233,6 +241,15 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusInternalServerError, "failed to update run")
 		}
 		return
+	}
+
+	if s.workflowCallback != nil {
+		failedRun := *run
+		failedRun.Status = domain.StatusFailed
+		failedRun.Error = req.Error
+		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &failedRun); cbErr != nil {
+			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
+		}
 	}
 
 	if s.pubsub != nil {

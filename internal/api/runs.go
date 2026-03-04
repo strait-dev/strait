@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -96,6 +97,15 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		respondError(w, http.StatusConflict, "failed to cancel run")
 		return
+	}
+
+	if s.workflowCallback != nil {
+		canceledRun := *run
+		canceledRun.Status = domain.StatusCanceled
+		canceledRun.Error = "canceled by user"
+		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &canceledRun); cbErr != nil {
+			slog.Error("workflow callback failed", "error", cbErr)
+		}
 	}
 
 	// Propagate cancellation to child runs

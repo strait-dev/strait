@@ -18,17 +18,35 @@ type ReaperStore interface {
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
 
-type Reaper struct {
-	store          ReaperStore
-	interval       time.Duration
-	staleThreshold time.Duration
+type WorkflowCallback interface {
+	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
-func NewReaper(s ReaperStore, interval, staleThreshold time.Duration) *Reaper {
+type Reaper struct {
+	store            ReaperStore
+	interval         time.Duration
+	staleThreshold   time.Duration
+	workflowCallback WorkflowCallback
+	logger           *slog.Logger
+}
+
+func NewReaper(s ReaperStore, interval, staleThreshold time.Duration, workflowCallback WorkflowCallback) *Reaper {
 	return &Reaper{
-		store:          s,
-		interval:       interval,
-		staleThreshold: staleThreshold,
+		store:            s,
+		interval:         interval,
+		staleThreshold:   staleThreshold,
+		workflowCallback: workflowCallback,
+		logger:           slog.Default(),
+	}
+}
+
+func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
+	if r.workflowCallback == nil {
+		return
+	}
+
+	if err := r.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
+		r.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
 	}
 }
 
@@ -69,6 +87,8 @@ func (r *Reaper) reapStale(ctx context.Context) {
 			slog.Error("failed to crash stale run", "run_id", run.ID, "job_id", run.JobID, "error", err)
 			continue
 		}
+		run.Status = domain.StatusCrashed
+		r.notifyWorkflowCallback(ctx, &run)
 
 		slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
 	}
@@ -93,6 +113,8 @@ func (r *Reaper) reapExpired(ctx context.Context) {
 			slog.Error("failed to expire run", "run_id", run.ID, "job_id", run.JobID, "from_status", run.Status, "error", err)
 			continue
 		}
+		run.Status = domain.StatusExpired
+		r.notifyWorkflowCallback(ctx, &run)
 
 		slog.Warn("run marked expired", "run_id", run.ID, "job_id", run.JobID, "from_status", run.Status)
 	}

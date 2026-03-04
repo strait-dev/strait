@@ -26,7 +26,7 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 	if pub != nil {
 		p = pub
 	}
-	return NewServer(cfg, s, q, p, nil, nil)
+	return NewServer(cfg, s, q, p, nil, nil, nil, nil)
 }
 
 func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, pinger Pinger) *Server {
@@ -39,7 +39,7 @@ func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPu
 	if pub != nil {
 		p = pub
 	}
-	return NewServer(cfg, s, q, p, nil, pinger)
+	return NewServer(cfg, s, q, p, nil, pinger, nil, nil)
 }
 
 func authedRequest(method, path string, body string) *http.Request {

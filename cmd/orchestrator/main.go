@@ -21,6 +21,7 @@ import (
 	"orchestrator/internal/store"
 	"orchestrator/internal/telemetry"
 	"orchestrator/internal/worker"
+	"orchestrator/internal/workflow"
 	"orchestrator/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -176,7 +177,8 @@ func run() error {
 		if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
 			pinger = redisPub
 		}
-		srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger)
+		workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
+		srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger, nil, workflowEngine)
 		httpServer := &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Port),
 			Handler:           srv,
