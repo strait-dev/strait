@@ -128,6 +128,15 @@ func (s *Server) routes() chi.Router {
 		r.Use(httprate.LimitByIP(s.config.RateLimitRequests, s.config.RateLimitWindow))
 	}
 
+	triggerRateLimitRequests := s.config.TriggerRateLimitRequests
+	if triggerRateLimitRequests <= 0 {
+		triggerRateLimitRequests = 10
+	}
+	triggerRateLimitWindow := s.config.TriggerRateLimitWindow
+	if triggerRateLimitWindow <= 0 {
+		triggerRateLimitWindow = time.Minute
+	}
+
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
 	if s.metricsHandler != nil {
@@ -145,7 +154,7 @@ func (s *Server) routes() chi.Router {
 				r.Get("/", s.handleGetJob)
 				r.Patch("/", s.handleUpdateJob)
 				r.Delete("/", s.handleDeleteJob)
-				r.With(httprate.LimitByIP(10, time.Minute)).Post("/trigger", s.handleTriggerJob)
+				r.With(httprate.LimitByIP(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
 				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.Get("/versions", s.handleListJobVersions)
 			})

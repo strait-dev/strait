@@ -35,6 +35,9 @@ type Config struct {
 	RateLimitRequests int           `mapstructure:"RATE_LIMIT_REQUESTS"`
 	RateLimitWindow   time.Duration `mapstructure:"RATE_LIMIT_WINDOW"`
 
+	TriggerRateLimitRequests int           `mapstructure:"TRIGGER_RATE_LIMIT_REQUESTS"`
+	TriggerRateLimitWindow   time.Duration `mapstructure:"TRIGGER_RATE_LIMIT_WINDOW"`
+
 	// Sequin CDC settings
 	SequinBaseURL      string `mapstructure:"SEQUIN_BASE_URL"`
 	SequinConsumerName string `mapstructure:"SEQUIN_CONSUMER_NAME"`
@@ -62,6 +65,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	viper.SetDefault("RATE_LIMIT_REQUESTS", 100)
 	viper.SetDefault("RATE_LIMIT_WINDOW", time.Minute)
+	viper.SetDefault("TRIGGER_RATE_LIMIT_REQUESTS", 10)
+	viper.SetDefault("TRIGGER_RATE_LIMIT_WINDOW", time.Minute)
 	viper.SetDefault("SEQUIN_BATCH_SIZE", 10)
 	viper.SetDefault("SEQUIN_WAIT_TIME_MS", 5000)
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", []string{"*"})
@@ -83,6 +88,7 @@ func Load() (*Config, error) {
 	cfg.DBMaxConns = viper.GetInt32("DB_MAX_CONNS")
 	cfg.DBMinConns = viper.GetInt32("DB_MIN_CONNS")
 	cfg.RateLimitWindow = viper.GetDuration("RATE_LIMIT_WINDOW")
+	cfg.TriggerRateLimitWindow = viper.GetDuration("TRIGGER_RATE_LIMIT_WINDOW")
 	cfg.CORSAllowedOrigins = viper.GetStringSlice("CORS_ALLOWED_ORIGINS")
 	cfg.CORSAllowCredentials = viper.GetBool("CORS_ALLOW_CREDENTIALS")
 	cfg.RedisSentinelAddrs = viper.GetStringSlice("REDIS_SENTINEL_ADDRS")
