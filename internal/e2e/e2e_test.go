@@ -1,0 +1,654 @@
+//go:build integration
+
+package e2e_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"orchestrator/internal/api"
+	"orchestrator/internal/config"
+	"orchestrator/internal/domain"
+	"orchestrator/internal/queue"
+	"orchestrator/internal/store"
+	"orchestrator/internal/testutil"
+
+	"github.com/google/uuid"
+)
+
+var (
+	testEnv    *testutil.TestEnv
+	testStore  *store.Queries
+	testQueue  *queue.PostgresQueue
+	testServer *api.Server
+)
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	var err error
+	testEnv, err = testutil.SetupTestEnv(ctx, "../../migrations")
+	if err != nil {
+		log.Fatalf("setup test env: %v", err)
+	}
+
+	testStore = store.New(testEnv.DB.Pool)
+	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
+	testServer = api.NewServer(&config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "test-jwt-key-must-be-at-least-32-chars-long",
+	}, testStore, testQueue, nil, nil, nil, nil, nil)
+
+	code := m.Run()
+	testEnv.Cleanup(ctx)
+	os.Exit(code)
+}
+
+func mustClean(t *testing.T) {
+	t.Helper()
+	if err := testEnv.DB.CleanTables(context.Background()); err != nil {
+		t.Fatalf("clean tables: %v", err)
+	}
+}
+
+func authedRequest(method, path, body string) *http.Request {
+	var req *http.Request
+	if body == "" {
+		req = httptest.NewRequest(method, path, nil)
+	} else {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+	}
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+func doRequest(t *testing.T, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	w := httptest.NewRecorder()
+	testServer.ServeHTTP(w, authedRequest(method, path, body))
+	return w
+}
+
+func doSDKRequest(t *testing.T, method, path, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var req *http.Request
+	if body == "" {
+		req = httptest.NewRequest(method, path, nil)
+	} else {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	testServer.ServeHTTP(w, req)
+	return w
+}
+
+func mustDecodeObject(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return resp
+}
+
+func mustDecodeList(t *testing.T, w *httptest.ResponseRecorder) []map[string]any {
+	t.Helper()
+	var resp []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return resp
+}
+
+func asString(t *testing.T, m map[string]any, key string) string {
+	t.Helper()
+	v, ok := m[key].(string)
+	if !ok {
+		t.Fatalf("%s is not a string: %T", key, m[key])
+	}
+	return v
+}
+
+func asBool(t *testing.T, m map[string]any, key string) bool {
+	t.Helper()
+	v, ok := m[key].(bool)
+	if !ok {
+		t.Fatalf("%s is not a bool: %T", key, m[key])
+	}
+	return v
+}
+
+func asInt(t *testing.T, m map[string]any, key string) int {
+	t.Helper()
+	v, ok := m[key].(float64)
+	if !ok {
+		t.Fatalf("%s is not a number: %T", key, m[key])
+	}
+	return int(v)
+}
+
+func asObject(t *testing.T, m map[string]any, key string) map[string]any {
+	t.Helper()
+	v, ok := m[key].(map[string]any)
+	if !ok {
+		t.Fatalf("%s is not an object: %T", key, m[key])
+	}
+	return v
+}
+
+func newID() string {
+	return uuid.Must(uuid.NewV7()).String()
+}
+
+func createJob(t *testing.T, projectID, name, slug string) map[string]any {
+	t.Helper()
+	body := fmt.Sprintf(`{"project_id":"%s","name":"%s","slug":"%s","description":"%s description","cron":"*/5 * * * *","payload_schema":{"type":"object"},"endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"run_ttl_secs":600}`,
+		projectID, name, slug, name, slug)
+	w := doRequest(t, http.MethodPost, "/v1/jobs/", body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
+	}
+	return mustDecodeObject(t, w)
+}
+
+func triggerJob(t *testing.T, jobID, body string, idempotencyKey string) map[string]any {
+	t.Helper()
+	req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", body)
+	if idempotencyKey != "" {
+		req.Header.Set("X-Idempotency-Key", idempotencyKey)
+	}
+	w := httptest.NewRecorder()
+	testServer.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
+	}
+	return mustDecodeObject(t, w)
+}
+
+func TestE2E_CreateJob(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-create-" + newID()
+	resp := createJob(t, projectID, "create-job", "create-job-"+newID())
+
+	if asString(t, resp, "id") == "" {
+		t.Fatal("expected non-empty id")
+	}
+	if asInt(t, resp, "version") != 1 {
+		t.Fatalf("expected version 1, got %d", asInt(t, resp, "version"))
+	}
+	if !asBool(t, resp, "enabled") {
+		t.Fatal("expected enabled=true")
+	}
+}
+
+func TestE2E_GetJob(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-get-" + newID()
+	slug := "get-job-" + newID()
+	created := createJob(t, projectID, "Get Job", slug)
+	jobID := asString(t, created, "id")
+
+	w := doRequest(t, http.MethodGet, "/v1/jobs/"+jobID+"/", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get job status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	resp := mustDecodeObject(t, w)
+	if asString(t, resp, "id") != jobID {
+		t.Fatalf("expected id %s, got %s", jobID, asString(t, resp, "id"))
+	}
+	if asString(t, resp, "project_id") != projectID {
+		t.Fatalf("expected project_id %s", projectID)
+	}
+	if asString(t, resp, "slug") != slug {
+		t.Fatalf("expected slug %s", slug)
+	}
+	if asString(t, resp, "endpoint_url") == "" {
+		t.Fatal("expected endpoint_url")
+	}
+}
+
+func TestE2E_ListJobs(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-list-jobs-" + newID()
+	createJob(t, projectID, "job-one", "job-one-"+newID())
+	createJob(t, projectID, "job-two", "job-two-"+newID())
+	createJob(t, projectID, "job-three", "job-three-"+newID())
+
+	w := doRequest(t, http.MethodGet, "/v1/jobs/?project_id="+projectID, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list jobs status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	resp := mustDecodeList(t, w)
+	if len(resp) != 3 {
+		t.Fatalf("expected 3 jobs, got %d", len(resp))
+	}
+}
+
+func TestE2E_UpdateJob(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-update-" + newID()
+	created := createJob(t, projectID, "Old Name", "update-job-"+newID())
+	jobID := asString(t, created, "id")
+
+	w := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"New Name"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update job status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	resp := mustDecodeObject(t, w)
+	if asString(t, resp, "name") != "New Name" {
+		t.Fatalf("expected updated name, got %s", asString(t, resp, "name"))
+	}
+	if asInt(t, resp, "version") != 2 {
+		t.Fatalf("expected version 2, got %d", asInt(t, resp, "version"))
+	}
+}
+
+func TestE2E_DeleteJob(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-delete-" + newID()
+	created := createJob(t, projectID, "Delete Job", "delete-job-"+newID())
+	jobID := asString(t, created, "id")
+
+	w := doRequest(t, http.MethodDelete, "/v1/jobs/"+jobID+"/", "")
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("delete job status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/jobs/"+jobID+"/", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get deleted job status = %d, body = %s", w.Code, w.Body.String())
+	}
+	resp := mustDecodeObject(t, w)
+	if asBool(t, resp, "enabled") {
+		t.Fatal("expected enabled=false after delete")
+	}
+}
+
+func TestE2E_TriggerJob(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-trigger-" + newID()
+	job := createJob(t, projectID, "Trigger Job", "trigger-job-"+newID())
+	jobID := asString(t, job, "id")
+
+	resp := triggerJob(t, jobID, `{"payload":{"k":"v"}}`, "")
+	if asString(t, resp, "id") == "" {
+		t.Fatal("expected run id")
+	}
+	if asString(t, resp, "status") != string(domain.StatusQueued) {
+		t.Fatalf("expected queued status, got %s", asString(t, resp, "status"))
+	}
+	if asString(t, resp, "run_token") == "" {
+		t.Fatal("expected run_token")
+	}
+}
+
+func TestE2E_TriggerAndVerifyRun(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-trigger-verify-" + newID()
+	job := createJob(t, projectID, "Verify Run", "verify-run-"+newID())
+	jobID := asString(t, job, "id")
+
+	triggerResp := triggerJob(t, jobID, `{"payload":{"answer":42}}`, "")
+	runID := asString(t, triggerResp, "id")
+
+	w := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	run := mustDecodeObject(t, w)
+	if asString(t, run, "status") != string(domain.StatusQueued) {
+		t.Fatalf("expected queued status, got %s", asString(t, run, "status"))
+	}
+	if asString(t, run, "job_id") != jobID {
+		t.Fatalf("expected job_id %s", jobID)
+	}
+	if asString(t, run, "project_id") != projectID {
+		t.Fatalf("expected project_id %s", projectID)
+	}
+	payload := asObject(t, run, "payload")
+	if int(payload["answer"].(float64)) != 42 {
+		t.Fatalf("expected payload answer=42, got %v", payload["answer"])
+	}
+	if asInt(t, run, "job_version") != 1 {
+		t.Fatalf("expected job_version=1, got %d", asInt(t, run, "job_version"))
+	}
+}
+
+func TestE2E_FullLifecycle(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-full-lifecycle-" + newID()
+	job := createJob(t, projectID, "Full Lifecycle", "full-lifecycle-"+newID())
+	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"flow":"full"}}`, "")
+	runID := asString(t, triggerResp, "id")
+
+	w := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
+	}
+	run := mustDecodeObject(t, w)
+	if asString(t, run, "status") != string(domain.StatusQueued) {
+		t.Fatalf("expected queued status, got %s", asString(t, run, "status"))
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs := mustDecodeList(t, w)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if asString(t, runs[0], "id") != runID {
+		t.Fatalf("expected run id %s in list", runID)
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/stats", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("stats status = %d, body = %s", w.Code, w.Body.String())
+	}
+	stats := mustDecodeObject(t, w)
+	if asInt(t, stats, "queued") != 1 {
+		t.Fatalf("expected queued=1, got %d", asInt(t, stats, "queued"))
+	}
+}
+
+func TestE2E_IdempotentTrigger(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-idempotent-" + newID()
+	job := createJob(t, projectID, "Idempotent", "idempotent-"+newID())
+	jobID := asString(t, job, "id")
+	idempotencyKey := "idem-" + newID()
+
+	first := triggerJob(t, jobID, `{"payload":{"x":1}}`, idempotencyKey)
+	second := triggerJob(t, jobID, `{"payload":{"x":2}}`, idempotencyKey)
+
+	if asString(t, first, "id") != asString(t, second, "id") {
+		t.Fatalf("expected same run id, got %s and %s", asString(t, first, "id"), asString(t, second, "id"))
+	}
+
+	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs := mustDecodeList(t, w)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run from idempotent trigger, got %d", len(runs))
+	}
+}
+
+func TestE2E_DelayedRun(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-delayed-" + newID()
+	job := createJob(t, projectID, "Delayed", "delayed-"+newID())
+	jobID := asString(t, job, "id")
+
+	scheduledAt := time.Now().UTC().Add(30 * time.Minute).Round(time.Second)
+	body := fmt.Sprintf(`{"payload":{"kind":"delayed"},"scheduled_at":"%s"}`, scheduledAt.Format(time.RFC3339))
+	triggerResp := triggerJob(t, jobID, body, "")
+	if asString(t, triggerResp, "status") != string(domain.StatusDelayed) {
+		t.Fatalf("expected delayed status, got %s", asString(t, triggerResp, "status"))
+	}
+
+	runID := asString(t, triggerResp, "id")
+	w := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get delayed run status = %d, body = %s", w.Code, w.Body.String())
+	}
+	run := mustDecodeObject(t, w)
+	gotScheduled := asString(t, run, "scheduled_at")
+	parsedScheduled, err := time.Parse(time.RFC3339, gotScheduled)
+	if err != nil {
+		t.Fatalf("parse scheduled_at: %v", err)
+	}
+	if parsedScheduled.Sub(scheduledAt) > time.Second || scheduledAt.Sub(parsedScheduled) > time.Second {
+		t.Fatalf("scheduled_at mismatch: got %s want %s", parsedScheduled.Format(time.RFC3339), scheduledAt.Format(time.RFC3339))
+	}
+}
+
+func TestE2E_PriorityOrdering(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-priority-" + newID()
+	job := createJob(t, projectID, "Priority", "priority-"+newID())
+	jobID := asString(t, job, "id")
+
+	run0 := triggerJob(t, jobID, `{"priority":0}`, "")
+	run10 := triggerJob(t, jobID, `{"priority":10}`, "")
+	run5 := triggerJob(t, jobID, `{"priority":5}`, "")
+
+	_ = run0
+	_ = run5
+
+	dequeued, err := testQueue.Dequeue(context.Background())
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("expected dequeued run")
+	}
+	if dequeued.Priority != 10 {
+		t.Fatalf("expected priority 10 first, got %d", dequeued.Priority)
+	}
+	if dequeued.ID != asString(t, run10, "id") {
+		t.Fatalf("expected run %s first, got %s", asString(t, run10, "id"), dequeued.ID)
+	}
+}
+
+func TestE2E_ListRunsByProject(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-list-runs-" + newID()
+	job1 := createJob(t, projectID, "Runs A", "runs-a-"+newID())
+	job2 := createJob(t, projectID, "Runs B", "runs-b-"+newID())
+	triggerJob(t, asString(t, job1, "id"), `{"payload":{"j":1}}`, "")
+	triggerJob(t, asString(t, job2, "id"), `{"payload":{"j":2}}`, "")
+
+	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs := mustDecodeList(t, w)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+}
+
+func TestE2E_ListRunsFilterByStatus(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-filter-status-" + newID()
+	job := createJob(t, projectID, "Filter Status", "filter-status-"+newID())
+	jobID := asString(t, job, "id")
+
+	triggerJob(t, jobID, `{"payload":{"run":1}}`, "")
+	cancelRun := triggerJob(t, jobID, `{"payload":{"run":2}}`, "")
+	cancelRunID := asString(t, cancelRun, "id")
+
+	err := testStore.UpdateRunStatus(context.Background(), cancelRunID, domain.StatusQueued, domain.StatusCanceled, map[string]any{
+		"finished_at": time.Now().UTC(),
+		"error":       "canceled in e2e",
+	})
+	if err != nil {
+		t.Fatalf("update run status: %v", err)
+	}
+
+	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&status="+string(domain.StatusCanceled), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list filtered runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs := mustDecodeList(t, w)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 canceled run, got %d", len(runs))
+	}
+	if asString(t, runs[0], "id") != cancelRunID {
+		t.Fatalf("expected canceled run id %s, got %s", cancelRunID, asString(t, runs[0], "id"))
+	}
+}
+
+func TestE2E_ListRunsPagination(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-pagination-" + newID()
+	job := createJob(t, projectID, "Pagination", "pagination-"+newID())
+	jobID := asString(t, job, "id")
+
+	for i := range 5 {
+		triggerJob(t, jobID, fmt.Sprintf(`{"payload":{"idx":%d}}`, i), "")
+	}
+
+	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&limit=2", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list runs page1 status = %d, body = %s", w.Code, w.Body.String())
+	}
+	page1 := mustDecodeList(t, w)
+	if len(page1) != 2 {
+		t.Fatalf("expected 2 runs in page1, got %d", len(page1))
+	}
+
+	cursor := asString(t, page1[1], "created_at")
+	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&limit=2&cursor="+url.QueryEscape(cursor), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list runs page2 status = %d, body = %s", w.Code, w.Body.String())
+	}
+	page2 := mustDecodeList(t, w)
+	if len(page2) != 2 {
+		t.Fatalf("expected 2 runs in page2, got %d", len(page2))
+	}
+
+	if asString(t, page1[0], "id") == asString(t, page2[0], "id") {
+		t.Fatal("expected different runs across pages")
+	}
+}
+
+func TestE2E_RunEvents(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-events-" + newID()
+	job := createJob(t, projectID, "Events", "events-"+newID())
+	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"events":true}}`, "")
+	runID := asString(t, triggerResp, "id")
+	runToken := asString(t, triggerResp, "run_token")
+
+	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"type":"log","level":"info","message":"Processing started","data":{"step":1}}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("sdk log status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/events", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list run events status = %d, body = %s", w.Code, w.Body.String())
+	}
+	events := mustDecodeList(t, w)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if asString(t, events[0], "message") != "Processing started" {
+		t.Fatalf("expected event message, got %s", asString(t, events[0], "message"))
+	}
+}
+
+func TestE2E_Health(t *testing.T) {
+	mustClean(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	testServer.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("health status = %d, body = %s", w.Code, w.Body.String())
+	}
+	resp := mustDecodeObject(t, w)
+	if asString(t, resp, "status") != "ok" {
+		t.Fatalf("expected status=ok, got %s", asString(t, resp, "status"))
+	}
+}
+
+func TestE2E_HealthReady(t *testing.T) {
+	mustClean(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	testServer.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("health ready status = %d, body = %s", w.Code, w.Body.String())
+	}
+}
+
+func TestE2E_Stats(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-stats-" + newID()
+	job := createJob(t, projectID, "Stats", "stats-"+newID())
+	jobID := asString(t, job, "id")
+
+	triggerJob(t, jobID, `{"payload":{"kind":"queued"}}`, "")
+	scheduledAt := time.Now().UTC().Add(45 * time.Minute).Format(time.RFC3339)
+	triggerJob(t, jobID, fmt.Sprintf(`{"payload":{"kind":"delayed"},"scheduled_at":"%s"}`, scheduledAt), "")
+
+	w := doRequest(t, http.MethodGet, "/v1/stats", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("stats status = %d, body = %s", w.Code, w.Body.String())
+	}
+	stats := mustDecodeObject(t, w)
+	if asInt(t, stats, "queued") != 1 {
+		t.Fatalf("expected queued=1, got %d", asInt(t, stats, "queued"))
+	}
+	if asInt(t, stats, "delayed") != 1 {
+		t.Fatalf("expected delayed=1, got %d", asInt(t, stats, "delayed"))
+	}
+	if asInt(t, stats, "executing") != 0 {
+		t.Fatalf("expected executing=0, got %d", asInt(t, stats, "executing"))
+	}
+}
+
+func TestE2E_AuthRequired(t *testing.T) {
+	mustClean(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/?project_id=proj", nil)
+	testServer.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestE2E_AuthInvalidSecret(t *testing.T) {
+	mustClean(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/?project_id=proj", nil)
+	req.Header.Set("X-Internal-Secret", "wrong-secret")
+	testServer.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}

@@ -1,0 +1,206 @@
+package workflow
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"orchestrator/internal/domain"
+)
+
+func TestEvaluateCondition(t *testing.T) {
+	tests := []struct {
+		name         string
+		cond         json.RawMessage
+		stepStatuses map[string]domain.StepRunStatus
+		want         bool
+		wantErr      bool
+		errContains  string
+	}{
+		{
+			name:         "nil condition -> true",
+			cond:         nil,
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name:         "empty condition -> true",
+			cond:         json.RawMessage{},
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name: "step_status: completed match -> true",
+			cond: mustJSON(`{"type":"step_status","step_ref":"validate-data","status":"completed"}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepCompleted,
+			},
+			want: true,
+		},
+		{
+			name: "step_status: completed mismatch -> false",
+			cond: mustJSON(`{"type":"step_status","step_ref":"validate-data","status":"completed"}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepFailed,
+			},
+			want: false,
+		},
+		{
+			name: "step_status: failed match -> true",
+			cond: mustJSON(`{"type":"step_status","step_ref":"validate-data","status":"failed"}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepFailed,
+			},
+			want: true,
+		},
+		{
+			name:         "step_status: unknown step_ref -> error",
+			cond:         mustJSON(`{"type":"step_status","step_ref":"missing-step","status":"completed"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			wantErr:      true,
+			errContains:  `step "missing-step" not found in statuses`,
+		},
+		{
+			name: "all_of: all true -> true",
+			cond: mustJSON(`{
+				"type":"all_of",
+				"conditions":[
+					{"type":"step_status","step_ref":"validate-data","status":"completed"},
+					{"type":"step_status","step_ref":"prepare-input","status":"failed"}
+				]
+			}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepCompleted,
+				"prepare-input": domain.StepFailed,
+			},
+			want: true,
+		},
+		{
+			name: "all_of: one false -> false",
+			cond: mustJSON(`{
+				"type":"all_of",
+				"conditions":[
+					{"type":"step_status","step_ref":"validate-data","status":"completed"},
+					{"type":"step_status","step_ref":"prepare-input","status":"failed"}
+				]
+			}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepCompleted,
+				"prepare-input": domain.StepCompleted,
+			},
+			want: false,
+		},
+		{
+			name:         "all_of: empty conditions -> true",
+			cond:         mustJSON(`{"type":"all_of","conditions":[]}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name: "any_of: one true -> true",
+			cond: mustJSON(`{
+				"type":"any_of",
+				"conditions":[
+					{"type":"step_status","step_ref":"validate-data","status":"failed"},
+					{"type":"step_status","step_ref":"prepare-input","status":"completed"}
+				]
+			}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepCompleted,
+				"prepare-input": domain.StepCompleted,
+			},
+			want: true,
+		},
+		{
+			name: "any_of: none true -> false",
+			cond: mustJSON(`{
+				"type":"any_of",
+				"conditions":[
+					{"type":"step_status","step_ref":"validate-data","status":"failed"},
+					{"type":"step_status","step_ref":"prepare-input","status":"failed"}
+				]
+			}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepCompleted,
+				"prepare-input": domain.StepCompleted,
+			},
+			want: false,
+		},
+		{
+			name:         "any_of: empty conditions -> false",
+			cond:         mustJSON(`{"type":"any_of","conditions":[]}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         false,
+		},
+		{
+			name: "nested: all_of containing any_of -> works",
+			cond: mustJSON(`{
+				"type":"all_of",
+				"conditions":[
+					{"type":"step_status","step_ref":"validate-data","status":"completed"},
+					{
+						"type":"any_of",
+						"conditions":[
+							{"type":"step_status","step_ref":"prepare-input","status":"failed"},
+							{"type":"step_status","step_ref":"send-email","status":"completed"}
+						]
+					}
+				]
+			}`),
+			stepStatuses: map[string]domain.StepRunStatus{
+				"validate-data": domain.StepCompleted,
+				"prepare-input": domain.StepCompleted,
+				"send-email":    domain.StepCompleted,
+			},
+			want: true,
+		},
+		{
+			name:         "unknown type -> error",
+			cond:         mustJSON(`{"type":"foobar"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			wantErr:      true,
+			errContains:  `unknown condition type: "foobar"`,
+		},
+		{
+			name:         "invalid JSON -> error",
+			cond:         mustJSON(`{"type":`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			wantErr:      true,
+		},
+		{
+			name:         "step_status: missing step_ref field -> error",
+			cond:         mustJSON(`{"type":"step_status","status":"completed"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			wantErr:      true,
+			errContains:  "step_ref is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := EvaluateCondition(tt.cond, tt.stepStatuses)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Fatalf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if got != tt.want {
+				t.Fatalf("EvaluateCondition() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func mustJSON(s string) json.RawMessage {
+	return json.RawMessage(s)
+}

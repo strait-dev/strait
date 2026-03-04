@@ -1,0 +1,149 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"orchestrator/internal/dbscan"
+	"orchestrator/internal/domain"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel"
+)
+
+func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflowStep")
+	defer span.End()
+
+	if step.ID == "" {
+		step.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if step.OnFailure == "" {
+		step.OnFailure = domain.FailWorkflow
+	}
+
+	query := `
+		INSERT INTO workflow_steps (id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		step.ID,
+		step.WorkflowID,
+		step.JobID,
+		step.StepRef,
+		step.DependsOn,
+		dbscan.NilIfEmptyRawMessage(step.Condition),
+		string(step.OnFailure),
+		dbscan.NilIfEmptyRawMessage(step.Payload),
+	).Scan(&step.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("create workflow step: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStepsByWorkflow")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload, created_at
+		FROM workflow_steps
+		WHERE workflow_id = $1
+		ORDER BY created_at ASC`
+
+	rows, err := q.db.Query(ctx, query, workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow steps: %w", err)
+	}
+	defer rows.Close()
+
+	steps := make([]domain.WorkflowStep, 0)
+	for rows.Next() {
+		step, scanErr := scanWorkflowStep(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list workflow steps scan: %w", scanErr)
+		}
+		steps = append(steps, *step)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflow steps rows: %w", err)
+	}
+
+	return steps, nil
+}
+
+func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.WorkflowStep, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflowStep")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload, created_at
+		FROM workflow_steps
+		WHERE id = $1`
+
+	step, err := scanWorkflowStep(q.db.QueryRow(ctx, query, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrWorkflowStepNotFound
+		}
+		return nil, fmt.Errorf("get workflow step: %w", err)
+	}
+
+	return step, nil
+}
+
+func (q *Queries) DeleteStepsByWorkflow(ctx context.Context, workflowID string) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteStepsByWorkflow")
+	defer span.End()
+
+	query := `DELETE FROM workflow_steps WHERE workflow_id = $1`
+
+	if _, err := q.db.Exec(ctx, query, workflowID); err != nil {
+		return fmt.Errorf("delete workflow steps by workflow: %w", err)
+	}
+
+	return nil
+}
+
+func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
+	var step domain.WorkflowStep
+	var dependsOn []string
+	var condition []byte
+	var onFailure string
+	var payload []byte
+
+	err := scanner.Scan(
+		&step.ID,
+		&step.WorkflowID,
+		&step.JobID,
+		&step.StepRef,
+		&dependsOn,
+		&condition,
+		&onFailure,
+		&payload,
+		&step.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	step.DependsOn = dependsOn
+	step.OnFailure = domain.FailurePolicy(onFailure)
+	if condition != nil {
+		step.Condition = json.RawMessage(condition)
+	}
+	if payload != nil {
+		step.Payload = json.RawMessage(payload)
+	}
+
+	return &step, nil
+}

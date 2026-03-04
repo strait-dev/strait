@@ -1,0 +1,353 @@
+//go:build integration
+
+package queue_test
+
+import (
+	"context"
+	"log"
+	"os"
+	"testing"
+	"time"
+
+	"orchestrator/internal/domain"
+	"orchestrator/internal/queue"
+	"orchestrator/internal/store"
+	"orchestrator/internal/testutil"
+
+	"github.com/google/uuid"
+)
+
+var testDB *testutil.TestDB
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	var err error
+	testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+	if err != nil {
+		log.Fatalf("setup test db: %v", err)
+	}
+
+	code := m.Run()
+	testDB.Cleanup(ctx)
+	os.Exit(code)
+}
+
+func TestEnqueue(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-enqueue")
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Priority:  1,
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	if run.Status != domain.StatusQueued {
+		t.Fatalf("Enqueue() status = %q, want %q", run.Status, domain.StatusQueued)
+	}
+	if run.CreatedAt.IsZero() {
+		t.Fatal("Enqueue() did not set created_at")
+	}
+
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusQueued {
+		t.Fatalf("stored status = %q, want %q", got.Status, domain.StatusQueued)
+	}
+}
+
+func TestEnqueue_Delayed(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-enqueue-delayed")
+	scheduledAt := time.Now().Add(30 * time.Minute)
+	run := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		ScheduledAt: &scheduledAt,
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	if run.Status != domain.StatusDelayed {
+		t.Fatalf("Enqueue() status = %q, want %q", run.Status, domain.StatusDelayed)
+	}
+}
+
+func TestEnqueue_DefaultsApplied(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-enqueue-defaults")
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+	}
+
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	if run.Attempt != 1 {
+		t.Fatalf("Enqueue() attempt = %d, want 1", run.Attempt)
+	}
+	if run.TriggeredBy != domain.TriggerManual {
+		t.Fatalf("Enqueue() triggered_by = %q, want %q", run.TriggeredBy, domain.TriggerManual)
+	}
+}
+
+func TestDequeue(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue")
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("Dequeue() returned nil")
+	}
+	if dequeued.Status != domain.StatusDequeued {
+		t.Fatalf("Dequeue() status = %q, want %q", dequeued.Status, domain.StatusDequeued)
+	}
+	if dequeued.StartedAt == nil {
+		t.Fatal("Dequeue() did not set started_at")
+	}
+}
+
+func TestDequeue_Empty(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	mustClean(t, ctx)
+
+	run, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if run != nil {
+		t.Fatalf("Dequeue() run = %+v, want nil", run)
+	}
+}
+
+func TestDequeue_PriorityOrdering(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-priority")
+	runs := []*domain.JobRun{
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 0},
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 5},
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 10},
+	}
+	for _, run := range runs {
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	dequeued, err := q.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("Dequeue() error = %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("Dequeue() returned nil")
+	}
+	if dequeued.Priority != 10 {
+		t.Fatalf("Dequeue() priority = %d, want 10", dequeued.Priority)
+	}
+}
+
+func TestDequeueN(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-n")
+	for range 5 {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	dequeued, err := q.DequeueN(ctx, 3)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 3 {
+		t.Fatalf("DequeueN() len = %d, want 3", len(dequeued))
+	}
+
+	status := domain.StatusQueued
+	remaining, err := st.ListRunsByProject(ctx, job.ProjectID, &status, 20, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProject() error = %v", err)
+	}
+	if len(remaining) != 2 {
+		t.Fatalf("remaining queued runs = %d, want 2", len(remaining))
+	}
+}
+
+func TestDequeueN_PriorityOrdering(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-n-priority")
+	for _, priority := range []int{10, 5, 0} {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: priority}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	dequeued, err := q.DequeueN(ctx, 3)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 3 {
+		t.Fatalf("DequeueN() len = %d, want 3", len(dequeued))
+	}
+	if dequeued[0].Priority != 10 {
+		t.Fatalf("DequeueN() first priority = %d, want 10", dequeued[0].Priority)
+	}
+}
+
+func TestDequeueN_RespectsScheduledAt(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-n-scheduled-at")
+	scheduledAt := time.Now().Add(15 * time.Minute)
+	run := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		ScheduledAt: &scheduledAt,
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 0 {
+		t.Fatalf("DequeueN() len = %d, want 0", len(dequeued))
+	}
+}
+
+func TestDequeueN_RespectsNextRetryAt(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-n-next-retry")
+	nextRetryAt := time.Now().Add(20 * time.Minute)
+	run := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		NextRetryAt: &nextRetryAt,
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 0 {
+		t.Fatalf("DequeueN() len = %d, want 0", len(dequeued))
+	}
+}
+
+func mustQueue(t *testing.T) *queue.PostgresQueue {
+	t.Helper()
+
+	if testDB == nil || testDB.Pool == nil {
+		t.Fatal("testDB is not initialized")
+	}
+
+	return queue.NewPostgresQueue(testDB.Pool)
+}
+
+func mustStore(t *testing.T) *store.Queries {
+	t.Helper()
+
+	if testDB == nil || testDB.Pool == nil {
+		t.Fatal("testDB is not initialized")
+	}
+
+	return store.New(testDB.Pool)
+}
+
+func mustClean(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	if err := testDB.CleanTables(ctx); err != nil {
+		t.Fatalf("CleanTables() error = %v", err)
+	}
+}
+
+func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
+	t.Helper()
+
+	job := &domain.Job{
+		ID:          newID(),
+		ProjectID:   projectID,
+		Name:        "job-" + newID(),
+		Slug:        "slug-" + newID(),
+		EndpointURL: "https://example.com/queue-job",
+		MaxAttempts: 3,
+		TimeoutSecs: 300,
+		Enabled:     true,
+	}
+
+	if err := st.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	return job
+}
+
+func newID() string {
+	return uuid.Must(uuid.NewV7()).String()
+}
