@@ -316,11 +316,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "completed"})
 	run.Status = domain.StatusCompleted
 	e.notifyWorkflowCallback(ctx, run)
-	e.pool.Submit(context.Background(), func() {
-		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer wCancel()
-		SendWebhook(webhookCtx, job, run)
-	})
+	e.submitWebhook(ctx, job, run)
 }
 
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, errMsg string) {
@@ -384,11 +380,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "failed", "error": errMsg})
 	run.Status = domain.StatusFailed
 	e.notifyWorkflowCallback(ctx, run)
-	e.pool.Submit(context.Background(), func() {
-		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer wCancel()
-		SendWebhook(webhookCtx, job, run)
-	})
+	e.submitWebhook(ctx, job, run)
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
@@ -444,8 +436,13 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "timed_out"})
 	run.Status = domain.StatusTimedOut
 	e.notifyWorkflowCallback(ctx, run)
-	e.pool.Submit(context.Background(), func() {
-		webhookCtx, wCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	e.submitWebhook(ctx, job, run)
+}
+
+func (e *Executor) submitWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {
+	detached := context.WithoutCancel(ctx)
+	e.pool.Submit(detached, func() {
+		webhookCtx, wCancel := context.WithTimeout(detached, 15*time.Second)
 		defer wCancel()
 		SendWebhook(webhookCtx, job, run)
 	})

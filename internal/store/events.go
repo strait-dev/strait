@@ -115,7 +115,6 @@ func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, lev
 	if eventType != "" {
 		baseQuery += fmt.Sprintf(" AND type = $%d", param)
 		args = append(args, eventType)
-		param++
 	}
 
 	baseQuery += " ORDER BY created_at ASC"
