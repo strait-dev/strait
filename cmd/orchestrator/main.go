@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"orchestrator/internal/api"
+	"orchestrator/internal/cdc"
 	"orchestrator/internal/config"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
@@ -172,6 +173,31 @@ func run() error {
 	g, gCtx := errgroup.WithContext(ctx)
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
+
+	if cfg.SequinBaseURL != "" {
+		cdcClient := cdc.NewClient(cfg.SequinBaseURL, cfg.SequinConsumerName, cfg.SequinAPIToken)
+		cdcConsumer := cdc.NewConsumer(cdcClient, cdc.ConsumerConfig{
+			BaseURL:      cfg.SequinBaseURL,
+			ConsumerName: cfg.SequinConsumerName,
+			Credential:   cfg.SequinAPIToken,
+			BatchSize:    cfg.SequinBatchSize,
+			WaitTimeMs:   cfg.SequinWaitTimeMs,
+		}, slog.Default())
+
+		cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
+		cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
+		cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
+
+		g.Go(func() error {
+			cdcConsumer.Run(gCtx)
+			return nil
+		})
+
+		slog.Info("cdc consumer enabled",
+			"base_url", cfg.SequinBaseURL,
+			"consumer", cfg.SequinConsumerName,
+		)
+	}
 
 	// Start API server
 	if cfg.Mode == "api" || cfg.Mode == "all" {
