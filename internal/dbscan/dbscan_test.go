@@ -111,9 +111,6 @@ func (m *mockScanner) Scan(dest ...any) error {
 	return nil
 }
 
-func strPtr(s string) *string        { return &s }
-func timePtr(t time.Time) *time.Time { return &t }
-
 func TestScanRun_Error(t *testing.T) {
 	scanErr := errors.New("connection reset")
 	s := &mockScanner{err: scanErr}
@@ -130,6 +127,10 @@ func TestScanRun_Error(t *testing.T) {
 func TestScanRun_AllFields(t *testing.T) {
 	now := time.Now().Truncate(time.Microsecond)
 	started := now.Add(-time.Minute)
+	errMsg := "partial failure"
+	parentRunID := "parent-001"
+	idempotencyKey := "idem-abc"
+	workflowStepRunID := "step-run-001"
 
 	s := &mockScanner{
 		values: []any{
@@ -140,20 +141,20 @@ func TestScanRun_AllFields(t *testing.T) {
 			2,                             // Attempt
 			[]byte(`{"input":"data"}`),    // Payload
 			[]byte(`{"output":"ok"}`),     // Result
-			strPtr("partial failure"),     // Error
+			&errMsg,                       // Error
 			"cron",                        // TriggeredBy
-			timePtr(started),              // ScheduledAt
-			timePtr(started),              // StartedAt
+			&started,                      // ScheduledAt
+			&started,                      // StartedAt
 			(*time.Time)(nil),             // FinishedAt
-			timePtr(now),                  // HeartbeatAt
+			&now,                          // HeartbeatAt
 			(*time.Time)(nil),             // NextRetryAt
 			(*time.Time)(nil),             // ExpiresAt
-			strPtr("parent-001"),          // ParentRunID
+			&parentRunID,                  // ParentRunID
 			5,                             // Priority
-			strPtr("idem-abc"),            // IdempotencyKey
+			&idempotencyKey,               // IdempotencyKey
 			3,                             // JobVersion
 			now,                           // CreatedAt
-			strPtr("step-run-001"),        // WorkflowStepRunID
+			&workflowStepRunID,            // WorkflowStepRunID
 		},
 	}
 

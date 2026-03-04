@@ -77,7 +77,7 @@ func TestInit_ShutdownIdempotent(t *testing.T) {
 	}
 
 	// Call shutdown multiple times
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		err := shutdown(ctx)
 		if err != nil {
 			t.Errorf("shutdown call %d returned error: %v", i+1, err)

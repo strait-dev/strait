@@ -22,8 +22,8 @@ func TestTransitionError_Error(t *testing.T) {
 }
 
 func TestTransitionError_ImplementsError(t *testing.T) {
-	var err error = &TransitionError{From: StatusQueued, To: StatusCompleted}
-	if err == nil {
+	_, ok := any(&TransitionError{From: StatusQueued, To: StatusCompleted}).(error)
+	if !ok {
 		t.Fatal("TransitionError should implement error interface")
 	}
 }
