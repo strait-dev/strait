@@ -191,6 +191,258 @@ func MustEnqueueRun(t testing.TB, ctx context.Context, q queue.Queue, job *domai
 	return run
 }
 
+type WorkflowOpts struct {
+	ID          *string
+	ProjectID   *string
+	Name        *string
+	Slug        *string
+	Description *string
+	Enabled     *bool
+	Version     *int
+}
+
+func BuildWorkflow(opts *WorkflowOpts) *domain.Workflow {
+	n := nextSeq()
+	wf := &domain.Workflow{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		ProjectID: fmt.Sprintf("project-%d", n),
+		Name:      fmt.Sprintf("workflow-%d", n),
+		Slug:      fmt.Sprintf("wf-slug-%d", n),
+		Enabled:   true,
+		Version:   1,
+	}
+
+	if opts == nil {
+		return wf
+	}
+
+	if opts.ID != nil {
+		wf.ID = *opts.ID
+	}
+	if opts.ProjectID != nil {
+		wf.ProjectID = *opts.ProjectID
+	}
+	if opts.Name != nil {
+		wf.Name = *opts.Name
+	}
+	if opts.Slug != nil {
+		wf.Slug = *opts.Slug
+	}
+	if opts.Description != nil {
+		wf.Description = *opts.Description
+	}
+	if opts.Enabled != nil {
+		wf.Enabled = *opts.Enabled
+	}
+	if opts.Version != nil {
+		wf.Version = *opts.Version
+	}
+
+	return wf
+}
+
+func MustCreateWorkflow(t testing.TB, ctx context.Context, s store.Store, opts *WorkflowOpts) *domain.Workflow {
+	t.Helper()
+
+	wf := BuildWorkflow(opts)
+	if err := s.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	return wf
+}
+
+type WorkflowStepOpts struct {
+	ID         *string
+	WorkflowID *string
+	JobID      *string
+	StepRef    *string
+	DependsOn  []string
+	Condition  json.RawMessage
+	OnFailure  *domain.FailurePolicy
+	Payload    json.RawMessage
+}
+
+func BuildWorkflowStep(workflowID string, opts *WorkflowStepOpts) *domain.WorkflowStep {
+	n := nextSeq()
+	step := &domain.WorkflowStep{
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		WorkflowID: workflowID,
+		JobID:      uuid.Must(uuid.NewV7()).String(),
+		StepRef:    fmt.Sprintf("step-%d", n),
+	}
+
+	if opts == nil {
+		return step
+	}
+
+	if opts.ID != nil {
+		step.ID = *opts.ID
+	}
+	if opts.WorkflowID != nil {
+		step.WorkflowID = *opts.WorkflowID
+	}
+	if opts.JobID != nil {
+		step.JobID = *opts.JobID
+	}
+	if opts.StepRef != nil {
+		step.StepRef = *opts.StepRef
+	}
+	if opts.DependsOn != nil {
+		step.DependsOn = append([]string(nil), opts.DependsOn...)
+	}
+	if opts.Condition != nil {
+		step.Condition = append(json.RawMessage(nil), opts.Condition...)
+	}
+	if opts.OnFailure != nil {
+		step.OnFailure = *opts.OnFailure
+	}
+	if opts.Payload != nil {
+		step.Payload = append(json.RawMessage(nil), opts.Payload...)
+	}
+
+	return step
+}
+
+func MustCreateWorkflowStep(t testing.TB, ctx context.Context, s store.Store, workflowID string, opts *WorkflowStepOpts) *domain.WorkflowStep {
+	t.Helper()
+
+	step := BuildWorkflowStep(workflowID, opts)
+	if err := s.CreateWorkflowStep(ctx, step); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+
+	return step
+}
+
+type WorkflowRunOpts struct {
+	ID          *string
+	WorkflowID  *string
+	ProjectID   *string
+	Status      *domain.WorkflowRunStatus
+	TriggeredBy *string
+	Payload     json.RawMessage
+}
+
+func BuildWorkflowRun(workflowID string, opts *WorkflowRunOpts) *domain.WorkflowRun {
+	n := nextSeq()
+	wfRun := &domain.WorkflowRun{
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		WorkflowID:  workflowID,
+		ProjectID:   fmt.Sprintf("project-%d", n),
+		Status:      domain.WfStatusPending,
+		TriggeredBy: domain.TriggerManual,
+	}
+
+	if opts == nil {
+		return wfRun
+	}
+
+	if opts.ID != nil {
+		wfRun.ID = *opts.ID
+	}
+	if opts.WorkflowID != nil {
+		wfRun.WorkflowID = *opts.WorkflowID
+	}
+	if opts.ProjectID != nil {
+		wfRun.ProjectID = *opts.ProjectID
+	}
+	if opts.Status != nil {
+		wfRun.Status = *opts.Status
+	}
+	if opts.TriggeredBy != nil {
+		wfRun.TriggeredBy = *opts.TriggeredBy
+	}
+	if opts.Payload != nil {
+		wfRun.Payload = append(json.RawMessage(nil), opts.Payload...)
+	}
+
+	return wfRun
+}
+
+func MustCreateWorkflowRun(t testing.TB, ctx context.Context, s store.Store, workflowID string, opts *WorkflowRunOpts) *domain.WorkflowRun {
+	t.Helper()
+
+	wfRun := BuildWorkflowRun(workflowID, opts)
+	if err := s.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+
+	return wfRun
+}
+
+type WorkflowStepRunOpts struct {
+	ID             *string
+	WorkflowRunID  *string
+	WorkflowStepID *string
+	StepRef        *string
+	JobRunID       *string
+	Status         *domain.StepRunStatus
+	DepsCompleted  *int
+	DepsRequired   *int
+	Output         json.RawMessage
+	Error          *string
+}
+
+func BuildWorkflowStepRun(workflowRunID, workflowStepID string, opts *WorkflowStepRunOpts) *domain.WorkflowStepRun {
+	n := nextSeq()
+	sr := &domain.WorkflowStepRun{
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		WorkflowRunID:  workflowRunID,
+		WorkflowStepID: workflowStepID,
+		StepRef:        fmt.Sprintf("step-%d", n),
+		Status:         domain.StepPending,
+	}
+
+	if opts == nil {
+		return sr
+	}
+
+	if opts.ID != nil {
+		sr.ID = *opts.ID
+	}
+	if opts.WorkflowRunID != nil {
+		sr.WorkflowRunID = *opts.WorkflowRunID
+	}
+	if opts.WorkflowStepID != nil {
+		sr.WorkflowStepID = *opts.WorkflowStepID
+	}
+	if opts.StepRef != nil {
+		sr.StepRef = *opts.StepRef
+	}
+	if opts.JobRunID != nil {
+		sr.JobRunID = *opts.JobRunID
+	}
+	if opts.Status != nil {
+		sr.Status = *opts.Status
+	}
+	if opts.DepsCompleted != nil {
+		sr.DepsCompleted = *opts.DepsCompleted
+	}
+	if opts.DepsRequired != nil {
+		sr.DepsRequired = *opts.DepsRequired
+	}
+	if opts.Output != nil {
+		sr.Output = append(json.RawMessage(nil), opts.Output...)
+	}
+	if opts.Error != nil {
+		sr.Error = *opts.Error
+	}
+
+	return sr
+}
+
+func MustCreateWorkflowStepRun(t testing.TB, ctx context.Context, s store.Store, workflowRunID, workflowStepID string, opts *WorkflowStepRunOpts) *domain.WorkflowStepRun {
+	t.Helper()
+
+	sr := BuildWorkflowStepRun(workflowRunID, workflowStepID, opts)
+	if err := s.CreateWorkflowStepRun(ctx, sr); err != nil {
+		t.Fatalf("CreateWorkflowStepRun() error = %v", err)
+	}
+
+	return sr
+}
+
 type EventOpts struct {
 	ID      *string
 	Type    *string

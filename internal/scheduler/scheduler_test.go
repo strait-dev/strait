@@ -56,7 +56,7 @@ func TestScheduler_New(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{})
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
 	if s == nil {
 		t.Fatal("expected scheduler to be non-nil")
 	}
@@ -71,7 +71,7 @@ func TestScheduler_Start_Success(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{})
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -91,7 +91,7 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{})
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
 	err := s.Start(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -110,7 +110,7 @@ func TestScheduler_Stop(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{})
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)

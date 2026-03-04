@@ -170,6 +170,8 @@ func run() error {
 
 	// Error group for concurrent goroutines
 	g, gCtx := errgroup.WithContext(ctx)
+	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
+	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
 	// Start API server
 	if cfg.Mode == "api" || cfg.Mode == "all" {
@@ -177,8 +179,7 @@ func run() error {
 		if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
 			pinger = redisPub
 		}
-		workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
-		srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger, nil, workflowEngine)
+		srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger, stepCallback, workflowEngine)
 		httpServer := &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Port),
 			Handler:           srv,
@@ -213,6 +214,7 @@ func run() error {
 			HeartbeatInterval: cfg.HeartbeatInterval,
 			Publisher:         pub,
 			Metrics:           metrics,
+			WorkflowCallback:  stepCallback,
 		})
 
 		g.Go(func() error {
@@ -228,7 +230,7 @@ func run() error {
 		})
 
 		// Start scheduler (cron, delayed poller, reaper)
-		sched := scheduler.New(cfg, queries, q)
+		sched := scheduler.New(cfg, queries, q, stepCallback)
 		if err := sched.Start(gCtx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
