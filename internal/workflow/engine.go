@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -22,9 +23,11 @@ type WorkflowEngine struct {
 
 type EngineStore interface {
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
-	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
 	CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error
 	CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error
+	CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
@@ -72,12 +75,30 @@ func (e *WorkflowEngine) TriggerWorkflow(
 		return nil, fmt.Errorf("workflow %s does not belong to project %s", workflowID, projectID)
 	}
 
-	steps, err := e.store.ListStepsByWorkflow(ctx, workflowID)
+	steps, err := e.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
 	if err != nil {
-		return nil, fmt.Errorf("list workflow steps: %w", err)
+		return nil, fmt.Errorf("list workflow steps by version: %w", err)
 	}
 	if err := ValidateDAG(steps); err != nil {
 		return nil, fmt.Errorf("validate workflow dag: %w", err)
+	}
+
+	if wf.MaxConcurrentRuns > 0 {
+		for {
+			running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
+			if countErr != nil {
+				return nil, fmt.Errorf("count running workflow runs: %w", countErr)
+			}
+			if running < wf.MaxConcurrentRuns {
+				break
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("wait for workflow concurrency slot: %w", ctx.Err())
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
 	}
 
 	if triggeredBy == "" {
@@ -85,11 +106,16 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	}
 
 	wfRun := &domain.WorkflowRun{
-		WorkflowID:  workflowID,
-		ProjectID:   projectID,
-		Status:      domain.WfStatusPending,
-		TriggeredBy: triggeredBy,
-		Payload:     payload,
+		WorkflowID:      workflowID,
+		ProjectID:       projectID,
+		Status:          domain.WfStatusPending,
+		TriggeredBy:     triggeredBy,
+		WorkflowVersion: wf.Version,
+		Payload:         payload,
+	}
+	if wf.TimeoutSecs > 0 {
+		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
+		wfRun.ExpiresAt = &expiresAt
 	}
 	if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
 		return nil, fmt.Errorf("create workflow run: %w", err)
@@ -151,6 +177,31 @@ func (e *WorkflowEngine) startStep(
 	defer span.End()
 
 	now := time.Now()
+	if step.StepType == domain.WorkflowStepTypeApproval {
+		if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
+			return fmt.Errorf("set approval step waiting: %w", err)
+		}
+
+		approval := &domain.WorkflowStepApproval{
+			ID:                fmt.Sprintf("approval:%s", stepRun.ID),
+			WorkflowRunID:     wfRun.ID,
+			WorkflowStepRunID: stepRun.ID,
+			Approvers:         slices.Clone(step.ApprovalApprovers),
+			Status:            "pending",
+			RequestedAt:       now,
+		}
+		if step.ApprovalTimeoutSecs > 0 {
+			expiresAt := now.Add(time.Duration(step.ApprovalTimeoutSecs) * time.Second)
+			approval.ExpiresAt = &expiresAt
+		}
+		if err := e.store.CreateWorkflowStepApproval(ctx, approval); err != nil {
+			return fmt.Errorf("create workflow step approval: %w", err)
+		}
+		stepRun.Status = domain.StepWaiting
+		stepRun.StartedAt = &now
+		return nil
+	}
+
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set step run running: %w", err)
 	}

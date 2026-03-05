@@ -12,6 +12,10 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+type approveWorkflowStepRequest struct {
+	Approver string `json:"approver"`
+}
+
 func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowID")
 	query := r.URL.Query()
@@ -185,4 +189,45 @@ func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Reque
 	}
 
 	respondJSON(w, http.StatusOK, stepRuns)
+}
+
+func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Request) {
+	if s.workflowCallback == nil {
+		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		return
+	}
+
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	stepRef := chi.URLParam(r, "stepRef")
+
+	var req approveWorkflowStepRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Approver == "" {
+		respondError(w, http.StatusBadRequest, "approver is required")
+		return
+	}
+
+	if err := s.workflowCallback.ApproveStep(r.Context(), workflowRunID, stepRef, req.Approver); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step run")
+		return
+	}
+	approval, err := s.store.GetWorkflowStepApprovalByStepRunID(r.Context(), stepRun.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step approval")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"step_run": stepRun,
+		"approval": approval,
+	})
 }

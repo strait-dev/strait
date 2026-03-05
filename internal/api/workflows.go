@@ -12,29 +12,40 @@ import (
 )
 
 type workflowStepRequest struct {
-	JobID     string               `json:"job_id"`
-	StepRef   string               `json:"step_ref"`
-	DependsOn []string             `json:"depends_on,omitempty"`
-	Condition json.RawMessage      `json:"condition,omitempty"`
-	OnFailure domain.FailurePolicy `json:"on_failure,omitempty"`
-	Payload   json.RawMessage      `json:"payload,omitempty"`
+	JobID                 string                    `json:"job_id,omitempty"`
+	StepRef               string                    `json:"step_ref"`
+	DependsOn             []string                  `json:"depends_on,omitempty"`
+	Condition             json.RawMessage           `json:"condition,omitempty"`
+	OnFailure             domain.FailurePolicy      `json:"on_failure,omitempty"`
+	Payload               json.RawMessage           `json:"payload,omitempty"`
+	StepType              domain.WorkflowStepType   `json:"step_type,omitempty"`
+	ApprovalTimeoutSecs   int                       `json:"approval_timeout_secs,omitempty"`
+	ApprovalApprovers     []string                  `json:"approval_approvers,omitempty"`
+	RetryMaxAttempts      int                       `json:"retry_max_attempts,omitempty"`
+	RetryBackoff          domain.RetryBackoffPolicy `json:"retry_backoff,omitempty"`
+	RetryInitialDelaySecs int                       `json:"retry_initial_delay_secs,omitempty"`
+	RetryMaxDelaySecs     int                       `json:"retry_max_delay_secs,omitempty"`
 }
 
 type createWorkflowRequest struct {
-	ProjectID   string                `json:"project_id"`
-	Name        string                `json:"name"`
-	Slug        string                `json:"slug"`
-	Description string                `json:"description,omitempty"`
-	Enabled     *bool                 `json:"enabled,omitempty"`
-	Steps       []workflowStepRequest `json:"steps,omitempty"`
+	ProjectID         string                `json:"project_id"`
+	Name              string                `json:"name"`
+	Slug              string                `json:"slug"`
+	Description       string                `json:"description,omitempty"`
+	Enabled           *bool                 `json:"enabled,omitempty"`
+	TimeoutSecs       int                   `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns int                   `json:"max_concurrent_runs,omitempty"`
+	Steps             []workflowStepRequest `json:"steps,omitempty"`
 }
 
 type updateWorkflowRequest struct {
-	Name        *string                `json:"name,omitempty"`
-	Slug        *string                `json:"slug,omitempty"`
-	Description *string                `json:"description,omitempty"`
-	Enabled     *bool                  `json:"enabled,omitempty"`
-	Steps       *[]workflowStepRequest `json:"steps,omitempty"`
+	Name              *string                `json:"name,omitempty"`
+	Slug              *string                `json:"slug,omitempty"`
+	Description       *string                `json:"description,omitempty"`
+	Enabled           *bool                  `json:"enabled,omitempty"`
+	TimeoutSecs       *int                   `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns *int                   `json:"max_concurrent_runs,omitempty"`
+	Steps             *[]workflowStepRequest `json:"steps,omitempty"`
 }
 
 type triggerWorkflowRequest struct {
@@ -71,11 +82,13 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wf := &domain.Workflow{
-		ProjectID:   req.ProjectID,
-		Name:        req.Name,
-		Slug:        req.Slug,
-		Description: req.Description,
-		Enabled:     enabled,
+		ProjectID:         req.ProjectID,
+		Name:              req.Name,
+		Slug:              req.Slug,
+		Description:       req.Description,
+		Enabled:           enabled,
+		TimeoutSecs:       req.TimeoutSecs,
+		MaxConcurrentRuns: req.MaxConcurrentRuns,
 	}
 
 	if err := s.store.CreateWorkflow(r.Context(), wf); err != nil {
@@ -86,19 +99,31 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	steps := make([]domain.WorkflowStep, 0, len(req.Steps))
 	for _, stepReq := range req.Steps {
 		step := domain.WorkflowStep{
-			WorkflowID: wf.ID,
-			JobID:      stepReq.JobID,
-			StepRef:    stepReq.StepRef,
-			DependsOn:  stepReq.DependsOn,
-			Condition:  stepReq.Condition,
-			OnFailure:  stepReq.OnFailure,
-			Payload:    stepReq.Payload,
+			WorkflowID:            wf.ID,
+			JobID:                 stepReq.JobID,
+			StepRef:               stepReq.StepRef,
+			DependsOn:             stepReq.DependsOn,
+			Condition:             stepReq.Condition,
+			OnFailure:             stepReq.OnFailure,
+			Payload:               stepReq.Payload,
+			StepType:              stepReq.StepType,
+			ApprovalTimeoutSecs:   stepReq.ApprovalTimeoutSecs,
+			ApprovalApprovers:     stepReq.ApprovalApprovers,
+			RetryMaxAttempts:      stepReq.RetryMaxAttempts,
+			RetryBackoff:          stepReq.RetryBackoff,
+			RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
+			RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to create workflow step")
 			return
 		}
 		steps = append(steps, step)
+	}
+
+	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to snapshot workflow version")
+		return
 	}
 
 	respondJSON(w, http.StatusCreated, workflowResponse{Workflow: wf, Steps: steps})
@@ -171,6 +196,12 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		wf.Enabled = *req.Enabled
 	}
+	if req.TimeoutSecs != nil {
+		wf.TimeoutSecs = *req.TimeoutSecs
+	}
+	if req.MaxConcurrentRuns != nil {
+		wf.MaxConcurrentRuns = *req.MaxConcurrentRuns
+	}
 
 	if err := s.store.UpdateWorkflow(r.Context(), wf); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
@@ -192,19 +223,31 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, stepReq := range *req.Steps {
 			step := &domain.WorkflowStep{
-				WorkflowID: wf.ID,
-				JobID:      stepReq.JobID,
-				StepRef:    stepReq.StepRef,
-				DependsOn:  stepReq.DependsOn,
-				Condition:  stepReq.Condition,
-				OnFailure:  stepReq.OnFailure,
-				Payload:    stepReq.Payload,
+				WorkflowID:            wf.ID,
+				JobID:                 stepReq.JobID,
+				StepRef:               stepReq.StepRef,
+				DependsOn:             stepReq.DependsOn,
+				Condition:             stepReq.Condition,
+				OnFailure:             stepReq.OnFailure,
+				Payload:               stepReq.Payload,
+				StepType:              stepReq.StepType,
+				ApprovalTimeoutSecs:   stepReq.ApprovalTimeoutSecs,
+				ApprovalApprovers:     stepReq.ApprovalApprovers,
+				RetryMaxAttempts:      stepReq.RetryMaxAttempts,
+				RetryBackoff:          stepReq.RetryBackoff,
+				RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
+				RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
 				respondError(w, http.StatusInternalServerError, "failed to create workflow step")
 				return
 			}
 		}
+	}
+
+	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to snapshot workflow version")
+		return
 	}
 
 	steps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
@@ -260,8 +303,22 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func validateWorkflowSteps(steps []workflowStepRequest) error {
 	for _, step := range steps {
-		if step.JobID == "" || step.StepRef == "" {
-			return errors.New("each step requires job_id and step_ref")
+		if step.StepRef == "" {
+			return errors.New("each step requires step_ref")
+		}
+		if step.StepType == "" {
+			step.StepType = domain.WorkflowStepTypeJob
+		}
+		if step.StepType == domain.WorkflowStepTypeJob && step.JobID == "" {
+			return errors.New("job steps require job_id")
+		}
+		if step.StepType == domain.WorkflowStepTypeApproval {
+			if len(step.ApprovalApprovers) == 0 {
+				return errors.New("approval steps require approval_approvers")
+			}
+			if step.ApprovalTimeoutSecs < 0 {
+				return errors.New("approval_timeout_secs must be >= 0")
+			}
 		}
 		if len(step.DependsOn) == 0 {
 			continue

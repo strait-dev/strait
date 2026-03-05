@@ -78,7 +78,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		return nil
 	}
 
-	_, err := tdb.Pool.Exec(ctx, "TRUNCATE TABLE workflow_step_runs, workflow_runs, workflow_steps, workflows, webhook_deliveries, api_keys, job_versions, run_events, job_runs, jobs CASCADE")
+	_, err := tdb.Pool.Exec(ctx, "TRUNCATE TABLE workflow_step_approvals, workflow_step_runs, workflow_runs, workflow_version_steps, workflow_versions, workflow_steps, workflows, webhook_deliveries, api_keys, job_versions, run_events, job_runs, jobs CASCADE")
 	if err != nil {
 		return fmt.Errorf("clean tables: %w", err)
 	}

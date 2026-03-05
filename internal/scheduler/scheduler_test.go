@@ -37,6 +37,38 @@ func (m *mockSchedulerStore) ListStaleDequeued(ctx context.Context, threshold ti
 	return m.reaper.ListStaleDequeued(ctx, threshold)
 }
 
+func (m *mockSchedulerStore) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error) {
+	return m.reaper.ListTimedOutWorkflowRuns(ctx)
+}
+
+func (m *mockSchedulerStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+	return m.reaper.ListStepRunsByWorkflowRun(ctx, workflowRunID)
+}
+
+func (m *mockSchedulerStore) UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
+	return m.reaper.UpdateWorkflowRunStatus(ctx, id, from, to, fields)
+}
+
+func (m *mockSchedulerStore) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
+	return m.reaper.UpdateStepRunStatus(ctx, id, status, fields)
+}
+
+func (m *mockSchedulerStore) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
+	return m.reaper.GetRun(ctx, id)
+}
+
+func (m *mockSchedulerStore) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error) {
+	return m.reaper.ListExpiredWorkflowStepApprovals(ctx)
+}
+
+func (m *mockSchedulerStore) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+	return m.reaper.GetStepRunByWorkflowRunAndRef(ctx, workflowRunID, stepRef)
+}
+
+func (m *mockSchedulerStore) UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error {
+	return m.reaper.UpdateWorkflowStepApproval(ctx, id, status, approvedBy, approvedAt, errMsg)
+}
+
 func (m *mockSchedulerStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	return m.poller.UpdateRunStatus(ctx, id, from, to, fields)
 }

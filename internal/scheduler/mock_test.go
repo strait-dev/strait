@@ -32,10 +32,18 @@ func (m *mockPollerStore) UpdateRunStatus(ctx context.Context, id string, from, 
 
 // mockReaperStore implements ReaperStore for testing.
 type mockReaperStore struct {
-	listStaleRunsFn     func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
-	listExpiredRunsFn   func(ctx context.Context) ([]domain.JobRun, error)
-	listStaleDequeuedFn func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
-	updateRunStatusFn   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	listStaleRunsFn           func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	listExpiredRunsFn         func(ctx context.Context) ([]domain.JobRun, error)
+	listStaleDequeuedFn       func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	listTimedOutWfRunsFn      func(ctx context.Context) ([]domain.WorkflowRun, error)
+	listStepRunsByWfRunFn     func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	updateWorkflowRunStatusFn func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	updateStepRunStatusFn     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
+	listExpiredApprovalsFn    func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+	getStepRunByRunAndRefFn   func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	updateWorkflowApprovalFn  func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
 
 type mockCronStore struct {
@@ -100,6 +108,62 @@ func (m *mockReaperStore) ListStaleDequeued(ctx context.Context, threshold time.
 func (m *mockReaperStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	if m.updateRunStatusFn != nil {
 		return m.updateRunStatusFn(ctx, id, from, to, fields)
+	}
+	return nil
+}
+
+func (m *mockReaperStore) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error) {
+	if m.listTimedOutWfRunsFn != nil {
+		return m.listTimedOutWfRunsFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+	if m.listStepRunsByWfRunFn != nil {
+		return m.listStepRunsByWfRunFn(ctx, workflowRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
+	if m.updateWorkflowRunStatusFn != nil {
+		return m.updateWorkflowRunStatusFn(ctx, id, from, to, fields)
+	}
+	return nil
+}
+
+func (m *mockReaperStore) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
+	if m.updateStepRunStatusFn != nil {
+		return m.updateStepRunStatusFn(ctx, id, status, fields)
+	}
+	return nil
+}
+
+func (m *mockReaperStore) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
+	if m.getRunFn != nil {
+		return m.getRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error) {
+	if m.listExpiredApprovalsFn != nil {
+		return m.listExpiredApprovalsFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+	if m.getStepRunByRunAndRefFn != nil {
+		return m.getStepRunByRunAndRefFn(ctx, workflowRunID, stepRef)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error {
+	if m.updateWorkflowApprovalFn != nil {
+		return m.updateWorkflowApprovalFn(ctx, id, status, approvedBy, approvedAt, errMsg)
 	}
 	return nil
 }

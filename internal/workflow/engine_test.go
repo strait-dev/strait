@@ -8,19 +8,22 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
 )
 
 type mockEngineStore struct {
-	getWorkflowFn             func(ctx context.Context, id string) (*domain.Workflow, error)
-	listStepsByWorkflowFn     func(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
-	createWorkflowRunFn       func(ctx context.Context, run *domain.WorkflowRun) error
-	createWorkflowStepRunFn   func(ctx context.Context, sr *domain.WorkflowStepRun) error
-	updateWorkflowRunStatusFn func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	updateStepRunStatusFn     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	getStepOutputsFn          func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	getWorkflowFn                func(ctx context.Context, id string) (*domain.Workflow, error)
+	listStepsByWorkflowVerFn     func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	countRunningWorkflowRunsFn   func(ctx context.Context, workflowID string) (int, error)
+	createWorkflowRunFn          func(ctx context.Context, run *domain.WorkflowRun) error
+	createWorkflowStepRunFn      func(ctx context.Context, sr *domain.WorkflowStepRun) error
+	createWorkflowStepApprovalFn func(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	updateWorkflowRunStatusFn    func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	updateStepRunStatusFn        func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 }
 
 func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error) {
@@ -30,11 +33,18 @@ func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.W
 	return nil, nil
 }
 
-func (m *mockEngineStore) ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error) {
-	if m.listStepsByWorkflowFn != nil {
-		return m.listStepsByWorkflowFn(ctx, workflowID)
+func (m *mockEngineStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	if m.listStepsByWorkflowVerFn != nil {
+		return m.listStepsByWorkflowVerFn(ctx, workflowID, version)
 	}
 	return nil, nil
+}
+
+func (m *mockEngineStore) CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error) {
+	if m.countRunningWorkflowRunsFn != nil {
+		return m.countRunningWorkflowRunsFn(ctx, workflowID)
+	}
+	return 0, nil
 }
 
 func (m *mockEngineStore) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error {
@@ -47,6 +57,13 @@ func (m *mockEngineStore) CreateWorkflowRun(ctx context.Context, run *domain.Wor
 func (m *mockEngineStore) CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error {
 	if m.createWorkflowStepRunFn != nil {
 		return m.createWorkflowStepRunFn(ctx, sr)
+	}
+	return nil
+}
+
+func (m *mockEngineStore) CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error {
+	if m.createWorkflowStepApprovalFn != nil {
+		return m.createWorkflowStepApprovalFn(ctx, approval)
 	}
 	return nil
 }
@@ -92,7 +109,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
 				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true}, nil
 			},
-			listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{
 					{ID: "step-a", JobID: "job-a", StepRef: "a"},
 					{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
@@ -171,7 +188,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
 				return &domain.Workflow{ID: "wf", ProjectID: "proj-1", Enabled: true}, nil
 			},
-			listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return nil, nil
 			},
 		}
@@ -235,15 +252,19 @@ func TestMergePayloads(t *testing.T) {
 }
 
 type mockCallbackStore struct {
-	getStepRunByJobRunIDFn    func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
-	updateStepRunStatusFn     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	incrementStepDepsFn       func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
-	getWorkflowRunFn          func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	updateWorkflowRunStatusFn func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	listStepRunsByWorkflowRun func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
-	getStepOutputsFn          func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
-	listStepsByWorkflowFn     func(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
-	getWorkflowFn             func(ctx context.Context, id string) (*domain.Workflow, error)
+	getStepRunByJobRunIDFn       func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
+	updateStepRunStatusFn        func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	incrementStepDepsFn          func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
+	getWorkflowRunFn             func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	updateWorkflowRunStatusFn    func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	listStepRunsByWorkflowRun    func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	listStepsByWorkflowVerFn     func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	getWorkflowFn                func(ctx context.Context, id string) (*domain.Workflow, error)
+	getStepRunByRunAndRefFn      func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	createWorkflowStepApprovalFn func(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	getWorkflowStepApprovalFn    func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	updateWorkflowStepApprovalFn func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 }
 
 func (m *mockCallbackStore) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
@@ -295,9 +316,9 @@ func (m *mockCallbackStore) GetStepOutputs(ctx context.Context, workflowRunID st
 	return nil, nil
 }
 
-func (m *mockCallbackStore) ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error) {
-	if m.listStepsByWorkflowFn != nil {
-		return m.listStepsByWorkflowFn(ctx, workflowID)
+func (m *mockCallbackStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	if m.listStepsByWorkflowVerFn != nil {
+		return m.listStepsByWorkflowVerFn(ctx, workflowID, version)
 	}
 	return nil, nil
 }
@@ -307,6 +328,34 @@ func (m *mockCallbackStore) GetWorkflow(ctx context.Context, id string) (*domain
 		return m.getWorkflowFn(ctx, id)
 	}
 	return nil, nil
+}
+
+func (m *mockCallbackStore) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+	if m.getStepRunByRunAndRefFn != nil {
+		return m.getStepRunByRunAndRefFn(ctx, workflowRunID, stepRef)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error {
+	if m.createWorkflowStepApprovalFn != nil {
+		return m.createWorkflowStepApprovalFn(ctx, approval)
+	}
+	return nil
+}
+
+func (m *mockCallbackStore) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
+	if m.getWorkflowStepApprovalFn != nil {
+		return m.getWorkflowStepApprovalFn(ctx, stepRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error {
+	if m.updateWorkflowStepApprovalFn != nil {
+		return m.updateWorkflowStepApprovalFn(ctx, id, status, approvedBy, approvedAt, errMsg)
+	}
+	return nil
 }
 
 func TestStepCallback_OnJobRunTerminal(t *testing.T) {
@@ -371,7 +420,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 			},
-			listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{ID: "s1", StepRef: "s1"}}, nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
@@ -412,7 +461,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 			},
-			listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{
 					{StepRef: "s1", OnFailure: domain.FailWorkflow},
 					{StepRef: "s2"},
@@ -462,7 +511,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 			},
-			listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{StepRef: "s1"}}, nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
@@ -538,7 +587,7 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning, ProjectID: "proj-1"}, nil
 		},
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{{ID: "step-a", StepRef: "a", JobID: "job-a"}, {ID: "step-b", StepRef: "b", JobID: "job-b", DependsOn: []string{"a"}}}, nil
 		},
 		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {

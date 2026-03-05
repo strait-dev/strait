@@ -24,8 +24,19 @@ import (
 // ExecutorStore is the subset of store operations needed by Executor.
 type ExecutorStore interface {
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateHeartbeat(ctx context.Context, id string) error
+}
+
+type executionPolicy struct {
+	maxAttempts      int
+	timeoutSecs      int
+	retryBackoff     domain.RetryBackoffPolicy
+	retryInitialSecs int
+	retryMaxSecs     int
 }
 
 // WorkflowCallback is called after a job run reaches a terminal state.
@@ -196,6 +207,21 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		return
 	}
 
+	policy := executionPolicy{
+		maxAttempts:      job.MaxAttempts,
+		timeoutSecs:      job.TimeoutSecs,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     3600,
+	}
+	resolved, policyErr := e.resolveExecutionPolicy(ctx, run, policy)
+	if policyErr != nil {
+		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", policyErr)
+		e.handleSystemFailure(ctx, run, "resolve execution policy")
+		return
+	}
+	policy = resolved
+
 	err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now(),
 	})
@@ -216,16 +242,16 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	defer hbCancel()
 	go e.heartbeat.Run(hbCtx, run.ID)
 
-	timeout := time.Duration(job.TimeoutSecs) * time.Second
+	timeout := time.Duration(policy.timeoutSecs) * time.Second
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	result, err := e.dispatch(execCtx, job, run)
 	if err != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
-			e.handleTimeout(ctx, run, job)
+			e.handleTimeout(ctx, run, job, policy)
 		} else {
-			e.handleFailure(ctx, run, job, err.Error())
+			e.handleFailure(ctx, run, job, policy, err.Error())
 		}
 		return
 	}
@@ -319,7 +345,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	e.submitWebhook(ctx, job, run)
 }
 
-func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, errMsg string) {
+func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, errMsg string) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleFailure")
 	defer span.End()
 
@@ -328,12 +354,12 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"run_id", run.ID,
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
-		"max_attempts", job.MaxAttempts,
+		"max_attempts", policy.maxAttempts,
 		"error", errMsg,
 	)
 
-	if run.Attempt < job.MaxAttempts {
-		retryAt := NextRetryAt(run.Attempt)
+	if run.Attempt < policy.maxAttempts {
+		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
 		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
@@ -383,7 +409,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	e.submitWebhook(ctx, job, run)
 }
 
-func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
 
@@ -392,11 +418,11 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"run_id", run.ID,
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
-		"timeout_secs", job.TimeoutSecs,
+		"timeout_secs", policy.timeoutSecs,
 	)
 
-	if run.Attempt < job.MaxAttempts {
-		retryAt := NextRetryAt(run.Attempt)
+	if run.Attempt < policy.maxAttempts {
+		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
 		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
@@ -437,6 +463,55 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = domain.StatusTimedOut
 	e.notifyWorkflowCallback(ctx, run)
 	e.submitWebhook(ctx, job, run)
+}
+
+func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRun, fallback executionPolicy) (executionPolicy, error) {
+	if run.WorkflowStepRunID == "" {
+		return fallback, nil
+	}
+
+	stepRun, err := e.store.GetWorkflowStepRun(ctx, run.WorkflowStepRunID)
+	if err != nil || stepRun == nil {
+		if err != nil {
+			return fallback, err
+		}
+		return fallback, nil
+	}
+
+	wfRun, err := e.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
+	if err != nil || wfRun == nil {
+		if err != nil {
+			return fallback, err
+		}
+		return fallback, nil
+	}
+
+	steps, err := e.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return fallback, err
+	}
+
+	for _, step := range steps {
+		if step.StepRef != stepRun.StepRef {
+			continue
+		}
+
+		if step.RetryMaxAttempts > 0 {
+			fallback.maxAttempts = step.RetryMaxAttempts
+		}
+		if step.RetryBackoff != "" {
+			fallback.retryBackoff = step.RetryBackoff
+		}
+		if step.RetryInitialDelaySecs > 0 {
+			fallback.retryInitialSecs = step.RetryInitialDelaySecs
+		}
+		if step.RetryMaxDelaySecs > 0 {
+			fallback.retryMaxSecs = step.RetryMaxDelaySecs
+		}
+		return fallback, nil
+	}
+
+	return fallback, nil
 }
 
 func (e *Executor) submitWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {

@@ -51,9 +51,11 @@ type APIStore interface {
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
+	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
 	DeleteWorkflow(ctx context.Context, id string) error
 	CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
@@ -61,6 +63,9 @@ type APIStore interface {
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 }
 
 // Pinger checks service health.
@@ -71,6 +76,7 @@ type Pinger interface {
 // WorkflowCallback is called after a run reaches a terminal state via SDK or cancel.
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
+	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 }
 
 type WorkflowTrigger interface {
@@ -200,6 +206,7 @@ func (s *Server) routes() chi.Router {
 				r.Get("/", s.handleGetWorkflowRun)
 				r.Delete("/", s.handleCancelWorkflowRun)
 				r.Get("/steps", s.handleListWorkflowStepRuns)
+				r.Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
 			})
 		})
 	})

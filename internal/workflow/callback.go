@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -27,8 +28,12 @@ type CallbackStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
-	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
+	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 }
 
 func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.Logger) *StepCallback {
@@ -127,7 +132,7 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 		return fmt.Errorf("get workflow run: %w", err)
 	}
 
-	steps, err := s.store.ListStepsByWorkflow(ctx, wfRun.WorkflowID)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
 		return fmt.Errorf("list workflow steps: %w", err)
 	}
@@ -197,7 +202,7 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		return fmt.Errorf("get workflow run: %w", err)
 	}
 
-	steps, err := s.store.ListStepsByWorkflow(ctx, wfRun.WorkflowID)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
 		return fmt.Errorf("list steps by workflow: %w", err)
 	}
@@ -294,7 +299,7 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return nil
 	}
 
-	steps, err := s.store.ListStepsByWorkflow(ctx, wfRun.WorkflowID)
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
 		return fmt.Errorf("list workflow steps: %w", err)
 	}
@@ -351,7 +356,12 @@ func (s *StepCallback) cancelRemainingSteps(ctx context.Context, workflowRunID s
 }
 
 func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID, workflowID, failedStepRef string) error {
-	steps, err := s.store.ListStepsByWorkflow(ctx, workflowID)
+	wfRun, err := s.store.GetWorkflowRun(ctx, workflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
+
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, workflowID, wfRun.WorkflowVersion)
 	if err != nil {
 		return fmt.Errorf("list workflow steps: %w", err)
 	}
@@ -400,4 +410,51 @@ func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID, wo
 	}
 
 	return nil
+}
+
+func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
+	if approver == "" {
+		return fmt.Errorf("approver is required")
+	}
+
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, workflowRunID, stepRef)
+	if err != nil {
+		return fmt.Errorf("get step run: %w", err)
+	}
+	if stepRun == nil {
+		return fmt.Errorf("step run not found for %s", stepRef)
+	}
+	if stepRun.Status.IsTerminal() {
+		return fmt.Errorf("step %s is already in terminal state", stepRef)
+	}
+
+	approval, err := s.store.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
+	if err != nil {
+		return fmt.Errorf("get workflow step approval: %w", err)
+	}
+	if approval == nil {
+		return fmt.Errorf("approval not found for step %s", stepRef)
+	}
+	if approval.Status != "pending" {
+		return fmt.Errorf("approval for step %s is already %s", stepRef, approval.Status)
+	}
+
+	if !slices.Contains(approval.Approvers, approver) {
+		return fmt.Errorf("approver %s is not allowed for step %s", approver, stepRef)
+	}
+
+	now := time.Now()
+	if err := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, "approved", approver, &now, ""); err != nil {
+		return fmt.Errorf("update approval: %w", err)
+	}
+	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCompleted, map[string]any{"finished_at": now}); err != nil {
+		return fmt.Errorf("complete approval step run: %w", err)
+	}
+
+	stepRun.Status = domain.StepCompleted
+	if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
+		return err
+	}
+
+	return s.checkWorkflowCompletion(ctx, workflowRunID)
 }

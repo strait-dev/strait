@@ -26,9 +26,12 @@ type statusUpdateCall struct {
 }
 
 type mockExecutorStore struct {
-	getJobFn          func(ctx context.Context, id string) (*domain.Job, error)
-	updateRunStatusFn func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	updateHeartbeatFn func(ctx context.Context, id string) error
+	getJobFn                 func(ctx context.Context, id string) (*domain.Job, error)
+	getWorkflowStepRunFn     func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	getWorkflowRunFn         func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listStepsByWorkflowVerFn func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	updateRunStatusFn        func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateHeartbeatFn        func(ctx context.Context, id string) error
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -67,6 +70,27 @@ func (m *mockExecutorStore) UpdateHeartbeat(ctx context.Context, id string) erro
 		return nil
 	}
 	return m.updateHeartbeatFn(ctx, id)
+}
+
+func (m *mockExecutorStore) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
+	if m.getWorkflowStepRunFn != nil {
+		return m.getWorkflowStepRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockExecutorStore) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
+	if m.getWorkflowRunFn != nil {
+		return m.getWorkflowRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockExecutorStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	if m.listStepsByWorkflowVerFn != nil {
+		return m.listStepsByWorkflowVerFn(ctx, workflowID, version)
+	}
+	return nil, nil
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {

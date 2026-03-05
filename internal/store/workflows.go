@@ -23,8 +23,8 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 	w.Version = 1
 
 	query := `
-		INSERT INTO workflows (id, project_id, name, slug, description, enabled, version)
-		VALUES ($1, $2, $3, $4, $5, $6, 1)
+		INSERT INTO workflows (id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs)
+		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8)
 		RETURNING created_at, updated_at, version`
 
 	err := q.db.QueryRow(
@@ -36,6 +36,8 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		w.Slug,
 		dbscan.NilIfEmptyString(w.Description),
 		w.Enabled,
+		w.TimeoutSecs,
+		w.MaxConcurrentRuns,
 	).Scan(&w.CreatedAt, &w.UpdatedAt, &w.Version)
 	if err != nil {
 		return fmt.Errorf("create workflow: %w", err)
@@ -49,7 +51,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (*domain.Workflow,
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, description, enabled, version, created_at, updated_at
+		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs, created_at, updated_at
 		FROM workflows
 		WHERE id = $1`
 
@@ -69,7 +71,7 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, description, enabled, version, created_at, updated_at
+		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1 AND slug = $2`
 
@@ -89,7 +91,7 @@ func (q *Queries) ListWorkflows(ctx context.Context, projectID string) ([]domain
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, description, enabled, version, created_at, updated_at
+		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1
 		ORDER BY created_at DESC`
@@ -126,9 +128,11 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		    slug = $2,
 		    description = $3,
 		    enabled = $4,
+		    timeout_secs = $5,
+		    max_concurrent_runs = $6,
 		    version = version + 1,
 		    updated_at = NOW()
-		WHERE id = $5
+		WHERE id = $7
 		RETURNING updated_at, version`
 
 	err := q.db.QueryRow(
@@ -138,6 +142,8 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		w.Slug,
 		dbscan.NilIfEmptyString(w.Description),
 		w.Enabled,
+		w.TimeoutSecs,
+		w.MaxConcurrentRuns,
 		w.ID,
 	).Scan(&w.UpdatedAt, &w.Version)
 	if err != nil {
@@ -175,6 +181,8 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 		&description,
 		&workflow.Enabled,
 		&workflow.Version,
+		&workflow.TimeoutSecs,
+		&workflow.MaxConcurrentRuns,
 		&workflow.CreatedAt,
 		&workflow.UpdatedAt,
 	)

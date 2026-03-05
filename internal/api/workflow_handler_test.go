@@ -15,6 +15,7 @@ import (
 
 type mockWorkflowTrigger struct {
 	triggerWorkflowFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+	approveStepFn     func(ctx context.Context, workflowRunID, stepRef, approver string) error
 }
 
 func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
@@ -22,6 +23,13 @@ func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, p
 		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy)
 	}
 	return nil, nil
+}
+
+func (m *mockWorkflowTrigger) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
+	if m.approveStepFn != nil {
+		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
+	}
+	return nil
 }
 
 func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
