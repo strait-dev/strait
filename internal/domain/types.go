@@ -175,12 +175,13 @@ const (
 	WfStatusPaused    WorkflowRunStatus = "paused"
 	WfStatusCompleted WorkflowRunStatus = "completed"
 	WfStatusFailed    WorkflowRunStatus = "failed"
+	WfStatusTimedOut  WorkflowRunStatus = "timed_out"
 	WfStatusCanceled  WorkflowRunStatus = "canceled"
 )
 
 func (s WorkflowRunStatus) IsTerminal() bool {
 	switch s {
-	case WfStatusCompleted, WfStatusFailed, WfStatusCanceled:
+	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
 		return true
 	default:
 		return false

@@ -114,7 +114,7 @@ func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
 	}
 
 	for _, wfRun := range runs {
-		if err := r.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusFailed, map[string]any{
+		if err := r.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusTimedOut, map[string]any{
 			"finished_at": time.Now(),
 			"error":       "workflow timed out",
 		}); err != nil {

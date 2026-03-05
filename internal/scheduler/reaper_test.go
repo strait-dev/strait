@@ -187,6 +187,67 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 	}
 }
 
+func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
+	var wfUpdates atomic.Int32
+	var stepUpdates atomic.Int32
+	var runUpdates atomic.Int32
+
+	ms := &mockReaperStore{
+		listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
+			return []domain.WorkflowRun{{ID: "wr-1", Status: domain.WfStatusRunning}}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
+			if id != "wr-1" {
+				t.Fatalf("unexpected workflow run id %q", id)
+			}
+			if from != domain.WfStatusRunning || to != domain.WfStatusTimedOut {
+				t.Fatalf("unexpected workflow transition %s -> %s", from, to)
+			}
+			wfUpdates.Add(1)
+			return nil
+		},
+		listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			if workflowRunID != "wr-1" {
+				t.Fatalf("unexpected workflowRunID %q", workflowRunID)
+			}
+			return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id != "sr-1" || status != domain.StepCanceled {
+				t.Fatalf("unexpected step update %s -> %s", id, status)
+			}
+			stepUpdates.Add(1)
+			return nil
+		},
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			if id != "run-1" {
+				t.Fatalf("unexpected run id %q", id)
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
+			if id != "run-1" || from != domain.StatusExecuting || to != domain.StatusCanceled {
+				t.Fatalf("unexpected run update %s %s -> %s", id, from, to)
+			}
+			runUpdates.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r.reapTimedOutWorkflows(context.Background())
+
+	if wfUpdates.Load() != 1 {
+		t.Fatalf("expected 1 workflow update, got %d", wfUpdates.Load())
+	}
+	if stepUpdates.Load() != 1 {
+		t.Fatalf("expected 1 step update, got %d", stepUpdates.Load())
+	}
+	if runUpdates.Load() != 1 {
+		t.Fatalf("expected 1 job run update, got %d", runUpdates.Load())
+	}
+}
+
 func TestReaper_ReapStale_ListError(t *testing.T) {
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
