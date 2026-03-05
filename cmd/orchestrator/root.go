@@ -163,6 +163,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newRunCommand(state))
 	cmd.AddCommand(newSendCommand(state))
 	cmd.AddCommand(newSecretsCommand(state))
+	cmd.AddCommand(newFixturesCommand(state))
 
 	rawArgs := os.Args[1:]
 	configPath := extractConfigPath(rawArgs)
@@ -238,6 +239,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"run":           {},
 		"send":          {},
 		"secrets":       {},
+		"fixtures":      {},
 		"help":          {},
 	}
 
