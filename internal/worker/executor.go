@@ -55,6 +55,7 @@ type Executor struct {
 	partitionCycle   []string
 	nextPartition    int
 	circuitBreaker   bool
+	smartRetry       bool
 	circuitThreshold int
 	circuitOpenFor   time.Duration
 	logger           *slog.Logger
@@ -74,6 +75,7 @@ type ExecutorConfig struct {
 	Partitions        []string
 	PartitionWeights  string
 	CircuitBreaker    bool
+	SmartRetry        bool
 }
 
 const (
@@ -106,6 +108,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		workflowCallback: cfg.WorkflowCallback,
 		partitionCycle:   buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
 		circuitBreaker:   cfg.CircuitBreaker,
+		smartRetry:       cfg.SmartRetry,
 		circuitThreshold: defaultCircuitFailureThreshold,
 		circuitOpenFor:   defaultCircuitOpenDuration,
 		logger:           slog.Default(),
@@ -489,6 +492,15 @@ func classifyError(err error) string {
 	return "unknown"
 }
 
+func shouldRetryForClass(errClass string) bool {
+	switch errClass {
+	case "client", "auth":
+		return false
+	default:
+		return true
+	}
+}
+
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, err error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleFailure")
 	defer span.End()
@@ -511,7 +523,12 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"error_class", errClass,
 	)
 
-	if run.Attempt < job.MaxAttempts {
+	shouldRetry := run.Attempt < job.MaxAttempts
+	if shouldRetry && e.smartRetry && !shouldRetryForClass(errClass) {
+		shouldRetry = false
+	}
+
+	if shouldRetry {
 		retryAt := NextRetryAt(run.Attempt)
 		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
 			"attempt":       run.Attempt + 1,

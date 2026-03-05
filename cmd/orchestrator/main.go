@@ -251,6 +251,7 @@ func run() error {
 			Partitions:        partitions,
 			PartitionWeights:  partitionWeights,
 			CircuitBreaker:    cfg.FFCircuitBreaker,
+			SmartRetry:        cfg.FFSmartRetry,
 		})
 
 		g.Go(func() error {

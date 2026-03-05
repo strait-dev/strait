@@ -449,6 +449,83 @@ func TestExecutor_Dispatch_RetryOnFailure(t *testing.T) {
 	}
 }
 
+func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("invalid payload"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.smartRetry = true
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusFailed {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	}
+}
+
+func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("temporary"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.smartRetry = true
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusQueued {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusQueued)
+	}
+}
+
+func TestExecutor_SmartRetryDisabled_ClientErrorStillRetries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("invalid payload"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusQueued {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusQueued)
+	}
+}
+
 func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
