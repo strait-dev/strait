@@ -19,8 +19,59 @@ func newWorkflowsCommand(state *appState) *cobra.Command {
 
 	cmd.AddCommand(newWorkflowsListCommand(state))
 	cmd.AddCommand(newWorkflowsGetCommand(state))
+	cmd.AddCommand(newWorkflowsDescribeCommand(state))
 	cmd.AddCommand(newWorkflowsCreateCommand(state))
 	cmd.AddCommand(newWorkflowsTriggerCommand(state))
+
+	return cmd
+}
+
+func newWorkflowsDescribeCommand(state *appState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "describe <workflow-id>",
+		Short: "Show workflow details and step dependency view",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			wf, err := cli.GetWorkflow(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+
+			steps := make([]map[string]any, 0, len(wf.Steps))
+			for _, step := range wf.Steps {
+				deps := "-"
+				if len(step.DependsOn) > 0 {
+					deps = strings.Join(step.DependsOn, ",")
+				}
+				steps = append(steps, map[string]any{
+					"step_ref":   step.StepRef,
+					"job_id":     step.JobID,
+					"depends_on": deps,
+					"on_failure": step.OnFailure,
+				})
+			}
+
+			payload := map[string]any{
+				"workflow": map[string]any{
+					"id":          wf.ID,
+					"project_id":  wf.ProjectID,
+					"name":        wf.Name,
+					"slug":        wf.Slug,
+					"description": wf.Description,
+					"enabled":     wf.Enabled,
+					"version":     wf.Version,
+				},
+				"steps": steps,
+			}
+
+			return printData(state, payload)
+		},
+	}
 
 	return cmd
 }
