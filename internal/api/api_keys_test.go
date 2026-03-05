@@ -353,6 +353,66 @@ func TestAPIKeyAuth_ValidKey(t *testing.T) {
 	}
 }
 
+func TestAPIKeyAuth_TouchUsesBoundedDetachedContext(t *testing.T) {
+	rawKey := "orc_" + strings.Repeat("ef", 32)
+	wantHash := hashAPIKey(rawKey)
+
+	type touchCall struct {
+		hasDeadline bool
+		deadline    time.Time
+		err         error
+	}
+
+	touchCh := make(chan touchCall, 1)
+
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+			if keyHash != wantHash {
+				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
+			}
+			return &domain.APIKey{ID: "key-touch", ProjectID: "proj-ctx"}, nil
+		},
+		touchAPIKeyLastUsedFn: func(ctx context.Context, id string) error {
+			if id != "key-touch" {
+				t.Fatalf("expected touched id key-touch, got %q", id)
+			}
+			dl, ok := ctx.Deadline()
+			touchCh <- touchCall{hasDeadline: ok, deadline: dl, err: ctx.Err()}
+			return nil
+		},
+		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
+			return &store.QueueStats{Queued: 1, Executing: 0, Delayed: 0}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	select {
+	case call := <-touchCh:
+		if call.err != nil {
+			t.Fatalf("expected detached touch context to be usable, got err: %v", call.err)
+		}
+		if !call.hasDeadline {
+			t.Fatal("expected touch context deadline to be set")
+		}
+		remaining := time.Until(call.deadline)
+		if remaining <= 0 || remaining > 3*time.Second {
+			t.Fatalf("expected touch context deadline near 2s, remaining=%s", remaining)
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("expected TouchAPIKeyLastUsed to be called")
+	}
+}
+
 func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 	rawKey := "orc_" + strings.Repeat("ab", 32)
 	expired := time.Now().Add(-time.Hour)

@@ -31,7 +31,8 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 
 		tokenString := strings.TrimPrefix(auth, "Bearer ")
 
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		claims := &jwt.RegisteredClaims{}
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
@@ -42,20 +43,14 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			respondError(w, http.StatusUnauthorized, "invalid token claims")
-			return
-		}
-
-		subject, err := claims.GetSubject()
-		if err != nil || subject == "" {
+		subject := claims.Subject
+		if subject == "" {
 			respondError(w, http.StatusUnauthorized, "missing run ID in token")
 			return
 		}
 
 		urlRunID := chi.URLParam(r, "runID")
-		if subject != urlRunID {
+		if urlRunID != "" && subject != urlRunID {
 			respondError(w, http.StatusForbidden, "token does not match run ID")
 			return
 		}
@@ -93,12 +88,17 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 		req.Level = "info"
 	}
 
+	data := req.Data
+	if len(data) == 0 {
+		data = json.RawMessage(`{}`)
+	}
+
 	event := &domain.RunEvent{
 		RunID:   runID,
 		Type:    eventType,
 		Level:   req.Level,
 		Message: req.Message,
-		Data:    req.Data,
+		Data:    data,
 	}
 
 	if err := s.store.InsertEvent(r.Context(), event); err != nil {
@@ -114,7 +114,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 			"run_id":     runID,
 			"level":      req.Level,
 			"message":    req.Message,
-			"data":       req.Data,
+			"data":       data,
 			"timestamp":  time.Now().UTC(),
 		})
 		channel := fmt.Sprintf("run:%s", runID)

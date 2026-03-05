@@ -44,8 +44,14 @@ func TestMain(m *testing.M) {
 	testStore = store.New(testEnv.DB.Pool)
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
 	testServer = api.NewServer(&config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "test-jwt-key-must-be-at-least-32-chars-long",
+		InternalSecret:           "test-secret",
+		JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
+		RateLimitRequests:        5000,
+		RateLimitWindow:          time.Minute,
+		TriggerRateLimitRequests: 5000,
+		TriggerRateLimitWindow:   time.Minute,
+		CORSAllowedOrigins:       []string{"*"},
+		CORSAllowCredentials:     false,
 	}, testStore, testQueue, nil, nil, nil, nil, nil)
 
 	code := m.Run()
@@ -650,5 +656,41 @@ func TestE2E_AuthInvalidSecret(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestE2E_APIKeyLifecycle(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-api-key-" + newID()
+	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read"]}`, projectID)
+	w := doRequest(t, http.MethodPost, "/v1/api-keys/", createBody)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	created := mustDecodeObject(t, w)
+	apiKeyID := asString(t, created, "id")
+	rawKey := asString(t, created, "key")
+
+	statsReq := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	statsReq.Header.Set("Authorization", "Bearer "+rawKey)
+	statsW := httptest.NewRecorder()
+	testServer.ServeHTTP(statsW, statsReq)
+	if statsW.Code != http.StatusOK {
+		t.Fatalf("stats with api key status = %d, body = %s", statsW.Code, statsW.Body.String())
+	}
+
+	revokeW := doRequest(t, http.MethodDelete, "/v1/api-keys/"+apiKeyID, "")
+	if revokeW.Code != http.StatusOK {
+		t.Fatalf("revoke api key status = %d, body = %s", revokeW.Code, revokeW.Body.String())
+	}
+
+	revokedReq := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	revokedReq.Header.Set("Authorization", "Bearer "+rawKey)
+	revokedW := httptest.NewRecorder()
+	testServer.ServeHTTP(revokedW, revokedReq)
+	if revokedW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized for revoked key, got %d: %s", revokedW.Code, revokedW.Body.String())
 	}
 }

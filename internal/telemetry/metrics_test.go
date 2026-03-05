@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"testing"
 
@@ -27,9 +26,6 @@ func TestInitMetrics(t *testing.T) {
 	if handler == nil {
 		t.Fatal("handler is nil")
 	}
-
-	// Verify handler satisfies http.Handler.
-	var _ http.Handler = handler
 
 	// Verify all metric fields are initialized.
 	if metrics.RunTransitions == nil {
@@ -56,7 +52,7 @@ func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := shutdown(ctx); err != nil {
 			t.Errorf("shutdown call %d error = %v", i+1, err)
 		}

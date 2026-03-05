@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"math"
 	"math/rand/v2"
 	"time"
 )
@@ -26,8 +25,14 @@ func NextRetryDelay(attempt int) time.Duration {
 		attempt = 1
 	}
 
-	delay := time.Duration(float64(base) * math.Pow(2, float64(attempt-1)))
-	delay = min(delay, maxDelay)
+	delay := base
+	for i := 1; i < attempt; i++ {
+		if delay >= maxDelay/2 {
+			delay = maxDelay
+			break
+		}
+		delay *= 2
+	}
 
 	// Add +-20% jitter.
 	jitterRange := float64(delay) * 0.2

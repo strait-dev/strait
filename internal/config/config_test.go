@@ -71,6 +71,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.RateLimitWindow != time.Minute {
 		t.Fatalf("RateLimitWindow = %v, want %v", cfg.RateLimitWindow, time.Minute)
 	}
+	if cfg.TriggerRateLimitRequests != 10 {
+		t.Fatalf("TriggerRateLimitRequests = %d, want %d", cfg.TriggerRateLimitRequests, 10)
+	}
+	if cfg.TriggerRateLimitWindow != time.Minute {
+		t.Fatalf("TriggerRateLimitWindow = %v, want %v", cfg.TriggerRateLimitWindow, time.Minute)
+	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {

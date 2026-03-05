@@ -47,8 +47,11 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		touchCtx := context.WithoutCancel(r.Context())
 		go func() {
-			_ = s.store.TouchAPIKeyLastUsed(context.Background(), apiKey.ID)
+			ctx, cancel := context.WithTimeout(touchCtx, 2*time.Second)
+			defer cancel()
+			_ = s.store.TouchAPIKeyLastUsed(ctx, apiKey.ID)
 		}()
 
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
