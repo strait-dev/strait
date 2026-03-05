@@ -474,13 +474,14 @@ func TestHandleGetWorkflowRun(t *testing.T) {
 func TestHandlePauseWorkflowRun(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		getCalls := 0
+		published := map[string]int{}
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				getCalls++
 				if getCalls == 1 {
-					return &domain.WorkflowRun{ID: id, Status: domain.WfStatusRunning}, nil
+					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 				}
-				return &domain.WorkflowRun{ID: id, Status: domain.WfStatusPaused}, nil
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
 				if from != domain.WfStatusRunning || to != domain.WfStatusPaused {
@@ -490,12 +491,22 @@ func TestHandlePauseWorkflowRun(t *testing.T) {
 			},
 		}
 
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		pub := &mockPublisher{publishFn: func(_ context.Context, channel string, _ []byte) error {
+			published[channel]++
+			return nil
+		}}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if published["workflow-run:wr-1"] != 1 {
+			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
+		}
+		if published["workflow:wf-1:runs"] != 1 {
+			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
 		}
 	})
 }
@@ -504,6 +515,7 @@ func TestHandleResumeWorkflowRun(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		resumeCalled := false
 		getCalls := 0
+		published := map[string]int{}
 		cb := &mockWorkflowTrigger{
 			resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
 				if workflowRunID != "wr-1" {
@@ -517,13 +529,17 @@ func TestHandleResumeWorkflowRun(t *testing.T) {
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				getCalls++
 				if getCalls == 1 {
-					return &domain.WorkflowRun{ID: id, Status: domain.WfStatusPaused}, nil
+					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
 				}
-				return &domain.WorkflowRun{ID: id, Status: domain.WfStatusRunning}, nil
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 			},
 		}
 
-		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		pub := &mockPublisher{publishFn: func(_ context.Context, channel string, _ []byte) error {
+			published[channel]++
+			return nil
+		}}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/resume", ""))
 
@@ -532,6 +548,12 @@ func TestHandleResumeWorkflowRun(t *testing.T) {
 		}
 		if !resumeCalled {
 			t.Fatal("expected resume callback to be called")
+		}
+		if published["workflow-run:wr-1"] != 1 {
+			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
+		}
+		if published["workflow:wf-1:runs"] != 1 {
+			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
 		}
 	})
 }
@@ -609,13 +631,14 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 		getWorkflowRunCalls := 0
 		stepStatusUpdates := 0
 		runStatusUpdates := 0
+		published := map[string]int{}
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				getWorkflowRunCalls++
 				if getWorkflowRunCalls == 1 {
-					return &domain.WorkflowRun{ID: id, Status: domain.WfStatusRunning}, nil
+					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 				}
-				return &domain.WorkflowRun{ID: id, Status: domain.WfStatusCanceled}, nil
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusCanceled}, nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
 				if from != domain.WfStatusRunning || to != domain.WfStatusCanceled {
@@ -651,7 +674,11 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 			},
 		}
 
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		pub := &mockPublisher{publishFn: func(_ context.Context, channel string, _ []byte) error {
+			published[channel]++
+			return nil
+		}}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wr-1", ""))
 
@@ -663,6 +690,12 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 		}
 		if runStatusUpdates != 1 {
 			t.Fatalf("job run status updates = %d, want 1", runStatusUpdates)
+		}
+		if published["workflow-run:wr-1"] != 1 {
+			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
+		}
+		if published["workflow:wf-1:runs"] != 1 {
+			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
 		}
 	})
 
