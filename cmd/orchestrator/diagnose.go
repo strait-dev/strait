@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -92,6 +93,8 @@ func newDiagnoseCommand(state *appState) *cobra.Command {
 		},
 	}
 
+	cmd.AddCommand(newDiagnoseRunCommand(state))
+
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "show full diagnostics context")
 	cmd.Flags().BoolVar(&includeReadiness, "check-readiness", false, "include readiness check")
 
@@ -102,6 +105,9 @@ func splitHostPortFromURL(serverURL string) (string, string, error) {
 	trimmed := strings.TrimSpace(serverURL)
 	if trimmed == "" {
 		return "", "", fmt.Errorf("empty server URL")
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
 	}
 
 	parsed, err := url.Parse(trimmed)
@@ -130,6 +136,126 @@ func diagnoseCheck(name string, ok bool, detail, fix string) map[string]any {
 		"detail": detail,
 		"fix":    fix,
 	}
+}
+
+func newDiagnoseRunCommand(state *appState) *cobra.Command {
+	var follow bool
+	var interval time.Duration
+	var level string
+	var eventType string
+
+	cmd := &cobra.Command{
+		Use:     "run <run-id>",
+		Short:   "Diagnose a specific run",
+		Long:    "Analyzes run state, timeline, and likely remediations for a single run.",
+		Example: "orchestrator diagnose run run_123\n  orchestrator diagnose run run_123 --follow\n  orchestrator diagnose run run_123 --level error",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if interval <= 0 {
+				return fmt.Errorf("interval must be greater than zero")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			runID := args[0]
+			seen := map[string]struct{}{}
+
+			for {
+				run, err := cli.GetRun(context.Background(), runID)
+				if err != nil {
+					return err
+				}
+
+				events, err := cli.ListRunEvents(context.Background(), runID, level, eventType)
+				if err != nil {
+					return err
+				}
+
+				sort.Slice(events, func(i, j int) bool {
+					return events[i].CreatedAt.Before(events[j].CreatedAt)
+				})
+
+				timeline := make([]map[string]any, 0, len(events))
+				for _, event := range events {
+					timeline = append(timeline, map[string]any{
+						"id":         event.ID,
+						"timestamp":  event.CreatedAt,
+						"type":       event.Type,
+						"level":      event.Level,
+						"message":    event.Message,
+						"first_seen": hasNotSeen(seen, event.ID),
+					})
+					seen[event.ID] = struct{}{}
+				}
+
+				status := string(run.Status)
+				remediation := make([]map[string]any, 0, 4)
+				switch run.Status {
+				case "failed", "crashed", "system_failed":
+					remediation = append(remediation, map[string]any{"issue": "run failed", "action": "inspect recent error events and endpoint behavior"})
+					if strings.TrimSpace(run.Error) != "" {
+						remediation = append(remediation, map[string]any{"issue": "last error", "action": run.Error})
+					}
+				case "timed_out":
+					remediation = append(remediation, map[string]any{"issue": "run timed out", "action": "increase job timeout or reduce endpoint latency"})
+				case "queued", "delayed", "dequeued", "waiting":
+					remediation = append(remediation, map[string]any{"issue": "run not started", "action": "check worker availability and queue pressure with `orchestrator top queue`"})
+				case "executing":
+					remediation = append(remediation, map[string]any{"issue": "run in progress", "action": "follow events with `orchestrator runs logs " + runID + " --follow`"})
+				}
+
+				payload := map[string]any{
+					"run": map[string]any{
+						"id":            run.ID,
+						"status":        status,
+						"attempt":       run.Attempt,
+						"triggered_by":  run.TriggeredBy,
+						"created_at":    run.CreatedAt,
+						"started_at":    run.StartedAt,
+						"finished_at":   run.FinishedAt,
+						"next_retry_at": run.NextRetryAt,
+						"error":         run.Error,
+					},
+					"timeline":    timeline,
+					"remediation": remediation,
+				}
+
+				if err := printData(state, payload); err != nil {
+					return err
+				}
+
+				if !follow || run.Status.IsTerminal() {
+					if run.Status == "completed" || !run.Status.IsTerminal() {
+						return nil
+					}
+					return fmt.Errorf("run is in terminal status %q", run.Status)
+				}
+
+				time.Sleep(interval)
+			}
+		},
+	}
+
+	cmd.Flags().BoolVar(&follow, "follow", false, "continuously refresh diagnostics until terminal state")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval when following")
+	cmd.Flags().StringVar(&level, "level", "", "event level filter")
+	cmd.Flags().StringVar(&eventType, "type", "", "event type filter")
+	_ = cmd.RegisterFlagCompletionFunc("level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = cmd.RegisterFlagCompletionFunc("type", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"log", "state_change", "error", "progress"}, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	return cmd
+}
+
+func hasNotSeen(seen map[string]struct{}, id string) bool {
+	_, ok := seen[id]
+	return !ok
 }
 
 func boolString(v bool) string {
