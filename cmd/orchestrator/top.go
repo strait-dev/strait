@@ -31,6 +31,8 @@ func newTopCommand(state *appState) *cobra.Command {
 func newTopQueueCommand(state *appState) *cobra.Command {
 	var watch bool
 	var interval time.Duration
+	var projectID string
+	var limit int
 
 	cmd := &cobra.Command{
 		Use:   "queue",
@@ -39,6 +41,12 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 			if interval <= 0 {
 				return fmt.Errorf("interval must be greater than zero")
 			}
+			if limit <= 0 {
+				return fmt.Errorf("limit must be greater than zero")
+			}
+			if projectID == "" {
+				projectID = state.opts.projectID
+			}
 
 			cli, err := newAPIClient(state)
 			if err != nil {
@@ -46,16 +54,37 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 			}
 
 			return runTopLoop(cmd, watch, interval, func() error {
-				stats, err := cli.Stats(context.Background())
-				if err != nil {
-					return err
-				}
-
 				sampledAt := time.Now().UTC().Format(time.RFC3339)
-				rows := []map[string]any{
-					{"metric": "queued", "value": stats.Queued, "sampled_at": sampledAt},
-					{"metric": "executing", "value": stats.Executing, "sampled_at": sampledAt},
-					{"metric": "delayed", "value": stats.Delayed, "sampled_at": sampledAt},
+				rows := make([]map[string]any, 0)
+
+				if projectID == "" {
+					stats, err := cli.Stats(context.Background())
+					if err != nil {
+						return err
+					}
+					rows = append(rows,
+						map[string]any{"metric": "queued", "value": stats.Queued, "scope": "global", "sampled_at": sampledAt},
+						map[string]any{"metric": "executing", "value": stats.Executing, "scope": "global", "sampled_at": sampledAt},
+						map[string]any{"metric": "delayed", "value": stats.Delayed, "scope": "global", "sampled_at": sampledAt},
+					)
+				} else {
+					runs, err := cli.ListRuns(context.Background(), projectID, "", limit)
+					if err != nil {
+						return err
+					}
+
+					counts := map[string]int{}
+					for _, run := range runs {
+						counts[string(run.Status)]++
+					}
+
+					rows = append(rows,
+						map[string]any{"metric": "queued", "value": counts["queued"], "scope": projectID, "sampled_at": sampledAt},
+						map[string]any{"metric": "executing", "value": counts["executing"], "scope": projectID, "sampled_at": sampledAt},
+						map[string]any{"metric": "delayed", "value": counts["delayed"], "scope": projectID, "sampled_at": sampledAt},
+						map[string]any{"metric": "waiting", "value": counts["waiting"], "scope": projectID, "sampled_at": sampledAt},
+						map[string]any{"metric": "failed", "value": counts["failed"] + counts["timed_out"] + counts["crashed"] + counts["system_failed"], "scope": projectID, "sampled_at": sampledAt},
+					)
 				}
 				return printData(state, rows)
 			})
@@ -64,6 +93,8 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 
 	cmd.Flags().BoolVar(&watch, "watch", false, "refresh continuously")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "refresh interval in watch mode")
+	cmd.Flags().StringVar(&projectID, "project", "", "project ID for project-scoped queue breakdown")
+	cmd.Flags().IntVar(&limit, "limit", 500, "max runs sampled for project-scoped breakdown")
 
 	return cmd
 }

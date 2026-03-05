@@ -143,6 +143,9 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 	var interval time.Duration
 	var level string
 	var eventType string
+	var showPayload bool
+	var showResult bool
+	var eventLimit int
 
 	cmd := &cobra.Command{
 		Use:     "run <run-id>",
@@ -153,6 +156,9 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			if interval <= 0 {
 				return fmt.Errorf("interval must be greater than zero")
+			}
+			if eventLimit <= 0 {
+				return fmt.Errorf("event-limit must be greater than zero")
 			}
 
 			cli, err := newAPIClient(state)
@@ -169,6 +175,15 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 					return err
 				}
 
+				jobDetails := map[string]any{"id": run.JobID}
+				if job, jobErr := cli.GetJob(context.Background(), run.JobID); jobErr == nil {
+					jobDetails["name"] = job.Name
+					jobDetails["slug"] = job.Slug
+					jobDetails["enabled"] = job.Enabled
+					jobDetails["timeout_secs"] = job.TimeoutSecs
+					jobDetails["max_attempts"] = job.MaxAttempts
+				}
+
 				events, err := cli.ListRunEvents(context.Background(), runID, level, eventType)
 				if err != nil {
 					return err
@@ -177,6 +192,9 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 				sort.Slice(events, func(i, j int) bool {
 					return events[i].CreatedAt.Before(events[j].CreatedAt)
 				})
+				if len(events) > eventLimit {
+					events = events[len(events)-eventLimit:]
+				}
 
 				timeline := make([]map[string]any, 0, len(events))
 				for _, event := range events {
@@ -219,8 +237,15 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 						"next_retry_at": run.NextRetryAt,
 						"error":         run.Error,
 					},
+					"job":         jobDetails,
 					"timeline":    timeline,
 					"remediation": remediation,
+				}
+				if showPayload {
+					payload["payload"] = run.Payload
+				}
+				if showResult {
+					payload["result"] = run.Result
 				}
 
 				if err := printData(state, payload); err != nil {
@@ -243,6 +268,9 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval when following")
 	cmd.Flags().StringVar(&level, "level", "", "event level filter")
 	cmd.Flags().StringVar(&eventType, "type", "", "event type filter")
+	cmd.Flags().BoolVar(&showPayload, "show-payload", false, "include run payload in output")
+	cmd.Flags().BoolVar(&showResult, "show-result", false, "include run result in output")
+	cmd.Flags().IntVar(&eventLimit, "event-limit", 50, "maximum events to include in timeline")
 	_ = cmd.RegisterFlagCompletionFunc("level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp
 	})
