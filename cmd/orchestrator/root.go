@@ -130,6 +130,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newServeCommand())
 	cmd.AddCommand(newServerCommand())
 	cmd.AddCommand(newDevCommand())
+	cmd.AddCommand(newInitCommand())
 	cmd.AddCommand(newVersionCommand(state))
 	cmd.AddCommand(newCompletionCommand(cmd))
 	cmd.AddCommand(newContextCommand(state))
@@ -169,6 +170,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"serve":         {},
 		"server":        {},
 		"dev":           {},
+		"init":          {},
 		"version":       {},
 		"completion":    {},
 		"context":       {},
