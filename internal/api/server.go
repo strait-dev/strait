@@ -61,6 +61,8 @@ type APIStore interface {
 	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
+	ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
@@ -196,6 +198,8 @@ func (s *Server) routes() chi.Router {
 				r.Get("/", s.handleGetWorkflow)
 				r.Patch("/", s.handleUpdateWorkflow)
 				r.Delete("/", s.handleDeleteWorkflow)
+				r.Post("/dry-run", s.handleDryRunWorkflow)
+				r.Get("/graph", s.handleWorkflowGraph)
 				r.Post("/trigger", s.handleTriggerWorkflow)
 				r.Get("/runs", s.handleListWorkflowRuns)
 			})
@@ -208,6 +212,7 @@ func (s *Server) routes() chi.Router {
 				r.Delete("/", s.handleCancelWorkflowRun)
 				r.Post("/pause", s.handlePauseWorkflowRun)
 				r.Post("/resume", s.handleResumeWorkflowRun)
+				r.Get("/labels", s.handleGetWorkflowRunLabels)
 				r.Get("/steps", s.handleListWorkflowStepRuns)
 				r.Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
 			})

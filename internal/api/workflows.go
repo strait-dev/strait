@@ -3,12 +3,18 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
+	"strings"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
+	"orchestrator/internal/workflow"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/robfig/cron/v3"
 )
 
 type workflowStepRequest struct {
@@ -57,10 +63,22 @@ type updateWorkflowRequest struct {
 	Steps             *[]workflowStepRequest `json:"steps,omitempty"`
 }
 
+type dryRunWorkflowRequest struct {
+	Steps []workflowStepRequest `json:"steps"`
+}
+
+type workflowGraphResponse struct {
+	WorkflowID string              `json:"workflow_id"`
+	Roots      []string            `json:"roots"`
+	Adjacency  map[string][]string `json:"adjacency,omitempty"`
+	DOT        string              `json:"dot,omitempty"`
+}
+
 type triggerWorkflowRequest struct {
-	ProjectID   string          `json:"project_id,omitempty"`
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	TriggeredBy string          `json:"triggered_by,omitempty"`
+	ProjectID   string            `json:"project_id,omitempty"`
+	Payload     json.RawMessage   `json:"payload,omitempty"`
+	TriggeredBy string            `json:"triggered_by,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 type workflowResponse struct {
@@ -102,6 +120,10 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Cron:              req.Cron,
 		CronTimezone:      req.CronTimezone,
 		SkipIfRunning:     req.SkipIfRunning,
+	}
+	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	if err := s.store.CreateWorkflow(r.Context(), wf); err != nil {
@@ -228,6 +250,10 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if req.SkipIfRunning != nil {
 		wf.SkipIfRunning = *req.SkipIfRunning
 	}
+	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if err := s.store.UpdateWorkflow(r.Context(), wf); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
@@ -341,6 +367,12 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to trigger workflow")
 		return
 	}
+	if len(req.Labels) > 0 {
+		if err := s.store.CreateWorkflowRunLabels(r.Context(), run.ID, req.Labels); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to persist workflow run labels")
+			return
+		}
+	}
 
 	respondJSON(w, http.StatusCreated, run)
 }
@@ -380,5 +412,127 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 		}
 	}
 
+	return nil
+}
+
+func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowID")
+
+	var req dryRunWorkflowRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Steps) == 0 {
+		steps, err := s.store.ListStepsByWorkflow(r.Context(), workflowID)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to list workflow steps")
+			return
+		}
+		if err := workflow.ValidateDAG(steps); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"valid": true, "step_count": len(steps)})
+		return
+	}
+
+	if err := validateWorkflowSteps(req.Steps); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	steps := make([]domain.WorkflowStep, 0, len(req.Steps))
+	for _, sreq := range req.Steps {
+		steps = append(steps, domain.WorkflowStep{StepRef: sreq.StepRef, DependsOn: sreq.DependsOn})
+	}
+	if err := workflow.ValidateDAG(steps); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"valid": true, "step_count": len(steps)})
+}
+
+func (s *Server) handleWorkflowGraph(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowID")
+	format := strings.ToLower(r.URL.Query().Get("format"))
+
+	steps, err := s.store.ListStepsByWorkflow(r.Context(), workflowID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list workflow steps")
+		return
+	}
+
+	adj := make(map[string][]string, len(steps))
+	indegree := make(map[string]int, len(steps))
+	for _, st := range steps {
+		adj[st.StepRef] = []string{}
+		indegree[st.StepRef] = 0
+	}
+	for _, st := range steps {
+		for _, dep := range st.DependsOn {
+			adj[dep] = append(adj[dep], st.StepRef)
+			indegree[st.StepRef]++
+		}
+	}
+
+	roots := make([]string, 0)
+	for ref, degree := range indegree {
+		if degree == 0 {
+			roots = append(roots, ref)
+		}
+		sort.Strings(adj[ref])
+	}
+	sort.Strings(roots)
+
+	resp := workflowGraphResponse{WorkflowID: workflowID, Roots: roots}
+	if format == "dot" {
+		resp.DOT = buildWorkflowDOT(adj)
+		respondJSON(w, http.StatusOK, resp)
+		return
+	}
+	resp.Adjacency = adj
+	respondJSON(w, http.StatusOK, resp)
+}
+
+func buildWorkflowDOT(adjacency map[string][]string) string {
+	var b strings.Builder
+	b.WriteString("digraph workflow {\n")
+	keys := make([]string, 0, len(adjacency))
+	for k := range adjacency {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, src := range keys {
+		dsts := adjacency[src]
+		if len(dsts) == 0 {
+			_, _ = fmt.Fprintf(&b, "  \"%s\";\n", src)
+			continue
+		}
+		for _, dst := range dsts {
+			_, _ = fmt.Fprintf(&b, "  \"%s\" -> \"%s\";\n", src, dst)
+		}
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+func validateWorkflowConfig(cronExpr, cronTimezone string, maxParallelSteps int) error {
+	if maxParallelSteps < 0 {
+		return errors.New("max_parallel_steps must be >= 0")
+	}
+	if cronExpr == "" {
+		return nil
+	}
+	if cronTimezone != "" {
+		if _, err := time.LoadLocation(cronTimezone); err != nil {
+			return errors.New("invalid cron_timezone")
+		}
+	}
+	if _, err := cron.ParseStandard(cronExpr); err != nil {
+		return errors.New("invalid cron expression")
+	}
 	return nil
 }

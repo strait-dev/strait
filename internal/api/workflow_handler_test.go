@@ -267,6 +267,7 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 
 func TestHandleTriggerWorkflow(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
+		labelsSaved := false
 		trigger := &mockWorkflowTrigger{
 			triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, _ json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
 				if workflowID != "wf-1" || projectID != "proj-1" || triggeredBy != "manual" {
@@ -279,14 +280,27 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
 				return &domain.Workflow{ID: id, Enabled: true}, nil
 			},
+			createWorkflowRunLabelsFn: func(_ context.Context, workflowRunID string, labels map[string]string) error {
+				if workflowRunID != "wr-1" {
+					t.Fatalf("workflowRunID = %q, want wr-1", workflowRunID)
+				}
+				if labels["env"] != "test" {
+					t.Fatalf("labels env = %q, want test", labels["env"])
+				}
+				labelsSaved = true
+				return nil
+			},
 		}
 
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", `{"project_id":"proj-1"}`))
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", `{"project_id":"proj-1","labels":{"env":"test"}}`))
 
 		if w.Code != http.StatusCreated {
 			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+		if !labelsSaved {
+			t.Fatal("expected workflow run labels to be persisted")
 		}
 	})
 
@@ -509,6 +523,74 @@ func TestHandleResumeWorkflowRun(t *testing.T) {
 			t.Fatal("expected resume callback to be called")
 		}
 	})
+}
+
+func TestHandleGetWorkflowRunLabels(t *testing.T) {
+	ms := &mockAPIStore{
+		listWorkflowRunLabelsFn: func(_ context.Context, workflowRunID string) (map[string]string, error) {
+			if workflowRunID != "wr-1" {
+				t.Fatalf("workflowRunID = %q, want wr-1", workflowRunID)
+			}
+			return map[string]string{"env": "test"}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/labels", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleDryRunWorkflow(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+
+	t.Run("valid DAG", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		body := `{"steps":[{"job_id":"job-1","step_ref":"a"},{"job_id":"job-2","step_ref":"b","depends_on":["a"]}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/dry-run", body))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("cycle", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		body := `{"steps":[{"job_id":"job-1","step_ref":"a","depends_on":["b"]},{"job_id":"job-2","step_ref":"b","depends_on":["a"]}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/dry-run", body))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleWorkflowGraph(t *testing.T) {
+	ms := &mockAPIStore{
+		listStepsByWorkflowFn: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			return []domain.WorkflowStep{
+				{StepRef: "a"},
+				{StepRef: "b", DependsOn: []string{"a"}},
+			}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/graph", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/graph?format=dot", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
 }
 
 func TestHandleCancelWorkflowRun(t *testing.T) {

@@ -251,6 +251,16 @@ func (s *Server) handleResumeWorkflowRun(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
+func (s *Server) handleGetWorkflowRunLabels(w http.ResponseWriter, r *http.Request) {
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	labels, err := s.store.ListWorkflowRunLabels(r.Context(), workflowRunID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list workflow run labels")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"labels": labels})
+}
+
 func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Request) {
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID)

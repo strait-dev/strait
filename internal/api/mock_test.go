@@ -47,6 +47,8 @@ type mockAPIStore struct {
 	getWorkflowRunFn           func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listWorkflowRunsFn         func(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
 	listWorkflowRunsByProjFn   func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
+	createWorkflowRunLabelsFn  func(ctx context.Context, workflowRunID string, labels map[string]string) error
+	listWorkflowRunLabelsFn    func(ctx context.Context, workflowRunID string) (map[string]string, error)
 	listStepRunsByRunFn        func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	updateWorkflowRunStatusFn  func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn      func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
@@ -298,6 +300,20 @@ func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID 
 		return m.listWorkflowRunsByProjFn(ctx, projectID, status, limit)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error {
+	if m.createWorkflowRunLabelsFn != nil {
+		return m.createWorkflowRunLabelsFn(ctx, workflowRunID, labels)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error) {
+	if m.listWorkflowRunLabelsFn != nil {
+		return m.listWorkflowRunLabelsFn(ctx, workflowRunID)
+	}
+	return map[string]string{}, nil
 }
 
 func (m *mockAPIStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
