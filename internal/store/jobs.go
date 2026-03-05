@@ -26,19 +26,24 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	query := `
 		INSERT INTO jobs (
 			id, project_id, name, slug, description, cron, payload_schema,
-			endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
 			webhook_url, webhook_secret, run_ttl_secs, version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 1)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 1)
 		RETURNING created_at, updated_at, version`
+
+	tagsJSON, err := marshalJobTags(job.Tags)
+	if err != nil {
+		return fmt.Errorf("create job: %w", err)
+	}
 
 	var runTTL *int
 	if job.RunTTLSecs > 0 {
 		runTTL = &job.RunTTLSecs
 	}
 
-	err := q.db.QueryRow(
+	err = q.db.QueryRow(
 		ctx,
 		query,
 		job.ID,
@@ -48,6 +53,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.Description),
 		dbscan.NilIfEmptyString(job.Cron),
 		dbscan.NilIfEmptyRawMessage(job.PayloadSchema),
+		tagsJSON,
 		job.EndpointURL,
 		dbscan.NilIfEmptyString(job.FallbackEndpointURL),
 		job.MaxAttempts,
@@ -76,7 +82,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -99,7 +105,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -122,7 +128,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -158,12 +164,12 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	query := `
 		WITH snapshot AS (
 			INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
-				endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs)
-			SELECT $21, id, version, name, slug, description, cron, payload_schema,
-				endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+			SELECT $22, id, version, name, slug, description, cron, payload_schema,
+				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs
-			FROM jobs WHERE id = $20
+			FROM jobs WHERE id = $21
 		)
 		UPDATE jobs
 		SET name = $1,
@@ -171,31 +177,37 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    description = $3,
 		    cron = $4,
 		    payload_schema = $5,
-		    endpoint_url = $6,
-		    fallback_endpoint_url = $7,
-		    max_attempts = $8,
-		    timeout_secs = $9,
-		    max_concurrency = $10,
-		    execution_window_cron = $11,
-		    timezone = $12,
-		    rate_limit_max = $13,
-		    rate_limit_window_secs = $14,
-		    dedup_window_secs = $15,
-		    enabled = $16,
-		    webhook_url = $17,
-		    webhook_secret = $18,
-		    run_ttl_secs = $19,
+		    tags = $6::jsonb,
+		    endpoint_url = $7,
+		    fallback_endpoint_url = $8,
+		    max_attempts = $9,
+		    timeout_secs = $10,
+		    max_concurrency = $11,
+		    execution_window_cron = $12,
+		    timezone = $13,
+		    rate_limit_max = $14,
+		    rate_limit_window_secs = $15,
+		    dedup_window_secs = $16,
+		    enabled = $17,
+		    webhook_url = $18,
+		    webhook_secret = $19,
+		    run_ttl_secs = $20,
 		    version = version + 1,
 		    updated_at = NOW()
-		WHERE id = $20
+		WHERE id = $21
 		RETURNING updated_at, version`
+
+	tagsJSON, err := marshalJobTags(job.Tags)
+	if err != nil {
+		return fmt.Errorf("update job: %w", err)
+	}
 
 	var runTTL *int
 	if job.RunTTLSecs > 0 {
 		runTTL = &job.RunTTLSecs
 	}
 
-	err := q.db.QueryRow(
+	err = q.db.QueryRow(
 		ctx,
 		query,
 		job.Name,
@@ -203,6 +215,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.Description),
 		dbscan.NilIfEmptyString(job.Cron),
 		dbscan.NilIfEmptyRawMessage(job.PayloadSchema),
+		tagsJSON,
 		job.EndpointURL,
 		dbscan.NilIfEmptyString(job.FallbackEndpointURL),
 		job.MaxAttempts,
@@ -246,7 +259,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -362,6 +375,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var description *string
 	var cron *string
 	var payloadSchema []byte
+	var tagsJSON []byte
 	var fallbackEndpointURL *string
 	var maxConcurrency *int
 	var executionWindowCron *string
@@ -381,6 +395,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&description,
 		&cron,
 		&payloadSchema,
+		&tagsJSON,
 		&job.EndpointURL,
 		&fallbackEndpointURL,
 		&job.MaxAttempts,
@@ -411,6 +426,13 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	}
 	if payloadSchema != nil {
 		job.PayloadSchema = json.RawMessage(payloadSchema)
+	}
+	if len(tagsJSON) > 0 {
+		tags, err := unmarshalJobTags(tagsJSON)
+		if err != nil {
+			return nil, err
+		}
+		job.Tags = tags
 	}
 	if fallbackEndpointURL != nil {
 		job.FallbackEndpointURL = *fallbackEndpointURL
@@ -444,4 +466,74 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	}
 
 	return &job, nil
+}
+
+func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobsByTag")
+	defer span.End()
+
+	base := `
+		SELECT id, project_id, name, slug, description, cron, payload_schema,
+		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
+		FROM jobs
+		WHERE project_id = $1`
+
+	args := []any{projectID, tagKey}
+	if tagValue == "" {
+		base += ` AND tags ? $2`
+	} else {
+		base += ` AND tags ->> $2 = $3`
+		args = append(args, tagValue)
+	}
+	base += ` ORDER BY created_at DESC`
+
+	rows, err := q.db.Query(ctx, base, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs by tag: %w", err)
+	}
+	defer rows.Close()
+
+	jobs := make([]domain.Job, 0)
+	for rows.Next() {
+		job, scanErr := scanJob(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list jobs by tag scan: %w", scanErr)
+		}
+		jobs = append(jobs, *job)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list jobs by tag rows: %w", err)
+	}
+
+	return jobs, nil
+}
+
+func marshalJobTags(tags map[string]string) ([]byte, error) {
+	if len(tags) == 0 {
+		return []byte(`{}`), nil
+	}
+
+	encoded, err := json.Marshal(tags)
+	if err != nil {
+		return nil, fmt.Errorf("marshal job tags: %w", err)
+	}
+	return encoded, nil
+}
+
+func unmarshalJobTags(raw []byte) (map[string]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var tags map[string]string
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return nil, fmt.Errorf("unmarshal job tags: %w", err)
+	}
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	return tags, nil
 }

@@ -247,6 +247,39 @@ func TestE2E_ListJobs(t *testing.T) {
 	}
 }
 
+func TestE2E_ListJobsByTag(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-list-jobs-tag-" + newID()
+	teamCoreSlug := "job-core-" + newID()
+	teamOpsSlug := "job-ops-" + newID()
+
+	bodyCore := fmt.Sprintf(`{"project_id":"%s","name":"Job Core","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"tags":{"team":"core","service":"api"}}`, projectID, teamCoreSlug, teamCoreSlug)
+	bodyOps := fmt.Sprintf(`{"project_id":"%s","name":"Job Ops","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"tags":{"team":"ops"}}`, projectID, teamOpsSlug, teamOpsSlug)
+
+	w := doRequest(t, http.MethodPost, "/v1/jobs/", bodyCore)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create tagged core job status = %d, body = %s", w.Code, w.Body.String())
+	}
+	w = doRequest(t, http.MethodPost, "/v1/jobs/", bodyOps)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create tagged ops job status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/jobs/?project_id="+projectID+"&tag_key=team&tag_value=core", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list jobs by tag status = %d, body = %s", w.Code, w.Body.String())
+	}
+	resp := mustDecodeList(t, w)
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 tagged job, got %d", len(resp))
+	}
+	tags := asObject(t, resp[0], "tags")
+	if asString(t, tags, "team") != "core" {
+		t.Fatalf("expected team tag core, got %s", asString(t, tags, "team"))
+	}
+}
+
 func TestE2E_UpdateJob(t *testing.T) {
 	mustClean(t)
 

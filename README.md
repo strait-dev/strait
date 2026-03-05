@@ -144,7 +144,7 @@ SDK `/sdk/v1/*` endpoints require a run token JWT issued by the trigger response
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/v1/jobs` | Create a job |
-| `GET` | `/v1/jobs?project_id=X` | List jobs for a project |
+| `GET` | `/v1/jobs?project_id=X` | List jobs for a project (supports `tag_key` and `tag_value` filters) |
 | `GET` | `/v1/jobs/{jobID}` | Get a job |
 | `PATCH` | `/v1/jobs/{jobID}` | Update a job (auto-versions) |
 | `DELETE` | `/v1/jobs/{jobID}` | Soft-delete (disable) a job |

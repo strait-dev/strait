@@ -212,6 +212,33 @@ func TestHandleListJobs_MissingProjectID(t *testing.T) {
 	}
 }
 
+func TestHandleListJobs_FilterByTag(t *testing.T) {
+	ms := &mockAPIStore{
+		listJobsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {
+			if projectID != "proj-1" || tagKey != "team" || tagValue != "core" {
+				t.Fatalf("unexpected list by tag args: %q %q %q", projectID, tagKey, tagValue)
+			}
+			return []domain.Job{{ID: "job-1", ProjectID: projectID, Name: "Job 1"}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp))
+	}
+}
+
 func TestHandleTriggerJob_Success(t *testing.T) {
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {

@@ -346,6 +346,52 @@ func TestListJobs_FiltersByProject(t *testing.T) {
 	}
 }
 
+func TestListJobsByTag(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-list-jobs-by-tag"
+	jobA := baseJob(newID(), projectID)
+	jobA.Tags = map[string]string{"team": "core", "service": "scheduler"}
+	if err := q.CreateJob(ctx, jobA); err != nil {
+		t.Fatalf("CreateJob(jobA) error = %v", err)
+	}
+
+	jobB := baseJob(newID(), projectID)
+	jobB.Tags = map[string]string{"team": "platform"}
+	if err := q.CreateJob(ctx, jobB); err != nil {
+		t.Fatalf("CreateJob(jobB) error = %v", err)
+	}
+
+	jobC := baseJob(newID(), projectID)
+	if err := q.CreateJob(ctx, jobC); err != nil {
+		t.Fatalf("CreateJob(jobC) error = %v", err)
+	}
+
+	jobs, err := q.ListJobsByTag(ctx, projectID, "team", "core")
+	if err != nil {
+		t.Fatalf("ListJobsByTag() error = %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("ListJobsByTag() len = %d, want 1", len(jobs))
+	}
+	if jobs[0].ID != jobA.ID {
+		t.Fatalf("ListJobsByTag() id = %s, want %s", jobs[0].ID, jobA.ID)
+	}
+	if jobs[0].Tags["service"] != "scheduler" {
+		t.Fatalf("ListJobsByTag() service tag = %q, want %q", jobs[0].Tags["service"], "scheduler")
+	}
+
+	jobs, err = q.ListJobsByTag(ctx, projectID, "team", "")
+	if err != nil {
+		t.Fatalf("ListJobsByTag(key-only) error = %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("ListJobsByTag(key-only) len = %d, want 2", len(jobs))
+	}
+}
+
 func TestUpdateJob(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

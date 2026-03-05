@@ -13,43 +13,45 @@ import (
 )
 
 type CreateJobRequest struct {
-	ProjectID           string          `json:"project_id"`
-	Name                string          `json:"name"`
-	Slug                string          `json:"slug"`
-	Description         string          `json:"description,omitempty"`
-	Cron                string          `json:"cron,omitempty"`
-	PayloadSchema       json.RawMessage `json:"payload_schema,omitempty"`
-	EndpointURL         string          `json:"endpoint_url"`
-	FallbackEndpointURL string          `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts         int             `json:"max_attempts"`
-	TimeoutSecs         int             `json:"timeout_secs"`
-	MaxConcurrency      int             `json:"max_concurrency,omitempty"`
-	ExecutionWindowCron string          `json:"execution_window_cron,omitempty"`
-	Timezone            string          `json:"timezone,omitempty"`
-	RateLimitMax        int             `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs int             `json:"rate_limit_window_secs,omitempty"`
-	DedupWindowSecs     int             `json:"dedup_window_secs,omitempty"`
-	RunTTLSecs          int             `json:"run_ttl_secs,omitempty"`
+	ProjectID           string            `json:"project_id"`
+	Name                string            `json:"name"`
+	Slug                string            `json:"slug"`
+	Description         string            `json:"description,omitempty"`
+	Cron                string            `json:"cron,omitempty"`
+	PayloadSchema       json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	EndpointURL         string            `json:"endpoint_url"`
+	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts         int               `json:"max_attempts"`
+	TimeoutSecs         int               `json:"timeout_secs"`
+	MaxConcurrency      int               `json:"max_concurrency,omitempty"`
+	ExecutionWindowCron string            `json:"execution_window_cron,omitempty"`
+	Timezone            string            `json:"timezone,omitempty"`
+	RateLimitMax        int               `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty"`
+	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty"`
+	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
 }
 
 type UpdateJobRequest struct {
-	Name                *string          `json:"name,omitempty"`
-	Slug                *string          `json:"slug,omitempty"`
-	Description         *string          `json:"description,omitempty"`
-	Cron                *string          `json:"cron,omitempty"`
-	PayloadSchema       *json.RawMessage `json:"payload_schema,omitempty"`
-	EndpointURL         *string          `json:"endpoint_url,omitempty"`
-	FallbackEndpointURL *string          `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts         *int             `json:"max_attempts,omitempty"`
-	TimeoutSecs         *int             `json:"timeout_secs,omitempty"`
-	MaxConcurrency      *int             `json:"max_concurrency,omitempty"`
-	ExecutionWindowCron *string          `json:"execution_window_cron,omitempty"`
-	Timezone            *string          `json:"timezone,omitempty"`
-	RateLimitMax        *int             `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs *int             `json:"rate_limit_window_secs,omitempty"`
-	DedupWindowSecs     *int             `json:"dedup_window_secs,omitempty"`
-	RunTTLSecs          *int             `json:"run_ttl_secs,omitempty"`
-	Enabled             *bool            `json:"enabled,omitempty"`
+	Name                *string            `json:"name,omitempty"`
+	Slug                *string            `json:"slug,omitempty"`
+	Description         *string            `json:"description,omitempty"`
+	Cron                *string            `json:"cron,omitempty"`
+	PayloadSchema       *json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                *map[string]string `json:"tags,omitempty"`
+	EndpointURL         *string            `json:"endpoint_url,omitempty"`
+	FallbackEndpointURL *string            `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts         *int               `json:"max_attempts,omitempty"`
+	TimeoutSecs         *int               `json:"timeout_secs,omitempty"`
+	MaxConcurrency      *int               `json:"max_concurrency,omitempty"`
+	ExecutionWindowCron *string            `json:"execution_window_cron,omitempty"`
+	Timezone            *string            `json:"timezone,omitempty"`
+	RateLimitMax        *int               `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs *int               `json:"rate_limit_window_secs,omitempty"`
+	DedupWindowSecs     *int               `json:"dedup_window_secs,omitempty"`
+	RunTTLSecs          *int               `json:"run_ttl_secs,omitempty"`
+	Enabled             *bool              `json:"enabled,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +107,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		Description:         req.Description,
 		Cron:                req.Cron,
 		PayloadSchema:       req.PayloadSchema,
+		Tags:                req.Tags,
 		EndpointURL:         req.EndpointURL,
 		FallbackEndpointURL: req.FallbackEndpointURL,
 		MaxAttempts:         req.MaxAttempts,
@@ -143,13 +146,28 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
+	query := r.URL.Query()
+	projectID := query.Get("project_id")
 	if projectID == "" {
 		respondError(w, http.StatusBadRequest, "project_id is required")
 		return
 	}
+	tagKey := query.Get("tag_key")
+	tagValue := query.Get("tag_value")
+	if tagValue != "" && tagKey == "" {
+		respondError(w, http.StatusBadRequest, "tag_key is required when tag_value is provided")
+		return
+	}
 
-	jobs, err := s.store.ListJobs(r.Context(), projectID)
+	var (
+		jobs []domain.Job
+		err  error
+	)
+	if tagKey != "" {
+		jobs, err = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue)
+	} else {
+		jobs, err = s.store.ListJobs(r.Context(), projectID)
+	}
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list jobs")
 		return
@@ -207,6 +225,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.PayloadSchema != nil {
 		job.PayloadSchema = *req.PayloadSchema
+	}
+	if req.Tags != nil {
+		job.Tags = *req.Tags
 	}
 	if req.EndpointURL != nil {
 		job.EndpointURL = *req.EndpointURL

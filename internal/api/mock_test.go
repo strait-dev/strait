@@ -17,6 +17,7 @@ type mockAPIStore struct {
 	getJobFn                    func(ctx context.Context, id string) (*domain.Job, error)
 	getJobBySlugFn              func(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	listJobsFn                  func(ctx context.Context, projectID string) ([]domain.Job, error)
+	listJobsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
 	updateJobFn                 func(ctx context.Context, job *domain.Job) error
 	getRunFn                    func(ctx context.Context, id string) (*domain.JobRun, error)
 	getRunByIdempotencyKeyFn    func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
@@ -89,6 +90,13 @@ func (m *mockAPIStore) GetJobBySlug(ctx context.Context, projectID, slug string)
 func (m *mockAPIStore) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {
+	if m.listJobsByTagFn != nil {
+		return m.listJobsByTagFn(ctx, projectID, tagKey, tagValue)
 	}
 	return nil, nil
 }
