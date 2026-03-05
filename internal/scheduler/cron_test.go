@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -10,8 +11,19 @@ import (
 	"orchestrator/internal/domain"
 )
 
+type mockWorkflowTrigger struct {
+	triggerWorkflowFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+}
+
+func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
+	if m.triggerWorkflowFn != nil {
+		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy)
+	}
+	return nil, nil
+}
+
 func TestNewCronScheduler(t *testing.T) {
-	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{})
+	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{}, nil)
 	if cs == nil {
 		t.Fatal("expected scheduler to be non-nil")
 	}
@@ -27,7 +39,7 @@ func TestCronScheduler_LoadJobs_Success(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{})
+	cs := NewCronScheduler(store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -41,7 +53,7 @@ func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{})
+	cs := NewCronScheduler(store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -56,7 +68,7 @@ func TestCronScheduler_LoadJobs_StoreError(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{})
+	cs := NewCronScheduler(store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -73,7 +85,7 @@ func TestCronScheduler_LoadJobs_InvalidCron(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{})
+	cs := NewCronScheduler(store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -90,7 +102,7 @@ func TestCronScheduler_StartStop(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{})
+	cs := NewCronScheduler(store, &mockQueue{}, nil)
 	if err := cs.LoadJobs(context.Background()); err != nil {
 		t.Fatalf("load jobs failed: %v", err)
 	}
@@ -109,7 +121,7 @@ func TestCronScheduler_TriggerJob(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(&mockCronStore{}, q)
+	cs := NewCronScheduler(&mockCronStore{}, q, nil)
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1"}
 	cs.triggerJob(context.Background(), job)
 
@@ -132,7 +144,7 @@ func TestCronScheduler_TriggerJob_WithTTL(t *testing.T) {
 			return nil
 		},
 	}
-	cs := NewCronScheduler(&mockCronStore{}, mq)
+	cs := NewCronScheduler(&mockCronStore{}, mq, nil)
 
 	job := domain.Job{
 		ID:         "job-ttl",
@@ -162,7 +174,7 @@ func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
 			return nil
 		},
 	}
-	cs := NewCronScheduler(&mockCronStore{}, mq)
+	cs := NewCronScheduler(&mockCronStore{}, mq, nil)
 
 	job := domain.Job{
 		ID:         "job-no-ttl",
@@ -176,5 +188,53 @@ func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
 	}
 	if capturedRun.ExpiresAt != nil {
 		t.Fatalf("expected ExpiresAt to be nil, got %v", capturedRun.ExpiresAt)
+	}
+}
+
+func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
+	triggered := false
+	cs := NewCronScheduler(&mockCronStore{
+		countRunningWfRunsFn: func(_ context.Context, workflowID string) (int, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			return 1, nil
+		},
+	}, &mockQueue{}, &mockWorkflowTrigger{
+		triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string) (*domain.WorkflowRun, error) {
+			triggered = true
+			return &domain.WorkflowRun{ID: "wr-1"}, nil
+		},
+	})
+
+	cs.triggerWorkflow(context.Background(), domain.Workflow{ID: "wf-1", ProjectID: "proj-1", SkipIfRunning: true})
+
+	if triggered {
+		t.Fatal("expected workflow cron trigger to be skipped")
+	}
+}
+
+func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
+	triggered := false
+	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{}, &mockWorkflowTrigger{
+		triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
+			if workflowID != "wf-1" || projectID != "proj-1" {
+				t.Fatalf("unexpected trigger args: %s %s", workflowID, projectID)
+			}
+			if payload != nil {
+				t.Fatalf("expected nil payload, got %s", string(payload))
+			}
+			if triggeredBy != domain.TriggerCron {
+				t.Fatalf("triggeredBy = %q, want %q", triggeredBy, domain.TriggerCron)
+			}
+			triggered = true
+			return &domain.WorkflowRun{ID: "wr-1"}, nil
+		},
+	})
+
+	cs.triggerWorkflow(context.Background(), domain.Workflow{ID: "wf-1", ProjectID: "proj-1"})
+
+	if !triggered {
+		t.Fatal("expected workflow cron trigger to run")
 	}
 }

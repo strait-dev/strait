@@ -25,6 +25,7 @@ type workflowStepRequest struct {
 	RetryBackoff          domain.RetryBackoffPolicy `json:"retry_backoff,omitempty"`
 	RetryInitialDelaySecs int                       `json:"retry_initial_delay_secs,omitempty"`
 	RetryMaxDelaySecs     int                       `json:"retry_max_delay_secs,omitempty"`
+	TimeoutSecsOverride   int                       `json:"timeout_secs_override,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -35,6 +36,10 @@ type createWorkflowRequest struct {
 	Enabled           *bool                 `json:"enabled,omitempty"`
 	TimeoutSecs       int                   `json:"timeout_secs,omitempty"`
 	MaxConcurrentRuns int                   `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps  int                   `json:"max_parallel_steps,omitempty"`
+	Cron              string                `json:"cron,omitempty"`
+	CronTimezone      string                `json:"cron_timezone,omitempty"`
+	SkipIfRunning     bool                  `json:"skip_if_running,omitempty"`
 	Steps             []workflowStepRequest `json:"steps,omitempty"`
 }
 
@@ -45,6 +50,10 @@ type updateWorkflowRequest struct {
 	Enabled           *bool                  `json:"enabled,omitempty"`
 	TimeoutSecs       *int                   `json:"timeout_secs,omitempty"`
 	MaxConcurrentRuns *int                   `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps  *int                   `json:"max_parallel_steps,omitempty"`
+	Cron              *string                `json:"cron,omitempty"`
+	CronTimezone      *string                `json:"cron_timezone,omitempty"`
+	SkipIfRunning     *bool                  `json:"skip_if_running,omitempty"`
 	Steps             *[]workflowStepRequest `json:"steps,omitempty"`
 }
 
@@ -89,6 +98,10 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Enabled:           enabled,
 		TimeoutSecs:       req.TimeoutSecs,
 		MaxConcurrentRuns: req.MaxConcurrentRuns,
+		MaxParallelSteps:  req.MaxParallelSteps,
+		Cron:              req.Cron,
+		CronTimezone:      req.CronTimezone,
+		SkipIfRunning:     req.SkipIfRunning,
 	}
 
 	if err := s.store.CreateWorkflow(r.Context(), wf); err != nil {
@@ -113,6 +126,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			RetryBackoff:          stepReq.RetryBackoff,
 			RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
 			RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
+			TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to create workflow step")
@@ -202,6 +216,18 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if req.MaxConcurrentRuns != nil {
 		wf.MaxConcurrentRuns = *req.MaxConcurrentRuns
 	}
+	if req.MaxParallelSteps != nil {
+		wf.MaxParallelSteps = *req.MaxParallelSteps
+	}
+	if req.Cron != nil {
+		wf.Cron = *req.Cron
+	}
+	if req.CronTimezone != nil {
+		wf.CronTimezone = *req.CronTimezone
+	}
+	if req.SkipIfRunning != nil {
+		wf.SkipIfRunning = *req.SkipIfRunning
+	}
 
 	if err := s.store.UpdateWorkflow(r.Context(), wf); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
@@ -237,6 +263,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 				RetryBackoff:          stepReq.RetryBackoff,
 				RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
 				RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
+				TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
 				respondError(w, http.StatusInternalServerError, "failed to create workflow step")
@@ -336,6 +363,9 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 			if step.ApprovalTimeoutSecs < 0 {
 				return errors.New("approval_timeout_secs must be >= 0")
 			}
+		}
+		if step.TimeoutSecsOverride < 0 {
+			return errors.New("timeout_secs_override must be >= 0")
 		}
 		if len(step.DependsOn) == 0 {
 			continue

@@ -256,7 +256,7 @@ func run() error {
 		})
 
 		// Start scheduler (cron, delayed poller, reaper)
-		sched := scheduler.New(cfg, queries, q, stepCallback)
+		sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine)
 		if err := sched.Start(gCtx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}

@@ -220,9 +220,13 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	}
 	stepRunByID := make(map[string]domain.WorkflowStepRun, len(stepRuns))
 	stepStatuses := make(map[string]domain.StepRunStatus, len(stepRuns))
+	runningStepCount := 0
 	for _, sr := range stepRuns {
 		stepRunByID[sr.ID] = sr
 		stepStatuses[sr.StepRef] = sr.Status
+		if sr.Status == domain.StepRunning {
+			runningStepCount++
+		}
 	}
 
 	for _, dep := range deps {
@@ -240,6 +244,9 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 			return fmt.Errorf("step run not found for %s", dep.StepRunID)
 		}
 		if childStepRun.Status.IsTerminal() {
+			continue
+		}
+		if wfRun.MaxParallelSteps > 0 && runningStepCount >= wfRun.MaxParallelSteps {
 			continue
 		}
 
@@ -277,6 +284,9 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 			return fmt.Errorf("start child step %s: %w", childStep.StepRef, err)
 		}
 		stepStatuses[childStepRun.StepRef] = domain.StepRunning
+		if childRun.Status == domain.StepRunning {
+			runningStepCount++
+		}
 	}
 
 	return nil
@@ -494,8 +504,12 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
 	stepStatuses := make(map[string]domain.StepRunStatus, len(stepRuns))
+	runningStepCount := 0
 	for _, sr := range stepRuns {
 		stepStatuses[sr.StepRef] = sr.Status
+		if sr.Status == domain.StepRunning {
+			runningStepCount++
+		}
 	}
 
 	for _, sr := range stepRuns {
@@ -503,6 +517,9 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 			continue
 		}
 		if sr.DepsCompleted != sr.DepsRequired {
+			continue
+		}
+		if wfRun.MaxParallelSteps > 0 && runningStepCount >= wfRun.MaxParallelSteps {
 			continue
 		}
 
@@ -543,6 +560,9 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 			return fmt.Errorf("start resumed step %s: %w", stepDef.StepRef, err)
 		}
 		stepStatuses[sr.StepRef] = srCopy.Status
+		if srCopy.Status == domain.StepRunning {
+			runningStepCount++
+		}
 	}
 
 	return nil

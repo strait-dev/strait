@@ -106,12 +106,13 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	}
 
 	wfRun := &domain.WorkflowRun{
-		WorkflowID:      workflowID,
-		ProjectID:       projectID,
-		Status:          domain.WfStatusPending,
-		TriggeredBy:     triggeredBy,
-		WorkflowVersion: wf.Version,
-		Payload:         payload,
+		WorkflowID:       workflowID,
+		ProjectID:        projectID,
+		Status:           domain.WfStatusPending,
+		TriggeredBy:      triggeredBy,
+		WorkflowVersion:  wf.Version,
+		MaxParallelSteps: wf.MaxParallelSteps,
+		Payload:          payload,
 	}
 	if wf.TimeoutSecs > 0 {
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
@@ -157,9 +158,20 @@ func (e *WorkflowEngine) TriggerWorkflow(
 		}
 	}
 
+	runningStarts := 0
 	for _, root := range roots {
+		if wfRun.MaxParallelSteps > 0 && runningStarts >= wfRun.MaxParallelSteps {
+			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
+				return nil, fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
+			}
+			root.stepRun.Status = domain.StepWaiting
+			continue
+		}
 		if err := e.startStep(ctx, root.stepRun, root.step, wfRun, nil); err != nil {
 			return nil, fmt.Errorf("start root step %s: %w", root.step.StepRef, err)
+		}
+		if root.stepRun.Status == domain.StepRunning {
+			runningStarts++
 		}
 	}
 
@@ -210,11 +222,12 @@ func (e *WorkflowEngine) startStep(
 
 	payload := mergePayloads(wfRun.Payload, step.Payload, mergedPayload)
 	jobRun := &domain.JobRun{
-		JobID:             step.JobID,
-		ProjectID:         wfRun.ProjectID,
-		Payload:           payload,
-		TriggeredBy:       domain.TriggerWorkflow,
-		WorkflowStepRunID: stepRun.ID,
+		JobID:               step.JobID,
+		ProjectID:           wfRun.ProjectID,
+		Payload:             payload,
+		TriggeredBy:         domain.TriggerWorkflow,
+		WorkflowStepRunID:   stepRun.ID,
+		TimeoutSecsOverride: step.TimeoutSecsOverride,
 	}
 	if err := e.queue.Enqueue(ctx, jobRun); err != nil {
 		return fmt.Errorf("enqueue step job run: %w", err)

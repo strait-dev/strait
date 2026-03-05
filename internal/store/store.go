@@ -86,6 +86,7 @@ type WorkflowStore interface {
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error)
+	ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
 	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)

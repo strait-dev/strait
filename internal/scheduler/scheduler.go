@@ -24,9 +24,9 @@ type Scheduler struct {
 	wg     sync.WaitGroup
 }
 
-func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback) *Scheduler {
+func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger) *Scheduler {
 	return &Scheduler{
-		cron:   NewCronScheduler(s, q),
+		cron:   NewCronScheduler(s, q, wfTrigger),
 		poller: NewDelayedPoller(s, cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, wfCallback),
 	}

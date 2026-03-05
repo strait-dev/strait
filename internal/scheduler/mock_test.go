@@ -47,7 +47,9 @@ type mockReaperStore struct {
 }
 
 type mockCronStore struct {
-	listCronJobsFn func(ctx context.Context) ([]domain.Job, error)
+	listCronJobsFn       func(ctx context.Context) ([]domain.Job, error)
+	listCronWorkflowsFn  func(ctx context.Context) ([]domain.Workflow, error)
+	countRunningWfRunsFn func(ctx context.Context, workflowID string) (int, error)
 }
 
 func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -55,6 +57,20 @@ func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) 
 		return m.listCronJobsFn(ctx)
 	}
 	return nil, nil
+}
+
+func (m *mockCronStore) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error) {
+	if m.listCronWorkflowsFn != nil {
+		return m.listCronWorkflowsFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockCronStore) CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error) {
+	if m.countRunningWfRunsFn != nil {
+		return m.countRunningWfRunsFn(ctx, workflowID)
+	}
+	return 0, nil
 }
 
 type mockQueue struct {

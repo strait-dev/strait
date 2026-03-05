@@ -22,9 +22,10 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 	insertVersion := `
 		INSERT INTO workflow_versions (
 			id, workflow_id, version, project_id, name, slug, description, enabled,
-			timeout_secs, max_concurrent_runs
+			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
 		)
-		SELECT $1, id, version, project_id, name, slug, description, enabled, timeout_secs, max_concurrent_runs
+		SELECT $1, id, version, project_id, name, slug, description, enabled,
+		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
 		FROM workflows
 		WHERE id = $2 AND version = $3
 		ON CONFLICT (workflow_id, version)
@@ -35,7 +36,11 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			description = EXCLUDED.description,
 			enabled = EXCLUDED.enabled,
 			timeout_secs = EXCLUDED.timeout_secs,
-			max_concurrent_runs = EXCLUDED.max_concurrent_runs`
+			max_concurrent_runs = EXCLUDED.max_concurrent_runs,
+			max_parallel_steps = EXCLUDED.max_parallel_steps,
+			cron = EXCLUDED.cron,
+			cron_timezone = EXCLUDED.cron_timezone,
+			skip_if_running = EXCLUDED.skip_if_running`
 
 	tag, err := q.db.Exec(ctx, insertVersion, versionID, workflowID, version)
 	if err != nil {
@@ -53,7 +58,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 		INSERT INTO workflow_version_steps (
 			id, workflow_version_id, job_id, step_ref, depends_on, condition, on_failure, payload,
 			step_type, approval_timeout_secs, approval_approvers,
-			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs
+			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+			timeout_secs_override
 		)
 		SELECT
 			$1 || ':' || step_ref,
@@ -70,7 +76,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			retry_max_attempts,
 			retry_backoff,
 			retry_initial_delay_secs,
-			retry_max_delay_secs
+			retry_max_delay_secs,
+			timeout_secs_override
 		FROM workflow_steps
 		WHERE workflow_id = $2`
 
@@ -102,6 +109,7 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 			wvs.retry_backoff,
 			wvs.retry_initial_delay_secs,
 			wvs.retry_max_delay_secs,
+			wvs.timeout_secs_override,
 			wvs.created_at
 		FROM workflow_version_steps wvs
 		JOIN workflow_versions wv ON wv.id = wvs.workflow_version_id
@@ -152,7 +160,7 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
-		       workflow_version, error, started_at, finished_at, expires_at, created_at
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at, created_at
 		FROM workflow_runs
 		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL

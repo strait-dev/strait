@@ -508,6 +508,9 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 		if step.RetryMaxDelaySecs > 0 {
 			fallback.retryMaxSecs = step.RetryMaxDelaySecs
 		}
+		if step.TimeoutSecsOverride > 0 {
+			fallback.timeoutSecs = step.TimeoutSecsOverride
+		}
 		return fallback, nil
 	}
 

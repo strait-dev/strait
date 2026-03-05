@@ -21,6 +21,14 @@ func (m *mockSchedulerStore) ListCronJobs(ctx context.Context) ([]domain.Job, er
 	return m.cron.ListCronJobs(ctx)
 }
 
+func (m *mockSchedulerStore) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error) {
+	return m.cron.ListCronWorkflows(ctx)
+}
+
+func (m *mockSchedulerStore) CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error) {
+	return m.cron.CountRunningWorkflowRuns(ctx, workflowID)
+}
+
 func (m *mockSchedulerStore) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	return m.poller.ListDueRuns(ctx)
 }
@@ -88,7 +96,7 @@ func TestScheduler_New(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	if s == nil {
 		t.Fatal("expected scheduler to be non-nil")
 	}
@@ -103,7 +111,7 @@ func TestScheduler_Start_Success(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -123,7 +131,7 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	err := s.Start(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -142,7 +150,7 @@ func TestScheduler_Stop(t *testing.T) {
 		reaper: &mockReaperStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil)
+	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
