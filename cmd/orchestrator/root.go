@@ -149,6 +149,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newDocsCommand(cmd))
 	cmd.AddCommand(newLogsCommand(state))
 	cmd.AddCommand(newEventsCommand(state))
+	cmd.AddCommand(newVerifyCommand(state))
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -183,6 +184,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"docs":          {},
 		"logs":          {},
 		"events":        {},
+		"verify":        {},
 		"help":          {},
 	}
 
