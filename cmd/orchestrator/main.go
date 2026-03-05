@@ -252,6 +252,7 @@ func run() error {
 			PartitionWeights:  partitionWeights,
 			CircuitBreaker:    cfg.FFCircuitBreaker,
 			SmartRetry:        cfg.FFSmartRetry,
+			Bulkheads:         cfg.FFBulkheads,
 		})
 
 		g.Go(func() error {

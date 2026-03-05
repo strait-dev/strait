@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -56,6 +57,9 @@ type Executor struct {
 	nextPartition    int
 	circuitBreaker   bool
 	smartRetry       bool
+	bulkheads        bool
+	jobActiveRuns    map[string]int
+	jobActiveRunsMu  sync.Mutex
 	circuitThreshold int
 	circuitOpenFor   time.Duration
 	logger           *slog.Logger
@@ -76,6 +80,7 @@ type ExecutorConfig struct {
 	PartitionWeights  string
 	CircuitBreaker    bool
 	SmartRetry        bool
+	Bulkheads         bool
 }
 
 const (
@@ -109,10 +114,45 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		partitionCycle:   buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
 		circuitBreaker:   cfg.CircuitBreaker,
 		smartRetry:       cfg.SmartRetry,
+		bulkheads:        cfg.Bulkheads,
+		jobActiveRuns:    make(map[string]int),
 		circuitThreshold: defaultCircuitFailureThreshold,
 		circuitOpenFor:   defaultCircuitOpenDuration,
 		logger:           slog.Default(),
 	}
+}
+
+func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {
+	if !e.bulkheads || maxConcurrency <= 0 {
+		return true
+	}
+
+	e.jobActiveRunsMu.Lock()
+	defer e.jobActiveRunsMu.Unlock()
+
+	if e.jobActiveRuns[jobID] >= maxConcurrency {
+		return false
+	}
+
+	e.jobActiveRuns[jobID]++
+	return true
+}
+
+func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
+	if !e.bulkheads || maxConcurrency <= 0 {
+		return
+	}
+
+	e.jobActiveRunsMu.Lock()
+	defer e.jobActiveRunsMu.Unlock()
+
+	active := e.jobActiveRuns[jobID]
+	if active <= 1 {
+		delete(e.jobActiveRuns, jobID)
+		return
+	}
+
+	e.jobActiveRuns[jobID] = active - 1
 }
 
 func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
@@ -332,6 +372,32 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 			return
 		}
 	}
+
+	acquired := e.tryAcquireBulkheadSlot(job.ID, job.MaxConcurrency)
+	if !acquired {
+		retryAt := NextRetryAt(run.Attempt)
+		fields := map[string]any{
+			"next_retry_at": retryAt,
+			"error":         "job bulkhead at capacity",
+			"error_class":   "transient",
+			"started_at":    nil,
+			"finished_at":   nil,
+		}
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+			e.logger.Error(
+				"failed to requeue run while bulkhead at capacity",
+				"run_id", run.ID,
+				"job_id", run.JobID,
+				"error", err,
+			)
+			return
+		}
+
+		e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
+		e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "bulkhead_capacity"})
+		return
+	}
+	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
 
 	err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now(),

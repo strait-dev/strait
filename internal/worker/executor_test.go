@@ -335,6 +335,113 @@ func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
 	}
 }
 
+func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob(server.URL, 3, 5)
+		job.MaxConcurrency = 1
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.bulkheads = true
+	exec.jobActiveRunsMu.Lock()
+	exec.jobActiveRuns["job-1"] = 1
+	exec.jobActiveRunsMu.Unlock()
+
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if called.Load() != 0 {
+		t.Fatalf("dispatch called %d times, want 0", called.Load())
+	}
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
+		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusQueued)
+	}
+	if calls[0].fields["error"] != "job bulkhead at capacity" {
+		t.Fatalf("error field = %v, want %q", calls[0].fields["error"], "job bulkhead at capacity")
+	}
+}
+
+func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob(server.URL, 1, 5)
+		job.MaxConcurrency = 1
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.bulkheads = true
+
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[0].to != domain.StatusExecuting || calls[1].to != domain.StatusCompleted {
+		t.Fatalf("transitions = %s then %s, want executing then completed", calls[0].to, calls[1].to)
+	}
+
+	exec.jobActiveRunsMu.Lock()
+	defer exec.jobActiveRunsMu.Unlock()
+	if _, ok := exec.jobActiveRuns["job-1"]; ok {
+		t.Fatal("bulkhead active run entry still present, want released")
+	}
+}
+
+func TestExecutor_Bulkheads_DisabledBypassesLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob(server.URL, 1, 5)
+		job.MaxConcurrency = 1
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.jobActiveRunsMu.Lock()
+	exec.jobActiveRuns["job-1"] = 1
+	exec.jobActiveRunsMu.Unlock()
+
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
 func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
