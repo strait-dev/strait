@@ -560,7 +560,14 @@ func TestE2E_ReplayRun(t *testing.T) {
 	original := triggerJob(t, jobID, `{"payload":{"replay":true}}`, idempotencyKey)
 	originalRunID := asString(t, original, "id")
 
-	err := testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusQueued, domain.StatusFailed, map[string]any{
+	err := testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusQueued, domain.StatusExecuting, map[string]any{
+		"started_at": time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("update run status to executing: %v", err)
+	}
+
+	err = testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
 		"finished_at": time.Now().UTC(),
 		"error":       "forced failure for replay",
 	})
@@ -654,6 +661,38 @@ func TestE2E_RunEvents(t *testing.T) {
 	}
 	if asString(t, events[0], "message") != "Processing started" {
 		t.Fatalf("expected event message, got %s", asString(t, events[0], "message"))
+	}
+}
+
+func TestE2E_RunAnnotations(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-annotations-" + newID()
+	job := createJob(t, projectID, "Annotations", "annotations-"+newID())
+	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"annotations":true}}`, "")
+	runID := asString(t, triggerResp, "id")
+	runToken := asString(t, triggerResp, "run_token")
+
+	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/annotate", runToken, `{"annotations":{"env":"prod","region":"eu"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sdk annotate status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
+	}
+	run := mustDecodeObject(t, w)
+	metadataRaw, ok := run["metadata"]
+	if !ok {
+		t.Fatal("expected metadata field in run response")
+	}
+	metadata, ok := metadataRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("metadata type = %T, want map[string]any", metadataRaw)
+	}
+	if asString(t, metadata, "env") != "prod" || asString(t, metadata, "region") != "eu" {
+		t.Fatalf("metadata = %+v, want env=prod region=eu", metadata)
 	}
 }
 

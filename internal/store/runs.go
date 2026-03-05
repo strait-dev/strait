@@ -88,7 +88,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -110,7 +110,7 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -134,7 +134,7 @@ func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payl
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -583,7 +583,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -618,7 +618,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	defer span.End()
 
 	baseQuery := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -735,6 +735,32 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	return nil
 }
 
+func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateRunMetadata")
+	defer span.End()
+
+	encoded, err := json.Marshal(annotations)
+	if err != nil {
+		return fmt.Errorf("marshal annotations: %w", err)
+	}
+
+	query := `
+		UPDATE job_runs
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+		WHERE id = $2`
+
+	tag, err := q.db.Exec(ctx, query, encoded, id)
+	if err != nil {
+		return fmt.Errorf("update run metadata: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %s", ErrRunNotFound, id)
+	}
+
+	return nil
+}
+
 func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateHeartbeat")
 	defer span.End()
@@ -758,7 +784,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -792,7 +818,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -826,7 +852,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -862,7 +888,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
@@ -896,7 +922,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs

@@ -46,6 +46,7 @@ type APIStore interface {
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
@@ -229,6 +230,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/runs/{runID}", func(r chi.Router) {
 			r.Post("/log", s.handleSDKLog)
 			r.Post("/progress", s.handleSDKProgress)
+			r.Post("/annotate", s.handleSDKAnnotate)
 			r.Post("/heartbeat", s.handleSDKHeartbeat)
 			r.Post("/checkpoint", s.handleSDKCheckpoint)
 			r.Post("/usage", s.handleSDKUsage)

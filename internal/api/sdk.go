@@ -259,6 +259,51 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, event)
 }
 
+func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Annotations) == 0 {
+		respondError(w, http.StatusBadRequest, "annotations are required")
+		return
+	}
+
+	for key := range req.Annotations {
+		if strings.TrimSpace(key) == "" {
+			respondError(w, http.StatusBadRequest, "annotation keys must be non-empty")
+			return
+		}
+	}
+
+	if err := s.store.UpdateRunMetadata(r.Context(), runID, req.Annotations); err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to update run annotations")
+		return
+	}
+
+	updatedRun, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to fetch run")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
 func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")

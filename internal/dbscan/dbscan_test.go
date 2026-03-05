@@ -150,6 +150,7 @@ func TestScanRun_AllFields(t *testing.T) {
 	parentRunID := "parent-001"
 	idempotencyKey := "idem-abc"
 	workflowStepRunID := "step-run-001"
+	metadata := []byte(`{"env":"prod","region":"eu"}`)
 
 	s := &mockScanner{
 		values: []any{
@@ -160,20 +161,21 @@ func TestScanRun_AllFields(t *testing.T) {
 			2,                             // Attempt
 			[]byte(`{"input":"data"}`),    // Payload
 			[]byte(`{"output":"ok"}`),     // Result
-			&errMsg,                       // Error
-			"cron",                        // TriggeredBy
-			&started,                      // ScheduledAt
-			&started,                      // StartedAt
-			(*time.Time)(nil),             // FinishedAt
-			&now,                          // HeartbeatAt
-			(*time.Time)(nil),             // NextRetryAt
-			(*time.Time)(nil),             // ExpiresAt
-			&parentRunID,                  // ParentRunID
-			5,                             // Priority
-			&idempotencyKey,               // IdempotencyKey
-			3,                             // JobVersion
-			now,                           // CreatedAt
-			&workflowStepRunID,            // WorkflowStepRunID
+			metadata,
+			&errMsg,            // Error
+			"cron",             // TriggeredBy
+			&started,           // ScheduledAt
+			&started,           // StartedAt
+			(*time.Time)(nil),  // FinishedAt
+			&now,               // HeartbeatAt
+			(*time.Time)(nil),  // NextRetryAt
+			(*time.Time)(nil),  // ExpiresAt
+			&parentRunID,       // ParentRunID
+			5,                  // Priority
+			&idempotencyKey,    // IdempotencyKey
+			3,                  // JobVersion
+			now,                // CreatedAt
+			&workflowStepRunID, // WorkflowStepRunID
 		},
 	}
 
@@ -205,6 +207,9 @@ func TestScanRun_AllFields(t *testing.T) {
 	}
 	if run.Error != "partial failure" {
 		t.Errorf("Error = %q, want %q", run.Error, "partial failure")
+	}
+	if run.Metadata["env"] != "prod" || run.Metadata["region"] != "eu" {
+		t.Errorf("Metadata = %+v, want env=prod region=eu", run.Metadata)
 	}
 	if run.TriggeredBy != "cron" {
 		t.Errorf("TriggeredBy = %q, want %q", run.TriggeredBy, "cron")
@@ -247,20 +252,21 @@ func TestScanRun_NilOptionals(t *testing.T) {
 			1,                          // Attempt
 			nil,                        // Payload (nil bytes)
 			nil,                        // Result (nil bytes)
-			(*string)(nil),             // Error
-			"manual",                   // TriggeredBy
-			(*time.Time)(nil),          // ScheduledAt
-			(*time.Time)(nil),          // StartedAt
-			(*time.Time)(nil),          // FinishedAt
-			(*time.Time)(nil),          // HeartbeatAt
-			(*time.Time)(nil),          // NextRetryAt
-			(*time.Time)(nil),          // ExpiresAt
-			(*string)(nil),             // ParentRunID
-			0,                          // Priority
-			(*string)(nil),             // IdempotencyKey
-			0,                          // JobVersion
-			now,                        // CreatedAt
-			(*string)(nil),             // WorkflowStepRunID
+			nil,
+			(*string)(nil),    // Error
+			"manual",          // TriggeredBy
+			(*time.Time)(nil), // ScheduledAt
+			(*time.Time)(nil), // StartedAt
+			(*time.Time)(nil), // FinishedAt
+			(*time.Time)(nil), // HeartbeatAt
+			(*time.Time)(nil), // NextRetryAt
+			(*time.Time)(nil), // ExpiresAt
+			(*string)(nil),    // ParentRunID
+			0,                 // Priority
+			(*string)(nil),    // IdempotencyKey
+			0,                 // JobVersion
+			now,               // CreatedAt
+			(*string)(nil),    // WorkflowStepRunID
 		},
 	}
 

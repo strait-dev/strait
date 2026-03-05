@@ -17,6 +17,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var run domain.JobRun
 	var payload []byte
 	var result []byte
+	var metadata []byte
 	var runError *string
 	var parentRunID *string
 	var idempotencyKey *string
@@ -30,6 +31,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.Attempt,
 		&payload,
 		&result,
+		&metadata,
 		&runError,
 		&run.TriggeredBy,
 		&run.ScheduledAt,
@@ -54,6 +56,11 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if result != nil {
 		run.Result = json.RawMessage(result)
+	}
+	if metadata != nil {
+		if err := json.Unmarshal(metadata, &run.Metadata); err != nil {
+			return nil, err
+		}
 	}
 	if runError != nil {
 		run.Error = *runError

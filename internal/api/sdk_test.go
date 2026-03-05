@@ -199,6 +199,69 @@ func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 	}
 }
 
+func TestHandleSDKAnnotate_Success(t *testing.T) {
+	updated := false
+	ms := &mockAPIStore{
+		updateRunMetadataFn: func(_ context.Context, id string, annotations map[string]string) error {
+			updated = true
+			if id != "run-123" {
+				t.Fatalf("run id = %q, want run-123", id)
+			}
+			if annotations["env"] != "prod" || annotations["region"] != "eu" {
+				t.Fatalf("annotations = %+v", annotations)
+			}
+			return nil
+		},
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Metadata: map[string]string{"env": "prod", "region": "eu"}}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod","region":"eu"}}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !updated {
+		t.Fatal("expected UpdateRunMetadata to be called")
+	}
+}
+
+func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
+	ms := &mockAPIStore{
+		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+			return store.ErrRunNotFound
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod"}}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{}}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
 func TestHandleSDKCheckpoint_Success(t *testing.T) {
 	created := false
 	ms := &mockAPIStore{

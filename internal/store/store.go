@@ -49,6 +49,7 @@ type RunStore interface {
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	ListDueRuns(ctx context.Context) ([]domain.JobRun, error)

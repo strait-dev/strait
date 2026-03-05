@@ -37,6 +37,7 @@ type mockAPIStore struct {
 	countProjectActiveRunsFn    func(ctx context.Context, projectID string) (int, error)
 	listRunsByProjectFn         func(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	updateRunStatusFn           func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateRunMetadataFn         func(ctx context.Context, id string, annotations map[string]string) error
 	listChildRunsFn             func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	insertEventFn               func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn   func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
@@ -230,6 +231,13 @@ func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, 
 func (m *mockAPIStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	if m.updateRunStatusFn != nil {
 		return m.updateRunStatusFn(ctx, id, from, to, fields)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error {
+	if m.updateRunMetadataFn != nil {
+		return m.updateRunMetadataFn(ctx, id, annotations)
 	}
 	return nil
 }

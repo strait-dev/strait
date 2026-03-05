@@ -657,7 +657,13 @@ func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.
 		t.Fatalf("CreateRun(first) error = %v", err)
 	}
 
-	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusQueued, domain.StatusFailed, map[string]any{
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusQueued, domain.StatusExecuting, map[string]any{
+		"started_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(first->executing) error = %v", err)
+	}
+
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
 		"finished_at": time.Now().UTC(),
 		"error":       "exhausted",
 	}); err != nil {
@@ -1252,6 +1258,39 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	}
 	if !jsonEqual(outputs[0].Value, json.RawMessage(`{"name":"leo2"}`)) {
 		t.Fatalf("ListRunOutputs() value = %s, want updated value", string(outputs[0].Value))
+	}
+}
+
+func TestUpdateRunMetadata(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-metadata")
+	run := mustCreateRun(t, ctx, q, job)
+
+	if err := q.UpdateRunMetadata(ctx, run.ID, map[string]string{"env": "prod", "team": "core"}); err != nil {
+		t.Fatalf("UpdateRunMetadata() first error = %v", err)
+	}
+
+	stored, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() after first metadata update error = %v", err)
+	}
+	if stored.Metadata["env"] != "prod" || stored.Metadata["team"] != "core" {
+		t.Fatalf("metadata after first update = %+v", stored.Metadata)
+	}
+
+	if err := q.UpdateRunMetadata(ctx, run.ID, map[string]string{"team": "infra", "region": "eu"}); err != nil {
+		t.Fatalf("UpdateRunMetadata() second error = %v", err)
+	}
+
+	stored, err = q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() after second metadata update error = %v", err)
+	}
+	if stored.Metadata["env"] != "prod" || stored.Metadata["team"] != "infra" || stored.Metadata["region"] != "eu" {
+		t.Fatalf("metadata after second update = %+v", stored.Metadata)
 	}
 }
 

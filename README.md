@@ -280,6 +280,7 @@ These endpoints are called by your job endpoint using the JWT run token from the
 |--------|------|-------------|
 | `POST` | `/sdk/v1/runs/{runID}/log` | Log an event |
 | `POST` | `/sdk/v1/runs/{runID}/heartbeat` | Send heartbeat (resets stale timer) |
+| `POST` | `/sdk/v1/runs/{runID}/annotate` | Attach key-value annotations to run metadata |
 | `POST` | `/sdk/v1/runs/{runID}/complete` | Mark run completed with result |
 | `POST` | `/sdk/v1/runs/{runID}/fail` | Mark run failed with error |
 | `POST` | `/sdk/v1/runs/{runID}/spawn` | Spawn a child job run |

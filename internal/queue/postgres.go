@@ -113,7 +113,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, job_id, project_id, status, attempt, payload, result, error,
+		RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id`, domain.StatusDequeued, domain.StatusQueued)
 
@@ -155,11 +155,11 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			UPDATE job_runs
 			SET status = '%s', started_at = NOW()
 			WHERE id IN (SELECT id FROM claimed)
-			RETURNING id, job_id, project_id, status, attempt, payload, result, error,
+			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
 			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		)
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM updated
@@ -215,11 +215,11 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			UPDATE job_runs
 			SET status = '%s', started_at = NOW()
 			WHERE id IN (SELECT id FROM claimed)
-			RETURNING id, job_id, project_id, status, attempt, payload, result, error,
+			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
 			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		)
-		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM updated
