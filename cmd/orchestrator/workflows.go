@@ -31,7 +31,7 @@ func newWorkflowsCommand(state *appState) *cobra.Command {
 
 func newWorkflowsDescribeCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "describe <workflow-id>",
+		Use:   "describe <workflow-id-or-slug>",
 		Short: "Show workflow details and step dependency view",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -40,7 +40,12 @@ func newWorkflowsDescribeCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			wf, err := cli.GetWorkflow(context.Background(), args[0])
+			workflowID, err := resolveWorkflowIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			wf, err := cli.GetWorkflow(context.Background(), workflowID)
 			if err != nil {
 				return err
 			}
@@ -122,15 +127,20 @@ func newWorkflowsListCommand(state *appState) *cobra.Command {
 
 func newWorkflowsGetCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get <workflow-id>",
-		Short: "Get workflow by ID",
+		Use:   "get <workflow-id-or-slug>",
+		Short: "Get workflow by ID or slug",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
-			wf, err := cli.GetWorkflow(context.Background(), args[0])
+			workflowID, err := resolveWorkflowIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			wf, err := cli.GetWorkflow(context.Background(), workflowID)
 			if err != nil {
 				return err
 			}
@@ -201,7 +211,7 @@ func newWorkflowsUpdateCommand(state *appState) *cobra.Command {
 	var stepsJSON string
 
 	cmd := &cobra.Command{
-		Use:   "update <workflow-id>",
+		Use:   "update <workflow-id-or-slug>",
 		Short: "Update a workflow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -238,7 +248,12 @@ func newWorkflowsUpdateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			wf, err := cli.UpdateWorkflow(context.Background(), args[0], req)
+			workflowID, err := resolveWorkflowIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			wf, err := cli.UpdateWorkflow(context.Background(), workflowID, req)
 			if err != nil {
 				return err
 			}
@@ -260,8 +275,8 @@ func newWorkflowsDeleteCommand(state *appState) *cobra.Command {
 	var yes bool
 
 	cmd := &cobra.Command{
-		Use:   "delete <workflow-id>",
-		Short: "Delete a workflow",
+		Use:   "delete <workflow-id-or-slug>",
+		Short: "Delete a workflow by ID or slug",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if !yes {
@@ -273,11 +288,16 @@ func newWorkflowsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if err := cli.DeleteWorkflow(context.Background(), args[0]); err != nil {
+			workflowID, err := resolveWorkflowIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
 				return err
 			}
 
-			return printData(state, map[string]any{"deleted": true, "id": args[0]})
+			if err := cli.DeleteWorkflow(context.Background(), workflowID); err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{"deleted": true, "id": workflowID})
 		},
 	}
 
@@ -291,7 +311,7 @@ func newWorkflowsRunsCommand(state *appState) *cobra.Command {
 	var offset int
 
 	cmd := &cobra.Command{
-		Use:   "runs <workflow-id>",
+		Use:   "runs <workflow-id-or-slug>",
 		Short: "List runs for a workflow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -307,7 +327,12 @@ func newWorkflowsRunsCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			runs, err := cli.ListWorkflowRuns(context.Background(), args[0], limit, offset)
+			workflowID, err := resolveWorkflowIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			runs, err := cli.ListWorkflowRuns(context.Background(), workflowID, limit, offset)
 			if err != nil {
 				return err
 			}
@@ -326,11 +351,16 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 	var payload string
 
 	cmd := &cobra.Command{
-		Use:   "trigger <workflow-id>",
-		Short: "Trigger workflow by ID",
+		Use:   "trigger <workflow-id-or-slug>",
+		Short: "Trigger workflow by ID or slug",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			workflowID, err := resolveWorkflowIdentifier(context.Background(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
@@ -343,7 +373,7 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 				}
 			}
 
-			run, err := cli.TriggerWorkflow(context.Background(), args[0], req)
+			run, err := cli.TriggerWorkflow(context.Background(), workflowID, req)
 			if err != nil {
 				return err
 			}
@@ -354,4 +384,28 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&payload, "payload", "", "inline JSON payload")
 
 	return cmd
+}
+
+func resolveWorkflowIdentifier(ctx context.Context, cli *client.Client, state *appState, idOrSlug string) (string, error) {
+	if _, err := cli.GetWorkflow(ctx, idOrSlug); err == nil {
+		return idOrSlug, nil
+	}
+
+	projectID := state.opts.projectID
+	if projectID == "" {
+		return "", fmt.Errorf("project is required to resolve slug %q", idOrSlug)
+	}
+
+	workflows, err := cli.ListWorkflows(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+
+	for _, workflow := range workflows {
+		if workflow.Slug == idOrSlug {
+			return workflow.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("workflow %q not found", idOrSlug)
 }
