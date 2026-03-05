@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -36,17 +35,13 @@ import (
 var version = "dev"
 
 func main() {
-	if err := run(); err != nil {
+	if err := newRootCommand().Execute(); err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	// Parse flags
-	mode := flag.String("mode", "", "run mode: api, worker, or all (overrides MODE env)")
-	flag.Parse()
-
+func runServe(modeOverride string) error {
 	// Load config
 	cfg, err := config.Load()
 	if err != nil {
@@ -54,8 +49,8 @@ func run() error {
 	}
 
 	// CLI flag overrides env
-	if *mode != "" {
-		cfg.Mode = *mode
+	if modeOverride != "" {
+		cfg.Mode = modeOverride
 	}
 
 	// Validate mode
