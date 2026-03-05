@@ -77,6 +77,7 @@ type Pinger interface {
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
+	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
 }
 
 type WorkflowTrigger interface {
@@ -205,6 +206,8 @@ func (s *Server) routes() chi.Router {
 			r.Route("/{workflowRunID}", func(r chi.Router) {
 				r.Get("/", s.handleGetWorkflowRun)
 				r.Delete("/", s.handleCancelWorkflowRun)
+				r.Post("/pause", s.handlePauseWorkflowRun)
+				r.Post("/resume", s.handleResumeWorkflowRun)
 				r.Get("/steps", s.handleListWorkflowStepRuns)
 				r.Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
 			})

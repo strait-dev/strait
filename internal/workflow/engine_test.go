@@ -530,6 +530,49 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 	})
 }
 
+func TestStepCallback_OnJobRunTerminal_PausedWorkflowDoesNotScheduleChildren(t *testing.T) {
+	enqueueCalled := false
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "sr-parent", WorkflowRunID: "wr-1", StepRef: "parent", Status: domain.StepRunning}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id == "sr-parent" && status != domain.StepCompleted {
+				t.Fatalf("parent status = %s, want completed", status)
+			}
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return []store.StepDepResult{{StepRunID: "sr-child", StepRef: "child", DepsCompleted: 1, DepsRequired: 1}}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusPaused}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "step-parent", StepRef: "parent"}, {ID: "step-child", StepRef: "child", JobID: "job-1", DependsOn: []string{"parent"}}}, nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-parent", StepRef: "parent", Status: domain.StepCompleted},
+				{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting},
+			}, nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueCalled = true
+		return nil
+	}}
+
+	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default()), slog.Default())
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-parent", Status: domain.StatusCompleted})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enqueueCalled {
+		t.Fatal("expected no child step scheduling while workflow is paused")
+	}
+}
+
 func TestMapRunStatusToStepStatus(t *testing.T) {
 	tests := []struct {
 		name      string

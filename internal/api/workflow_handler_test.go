@@ -16,6 +16,8 @@ import (
 type mockWorkflowTrigger struct {
 	triggerWorkflowFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
 	approveStepFn     func(ctx context.Context, workflowRunID, stepRef, approver string) error
+	resumeWorkflowFn  func(ctx context.Context, workflowRunID string) error
+	onJobRunTerminal  func(ctx context.Context, run *domain.JobRun) error
 }
 
 func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
@@ -32,6 +34,20 @@ func (m *mockWorkflowTrigger) ApproveStep(ctx context.Context, workflowRunID, st
 	return nil
 }
 
+func (m *mockWorkflowTrigger) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
+	if m.resumeWorkflowFn != nil {
+		return m.resumeWorkflowFn(ctx, workflowRunID)
+	}
+	return nil
+}
+
+func (m *mockWorkflowTrigger) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
+	if m.onJobRunTerminal != nil {
+		return m.onJobRunTerminal(ctx, run)
+	}
+	return nil
+}
+
 func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
@@ -39,6 +55,15 @@ func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPubl
 		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
 	}
 	return NewServer(cfg, s, q, pub, nil, nil, nil, trigger)
+}
+
+func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, wfCallback WorkflowCallback, trigger WorkflowTrigger) *Server {
+	t.Helper()
+	cfg := &config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+	}
+	return NewServer(cfg, s, q, pub, nil, nil, wfCallback, trigger)
 }
 
 func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {
@@ -250,8 +275,13 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: workflowID, ProjectID: projectID, Status: domain.WfStatusRunning}, nil
 			},
 		}
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, Enabled: true}, nil
+			},
+		}
 
-		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, trigger)
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", `{"project_id":"proj-1"}`))
 
@@ -266,8 +296,13 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 				return nil, store.ErrWorkflowNotFound
 			},
 		}
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, Enabled: true}, nil
+			},
+		}
 
-		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, trigger)
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-missing/trigger", `{}`))
 
@@ -283,6 +318,32 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 
 		if w.Code != http.StatusServiceUnavailable {
 			t.Fatalf("expected 503, got %d", w.Code)
+		}
+	})
+
+	t.Run("workflow disabled", func(t *testing.T) {
+		triggerCalled := false
+		trigger := &mockWorkflowTrigger{
+			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string) (*domain.WorkflowRun, error) {
+				triggerCalled = true
+				return &domain.WorkflowRun{ID: "wr-1"}, nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, Enabled: false}, nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", `{}`))
+
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d", w.Code)
+		}
+		if triggerCalled {
+			t.Fatal("expected trigger not to be called for disabled workflow")
 		}
 	})
 }
@@ -381,6 +442,71 @@ func TestHandleGetWorkflowRun(t *testing.T) {
 
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandlePauseWorkflowRun(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		getCalls := 0
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				getCalls++
+				if getCalls == 1 {
+					return &domain.WorkflowRun{ID: id, Status: domain.WfStatusRunning}, nil
+				}
+				return &domain.WorkflowRun{ID: id, Status: domain.WfStatusPaused}, nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
+				if from != domain.WfStatusRunning || to != domain.WfStatusPaused {
+					t.Fatalf("unexpected transition %s -> %s", from, to)
+				}
+				return nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleResumeWorkflowRun(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		resumeCalled := false
+		getCalls := 0
+		cb := &mockWorkflowTrigger{
+			resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
+				if workflowRunID != "wr-1" {
+					t.Fatalf("workflowRunID = %q, want wr-1", workflowRunID)
+				}
+				resumeCalled = true
+				return nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				getCalls++
+				if getCalls == 1 {
+					return &domain.WorkflowRun{ID: id, Status: domain.WfStatusPaused}, nil
+				}
+				return &domain.WorkflowRun{ID: id, Status: domain.WfStatusRunning}, nil
+			},
+		}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/resume", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if !resumeCalled {
+			t.Fatal("expected resume callback to be called")
 		}
 	})
 }

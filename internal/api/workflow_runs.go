@@ -180,6 +180,77 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
+func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			respondError(w, http.StatusNotFound, "workflow run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		return
+	}
+	if run.Status.IsTerminal() {
+		respondError(w, http.StatusBadRequest, "workflow run already in terminal state")
+		return
+	}
+	if run.Status == domain.WfStatusPaused {
+		respondJSON(w, http.StatusOK, run)
+		return
+	}
+	if run.Status != domain.WfStatusRunning {
+		respondError(w, http.StatusBadRequest, "workflow run can only be paused from running state")
+		return
+	}
+
+	if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
+		respondError(w, http.StatusConflict, "failed to pause workflow run")
+		return
+	}
+
+	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
+		return
+	}
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
+func (s *Server) handleResumeWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if s.workflowCallback == nil {
+		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		return
+	}
+
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			respondError(w, http.StatusNotFound, "workflow run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		return
+	}
+	if run.Status != domain.WfStatusPaused {
+		respondError(w, http.StatusBadRequest, "workflow run is not paused")
+		return
+	}
+
+	if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
+		respondError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
+		return
+	}
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
 func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Request) {
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID)

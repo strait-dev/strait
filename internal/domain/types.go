@@ -172,6 +172,7 @@ type WorkflowRunStatus string
 const (
 	WfStatusPending   WorkflowRunStatus = "pending"
 	WfStatusRunning   WorkflowRunStatus = "running"
+	WfStatusPaused    WorkflowRunStatus = "paused"
 	WfStatusCompleted WorkflowRunStatus = "completed"
 	WfStatusFailed    WorkflowRunStatus = "failed"
 	WfStatusCanceled  WorkflowRunStatus = "canceled"

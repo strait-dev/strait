@@ -201,6 +201,9 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	if err != nil {
 		return fmt.Errorf("get workflow run: %w", err)
 	}
+	if wfRun.Status == domain.WfStatusPaused {
+		return nil
+	}
 
 	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
@@ -457,4 +460,90 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	}
 
 	return s.checkWorkflowCompletion(ctx, workflowRunID)
+}
+
+func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
+	wfRun, err := s.store.GetWorkflowRun(ctx, workflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
+	if wfRun == nil {
+		return fmt.Errorf("workflow run not found: %s", workflowRunID)
+	}
+	if wfRun.Status != domain.WfStatusPaused {
+		return fmt.Errorf("workflow run %s is not paused", workflowRunID)
+	}
+
+	if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPaused, domain.WfStatusRunning, nil); err != nil {
+		return fmt.Errorf("resume workflow run: %w", err)
+	}
+
+	wfRun.Status = domain.WfStatusRunning
+
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return fmt.Errorf("list workflow steps: %w", err)
+	}
+	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
+	for _, step := range steps {
+		stepByRef[step.StepRef] = step
+	}
+
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID)
+	if err != nil {
+		return fmt.Errorf("list step runs by workflow run: %w", err)
+	}
+	stepStatuses := make(map[string]domain.StepRunStatus, len(stepRuns))
+	for _, sr := range stepRuns {
+		stepStatuses[sr.StepRef] = sr.Status
+	}
+
+	for _, sr := range stepRuns {
+		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
+			continue
+		}
+		if sr.DepsCompleted != sr.DepsRequired {
+			continue
+		}
+
+		stepDef, ok := stepByRef[sr.StepRef]
+		if !ok {
+			return fmt.Errorf("step definition not found for %s", sr.StepRef)
+		}
+
+		allowed, condErr := EvaluateCondition(stepDef.Condition, stepStatuses)
+		if condErr != nil {
+			return fmt.Errorf("evaluate condition for step %s: %w", stepDef.StepRef, condErr)
+		}
+		if !allowed {
+			now := time.Now()
+			if err := s.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepSkipped, map[string]any{"finished_at": now}); err != nil {
+				return fmt.Errorf("skip step %s: %w", stepDef.StepRef, err)
+			}
+			stepStatuses[sr.StepRef] = domain.StepSkipped
+			continue
+		}
+
+		var parentOutputsPayload json.RawMessage
+		if len(stepDef.DependsOn) > 0 {
+			outputs, err := s.store.GetStepOutputs(ctx, workflowRunID, stepDef.DependsOn)
+			if err != nil {
+				return fmt.Errorf("get step outputs for %s: %w", stepDef.StepRef, err)
+			}
+			payload, err := json.Marshal(outputs)
+			if err != nil {
+				return fmt.Errorf("marshal parent outputs for %s: %w", stepDef.StepRef, err)
+			}
+			parentOutputsPayload = payload
+		}
+
+		srCopy := sr
+		stepCopy := stepDef
+		if err := s.engine.startStep(ctx, &srCopy, &stepCopy, wfRun, parentOutputsPayload); err != nil {
+			return fmt.Errorf("start resumed step %s: %w", stepDef.StepRef, err)
+		}
+		stepStatuses[sr.StepRef] = srCopy.Status
+	}
+
+	return nil
 }

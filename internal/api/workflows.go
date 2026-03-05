@@ -276,6 +276,23 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	workflowID := chi.URLParam(r, "workflowID")
+	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			respondError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+	if wf == nil {
+		respondError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	if !wf.Enabled {
+		respondError(w, http.StatusConflict, "workflow is disabled")
+		return
+	}
 
 	var req triggerWorkflowRequest
 	if err := decodeJSON(r, &req); err != nil {

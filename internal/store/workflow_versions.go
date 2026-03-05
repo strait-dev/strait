@@ -154,7 +154,7 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, error, started_at, finished_at, expires_at, created_at
 		FROM workflow_runs
-		WHERE status = 'running'
+		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= NOW()
 		ORDER BY expires_at ASC`

@@ -165,7 +165,12 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 			"finished_at": now,
 			"error":       "approval timed out",
 		}); err != nil {
-			slog.Error("failed to fail workflow on approval timeout", "approval_id", approval.ID, "error", err)
+			if errPaused := r.store.UpdateWorkflowRunStatus(ctx, approval.WorkflowRunID, domain.WfStatusPaused, domain.WfStatusFailed, map[string]any{
+				"finished_at": now,
+				"error":       "approval timed out",
+			}); errPaused != nil {
+				slog.Error("failed to fail workflow on approval timeout", "approval_id", approval.ID, "error", errPaused)
+			}
 		}
 	}
 }
