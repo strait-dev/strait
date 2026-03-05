@@ -659,6 +659,10 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to get parent run")
 		return
 	}
+	if parentRun == nil {
+		respondError(w, http.StatusNotFound, "parent run not found")
+		return
+	}
 	if parentRun.Status == domain.StatusExecuting {
 		_ = s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{})
 	}

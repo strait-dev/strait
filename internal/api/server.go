@@ -44,7 +44,7 @@ type APIStore interface {
 	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
 	ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error)
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)

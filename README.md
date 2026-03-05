@@ -177,7 +177,7 @@ curl -X POST http://localhost:8080/v1/jobs/{jobID}/trigger \
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/v1/runs?project_id=X` | List runs (supports `status`, `limit`, `cursor`) |
+| `GET` | `/v1/runs?project_id=X` | List runs (supports `status`, `metadata_key`, `metadata_value`, `limit`, `cursor`) |
 | `GET` | `/v1/runs/{runID}` | Get a run |
 | `POST` | `/v1/runs/{runID}/replay` | Replay a failed run |
 | `DELETE` | `/v1/runs/{runID}` | Cancel a run (propagates to children) |

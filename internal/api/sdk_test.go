@@ -586,6 +586,9 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 	var getJobCalled atomic.Bool
 	var enqueueCalled atomic.Bool
 	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+		},
 		getJobBySlugFn: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
 			getJobCalled.Store(true)
 			if projectID != "proj-1" || slug != "child-job" {
@@ -663,6 +666,9 @@ func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
 
 func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
 	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+		},
 		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID}, nil
 		},
@@ -921,10 +927,13 @@ func TestHandleGetRun_NotFound(t *testing.T) {
 func TestHandleListRuns_Success(t *testing.T) {
 	var listCalled atomic.Bool
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			listCalled.Store(true)
 			if projectID != "proj-1" {
 				t.Fatalf("expected project_id proj-1, got %s", projectID)
+			}
+			if metadataKey != nil || metadataValue != nil {
+				t.Fatalf("expected metadata filters to be nil, got key=%v value=%v", metadataKey, metadataValue)
 			}
 			if status == nil || *status != domain.StatusExecuting {
 				t.Fatalf("expected status executing, got %v", status)
@@ -951,6 +960,60 @@ func TestHandleListRuns_Success(t *testing.T) {
 	}
 	if !listCalled.Load() {
 		t.Fatal("expected ListRunsByProject to be called")
+	}
+}
+
+func TestHandleListRuns_MetadataFilter(t *testing.T) {
+	var listCalled atomic.Bool
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+			listCalled.Store(true)
+			if projectID != "proj-1" {
+				t.Fatalf("expected project_id proj-1, got %s", projectID)
+			}
+			if status != nil {
+				t.Fatalf("expected status nil, got %v", *status)
+			}
+			if metadataKey == nil || *metadataKey != "env" {
+				t.Fatalf("expected metadata_key env, got %v", metadataKey)
+			}
+			if metadataValue == nil || *metadataValue != "prod" {
+				t.Fatalf("expected metadata_value prod, got %v", metadataValue)
+			}
+			if limit != 50 {
+				t.Fatalf("expected default limit 50, got %d", limit)
+			}
+			if cursor != nil {
+				t.Fatalf("expected nil cursor, got %v", cursor)
+			}
+			return []domain.JobRun{{ID: "run-1", ProjectID: projectID}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&metadata_key=env&metadata_value=prod", "")
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !listCalled.Load() {
+		t.Fatal("expected ListRunsByProject to be called")
+	}
+}
+
+func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&metadata_value=prod", "")
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
 

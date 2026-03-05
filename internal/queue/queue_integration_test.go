@@ -210,7 +210,7 @@ func TestDequeueN(t *testing.T) {
 	}
 
 	status := domain.StatusQueued
-	remaining, err := st.ListRunsByProject(ctx, job.ProjectID, &status, 20, nil)
+	remaining, err := st.ListRunsByProject(ctx, job.ProjectID, &status, nil, nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() error = %v", err)
 	}

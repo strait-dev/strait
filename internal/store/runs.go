@@ -613,7 +613,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	return runs, nil
 }
 
-func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByProject")
 	defer span.End()
 
@@ -631,6 +631,18 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 		baseQuery += fmt.Sprintf(" AND status = $%d", param)
 		args = append(args, *status)
 		param++
+	}
+
+	if metadataKey != nil {
+		if metadataValue == nil {
+			baseQuery += fmt.Sprintf(" AND metadata ? $%d", param)
+			args = append(args, *metadataKey)
+			param++
+		} else {
+			baseQuery += fmt.Sprintf(" AND metadata ->> $%d = $%d", param, param+1)
+			args = append(args, *metadataKey, *metadataValue)
+			param += 2
+		}
 	}
 
 	if cursor != nil {

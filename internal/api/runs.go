@@ -42,6 +42,23 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		status = &parsed
 	}
 
+	metadataKeyRaw := query.Get("metadata_key")
+	metadataValueRaw := query.Get("metadata_value")
+	if metadataValueRaw != "" && metadataKeyRaw == "" {
+		respondError(w, http.StatusBadRequest, "metadata_key is required when metadata_value is provided")
+		return
+	}
+
+	var metadataKey *string
+	if metadataKeyRaw != "" {
+		metadataKey = &metadataKeyRaw
+	}
+
+	var metadataValue *string
+	if metadataValueRaw != "" {
+		metadataValue = &metadataValueRaw
+	}
+
 	limit := 50
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
@@ -65,7 +82,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		cursor = &parsedCursor
 	}
 
-	runs, err := s.store.ListRunsByProject(r.Context(), projectID, status, limit, cursor)
+	runs, err := s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, limit, cursor)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list runs")
 		return

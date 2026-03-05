@@ -560,7 +560,14 @@ func TestE2E_ReplayRun(t *testing.T) {
 	original := triggerJob(t, jobID, `{"payload":{"replay":true}}`, idempotencyKey)
 	originalRunID := asString(t, original, "id")
 
-	err := testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusQueued, domain.StatusExecuting, map[string]any{
+	err := testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
+		"started_at": time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("update run status to dequeued: %v", err)
+	}
+
+	err = testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
 	if err != nil {
@@ -693,6 +700,53 @@ func TestE2E_RunAnnotations(t *testing.T) {
 	}
 	if asString(t, metadata, "env") != "prod" || asString(t, metadata, "region") != "eu" {
 		t.Fatalf("metadata = %+v, want env=prod region=eu", metadata)
+	}
+}
+
+func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-filter-metadata-" + newID()
+	job := createJob(t, projectID, "Filter Metadata", "filter-metadata-"+newID())
+	jobID := asString(t, job, "id")
+
+	prodRun := triggerJob(t, jobID, `{"payload":{"run":"prod"}}`, "")
+	prodRunID := asString(t, prodRun, "id")
+	prodRunToken := asString(t, prodRun, "run_token")
+
+	stageRun := triggerJob(t, jobID, `{"payload":{"run":"stage"}}`, "")
+	stageRunID := asString(t, stageRun, "id")
+	stageRunToken := asString(t, stageRun, "run_token")
+
+	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+prodRunID+"/annotate", prodRunToken, `{"annotations":{"env":"prod","region":"eu"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sdk annotate prod status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+stageRunID+"/annotate", stageRunToken, `{"annotations":{"env":"stage"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sdk annotate stage status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&metadata_key=env&metadata_value=prod", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list filtered runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs := mustDecodeList(t, w)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 prod run, got %d", len(runs))
+	}
+	if asString(t, runs[0], "id") != prodRunID {
+		t.Fatalf("expected run id %s, got %s", prodRunID, asString(t, runs[0], "id"))
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&metadata_key=env", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list metadata key-only runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs = mustDecodeList(t, w)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs with env metadata key, got %d", len(runs))
 	}
 }
 

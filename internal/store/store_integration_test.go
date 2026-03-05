@@ -657,7 +657,13 @@ func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.
 		t.Fatalf("CreateRun(first) error = %v", err)
 	}
 
-	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusQueued, domain.StatusExecuting, map[string]any{
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
+		"started_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(first->dequeued) error = %v", err)
+	}
+
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("UpdateRunStatus(first->executing) error = %v", err)
@@ -746,7 +752,7 @@ func TestListRunsByProject(t *testing.T) {
 	}
 
 	status := domain.StatusQueued
-	filtered, err := q.ListRunsByProject(ctx, projectID, &status, 10, nil)
+	filtered, err := q.ListRunsByProject(ctx, projectID, &status, nil, nil, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() filtered error = %v", err)
 	}
@@ -759,7 +765,7 @@ func TestListRunsByProject(t *testing.T) {
 		}
 	}
 
-	firstPage, err := q.ListRunsByProject(ctx, projectID, nil, 2, nil)
+	firstPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, 2, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() first page error = %v", err)
 	}
@@ -769,12 +775,63 @@ func TestListRunsByProject(t *testing.T) {
 	assertTimesDesc(t, extractRunCreatedAt(firstPage))
 
 	cursor := firstPage[len(firstPage)-1].CreatedAt
-	secondPage, err := q.ListRunsByProject(ctx, projectID, nil, 2, &cursor)
+	secondPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, 2, &cursor)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() second page error = %v", err)
 	}
 	if len(secondPage) != 1 {
 		t.Fatalf("ListRunsByProject() second page len = %d, want 1", len(secondPage))
+	}
+}
+
+func TestListRunsByProject_MetadataFilter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-list-runs-by-project-metadata"
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	runProd := baseRun(job, newID())
+	if err := q.CreateRun(ctx, runProd); err != nil {
+		t.Fatalf("CreateRun() runProd error = %v", err)
+	}
+	if err := q.UpdateRunMetadata(ctx, runProd.ID, map[string]string{"env": "prod", "region": "eu"}); err != nil {
+		t.Fatalf("UpdateRunMetadata() runProd error = %v", err)
+	}
+
+	runStage := baseRun(job, newID())
+	if err := q.CreateRun(ctx, runStage); err != nil {
+		t.Fatalf("CreateRun() runStage error = %v", err)
+	}
+	if err := q.UpdateRunMetadata(ctx, runStage.ID, map[string]string{"env": "stage"}); err != nil {
+		t.Fatalf("UpdateRunMetadata() runStage error = %v", err)
+	}
+
+	runNoMetadata := baseRun(job, newID())
+	if err := q.CreateRun(ctx, runNoMetadata); err != nil {
+		t.Fatalf("CreateRun() runNoMetadata error = %v", err)
+	}
+
+	key := "env"
+	value := "prod"
+	filtered, err := q.ListRunsByProject(ctx, projectID, nil, &key, &value, 20, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProject() metadata key/value error = %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("ListRunsByProject() metadata key/value len = %d, want 1", len(filtered))
+	}
+	if filtered[0].ID != runProd.ID {
+		t.Fatalf("ListRunsByProject() metadata key/value id = %s, want %s", filtered[0].ID, runProd.ID)
+	}
+
+	keyOnly, err := q.ListRunsByProject(ctx, projectID, nil, &key, nil, 20, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProject() metadata key error = %v", err)
+	}
+	if len(keyOnly) != 2 {
+		t.Fatalf("ListRunsByProject() metadata key len = %d, want 2", len(keyOnly))
 	}
 }
 

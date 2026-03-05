@@ -35,7 +35,7 @@ type mockAPIStore struct {
 	getProjectQuotaFn           func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	countProjectQueuedRunsFn    func(ctx context.Context, projectID string) (int, error)
 	countProjectActiveRunsFn    func(ctx context.Context, projectID string) (int, error)
-	listRunsByProjectFn         func(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listRunsByProjectFn         func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	updateRunStatusFn           func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	updateRunMetadataFn         func(ctx context.Context, id string, annotations map[string]string) error
 	listChildRunsFn             func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
@@ -221,9 +221,9 @@ func (m *mockAPIStore) CountProjectActiveRuns(ctx context.Context, projectID str
 	return 0, nil
 }
 
-func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listRunsByProjectFn != nil {
-		return m.listRunsByProjectFn(ctx, projectID, status, limit, cursor)
+		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, limit, cursor)
 	}
 	return nil, nil
 }
