@@ -198,6 +198,15 @@ func (c *Client) TriggerJob(ctx context.Context, jobID string, req TriggerJobReq
 	return &out, nil
 }
 
+func (c *Client) ListJobVersions(ctx context.Context, jobID string) ([]domain.JobVersion, error) {
+	var out []domain.JobVersion
+	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/jobs", jobID, "versions"), nil, nil, &out); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
 func (c *Client) ListRuns(ctx context.Context, projectID, status string, limit int) ([]domain.JobRun, error) {
 	query := url.Values{}
 	query.Set("project_id", projectID)

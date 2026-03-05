@@ -27,6 +27,7 @@ func newJobsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newJobsCreateCommand(state))
 	cmd.AddCommand(newJobsTriggerCommand(state))
 	cmd.AddCommand(newJobsDeleteCommand(state))
+	cmd.AddCommand(newJobsVersionsCommand(state))
 	cmd.AddCommand(newJobsDescribeCommand(state))
 	cmd.AddCommand(newJobsEditCommand(state))
 
@@ -64,6 +65,34 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion")
+
+	return cmd
+}
+
+func newJobsVersionsCommand(state *appState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "versions <job-id-or-slug>",
+		Short: "List version history for a job",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			versions, err := cli.ListJobVersions(context.Background(), jobID)
+			if err != nil {
+				return err
+			}
+
+			return printData(state, versions)
+		},
+	}
 
 	return cmd
 }
