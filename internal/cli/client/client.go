@@ -59,6 +59,28 @@ type TriggerJobResponse struct {
 	RunToken string `json:"run_token,omitempty"`
 }
 
+type BulkTriggerItem struct {
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
+	Priority    int             `json:"priority,omitempty"`
+}
+
+type BulkTriggerRequest struct {
+	Items []BulkTriggerItem `json:"items"`
+}
+
+type BulkTriggerResult struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	RunToken string `json:"run_token,omitempty"`
+}
+
+type BulkTriggerResponse struct {
+	Results []BulkTriggerResult `json:"results"`
+	Total   int                 `json:"total"`
+	Created int                 `json:"created"`
+}
+
 type HealthStatus struct {
 	Status string `json:"status"`
 }
@@ -195,6 +217,15 @@ func (c *Client) TriggerJob(ctx context.Context, jobID string, req TriggerJobReq
 	if err := c.doJSONWithHeaders(ctx, http.MethodPost, path.Join("/v1/jobs", jobID, "trigger"), nil, req, headers, &out); err != nil {
 		return nil, err
 	}
+	return &out, nil
+}
+
+func (c *Client) BulkTriggerJob(ctx context.Context, jobID string, req BulkTriggerRequest) (*BulkTriggerResponse, error) {
+	var out BulkTriggerResponse
+	if err := c.doJSON(ctx, http.MethodPost, path.Join("/v1/jobs", jobID, "trigger", "bulk"), nil, req, &out); err != nil {
+		return nil, err
+	}
+
 	return &out, nil
 }
 

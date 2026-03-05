@@ -26,6 +26,7 @@ func newJobsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newJobsGetCommand(state))
 	cmd.AddCommand(newJobsCreateCommand(state))
 	cmd.AddCommand(newJobsTriggerCommand(state))
+	cmd.AddCommand(newJobsTriggerBulkCommand(state))
 	cmd.AddCommand(newJobsDeleteCommand(state))
 	cmd.AddCommand(newJobsVersionsCommand(state))
 	cmd.AddCommand(newJobsDescribeCommand(state))
@@ -439,6 +440,69 @@ func newJobsCreateCommand(state *appState) *cobra.Command {
 	cmd.Flags().IntVar(&req.TimeoutSecs, "timeout-secs", 60, "execution timeout in seconds")
 	cmd.Flags().IntVar(&req.MaxAttempts, "max-attempts", 3, "max attempts")
 	cmd.Flags().IntVar(&req.RunTTLSecs, "run-ttl-secs", 0, "run TTL in seconds")
+
+	return cmd
+}
+
+func newJobsTriggerBulkCommand(state *appState) *cobra.Command {
+	var itemsJSON string
+	var itemsFile string
+
+	cmd := &cobra.Command{
+		Use:   "trigger-bulk <job-id-or-slug>",
+		Short: "Trigger multiple runs for a job",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if strings.TrimSpace(itemsJSON) == "" && strings.TrimSpace(itemsFile) == "" {
+				return fmt.Errorf("either --items-json or --items-file is required")
+			}
+			if strings.TrimSpace(itemsJSON) != "" && strings.TrimSpace(itemsFile) != "" {
+				return fmt.Errorf("use either --items-json or --items-file, not both")
+			}
+
+			raw := strings.TrimSpace(itemsJSON)
+			if strings.TrimSpace(itemsFile) != "" {
+				fileContent, err := os.ReadFile(itemsFile) //nolint:gosec
+				if err != nil {
+					return err
+				}
+				raw = strings.TrimSpace(string(fileContent))
+			}
+
+			items := make([]client.BulkTriggerItem, 0)
+			if err := json.Unmarshal([]byte(raw), &items); err != nil {
+				return fmt.Errorf("invalid items payload: %w", err)
+			}
+			if len(items) == 0 {
+				return fmt.Errorf("items array must not be empty")
+			}
+			for _, item := range items {
+				if len(item.Payload) > 0 && !json.Valid(item.Payload) {
+					return fmt.Errorf("all item payloads must be valid JSON")
+				}
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			resp, err := cli.BulkTriggerJob(context.Background(), jobID, client.BulkTriggerRequest{Items: items})
+			if err != nil {
+				return err
+			}
+
+			return printData(state, resp)
+		},
+	}
+
+	cmd.Flags().StringVar(&itemsJSON, "items-json", "", "JSON array of bulk trigger items")
+	cmd.Flags().StringVar(&itemsFile, "items-file", "", "path to JSON file containing bulk trigger items array")
 
 	return cmd
 }
