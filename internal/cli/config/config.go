@@ -23,13 +23,14 @@ type Context struct {
 }
 
 type File struct {
-	ServerURL      string             `yaml:"server,omitempty"`
-	Token          string             `yaml:"api_key,omitempty"`
-	DefaultProject string             `yaml:"project,omitempty"`
-	OutputFormat   string             `yaml:"format,omitempty"`
-	Aliases        map[string]string  `yaml:"aliases,omitempty"`
-	ActiveContext  string             `yaml:"active_context,omitempty"`
-	Contexts       map[string]Context `yaml:"contexts,omitempty"`
+	ServerURL      string              `yaml:"server,omitempty"`
+	Token          string              `yaml:"api_key,omitempty"`
+	DefaultProject string              `yaml:"project,omitempty"`
+	OutputFormat   string              `yaml:"format,omitempty"`
+	Aliases        map[string]string   `yaml:"aliases,omitempty"`
+	Secrets        map[string][]string `yaml:"secrets,omitempty"`
+	ActiveContext  string              `yaml:"active_context,omitempty"`
+	Contexts       map[string]Context  `yaml:"contexts,omitempty"`
 }
 
 type LoadResult struct {
@@ -238,6 +239,9 @@ func normalize(cfg *File) {
 	if cfg.Aliases == nil {
 		cfg.Aliases = map[string]string{}
 	}
+	if cfg.Secrets == nil {
+		cfg.Secrets = map[string][]string{}
+	}
 	if cfg.Contexts == nil {
 		cfg.Contexts = map[string]Context{}
 	}
@@ -246,6 +250,7 @@ func normalize(cfg *File) {
 func newDefault() *File {
 	return &File{
 		Aliases:  map[string]string{},
+		Secrets:  map[string][]string{},
 		Contexts: map[string]Context{},
 	}
 }
