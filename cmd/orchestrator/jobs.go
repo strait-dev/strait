@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"orchestrator/internal/cli/client"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func newJobsCommand(state *appState) *cobra.Command {
@@ -112,14 +114,20 @@ func newJobsDescribeCommand(state *appState) *cobra.Command {
 
 func newJobsEditCommand(state *appState) *cobra.Command {
 	var field string
+	var editor string
 
 	cmd := &cobra.Command{
 		Use:   "edit <job-id>",
-		Short: "Update a job field via --field key=value",
+		Short: "Edit a job via --field or interactive editor",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
 			if strings.TrimSpace(field) == "" {
-				return fmt.Errorf("--field key=value is required")
+				return runInteractiveJobEdit(context.Background(), cli, state, args[0], editor)
 			}
 
 			parts := strings.SplitN(field, "=", 2)
@@ -169,10 +177,6 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("unsupported field %q", key)
 			}
 
-			cli, err := newAPIClient(state)
-			if err != nil {
-				return err
-			}
 			job, err := cli.UpdateJob(context.Background(), args[0], upd)
 			if err != nil {
 				return err
@@ -183,8 +187,105 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&field, "field", "", "field update in key=value form")
+	cmd.Flags().StringVar(&editor, "editor", "", "editor command for interactive mode")
 
 	return cmd
+}
+
+type editableJob struct {
+	Name        string `yaml:"name"`
+	Slug        string `yaml:"slug"`
+	Description string `yaml:"description,omitempty"`
+	Cron        string `yaml:"cron,omitempty"`
+	EndpointURL string `yaml:"endpoint_url"`
+	MaxAttempts int    `yaml:"max_attempts"`
+	TimeoutSecs int    `yaml:"timeout_secs"`
+	RunTTLSecs  int    `yaml:"run_ttl_secs,omitempty"`
+	Enabled     bool   `yaml:"enabled"`
+}
+
+func runInteractiveJobEdit(ctx context.Context, cli *client.Client, state *appState, jobID, editorOverride string) error {
+	job, err := cli.GetJob(ctx, jobID)
+	if err != nil {
+		return err
+	}
+
+	original := editableJob{
+		Name:        job.Name,
+		Slug:        job.Slug,
+		Description: job.Description,
+		Cron:        job.Cron,
+		EndpointURL: job.EndpointURL,
+		MaxAttempts: job.MaxAttempts,
+		TimeoutSecs: job.TimeoutSecs,
+		RunTTLSecs:  job.RunTTLSecs,
+		Enabled:     job.Enabled,
+	}
+
+	tmp, err := os.CreateTemp("", "orchestrator-job-edit-*.yaml")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if closeErr := tmp.Close(); closeErr != nil {
+		return closeErr
+	}
+	defer os.Remove(tmpPath)
+
+	encoded, err := yaml.Marshal(original)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(tmpPath, encoded, 0o600); err != nil { //nolint:gosec
+		return err
+	}
+
+	editor := strings.TrimSpace(editorOverride)
+	if editor == "" {
+		editor = strings.TrimSpace(os.Getenv("EDITOR"))
+	}
+	if editor == "" {
+		editor = "vi"
+	}
+
+	cmd := exec.Command(editor, tmpPath) //nolint:gosec
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	raw, err := os.ReadFile(tmpPath) //nolint:gosec
+	if err != nil {
+		return err
+	}
+	updated := editableJob{}
+	if err := yaml.Unmarshal(raw, &updated); err != nil {
+		return err
+	}
+
+	if updated == original {
+		return printData(state, map[string]any{"updated": false, "reason": "no changes"})
+	}
+
+	upd := client.UpdateJobRequest{
+		Name:        &updated.Name,
+		Slug:        &updated.Slug,
+		Description: &updated.Description,
+		Cron:        &updated.Cron,
+		EndpointURL: &updated.EndpointURL,
+		MaxAttempts: &updated.MaxAttempts,
+		TimeoutSecs: &updated.TimeoutSecs,
+		RunTTLSecs:  &updated.RunTTLSecs,
+		Enabled:     &updated.Enabled,
+	}
+	patched, err := cli.UpdateJob(ctx, jobID, upd)
+	if err != nil {
+		return err
+	}
+
+	return printData(state, patched)
 }
 
 func newJobsListCommand(state *appState) *cobra.Command {
