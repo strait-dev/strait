@@ -351,3 +351,49 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
 }
+
+func BenchmarkPostgresQueueDequeueN(b *testing.B) {
+	ctx := context.Background()
+	q := queue.NewPostgresQueue(testDB.Pool)
+	st := store.New(testDB.Pool)
+
+	if err := testDB.CleanTables(ctx); err != nil {
+		b.Fatalf("CleanTables() error = %v", err)
+	}
+
+	job := &domain.Job{
+		ID:          newID(),
+		ProjectID:   "project-benchmark-dequeue",
+		Name:        "bench-job",
+		Slug:        "bench-job-" + newID(),
+		EndpointURL: "https://example.com/queue-job",
+		MaxAttempts: 3,
+		TimeoutSecs: 300,
+		Enabled:     true,
+	}
+	if err := st.CreateJob(ctx, job); err != nil {
+		b.Fatalf("CreateJob() error = %v", err)
+	}
+
+	const preload = 512
+	for i := 0; i < preload; i++ {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: i % 10}
+		if err := q.Enqueue(ctx, run); err != nil {
+			b.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		runs, err := q.DequeueN(ctx, 32)
+		if err != nil {
+			b.Fatalf("DequeueN() error = %v", err)
+		}
+		if len(runs) == 0 {
+			run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: i % 10}
+			if err := q.Enqueue(ctx, run); err != nil {
+				b.Fatalf("Enqueue() error = %v", err)
+			}
+		}
+	}
+}

@@ -36,6 +36,53 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func TestWithTx_CommitsOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	jobID := newID()
+	err := store.WithTx(ctx, testDB.Pool, func(q *store.Queries) error {
+		job := baseJob(jobID, "project-withtx-commit")
+		return q.CreateJob(ctx, job)
+	})
+	if err != nil {
+		t.Fatalf("WithTx() error = %v", err)
+	}
+
+	q := mustStore(t)
+	job, err := q.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	if job.ID != jobID {
+		t.Fatalf("job.ID = %q, want %q", job.ID, jobID)
+	}
+}
+
+func TestWithTx_RollsBackOnError(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	jobID := newID()
+	wantErr := errors.New("force rollback")
+	err := store.WithTx(ctx, testDB.Pool, func(q *store.Queries) error {
+		job := baseJob(jobID, "project-withtx-rollback")
+		if createErr := q.CreateJob(ctx, job); createErr != nil {
+			return createErr
+		}
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("WithTx() error = %v, want %v", err, wantErr)
+	}
+
+	q := mustStore(t)
+	_, err = q.GetJob(ctx, jobID)
+	if !errors.Is(err, store.ErrJobNotFound) {
+		t.Fatalf("GetJob() error = %v, want ErrJobNotFound", err)
+	}
+}
+
 func TestCreateJob(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

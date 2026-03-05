@@ -48,6 +48,33 @@ type Config struct {
 	// CORS settings
 	CORSAllowedOrigins   []string `mapstructure:"CORS_ALLOWED_ORIGINS"`
 	CORSAllowCredentials bool     `mapstructure:"CORS_ALLOW_CREDENTIALS"`
+
+	FFConcurrencyLimits bool `mapstructure:"FF_CONCURRENCY_LIMITS"`
+	FFProjectQuotas     bool `mapstructure:"FF_PROJECT_QUOTAS"`
+	FFExecutionWindows  bool `mapstructure:"FF_EXECUTION_WINDOWS"`
+	FFQueuePartitioning bool `mapstructure:"FF_QUEUE_PARTITIONING"`
+
+	FFProgressStreaming bool `mapstructure:"FF_PROGRESS_STREAMING"`
+	FFCheckpoints       bool `mapstructure:"FF_CHECKPOINTS"`
+	FFRunContinuation   bool `mapstructure:"FF_RUN_CONTINUATION"`
+	FFUsageTracking     bool `mapstructure:"FF_USAGE_TRACKING"`
+	FFCostBudgets       bool `mapstructure:"FF_COST_BUDGETS"`
+
+	FFErrorClassification bool `mapstructure:"FF_ERROR_CLASSIFICATION"`
+	FFSmartRetry          bool `mapstructure:"FF_SMART_RETRY"`
+	FFCircuitBreaker      bool `mapstructure:"FF_CIRCUIT_BREAKER"`
+	FFBulkheads           bool `mapstructure:"FF_BULKHEADS"`
+	FFRunDLQ              bool `mapstructure:"FF_RUN_DLQ"`
+
+	FFPayloadValidation bool `mapstructure:"FF_PAYLOAD_VALIDATION"`
+	FFJobTags           bool `mapstructure:"FF_JOB_TAGS"`
+	FFRunAnnotations    bool `mapstructure:"FF_RUN_ANNOTATIONS"`
+	FFSecretInjection   bool `mapstructure:"FF_SECRET_INJECTION"`
+	FFRunReplay         bool `mapstructure:"FF_RUN_REPLAY"`
+
+	FFRunRetention     bool `mapstructure:"FF_RUN_RETENTION"`
+	FFExecutionTracing bool `mapstructure:"FF_EXECUTION_TRACING"`
+	FFDebugBundle      bool `mapstructure:"FF_DEBUG_BUNDLE"`
 }
 
 func Load() (*Config, error) {
@@ -71,6 +98,28 @@ func Load() (*Config, error) {
 	viper.SetDefault("SEQUIN_WAIT_TIME_MS", 5000)
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", []string{"*"})
 	viper.SetDefault("CORS_ALLOW_CREDENTIALS", false)
+	viper.SetDefault("FF_CONCURRENCY_LIMITS", false)
+	viper.SetDefault("FF_PROJECT_QUOTAS", false)
+	viper.SetDefault("FF_EXECUTION_WINDOWS", false)
+	viper.SetDefault("FF_QUEUE_PARTITIONING", false)
+	viper.SetDefault("FF_PROGRESS_STREAMING", false)
+	viper.SetDefault("FF_CHECKPOINTS", false)
+	viper.SetDefault("FF_RUN_CONTINUATION", false)
+	viper.SetDefault("FF_USAGE_TRACKING", false)
+	viper.SetDefault("FF_COST_BUDGETS", false)
+	viper.SetDefault("FF_ERROR_CLASSIFICATION", false)
+	viper.SetDefault("FF_SMART_RETRY", false)
+	viper.SetDefault("FF_CIRCUIT_BREAKER", false)
+	viper.SetDefault("FF_BULKHEADS", false)
+	viper.SetDefault("FF_RUN_DLQ", false)
+	viper.SetDefault("FF_PAYLOAD_VALIDATION", false)
+	viper.SetDefault("FF_JOB_TAGS", false)
+	viper.SetDefault("FF_RUN_ANNOTATIONS", false)
+	viper.SetDefault("FF_SECRET_INJECTION", false)
+	viper.SetDefault("FF_RUN_REPLAY", false)
+	viper.SetDefault("FF_RUN_RETENTION", false)
+	viper.SetDefault("FF_EXECUTION_TRACING", false)
+	viper.SetDefault("FF_DEBUG_BUNDLE", false)
 
 	viper.AutomaticEnv()
 

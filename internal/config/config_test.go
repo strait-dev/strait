@@ -77,6 +77,72 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.TriggerRateLimitWindow != time.Minute {
 		t.Fatalf("TriggerRateLimitWindow = %v, want %v", cfg.TriggerRateLimitWindow, time.Minute)
 	}
+	if cfg.FFConcurrencyLimits {
+		t.Fatal("FFConcurrencyLimits = true, want false")
+	}
+	if cfg.FFProjectQuotas {
+		t.Fatal("FFProjectQuotas = true, want false")
+	}
+	if cfg.FFExecutionWindows {
+		t.Fatal("FFExecutionWindows = true, want false")
+	}
+	if cfg.FFQueuePartitioning {
+		t.Fatal("FFQueuePartitioning = true, want false")
+	}
+	if cfg.FFProgressStreaming {
+		t.Fatal("FFProgressStreaming = true, want false")
+	}
+	if cfg.FFCheckpoints {
+		t.Fatal("FFCheckpoints = true, want false")
+	}
+	if cfg.FFRunContinuation {
+		t.Fatal("FFRunContinuation = true, want false")
+	}
+	if cfg.FFUsageTracking {
+		t.Fatal("FFUsageTracking = true, want false")
+	}
+	if cfg.FFCostBudgets {
+		t.Fatal("FFCostBudgets = true, want false")
+	}
+	if cfg.FFErrorClassification {
+		t.Fatal("FFErrorClassification = true, want false")
+	}
+	if cfg.FFSmartRetry {
+		t.Fatal("FFSmartRetry = true, want false")
+	}
+	if cfg.FFCircuitBreaker {
+		t.Fatal("FFCircuitBreaker = true, want false")
+	}
+	if cfg.FFBulkheads {
+		t.Fatal("FFBulkheads = true, want false")
+	}
+	if cfg.FFRunDLQ {
+		t.Fatal("FFRunDLQ = true, want false")
+	}
+	if cfg.FFPayloadValidation {
+		t.Fatal("FFPayloadValidation = true, want false")
+	}
+	if cfg.FFJobTags {
+		t.Fatal("FFJobTags = true, want false")
+	}
+	if cfg.FFRunAnnotations {
+		t.Fatal("FFRunAnnotations = true, want false")
+	}
+	if cfg.FFSecretInjection {
+		t.Fatal("FFSecretInjection = true, want false")
+	}
+	if cfg.FFRunReplay {
+		t.Fatal("FFRunReplay = true, want false")
+	}
+	if cfg.FFRunRetention {
+		t.Fatal("FFRunRetention = true, want false")
+	}
+	if cfg.FFExecutionTracing {
+		t.Fatal("FFExecutionTracing = true, want false")
+	}
+	if cfg.FFDebugBundle {
+		t.Fatal("FFDebugBundle = true, want false")
+	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {
@@ -131,7 +197,11 @@ func TestLoad_RequiredFields(t *testing.T) {
 
 func TestLoad_OverrideDefaults(t *testing.T) {
 	viper.Reset()
-	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "PORT", "WORKER_CONCURRENCY", "MODE", "LOG_LEVEL")
+	bindEnvKeys(
+		t,
+		"DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "PORT", "WORKER_CONCURRENCY", "MODE", "LOG_LEVEL",
+		"FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS", "FF_PROGRESS_STREAMING", "FF_PAYLOAD_VALIDATION", "FF_EXECUTION_TRACING",
+	)
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret")
 	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
@@ -139,6 +209,11 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("WORKER_CONCURRENCY", "20")
 	t.Setenv("MODE", "worker")
 	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("FF_CONCURRENCY_LIMITS", "true")
+	t.Setenv("FF_PROJECT_QUOTAS", "true")
+	t.Setenv("FF_PROGRESS_STREAMING", "true")
+	t.Setenv("FF_PAYLOAD_VALIDATION", "true")
+	t.Setenv("FF_EXECUTION_TRACING", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -156,5 +231,20 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	}
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
+	}
+	if !cfg.FFConcurrencyLimits {
+		t.Fatal("FFConcurrencyLimits = false, want true")
+	}
+	if !cfg.FFProjectQuotas {
+		t.Fatal("FFProjectQuotas = false, want true")
+	}
+	if !cfg.FFProgressStreaming {
+		t.Fatal("FFProgressStreaming = false, want true")
+	}
+	if !cfg.FFPayloadValidation {
+		t.Fatal("FFPayloadValidation = false, want true")
+	}
+	if !cfg.FFExecutionTracing {
+		t.Fatal("FFExecutionTracing = false, want true")
 	}
 }

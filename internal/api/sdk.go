@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,69 @@ import (
 type contextKey string
 
 const ctxRunIDKey contextKey = "run_id"
+const ctxSDKVersionKey contextKey = "sdk_version"
+const ctxSDKCapabilitiesKey contextKey = "sdk_capabilities"
+
+type SDKCapabilities struct {
+	Progress    bool
+	Checkpoint  bool
+	UsageReport bool
+}
+
+func sdkVersionFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ctxSDKVersionKey).(string)
+	return v
+}
+
+func sdkCapabilitiesFromContext(ctx context.Context) SDKCapabilities {
+	v, ok := ctx.Value(ctxSDKCapabilitiesKey).(SDKCapabilities)
+	if !ok {
+		return SDKCapabilities{}
+	}
+	return v
+}
+
+func sdkCapabilitiesHeader(c SDKCapabilities) string {
+	parts := make([]string, 0, 3)
+	if c.Progress {
+		parts = append(parts, "progress")
+	}
+	if c.Checkpoint {
+		parts = append(parts, "checkpoint")
+	}
+	if c.UsageReport {
+		parts = append(parts, "usage")
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
+}
+
+func resolveSDKCapabilities(version string) SDKCapabilities {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return SDKCapabilities{}
+	}
+	majorRaw := version
+	if idx := strings.Index(majorRaw, "."); idx >= 0 {
+		majorRaw = majorRaw[:idx]
+	}
+	major, err := strconv.Atoi(majorRaw)
+	if err != nil || major < 2 {
+		return SDKCapabilities{}
+	}
+	return SDKCapabilities{Progress: true, Checkpoint: true, UsageReport: true}
+}
+
+func applySDKResponseHeaders(ctx context.Context, w http.ResponseWriter) {
+	version := sdkVersionFromContext(ctx)
+	if version == "" {
+		version = "legacy"
+	}
+	w.Header().Set("X-SDK-Version-Accepted", version)
+	w.Header().Set("X-SDK-Capabilities", sdkCapabilitiesHeader(sdkCapabilitiesFromContext(ctx)))
+}
 
 func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,12 +119,17 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		sdkVersion := strings.TrimSpace(r.Header.Get("X-SDK-Version"))
+		sdkCaps := resolveSDKCapabilities(sdkVersion)
 		ctx := context.WithValue(r.Context(), ctxRunIDKey, subject)
+		ctx = context.WithValue(ctx, ctxSDKVersionKey, sdkVersion)
+		ctx = context.WithValue(ctx, ctxSDKCapabilitiesKey, sdkCaps)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -125,6 +194,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	if err := s.store.UpdateHeartbeat(r.Context(), runID); err != nil {
@@ -137,6 +207,7 @@ func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -202,6 +273,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -270,6 +342,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	parentRunID := chi.URLParam(r, "runID")
 
 	var req struct {

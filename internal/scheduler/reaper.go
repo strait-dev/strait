@@ -51,21 +51,13 @@ func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
-	slog.Info("reaper started", "interval", r.interval, "stale_threshold", r.staleThreshold)
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("reaper stopping")
-			return
-		case <-ticker.C:
-			r.reapStaleDequeued(ctx)
-			r.reapStale(ctx)
-			r.reapExpired(ctx)
-		}
-	}
+	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
+	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
+		r.reapStaleDequeued(loopCtx)
+		r.reapStale(loopCtx)
+		r.reapExpired(loopCtx)
+	})
+	loop.Run(ctx)
 }
 
 func (r *Reaper) reapStale(ctx context.Context) {

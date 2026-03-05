@@ -956,3 +956,41 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 		t.Errorf("attempts = %d, want 2", got)
 	}
 }
+
+func BenchmarkExecutorPoll(b *testing.B) {
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob("http://example.invalid", 1, 1), nil
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			runs := make([]domain.JobRun, 0, n)
+			for i := range n {
+				runs = append(runs, domain.JobRun{
+					ID:        fmt.Sprintf("run-%d", i),
+					JobID:     "job-1",
+					ProjectID: "proj-1",
+					Status:    domain.StatusDequeued,
+					Attempt:   1,
+				})
+			}
+			return runs, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              NewPool(16),
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+		HTTPClient:        &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("skip") })},
+	})
+	defer exec.pool.Shutdown()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		exec.poll(context.Background())
+	}
+}

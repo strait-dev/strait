@@ -575,6 +575,55 @@ func TestSDKAuth_ExpiredToken(t *testing.T) {
 	}
 }
 
+func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
+	ms := &mockAPIStore{
+		updateHeartbeatFn: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
+	r.Header.Set("X-SDK-Version", "2.1.0")
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("X-SDK-Version-Accepted"); got != "2.1.0" {
+		t.Fatalf("X-SDK-Version-Accepted = %q, want %q", got, "2.1.0")
+	}
+	if got := w.Header().Get("X-SDK-Capabilities"); got != "progress,checkpoint,usage" {
+		t.Fatalf("X-SDK-Capabilities = %q, want %q", got, "progress,checkpoint,usage")
+	}
+}
+
+func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
+	ms := &mockAPIStore{
+		updateHeartbeatFn: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("X-SDK-Version-Accepted"); got != "legacy" {
+		t.Fatalf("X-SDK-Version-Accepted = %q, want %q", got, "legacy")
+	}
+	if got := w.Header().Get("X-SDK-Capabilities"); got != "none" {
+		t.Fatalf("X-SDK-Capabilities = %q, want %q", got, "none")
+	}
+}
+
 func TestHandleHealthReady_Success(t *testing.T) {
 	ms := &mockAPIStore{
 		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {

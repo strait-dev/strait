@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -147,4 +148,34 @@ type Queries struct {
 
 func New(db DBTX) *Queries {
 	return &Queries{db: db}
+}
+
+type TxBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		_ = tx.Rollback(ctx)
+	}()
+
+	if err := fn(New(tx)); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	committed = true
+
+	return nil
 }
