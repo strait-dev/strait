@@ -21,6 +21,7 @@ func newWorkflowsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newWorkflowsGetCommand(state))
 	cmd.AddCommand(newWorkflowsDescribeCommand(state))
 	cmd.AddCommand(newWorkflowsCreateCommand(state))
+	cmd.AddCommand(newWorkflowsUpdateCommand(state))
 	cmd.AddCommand(newWorkflowsTriggerCommand(state))
 
 	return cmd
@@ -186,6 +187,69 @@ func newWorkflowsCreateCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&slug, "slug", "", "workflow slug")
 	cmd.Flags().StringVar(&description, "description", "", "workflow description")
 	cmd.Flags().StringVar(&stepsJSON, "steps-json", "", "JSON array of workflow steps")
+
+	return cmd
+}
+
+func newWorkflowsUpdateCommand(state *appState) *cobra.Command {
+	var name string
+	var slug string
+	var description string
+	var enabled bool
+	var stepsJSON string
+
+	cmd := &cobra.Command{
+		Use:   "update <workflow-id>",
+		Short: "Update a workflow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			req := client.UpdateWorkflowRequest{}
+
+			if cmd.Flags().Changed("name") {
+				req.Name = &name
+			}
+			if cmd.Flags().Changed("slug") {
+				req.Slug = &slug
+			}
+			if cmd.Flags().Changed("description") {
+				req.Description = &description
+			}
+			if cmd.Flags().Changed("enabled") {
+				req.Enabled = &enabled
+			}
+			if cmd.Flags().Changed("steps-json") {
+				steps := make([]client.WorkflowStepRequest, 0)
+				if strings.TrimSpace(stepsJSON) != "" {
+					if err := json.Unmarshal([]byte(stepsJSON), &steps); err != nil {
+						return fmt.Errorf("invalid --steps-json: %w", err)
+					}
+				}
+				req.Steps = &steps
+			}
+
+			if req.Name == nil && req.Slug == nil && req.Description == nil && req.Enabled == nil && req.Steps == nil {
+				return fmt.Errorf("at least one update flag is required")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			wf, err := cli.UpdateWorkflow(context.Background(), args[0], req)
+			if err != nil {
+				return err
+			}
+
+			return printData(state, wf)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "workflow name")
+	cmd.Flags().StringVar(&slug, "slug", "", "workflow slug")
+	cmd.Flags().StringVar(&description, "description", "", "workflow description")
+	cmd.Flags().BoolVar(&enabled, "enabled", false, "workflow enabled state")
+	cmd.Flags().StringVar(&stepsJSON, "steps-json", "", "JSON array of workflow steps (set empty string to clear)")
 
 	return cmd
 }
