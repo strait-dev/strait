@@ -148,6 +148,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newWaitCommand(state))
 	cmd.AddCommand(newDocsCommand(cmd))
 	cmd.AddCommand(newLogsCommand(state))
+	cmd.AddCommand(newEventsCommand(state))
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -181,6 +182,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"wait":          {},
 		"docs":          {},
 		"logs":          {},
+		"events":        {},
 		"help":          {},
 	}
 
