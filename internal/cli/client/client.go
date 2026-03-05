@@ -46,6 +46,10 @@ type TriggerJobResponse struct {
 	RunToken string `json:"run_token,omitempty"`
 }
 
+type HealthStatus struct {
+	Status string `json:"status"`
+}
+
 func New(baseURL, apiKey string, timeout time.Duration) (*Client, error) {
 	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if trimmed == "" {
@@ -156,6 +160,22 @@ func (c *Client) ListRunEvents(ctx context.Context, runID, level, eventType stri
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *Client) Health(ctx context.Context) (*HealthStatus, error) {
+	var out HealthStatus
+	if err := c.doJSON(ctx, http.MethodGet, "/health", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) HealthReady(ctx context.Context) (*HealthStatus, error) {
+	var out HealthStatus
+	if err := c.doJSON(ctx, http.MethodGet, "/health/ready", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, query url.Values, body any, out any) error {
