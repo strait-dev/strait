@@ -25,11 +25,16 @@ type exportDocument struct {
 func newExportCommand(state *appState) *cobra.Command {
 	var projectID string
 	var outputDir string
+	var nameContains string
+	var dryRun bool
 
 	cmd := &cobra.Command{
-		Use:   "export <resource>",
-		Short: "Export server state as declarative YAML",
-		Args:  cobra.ExactArgs(1),
+		Use:       "export <resource>",
+		Short:     "Export server state as declarative YAML",
+		Long:      "Exports jobs, workflows, and API keys from the server into declarative YAML documents.",
+		Example:   "orchestrator export jobs --project proj_1\n  orchestrator export all --project proj_1 --output-dir definitions\n  orchestrator export workflows --name-contains billing --dry-run",
+		ValidArgs: []string{"jobs", "workflows", "api-keys", "all"},
+		Args:      cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			resource := strings.ToLower(strings.TrimSpace(args[0]))
 			if projectID == "" {
@@ -48,8 +53,33 @@ func newExportCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			if strings.TrimSpace(nameContains) != "" {
+				needle := strings.ToLower(strings.TrimSpace(nameContains))
+				filtered := make([]exportDocument, 0, len(docs))
+				for _, doc := range docs {
+					if strings.Contains(strings.ToLower(doc.Metadata.Name), needle) {
+						filtered = append(filtered, doc)
+					}
+				}
+				docs = filtered
+			}
+
 			if len(docs) == 0 {
 				return fmt.Errorf("no resources exported")
+			}
+
+			if dryRun {
+				counts := map[string]int{}
+				for _, doc := range docs {
+					counts[strings.ToLower(doc.Kind)]++
+				}
+				return printData(state, map[string]any{
+					"dry_run":  true,
+					"resource": resource,
+					"count":    len(docs),
+					"kinds":    counts,
+				})
 			}
 
 			if outputDir == "" {
@@ -59,12 +89,32 @@ func newExportCommand(state *appState) *cobra.Command {
 			if err := os.MkdirAll(outputDir, 0o750); err != nil {
 				return err
 			}
-			return writeYAMLFiles(outputDir, docs)
+
+			paths, err := writeYAMLFiles(outputDir, docs)
+			if err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{
+				"resource":   resource,
+				"output_dir": outputDir,
+				"count":      len(paths),
+				"files":      paths,
+			})
 		},
 	}
 
 	cmd.Flags().StringVar(&projectID, "project", "", "project ID")
 	cmd.Flags().StringVar(&outputDir, "output-dir", "", "write one file per manifest into directory")
+	cmd.Flags().StringVar(&nameContains, "name-contains", "", "filter manifests by metadata.name substring")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview what would be exported without writing output")
+
+	_ = cmd.RegisterFlagCompletionFunc("project", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if strings.TrimSpace(state.opts.projectID) == "" {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return []string{state.opts.projectID}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }
@@ -204,7 +254,8 @@ func writeYAMLStream(w io.Writer, docs []exportDocument) error {
 	return nil
 }
 
-func writeYAMLFiles(outputDir string, docs []exportDocument) error {
+func writeYAMLFiles(outputDir string, docs []exportDocument) ([]string, error) {
+	paths := make([]string, 0, len(docs))
 	for i, doc := range docs {
 		name := sanitizeFilename(doc.Metadata.Name)
 		if name == "" {
@@ -213,13 +264,14 @@ func writeYAMLFiles(outputDir string, docs []exportDocument) error {
 		path := filepath.Join(outputDir, fmt.Sprintf("%s.yaml", name))
 		content, err := yaml.Marshal(doc)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.WriteFile(path, content, 0o600); err != nil {
-			return err
+			return nil, err
 		}
+		paths = append(paths, path)
 	}
-	return nil
+	return paths, nil
 }
 
 func sanitizeFilename(s string) string {

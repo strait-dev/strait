@@ -13,9 +13,15 @@ func newTopCommand(state *appState) *cobra.Command {
 	var interval time.Duration
 
 	cmd := &cobra.Command{
-		Use:   "top",
-		Short: "Show live resource usage style stats",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		Use:     "top",
+		Short:   "Show live resource usage style stats",
+		Long:    "Displays queue runtime metrics and can refresh continuously in watch mode.",
+		Example: "orchestrator top\n  orchestrator top --watch\n  orchestrator top --watch --interval 5s",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if interval <= 0 {
+				return fmt.Errorf("interval must be greater than zero")
+			}
+
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
@@ -27,11 +33,12 @@ func newTopCommand(state *appState) *cobra.Command {
 					return err
 				}
 
-				rows := []map[string]any{{
-					"queued":    stats.Queued,
-					"executing": stats.Executing,
-					"delayed":   stats.Delayed,
-				}}
+				sampledAt := time.Now().UTC().Format(time.RFC3339)
+				rows := []map[string]any{
+					{"metric": "queued", "value": stats.Queued, "sampled_at": sampledAt},
+					{"metric": "executing", "value": stats.Executing, "sampled_at": sampledAt},
+					{"metric": "delayed", "value": stats.Delayed, "sampled_at": sampledAt},
+				}
 				if err := printData(state, rows); err != nil {
 					return err
 				}
@@ -39,7 +46,7 @@ func newTopCommand(state *appState) *cobra.Command {
 				if !watch {
 					return nil
 				}
-				fmt.Println("---")
+				fmt.Fprintln(cmd.ErrOrStderr(), "--- press Ctrl+C to stop ---")
 				time.Sleep(interval)
 			}
 		},

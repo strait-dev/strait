@@ -129,8 +129,8 @@ func newRootCommand() *cobra.Command {
 
 	cmd.AddCommand(newServeCommand())
 	cmd.AddCommand(newServerCommand())
-	cmd.AddCommand(newDevCommand())
-	cmd.AddCommand(newInitCommand())
+	cmd.AddCommand(newDevCommand(state))
+	cmd.AddCommand(newInitCommand(state))
 	cmd.AddCommand(newVersionCommand(state))
 	cmd.AddCommand(newCompletionCommand(cmd))
 	cmd.AddCommand(newContextCommand(state))
