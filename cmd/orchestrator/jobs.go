@@ -23,6 +23,37 @@ func newJobsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newJobsGetCommand(state))
 	cmd.AddCommand(newJobsCreateCommand(state))
 	cmd.AddCommand(newJobsTriggerCommand(state))
+	cmd.AddCommand(newJobsDeleteCommand(state))
+
+	return cmd
+}
+
+func newJobsDeleteCommand(state *appState) *cobra.Command {
+	var yes bool
+
+	cmd := &cobra.Command{
+		Use:   "delete <job-id>",
+		Short: "Disable a job",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("delete requires confirmation; rerun with --yes")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			if err := cli.DeleteJob(context.Background(), args[0]); err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{"deleted": true, "id": args[0]})
+		},
+	}
+
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion")
 
 	return cmd
 }
