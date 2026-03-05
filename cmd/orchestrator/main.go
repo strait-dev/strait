@@ -250,6 +250,7 @@ func run() error {
 			WorkflowCallback:  stepCallback,
 			Partitions:        partitions,
 			PartitionWeights:  partitionWeights,
+			CircuitBreaker:    cfg.FFCircuitBreaker,
 		})
 
 		g.Go(func() error {

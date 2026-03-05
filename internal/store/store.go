@@ -67,6 +67,10 @@ type RunStore interface {
 	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
 	ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error)
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
+	GetEndpointCircuitState(ctx context.Context, endpointURL string) (*domain.EndpointCircuitState, error)
+	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 }
 
 type ProjectQuota struct {

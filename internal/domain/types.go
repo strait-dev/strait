@@ -139,6 +139,24 @@ type RunOutput struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type CircuitState string
+
+const (
+	CircuitStateClosed   CircuitState = "closed"
+	CircuitStateOpen     CircuitState = "open"
+	CircuitStateHalfOpen CircuitState = "half_open"
+)
+
+type EndpointCircuitState struct {
+	EndpointURL         string       `json:"endpoint_url"`
+	State               CircuitState `json:"state"`
+	ConsecutiveFailures int          `json:"consecutive_failures"`
+	OpenedAt            *time.Time   `json:"opened_at,omitempty"`
+	HalfOpenUntil       *time.Time   `json:"half_open_until,omitempty"`
+	UpdatedAt           time.Time    `json:"updated_at"`
+	CreatedAt           time.Time    `json:"created_at"`
+}
+
 type WebhookDelivery struct {
 	ID             string     `json:"id"`
 	RunID          string     `json:"run_id"`

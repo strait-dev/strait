@@ -29,6 +29,9 @@ type mockExecutorStore struct {
 	getJobFn          func(ctx context.Context, id string) (*domain.Job, error)
 	updateRunStatusFn func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	updateHeartbeatFn func(ctx context.Context, id string) error
+	canDispatchFn     func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	recordFailureFn   func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	recordSuccessFn   func(ctx context.Context, endpointURL string) error
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -67,6 +70,27 @@ func (m *mockExecutorStore) UpdateHeartbeat(ctx context.Context, id string) erro
 		return nil
 	}
 	return m.updateHeartbeatFn(ctx, id)
+}
+
+func (m *mockExecutorStore) CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error) {
+	if m.canDispatchFn == nil {
+		return true, nil, nil
+	}
+	return m.canDispatchFn(ctx, endpointURL, now)
+}
+
+func (m *mockExecutorStore) RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error {
+	if m.recordFailureFn == nil {
+		return nil
+	}
+	return m.recordFailureFn(ctx, endpointURL, now, threshold, openDuration)
+}
+
+func (m *mockExecutorStore) RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error {
+	if m.recordSuccessFn == nil {
+		return nil
+	}
+	return m.recordSuccessFn(ctx, endpointURL)
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
@@ -203,6 +227,111 @@ func TestExecutor_Dispatch_Success(t *testing.T) {
 	}
 	if run.Status != domain.StatusCompleted {
 		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusCompleted)
+	}
+}
+
+func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	retryAt := time.Now().UTC().Add(45 * time.Second)
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+	store.canDispatchFn = func(context.Context, string, time.Time) (bool, *time.Time, error) {
+		return false, &retryAt, nil
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              NewPool(2),
+		Queue:             &mockExecQueue{},
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+		HTTPClient:        server.Client(),
+		CircuitBreaker:    true,
+	})
+	t.Cleanup(exec.pool.Shutdown)
+
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if called.Load() != 0 {
+		t.Fatalf("dispatch called %d times, want 0", called.Load())
+	}
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
+		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusQueued)
+	}
+	gotRetryAt, ok := calls[0].fields["next_retry_at"].(*time.Time)
+	if !ok || gotRetryAt == nil {
+		t.Fatalf("next_retry_at field type = %T, want *time.Time", calls[0].fields["next_retry_at"])
+	}
+	if !gotRetryAt.Equal(retryAt) {
+		t.Fatalf("next_retry_at = %v, want %v", *gotRetryAt, retryAt)
+	}
+}
+
+func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("temporary failure"))
+	}))
+	defer server.Close()
+
+	var failureCalled atomic.Int32
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+	store.recordFailureFn = func(context.Context, string, time.Time, int, time.Duration) error {
+		failureCalled.Add(1)
+		return nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.circuitBreaker = true
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if failureCalled.Load() != 1 {
+		t.Fatalf("record failure called = %d, want 1", failureCalled.Load())
+	}
+}
+
+func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	var successCalled atomic.Int32
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+	store.recordSuccessFn = func(context.Context, string) error {
+		successCalled.Add(1)
+		return nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.circuitBreaker = true
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if successCalled.Load() != 1 {
+		t.Fatalf("record success called = %d, want 1", successCalled.Load())
 	}
 }
 

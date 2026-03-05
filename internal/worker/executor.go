@@ -30,6 +30,9 @@ type ExecutorStore interface {
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateHeartbeat(ctx context.Context, id string) error
+	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 }
 
 // WorkflowCallback is called after a job run reaches a terminal state.
@@ -51,6 +54,9 @@ type Executor struct {
 	workflowCallback WorkflowCallback
 	partitionCycle   []string
 	nextPartition    int
+	circuitBreaker   bool
+	circuitThreshold int
+	circuitOpenFor   time.Duration
 	logger           *slog.Logger
 }
 
@@ -67,7 +73,13 @@ type ExecutorConfig struct {
 	WorkflowCallback  WorkflowCallback
 	Partitions        []string
 	PartitionWeights  string
+	CircuitBreaker    bool
 }
+
+const (
+	defaultCircuitFailureThreshold = 5
+	defaultCircuitOpenDuration     = time.Minute
+)
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	httpClient := cfg.HTTPClient
@@ -93,6 +105,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		metrics:          cfg.Metrics,
 		workflowCallback: cfg.WorkflowCallback,
 		partitionCycle:   buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
+		circuitBreaker:   cfg.CircuitBreaker,
+		circuitThreshold: defaultCircuitFailureThreshold,
+		circuitOpenFor:   defaultCircuitOpenDuration,
 		logger:           slog.Default(),
 	}
 }
@@ -277,6 +292,44 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		return
 	}
 
+	if e.circuitBreaker {
+		allowed, retryAt, circuitErr := e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
+		if circuitErr != nil {
+			e.logger.Error(
+				"circuit breaker check failed",
+				"run_id", run.ID,
+				"job_id", run.JobID,
+				"endpoint", job.EndpointURL,
+				"error", circuitErr,
+			)
+			e.handleSystemFailure(ctx, run, "circuit breaker unavailable")
+			return
+		}
+
+		if !allowed {
+			fields := map[string]any{
+				"next_retry_at": retryAt,
+				"error":         "endpoint circuit breaker open",
+				"error_class":   "transient",
+				"started_at":    nil,
+				"finished_at":   nil,
+			}
+			if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+				e.logger.Error(
+					"failed to requeue run while circuit open",
+					"run_id", run.ID,
+					"job_id", run.JobID,
+					"error", err,
+				)
+				return
+			}
+
+			e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
+			e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "circuit_open"})
+			return
+		}
+	}
+
 	err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now(),
 	})
@@ -387,6 +440,11 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		return
 	}
 	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusCompleted)
+	if e.circuitBreaker {
+		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
+			e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
+		}
+	}
 
 	e.logger.Info(
 		"run completed",
@@ -437,6 +495,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
+	if e.circuitBreaker {
+		if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
+			e.logger.Warn("failed to record circuit breaker failure", "endpoint", job.EndpointURL, "error", recordErr)
+		}
+	}
 
 	e.logger.Warn(
 		"run failed",
@@ -504,6 +567,12 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
+
+	if e.circuitBreaker {
+		if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
+			e.logger.Warn("failed to record circuit breaker timeout", "endpoint", job.EndpointURL, "error", err)
+		}
+	}
 
 	e.logger.Warn(
 		"run timed out",

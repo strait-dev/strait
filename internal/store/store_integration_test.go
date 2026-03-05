@@ -191,6 +191,98 @@ func TestGetJobBySlug_NotFound(t *testing.T) {
 	}
 }
 
+func TestEndpointCircuitState_OpensAndBlocksDispatch(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-open"
+	now := time.Now().UTC()
+
+	if err := q.RecordEndpointCircuitFailure(ctx, endpoint, now, 2, 2*time.Minute); err != nil {
+		t.Fatalf("RecordEndpointCircuitFailure() first error = %v", err)
+	}
+
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, now)
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() after first failure error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() after first failure = false, want true")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt after first failure = %v, want nil", retryAt)
+	}
+
+	if err := q.RecordEndpointCircuitFailure(ctx, endpoint, now.Add(time.Second), 2, 2*time.Minute); err != nil {
+		t.Fatalf("RecordEndpointCircuitFailure() second error = %v", err)
+	}
+
+	allowed, retryAt, err = q.CanDispatchEndpoint(ctx, endpoint, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() open error = %v", err)
+	}
+	if allowed {
+		t.Fatal("CanDispatchEndpoint() open = true, want false")
+	}
+	if retryAt == nil {
+		t.Fatal("retryAt = nil, want non-nil while open")
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state == nil {
+		t.Fatal("GetEndpointCircuitState() = nil, want state")
+	}
+	if state.State != domain.CircuitStateOpen {
+		t.Fatalf("state = %s, want %s", state.State, domain.CircuitStateOpen)
+	}
+}
+
+func TestEndpointCircuitState_ClosesAfterSuccess(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-close"
+	now := time.Now().UTC()
+
+	if err := q.RecordEndpointCircuitFailure(ctx, endpoint, now, 1, time.Minute); err != nil {
+		t.Fatalf("RecordEndpointCircuitFailure() error = %v", err)
+	}
+
+	if err := q.RecordEndpointCircuitSuccess(ctx, endpoint); err != nil {
+		t.Fatalf("RecordEndpointCircuitSuccess() error = %v", err)
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state == nil {
+		t.Fatal("GetEndpointCircuitState() = nil, want state")
+	}
+	if state.State != domain.CircuitStateClosed {
+		t.Fatalf("state = %s, want %s", state.State, domain.CircuitStateClosed)
+	}
+	if state.ConsecutiveFailures != 0 {
+		t.Fatalf("consecutive_failures = %d, want 0", state.ConsecutiveFailures)
+	}
+
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() = false, want true")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+}
+
 func TestListJobs(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -1073,7 +1165,7 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	if len(outputs) != 1 {
 		t.Fatalf("ListRunOutputs() len = %d, want 1", len(outputs))
 	}
-	if string(outputs[0].Value) != `{"name":"leo2"}` {
+	if !jsonEqual(outputs[0].Value, json.RawMessage(`{"name":"leo2"}`)) {
 		t.Fatalf("ListRunOutputs() value = %s, want updated value", string(outputs[0].Value))
 	}
 }
