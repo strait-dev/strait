@@ -298,6 +298,10 @@ func (c *Client) UpdateWorkflow(ctx context.Context, id string, req UpdateWorkfl
 	return &out, nil
 }
 
+func (c *Client) DeleteWorkflow(ctx context.Context, id string) error {
+	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/workflows", id), nil, nil, &map[string]string{})
+}
+
 func (c *Client) TriggerWorkflow(ctx context.Context, workflowID string, req TriggerWorkflowRequest) (*domain.WorkflowRun, error) {
 	var out domain.WorkflowRun
 	if err := c.doJSON(ctx, http.MethodPost, path.Join("/v1/workflows", workflowID, "trigger"), nil, req, &out); err != nil {

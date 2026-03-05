@@ -22,6 +22,7 @@ func newWorkflowsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newWorkflowsDescribeCommand(state))
 	cmd.AddCommand(newWorkflowsCreateCommand(state))
 	cmd.AddCommand(newWorkflowsUpdateCommand(state))
+	cmd.AddCommand(newWorkflowsDeleteCommand(state))
 	cmd.AddCommand(newWorkflowsTriggerCommand(state))
 
 	return cmd
@@ -250,6 +251,36 @@ func newWorkflowsUpdateCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&description, "description", "", "workflow description")
 	cmd.Flags().BoolVar(&enabled, "enabled", false, "workflow enabled state")
 	cmd.Flags().StringVar(&stepsJSON, "steps-json", "", "JSON array of workflow steps (set empty string to clear)")
+
+	return cmd
+}
+
+func newWorkflowsDeleteCommand(state *appState) *cobra.Command {
+	var yes bool
+
+	cmd := &cobra.Command{
+		Use:   "delete <workflow-id>",
+		Short: "Delete a workflow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("delete requires confirmation; rerun with --yes")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			if err := cli.DeleteWorkflow(context.Background(), args[0]); err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{"deleted": true, "id": args[0]})
+		},
+	}
+
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion")
 
 	return cmd
 }
