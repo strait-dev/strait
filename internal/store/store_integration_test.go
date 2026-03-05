@@ -597,6 +597,45 @@ func TestGetRunByIdempotencyKey_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-idempotency-replay")
+	key := newID()
+
+	first := baseRun(job, newID())
+	first.IdempotencyKey = key
+	if err := q.CreateRun(ctx, first); err != nil {
+		t.Fatalf("CreateRun(first) error = %v", err)
+	}
+
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusQueued, domain.StatusFailed, map[string]any{
+		"finished_at": time.Now().UTC(),
+		"error":       "exhausted",
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(first->failed) error = %v", err)
+	}
+
+	second := baseRun(job, newID())
+	second.IdempotencyKey = key
+	if err := q.CreateRun(ctx, second); err != nil {
+		t.Fatalf("CreateRun(second) error = %v", err)
+	}
+
+	got, err := q.GetRunByIdempotencyKey(ctx, job.ID, key)
+	if err != nil {
+		t.Fatalf("GetRunByIdempotencyKey() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetRunByIdempotencyKey() returned nil run")
+	}
+	if got.ID != second.ID {
+		t.Fatalf("GetRunByIdempotencyKey() id = %s, want %s", got.ID, second.ID)
+	}
+}
+
 func TestListRunsByJob(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

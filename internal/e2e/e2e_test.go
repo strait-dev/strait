@@ -517,6 +517,51 @@ func TestE2E_ListRunsFilterByStatus(t *testing.T) {
 	}
 }
 
+func TestE2E_ReplayRun(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-replay-" + newID()
+	job := createJob(t, projectID, "Replay", "replay-"+newID())
+	jobID := asString(t, job, "id")
+	idempotencyKey := "idem-" + newID()
+	original := triggerJob(t, jobID, `{"payload":{"replay":true}}`, idempotencyKey)
+	originalRunID := asString(t, original, "id")
+
+	err := testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusQueued, domain.StatusFailed, map[string]any{
+		"finished_at": time.Now().UTC(),
+		"error":       "forced failure for replay",
+	})
+	if err != nil {
+		t.Fatalf("update run status to failed: %v", err)
+	}
+
+	w := doRequest(t, http.MethodPost, "/v1/runs/"+originalRunID+"/replay", "")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("replay status = %d, body = %s", w.Code, w.Body.String())
+	}
+	replay := mustDecodeObject(t, w)
+
+	replayRunID := asString(t, replay, "id")
+	if replayRunID == "" || replayRunID == originalRunID {
+		t.Fatalf("expected distinct replay run id, got %q", replayRunID)
+	}
+	if asString(t, replay, "status") != string(domain.StatusQueued) {
+		t.Fatalf("expected replay status queued, got %s", asString(t, replay, "status"))
+	}
+	if asString(t, replay, "idempotency_key") != idempotencyKey {
+		t.Fatalf("expected replay idempotency key %q, got %q", idempotencyKey, asString(t, replay, "idempotency_key"))
+	}
+
+	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if lw.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d, body = %s", lw.Code, lw.Body.String())
+	}
+	runs := mustDecodeList(t, lw)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs after replay, got %d", len(runs))
+	}
+}
+
 func TestE2E_ListRunsPagination(t *testing.T) {
 	mustClean(t)
 

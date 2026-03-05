@@ -180,6 +180,7 @@ func (s *Server) routes() chi.Router {
 			r.Route("/{runID}", func(r chi.Router) {
 				r.Get("/", s.handleGetRun)
 				r.Delete("/", s.handleCancelRun)
+				r.Post("/replay", s.handleReplayRun)
 				r.Get("/stream", s.handleRunStream)
 				r.Get("/children", s.handleListChildRuns)
 				r.Get("/events", s.handleListRunEvents)

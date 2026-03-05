@@ -114,7 +114,9 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
 		FROM job_runs
-		WHERE job_id = $1 AND idempotency_key = $2`
+		WHERE job_id = $1 AND idempotency_key = $2
+		ORDER BY created_at DESC
+		LIMIT 1`
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, jobID, idempotencyKey))
 	if err != nil {

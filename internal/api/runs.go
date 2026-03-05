@@ -130,6 +130,70 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
+func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+	originalRun, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if !isReplayableRunStatus(originalRun.Status) {
+		respondError(w, http.StatusBadRequest, "run is not replayable")
+		return
+	}
+
+	job, err := s.store.GetJob(r.Context(), originalRun.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			respondError(w, http.StatusBadRequest, "job not found for run")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get job")
+		return
+	}
+
+	now := time.Now()
+	var expiresAt time.Time
+	if job.RunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	} else {
+		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+	}
+
+	replayRun := &domain.JobRun{
+		JobID:          originalRun.JobID,
+		ProjectID:      originalRun.ProjectID,
+		Attempt:        1,
+		Payload:        originalRun.Payload,
+		TriggeredBy:    domain.TriggerManual,
+		Priority:       originalRun.Priority,
+		IdempotencyKey: originalRun.IdempotencyKey,
+		JobVersion:     originalRun.JobVersion,
+		ExpiresAt:      &expiresAt,
+	}
+
+	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to enqueue replay run")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, replayRun)
+}
+
+func isReplayableRunStatus(status domain.RunStatus) bool {
+	switch status {
+	case domain.StatusFailed, domain.StatusTimedOut, domain.StatusCrashed, domain.StatusSystemFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Server) handleListChildRuns(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 	children, err := s.store.ListChildRuns(r.Context(), runID)

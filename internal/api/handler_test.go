@@ -375,3 +375,83 @@ func TestHandleDeleteJob_SoftDelete(t *testing.T) {
 		t.Fatal("expected job to be disabled after soft delete")
 	}
 }
+
+func TestHandleReplayRun_Success(t *testing.T) {
+	originalPayload := json.RawMessage(`{"k":"v"}`)
+	originalRun := &domain.JobRun{
+		ID:             "run-123",
+		JobID:          "job-1",
+		ProjectID:      "proj-1",
+		Status:         domain.StatusFailed,
+		Attempt:        3,
+		Payload:        originalPayload,
+		IdempotencyKey: "idem-123",
+		JobVersion:     5,
+		Priority:       7,
+	}
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			if id != "run-123" {
+				t.Fatalf("unexpected run id: %s", id)
+			}
+			return originalRun, nil
+		},
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != "job-1" {
+				t.Fatalf("unexpected job id: %s", id)
+			}
+			return &domain.Job{ID: id, TimeoutSecs: 60, RunTTLSecs: 0}, nil
+		},
+	}
+
+	var enqueued *domain.JobRun
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = run
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if enqueued.JobID != originalRun.JobID {
+		t.Fatalf("expected JobID %q, got %q", originalRun.JobID, enqueued.JobID)
+	}
+	if enqueued.ProjectID != originalRun.ProjectID {
+		t.Fatalf("expected ProjectID %q, got %q", originalRun.ProjectID, enqueued.ProjectID)
+	}
+	if enqueued.Attempt != 1 {
+		t.Fatalf("expected attempt 1, got %d", enqueued.Attempt)
+	}
+	if string(enqueued.Payload) != string(originalRun.Payload) {
+		t.Fatalf("expected payload %s, got %s", string(originalRun.Payload), string(enqueued.Payload))
+	}
+	if enqueued.IdempotencyKey != originalRun.IdempotencyKey {
+		t.Fatalf("expected idempotency key %q, got %q", originalRun.IdempotencyKey, enqueued.IdempotencyKey)
+	}
+}
+
+func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-123", JobID: "job-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
