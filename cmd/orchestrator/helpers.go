@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"orchestrator/internal/cli/client"
 	cliconfig "orchestrator/internal/cli/config"
 )
 
@@ -39,4 +40,8 @@ func stdoutIsTTY() bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+func newAPIClient(state *appState) (*client.Client, error) {
+	return client.New(state.opts.serverURL, state.opts.apiKey, state.opts.timeout)
 }
