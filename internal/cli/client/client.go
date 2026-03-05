@@ -310,6 +310,23 @@ func (c *Client) TriggerWorkflow(ctx context.Context, workflowID string, req Tri
 	return &out, nil
 }
 
+func (c *Client) ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error) {
+	query := url.Values{}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if offset > 0 {
+		query.Set("offset", fmt.Sprintf("%d", offset))
+	}
+
+	var out []domain.WorkflowRun
+	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/workflows", workflowID, "runs"), query, nil, &out); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
 func (c *Client) ListWorkflowRunsByProject(ctx context.Context, projectID, status string, limit int) ([]domain.WorkflowRun, error) {
 	query := url.Values{}
 	query.Set("project_id", projectID)

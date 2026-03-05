@@ -23,6 +23,7 @@ func newWorkflowsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newWorkflowsCreateCommand(state))
 	cmd.AddCommand(newWorkflowsUpdateCommand(state))
 	cmd.AddCommand(newWorkflowsDeleteCommand(state))
+	cmd.AddCommand(newWorkflowsRunsCommand(state))
 	cmd.AddCommand(newWorkflowsTriggerCommand(state))
 
 	return cmd
@@ -281,6 +282,42 @@ func newWorkflowsDeleteCommand(state *appState) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion")
+
+	return cmd
+}
+
+func newWorkflowsRunsCommand(state *appState) *cobra.Command {
+	var limit int
+	var offset int
+
+	cmd := &cobra.Command{
+		Use:   "runs <workflow-id>",
+		Short: "List runs for a workflow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if limit < 0 {
+				return fmt.Errorf("limit must be non-negative")
+			}
+			if offset < 0 {
+				return fmt.Errorf("offset must be non-negative")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			runs, err := cli.ListWorkflowRuns(context.Background(), args[0], limit, offset)
+			if err != nil {
+				return err
+			}
+
+			return printData(state, runs)
+		},
+	}
+
+	cmd.Flags().IntVar(&limit, "limit", 50, "max runs to return")
+	cmd.Flags().IntVar(&offset, "offset", 0, "pagination offset")
 
 	return cmd
 }
