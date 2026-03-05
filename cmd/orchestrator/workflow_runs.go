@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -17,6 +18,63 @@ func newWorkflowRunsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newWorkflowRunsGetCommand(state))
 	cmd.AddCommand(newWorkflowRunsCancelCommand(state))
 	cmd.AddCommand(newWorkflowRunsStepsCommand(state))
+	cmd.AddCommand(newWorkflowRunsWatchCommand(state))
+
+	return cmd
+}
+
+func newWorkflowRunsWatchCommand(state *appState) *cobra.Command {
+	var interval time.Duration
+	var timeout time.Duration
+
+	cmd := &cobra.Command{
+		Use:   "watch <workflow-run-id>",
+		Short: "Watch workflow run status and step progression",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			deadline := time.Now().Add(timeout)
+			for {
+				run, err := cli.GetWorkflowRun(context.Background(), args[0])
+				if err != nil {
+					return err
+				}
+
+				steps, err := cli.ListWorkflowStepRuns(context.Background(), args[0])
+				if err != nil {
+					return err
+				}
+
+				payload := map[string]any{
+					"run":   run,
+					"steps": steps,
+				}
+				if err := printData(state, payload); err != nil {
+					return err
+				}
+
+				if run.Status.IsTerminal() {
+					if run.Status == "completed" {
+						return nil
+					}
+					return fmt.Errorf("workflow run terminal status %s", run.Status)
+				}
+
+				if timeout > 0 && time.Now().After(deadline) {
+					return fmt.Errorf("workflow watch timeout reached")
+				}
+
+				time.Sleep(interval)
+			}
+		},
+	}
+
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval")
+	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "max watch duration")
 
 	return cmd
 }
