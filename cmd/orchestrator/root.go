@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	cliauth "orchestrator/internal/cli/auth"
+	cliconfig "orchestrator/internal/cli/config"
+
 	"github.com/spf13/cobra"
 )
 
@@ -25,23 +28,98 @@ type rootOptions struct {
 	timeout      time.Duration
 }
 
+type appState struct {
+	opts       *rootOptions
+	configPath string
+	config     *cliconfig.File
+	resolved   cliconfig.Resolved
+}
+
 func newRootCommand() *cobra.Command {
 	opts := &rootOptions{}
+	state := &appState{opts: opts}
+
 	cmd := &cobra.Command{
 		Use:           "orchestrator",
 		Short:         "Orchestrator CLI and server runtime",
 		Long:          "Orchestrator manages jobs, runs, workflows, and server runtime operations.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			loaded, err := cliconfig.Load(opts.configPath)
+			if err != nil {
+				return err
+			}
+
+			resolved := cliconfig.Resolve(cliconfig.ResolveInput{
+				Flags: map[string]string{
+					"server":  opts.serverURL,
+					"api-key": opts.apiKey,
+					"project": opts.projectID,
+					"format":  opts.outputFormat,
+					"context": opts.contextName,
+				},
+				BoolFlags: map[string]bool{
+					"no-color": opts.noColor,
+					"quiet":    opts.quiet,
+					"verbose":  opts.verbose,
+				},
+				DurationFlags: map[string]string{
+					"timeout": opts.timeout.String(),
+				},
+				Changed: map[string]bool{
+					"server":   cmd.Flags().Changed("server"),
+					"api-key":  cmd.Flags().Changed("api-key"),
+					"project":  cmd.Flags().Changed("project"),
+					"format":   cmd.Flags().Changed("format"),
+					"context":  cmd.Flags().Changed("context"),
+					"no-color": cmd.Flags().Changed("no-color"),
+					"quiet":    cmd.Flags().Changed("quiet"),
+					"verbose":  cmd.Flags().Changed("verbose"),
+					"timeout":  cmd.Flags().Changed("timeout"),
+				},
+				Config:          loaded.Data,
+				Env:             cliEnv(),
+				ContextOverride: opts.contextName,
+			})
+
+			if resolved.Credential == "" {
+				if key, keyErr := cliauth.LoadAPIKey(resolved.ContextName); keyErr == nil {
+					resolved.Credential = key
+				}
+			}
+
+			timeout, parseErr := time.ParseDuration(resolved.Timeout)
+			if parseErr != nil {
+				return fmt.Errorf("invalid timeout %q: %w", resolved.Timeout, parseErr)
+			}
+
+			opts.serverURL = resolved.ServerURL
+			opts.apiKey = resolved.Credential
+			opts.projectID = resolved.ProjectID
+			opts.outputFormat = resolved.Format
+			opts.contextName = resolved.ContextName
+			opts.noColor = resolved.NoColor
+			opts.quiet = resolved.Quiet
+			opts.verbose = resolved.Verbose
+			opts.timeout = timeout
+			opts.configPath = loaded.Path
+
+			state.configPath = loaded.Path
+			state.config = loaded.Data
+			state.resolved = resolved
+
+			return nil
+		},
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runServe("")
 		},
 	}
 
-	cmd.PersistentFlags().StringVar(&opts.serverURL, "server", "http://localhost:8080", "server URL")
+	cmd.PersistentFlags().StringVar(&opts.serverURL, "server", "", "server URL")
 	cmd.PersistentFlags().StringVar(&opts.apiKey, "api-key", "", "API key")
 	cmd.PersistentFlags().StringVar(&opts.projectID, "project", "", "default project ID")
-	cmd.PersistentFlags().StringVarP(&opts.outputFormat, "format", "o", "table", "output format")
+	cmd.PersistentFlags().StringVarP(&opts.outputFormat, "format", "o", "", "output format")
 	cmd.PersistentFlags().BoolVar(&opts.noColor, "no-color", false, "disable color output")
 	cmd.PersistentFlags().BoolVarP(&opts.quiet, "quiet", "q", false, "minimal output")
 	cmd.PersistentFlags().BoolVarP(&opts.verbose, "verbose", "v", false, "verbose output")
@@ -50,8 +128,12 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().DurationVar(&opts.timeout, "timeout", 30*time.Second, "API request timeout")
 
 	cmd.AddCommand(newServeCommand())
-	cmd.AddCommand(newVersionCommand(opts))
+	cmd.AddCommand(newVersionCommand(state))
 	cmd.AddCommand(newCompletionCommand(cmd))
+	cmd.AddCommand(newContextCommand(state))
+	cmd.AddCommand(newLoginCommand(state))
+	cmd.AddCommand(newLogoutCommand(state))
+	cmd.AddCommand(newAuthCommand(state))
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -67,6 +149,10 @@ func normalizeLegacyArgs(args []string) []string {
 		"serve":      {},
 		"version":    {},
 		"completion": {},
+		"context":    {},
+		"auth":       {},
+		"login":      {},
+		"logout":     {},
 		"help":       {},
 	}
 
@@ -109,7 +195,7 @@ func newServeCommand() *cobra.Command {
 	return cmd
 }
 
-func newVersionCommand(opts *rootOptions) *cobra.Command {
+func newVersionCommand(state *appState) *cobra.Command {
 	var short bool
 	var asJSON bool
 	var checkServer bool
@@ -131,8 +217,8 @@ func newVersionCommand(opts *rootOptions) *cobra.Command {
 
 			if checkServer {
 				serverStatus := "unreachable"
-				client := &http.Client{Timeout: opts.timeout}
-				resp, err := client.Get(strings.TrimRight(opts.serverURL, "/") + "/health")
+				client := &http.Client{Timeout: state.opts.timeout}
+				resp, err := client.Get(strings.TrimRight(state.opts.serverURL, "/") + "/health")
 				if err == nil {
 					_ = resp.Body.Close()
 					if resp.StatusCode == http.StatusOK {
@@ -191,4 +277,15 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 	}
 
 	return cmd
+}
+
+func cliEnv() map[string]string {
+	return map[string]string{
+		"ORCHESTRATOR_SERVER":  strings.TrimSpace(os.Getenv("ORCHESTRATOR_SERVER")),
+		"ORCHESTRATOR_API_KEY": strings.TrimSpace(os.Getenv("ORCHESTRATOR_API_KEY")),
+		"ORCHESTRATOR_PROJECT": strings.TrimSpace(os.Getenv("ORCHESTRATOR_PROJECT")),
+		"ORCHESTRATOR_FORMAT":  strings.TrimSpace(os.Getenv("ORCHESTRATOR_FORMAT")),
+		"ORCHESTRATOR_CONTEXT": strings.TrimSpace(os.Getenv("ORCHESTRATOR_CONTEXT")),
+		"NO_COLOR":             strings.TrimSpace(os.Getenv("NO_COLOR")),
+	}
 }
