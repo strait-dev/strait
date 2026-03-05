@@ -37,8 +37,8 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 	var yes bool
 
 	cmd := &cobra.Command{
-		Use:   "delete <job-id>",
-		Short: "Disable a job",
+		Use:   "delete <job-id-or-slug>",
+		Short: "Disable a job by ID or slug",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if !yes {
@@ -50,11 +50,16 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if err := cli.DeleteJob(context.Background(), args[0]); err != nil {
+			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
 				return err
 			}
 
-			return printData(state, map[string]any{"deleted": true, "id": args[0]})
+			if err := cli.DeleteJob(context.Background(), jobID); err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{"deleted": true, "id": jobID})
 		},
 	}
 
@@ -65,7 +70,7 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 
 func newJobsDescribeCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "describe <job-id>",
+		Use:   "describe <job-id-or-slug>",
 		Short: "Show rich details and recent runs for a job",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -74,7 +79,12 @@ func newJobsDescribeCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			job, err := cli.GetJob(context.Background(), args[0])
+			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			job, err := cli.GetJob(context.Background(), jobID)
 			if err != nil {
 				return err
 			}
@@ -117,7 +127,7 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 	var editor string
 
 	cmd := &cobra.Command{
-		Use:   "edit <job-id>",
+		Use:   "edit <job-id-or-slug>",
 		Short: "Edit a job via --field or interactive editor",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -126,8 +136,13 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 				return err
 			}
 
+			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
 			if strings.TrimSpace(field) == "" {
-				return runInteractiveJobEdit(context.Background(), cli, state, args[0], editor)
+				return runInteractiveJobEdit(context.Background(), cli, state, jobID, editor)
 			}
 
 			parts := strings.SplitN(field, "=", 2)
@@ -177,7 +192,7 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("unsupported field %q", key)
 			}
 
-			job, err := cli.UpdateJob(context.Background(), args[0], upd)
+			job, err := cli.UpdateJob(context.Background(), jobID, upd)
 			if err != nil {
 				return err
 			}
@@ -334,15 +349,20 @@ func newJobsListCommand(state *appState) *cobra.Command {
 
 func newJobsGetCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get <job-id>",
-		Short: "Get a job by ID",
+		Use:   "get <job-id-or-slug>",
+		Short: "Get a job by ID or slug",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
-			job, err := cli.GetJob(context.Background(), args[0])
+			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			job, err := cli.GetJob(context.Background(), jobID)
 			if err != nil {
 				return err
 			}
@@ -402,7 +422,7 @@ func newJobsTriggerCommand(state *appState) *cobra.Command {
 	var idempotencyKey string
 
 	cmd := &cobra.Command{
-		Use:   "trigger <job-id>",
+		Use:   "trigger <job-id-or-slug>",
 		Short: "Trigger a job",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -434,7 +454,13 @@ func newJobsTriggerCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := cli.TriggerJob(context.Background(), args[0], req, idempotencyKey)
+
+			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			if err != nil {
+				return err
+			}
+
+			resp, err := cli.TriggerJob(context.Background(), jobID, req, idempotencyKey)
 			if err != nil {
 				return err
 			}
