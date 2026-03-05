@@ -136,6 +136,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newAuthCommand(state))
 	cmd.AddCommand(newJobsCommand(state))
 	cmd.AddCommand(newRunsCommand(state))
+	cmd.AddCommand(newMigrateCommand(state))
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -157,6 +158,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"logout":     {},
 		"jobs":       {},
 		"runs":       {},
+		"migrate":    {},
 		"help":       {},
 	}
 
