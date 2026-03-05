@@ -134,6 +134,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newVersionCommand(state))
 	cmd.AddCommand(newCompletionCommand(cmd))
 	cmd.AddCommand(newContextCommand(state))
+	cmd.AddCommand(newAliasCommand(state))
 	cmd.AddCommand(newLoginCommand(state))
 	cmd.AddCommand(newLogoutCommand(state))
 	cmd.AddCommand(newAuthCommand(state))
@@ -160,7 +161,10 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newExportCommand(state))
 	cmd.AddCommand(newDBCommand())
 
-	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
+	rawArgs := os.Args[1:]
+	configPath := extractConfigPath(rawArgs)
+	rawArgs = expandAliasArgs(rawArgs, configPath)
+	cmd.SetArgs(normalizeLegacyArgs(rawArgs))
 
 	return cmd
 }
@@ -178,6 +182,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"version":       {},
 		"completion":    {},
 		"context":       {},
+		"alias":         {},
 		"auth":          {},
 		"login":         {},
 		"logout":        {},
@@ -216,6 +221,18 @@ func normalizeLegacyArgs(args []string) []string {
 	}
 
 	return args
+}
+
+func extractConfigPath(args []string) string {
+	for i := range len(args) {
+		if args[i] == "--config" && i+1 < len(args) {
+			return strings.TrimSpace(args[i+1])
+		}
+		if value, ok := strings.CutPrefix(args[i], "--config="); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func containsModeFlag(args []string) bool {
