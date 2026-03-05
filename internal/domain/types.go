@@ -98,6 +98,47 @@ type RunEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type RunCheckpoint struct {
+	ID        string          `json:"id"`
+	RunID     string          `json:"run_id"`
+	Sequence  int             `json:"sequence"`
+	Source    string          `json:"source"`
+	State     json.RawMessage `json:"state"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+type RunUsage struct {
+	ID               string    `json:"id"`
+	RunID            string    `json:"run_id"`
+	Provider         string    `json:"provider"`
+	Model            string    `json:"model"`
+	PromptTokens     int       `json:"prompt_tokens"`
+	CompletionTokens int       `json:"completion_tokens"`
+	TotalTokens      int       `json:"total_tokens"`
+	CostMicrousd     int64     `json:"cost_microusd"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type RunToolCall struct {
+	ID         string          `json:"id"`
+	RunID      string          `json:"run_id"`
+	ToolName   string          `json:"tool_name"`
+	Input      json.RawMessage `json:"input,omitempty"`
+	Output     json.RawMessage `json:"output,omitempty"`
+	DurationMs int             `json:"duration_ms,omitempty"`
+	Status     string          `json:"status"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+type RunOutput struct {
+	ID        string          `json:"id"`
+	RunID     string          `json:"run_id"`
+	OutputKey string          `json:"output_key"`
+	Schema    json.RawMessage `json:"schema,omitempty"`
+	Value     json.RawMessage `json:"value"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
 type WebhookDelivery struct {
 	ID             string     `json:"id"`
 	RunID          string     `json:"run_id"`

@@ -34,6 +34,15 @@ type APIStore interface {
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
+	ListRunCheckpoints(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error)
+	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
+	ListRunUsage(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error)
+	CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error
+	ListRunToolCalls(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error)
+	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
+	ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error)
+	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
@@ -174,6 +183,10 @@ func (s *Server) routes() chi.Router {
 				r.Get("/stream", s.handleRunStream)
 				r.Get("/children", s.handleListChildRuns)
 				r.Get("/events", s.handleListRunEvents)
+				r.Get("/checkpoints", s.handleListRunCheckpoints)
+				r.Get("/usage", s.handleListRunUsage)
+				r.Get("/tool-calls", s.handleListRunToolCalls)
+				r.Get("/outputs", s.handleListRunOutputs)
 			})
 		})
 
@@ -215,6 +228,10 @@ func (s *Server) routes() chi.Router {
 			r.Post("/log", s.handleSDKLog)
 			r.Post("/progress", s.handleSDKProgress)
 			r.Post("/heartbeat", s.handleSDKHeartbeat)
+			r.Post("/checkpoint", s.handleSDKCheckpoint)
+			r.Post("/usage", s.handleSDKUsage)
+			r.Post("/tool-call", s.handleSDKToolCall)
+			r.Post("/output", s.handleSDKOutput)
 			r.Post("/complete", s.handleSDKComplete)
 			r.Post("/fail", s.handleSDKFail)
 			r.Post("/spawn", s.handleSDKSpawn)

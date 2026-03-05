@@ -980,6 +980,138 @@ func mustClean(t *testing.T, ctx context.Context) {
 	}
 }
 
+func TestRunCheckpoints(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-checkpoints")
+	run := mustCreateRun(t, ctx, q, job)
+
+	cp1 := &domain.RunCheckpoint{RunID: run.ID, Source: "sdk", State: json.RawMessage(`{"step":1}`)}
+	if err := q.CreateRunCheckpoint(ctx, cp1); err != nil {
+		t.Fatalf("CreateRunCheckpoint() error = %v", err)
+	}
+	cp2 := &domain.RunCheckpoint{RunID: run.ID, Source: "auto", State: json.RawMessage(`{"step":2}`)}
+	if err := q.CreateRunCheckpoint(ctx, cp2); err != nil {
+		t.Fatalf("CreateRunCheckpoint() error = %v", err)
+	}
+
+	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, 10)
+	if err != nil {
+		t.Fatalf("ListRunCheckpoints() error = %v", err)
+	}
+	if len(checkpoints) != 2 {
+		t.Fatalf("ListRunCheckpoints() len = %d, want 2", len(checkpoints))
+	}
+	if checkpoints[0].Sequence <= checkpoints[1].Sequence {
+		t.Fatalf("expected descending sequence order, got %d then %d", checkpoints[0].Sequence, checkpoints[1].Sequence)
+	}
+}
+
+func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-usage")
+	run := mustCreateRun(t, ctx, q, job)
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO pricing_catalog (id, provider, model, input_cost_microusd, output_cost_microusd, active, effective_from)
+		VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
+	`, newID(), "openai", "gpt-4", int64(3), int64(7)); err != nil {
+		t.Fatalf("insert pricing error = %v", err)
+	}
+
+	usage := &domain.RunUsage{
+		RunID:            run.ID,
+		Provider:         "openai",
+		Model:            "gpt-4",
+		PromptTokens:     10,
+		CompletionTokens: 5,
+	}
+	if err := q.CreateRunUsage(ctx, usage); err != nil {
+		t.Fatalf("CreateRunUsage() error = %v", err)
+	}
+	if usage.CostMicrousd != int64(65) {
+		t.Fatalf("CreateRunUsage() cost = %d, want 65", usage.CostMicrousd)
+	}
+
+	usages, err := q.ListRunUsage(ctx, run.ID, 10)
+	if err != nil {
+		t.Fatalf("ListRunUsage() error = %v", err)
+	}
+	if len(usages) != 1 {
+		t.Fatalf("ListRunUsage() len = %d, want 1", len(usages))
+	}
+
+	call := &domain.RunToolCall{RunID: run.ID, ToolName: "search", Input: json.RawMessage(`{"q":"x"}`), Output: json.RawMessage(`{"ok":true}`), DurationMs: 120}
+	if err := q.CreateRunToolCall(ctx, call); err != nil {
+		t.Fatalf("CreateRunToolCall() error = %v", err)
+	}
+	calls, err := q.ListRunToolCalls(ctx, run.ID, 10)
+	if err != nil {
+		t.Fatalf("ListRunToolCalls() error = %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("ListRunToolCalls() len = %d, want 1", len(calls))
+	}
+
+	out := &domain.RunOutput{RunID: run.ID, OutputKey: "final", Schema: json.RawMessage(`{"type":"object"}`), Value: json.RawMessage(`{"name":"leo"}`)}
+	if err := q.UpsertRunOutput(ctx, out); err != nil {
+		t.Fatalf("UpsertRunOutput() error = %v", err)
+	}
+	out.Value = json.RawMessage(`{"name":"leo2"}`)
+	if err := q.UpsertRunOutput(ctx, out); err != nil {
+		t.Fatalf("UpsertRunOutput() second error = %v", err)
+	}
+	outputs, err := q.ListRunOutputs(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ListRunOutputs() error = %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("ListRunOutputs() len = %d, want 1", len(outputs))
+	}
+	if string(outputs[0].Value) != `{"name":"leo2"}` {
+		t.Fatalf("ListRunOutputs() value = %s, want updated value", string(outputs[0].Value))
+	}
+}
+
+func TestAreAllDescendantsTerminal(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-descendants-terminal")
+	parent := mustCreateRun(t, ctx, q, job)
+	child := baseRun(job, newID())
+	child.ParentRunID = parent.ID
+	child.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, child); err != nil {
+		t.Fatalf("CreateRun(child) error = %v", err)
+	}
+
+	allTerminal, err := q.AreAllDescendantsTerminal(ctx, parent.ID)
+	if err != nil {
+		t.Fatalf("AreAllDescendantsTerminal() error = %v", err)
+	}
+	if allTerminal {
+		t.Fatal("AreAllDescendantsTerminal() = true, want false")
+	}
+
+	if err := q.UpdateRunStatus(ctx, child.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
+		t.Fatalf("UpdateRunStatus() error = %v", err)
+	}
+	allTerminal, err = q.AreAllDescendantsTerminal(ctx, parent.ID)
+	if err != nil {
+		t.Fatalf("AreAllDescendantsTerminal() error = %v", err)
+	}
+	if !allTerminal {
+		t.Fatal("AreAllDescendantsTerminal() = false, want true")
+	}
+}
+
 func mustCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
 	t.Helper()
 

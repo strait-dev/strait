@@ -58,6 +58,15 @@ type RunStore interface {
 	DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
+	ListRunCheckpoints(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error)
+	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
+	ListRunUsage(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error)
+	CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error
+	ListRunToolCalls(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error)
+	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
+	ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error)
+	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 }
 
 type ProjectQuota struct {

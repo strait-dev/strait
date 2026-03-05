@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 type contextKey string
@@ -271,6 +272,173 @@ func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (s *Server) handleSDKCheckpoint(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Source string          `json:"source,omitempty"`
+		State  json.RawMessage `json:"state"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.State) == 0 {
+		respondError(w, http.StatusBadRequest, "state is required")
+		return
+	}
+
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if run.Status != domain.StatusExecuting && run.Status != domain.StatusWaiting {
+		respondError(w, http.StatusConflict, "run must be executing or waiting to checkpoint")
+		return
+	}
+
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		source = "sdk"
+	}
+
+	checkpoint := &domain.RunCheckpoint{
+		ID:     uuid.Must(uuid.NewV7()).String(),
+		RunID:  runID,
+		Source: source,
+		State:  req.State,
+	}
+	if err := s.store.CreateRunCheckpoint(r.Context(), checkpoint); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create checkpoint")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, checkpoint)
+}
+
+func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Provider         string `json:"provider"`
+		Model            string `json:"model"`
+		PromptTokens     int    `json:"prompt_tokens"`
+		CompletionTokens int    `json:"completion_tokens"`
+		TotalTokens      int    `json:"total_tokens,omitempty"`
+		CostMicrousd     int64  `json:"cost_microusd,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "" || req.Model == "" {
+		respondError(w, http.StatusBadRequest, "provider and model are required")
+		return
+	}
+
+	usage := &domain.RunUsage{
+		ID:               uuid.Must(uuid.NewV7()).String(),
+		RunID:            runID,
+		Provider:         req.Provider,
+		Model:            req.Model,
+		PromptTokens:     req.PromptTokens,
+		CompletionTokens: req.CompletionTokens,
+		TotalTokens:      req.TotalTokens,
+		CostMicrousd:     req.CostMicrousd,
+	}
+	if err := s.store.CreateRunUsage(r.Context(), usage); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create run usage")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, usage)
+}
+
+func (s *Server) handleSDKToolCall(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		ToolName   string          `json:"tool_name"`
+		Input      json.RawMessage `json:"input,omitempty"`
+		Output     json.RawMessage `json:"output,omitempty"`
+		DurationMs int             `json:"duration_ms,omitempty"`
+		Status     string          `json:"status,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ToolName == "" {
+		respondError(w, http.StatusBadRequest, "tool_name is required")
+		return
+	}
+
+	call := &domain.RunToolCall{
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		RunID:      runID,
+		ToolName:   req.ToolName,
+		Input:      req.Input,
+		Output:     req.Output,
+		DurationMs: req.DurationMs,
+		Status:     req.Status,
+	}
+	if err := s.store.CreateRunToolCall(r.Context(), call); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create run tool call")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, call)
+}
+
+func (s *Server) handleSDKOutput(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		OutputKey string          `json:"output_key"`
+		Schema    json.RawMessage `json:"schema,omitempty"`
+		Value     json.RawMessage `json:"value"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.OutputKey == "" {
+		respondError(w, http.StatusBadRequest, "output_key is required")
+		return
+	}
+	if len(req.Value) == 0 {
+		respondError(w, http.StatusBadRequest, "value is required")
+		return
+	}
+	if err := validatePayloadAgainstSchema(req.Value, req.Schema); err != nil {
+		respondError(w, http.StatusBadRequest, "output schema validation failed: "+err.Error())
+		return
+	}
+
+	output := &domain.RunOutput{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		RunID:     runID,
+		OutputKey: req.OutputKey,
+		Schema:    req.Schema,
+		Value:     req.Value,
+	}
+	if err := s.store.UpsertRunOutput(r.Context(), output); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to upsert run output")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, output)
+}
+
 func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
@@ -319,6 +487,9 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &completedRun); cbErr != nil {
 			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
 		}
+	}
+	if err := s.resumeWaitingParentIfReady(r.Context(), run); err != nil {
+		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
 	}
 
 	if s.pubsub != nil {
@@ -388,6 +559,9 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
 		}
 	}
+	if err := s.resumeWaitingParentIfReady(r.Context(), run); err != nil {
+		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+	}
 
 	if s.pubsub != nil {
 		payload, _ := json.Marshal(map[string]any{
@@ -431,6 +605,19 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	parentRun, err := s.store.GetRun(r.Context(), parentRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "parent run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get parent run")
+		return
+	}
+	if parentRun.Status == domain.StatusExecuting {
+		_ = s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{})
+	}
+
 	run := &domain.JobRun{
 		JobID:       job.ID,
 		ProjectID:   job.ProjectID,
@@ -445,4 +632,35 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusCreated, run)
+}
+
+func (s *Server) resumeWaitingParentIfReady(ctx context.Context, run *domain.JobRun) error {
+	if run == nil || run.ParentRunID == "" {
+		return nil
+	}
+
+	allTerminal, err := s.store.AreAllDescendantsTerminal(ctx, run.ParentRunID)
+	if err != nil {
+		return err
+	}
+	if !allTerminal {
+		return nil
+	}
+
+	parent, err := s.store.GetRun(ctx, run.ParentRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return nil
+		}
+		return err
+	}
+	if parent.Status != domain.StatusWaiting {
+		return nil
+	}
+
+	return s.store.UpdateRunStatus(ctx, parent.ID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
+		"started_at":    nil,
+		"finished_at":   nil,
+		"next_retry_at": nil,
+	})
 }

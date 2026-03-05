@@ -171,6 +171,411 @@ func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since 
 	return count, nil
 }
 
+func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRunCheckpoint")
+	defer span.End()
+
+	if checkpoint.ID == "" {
+		checkpoint.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if checkpoint.Source == "" {
+		checkpoint.Source = "sdk"
+	}
+
+	query := `
+		WITH next_seq AS (
+			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
+			FROM run_checkpoints
+			WHERE run_id = $1
+		)
+		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
+		VALUES ($2, $1, (SELECT seq FROM next_seq), $3, $4)
+		RETURNING sequence, created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		checkpoint.RunID,
+		checkpoint.ID,
+		checkpoint.Source,
+		dbscan.NilIfEmptyRawMessage(checkpoint.State),
+	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("create run checkpoint: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunCheckpoints")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `
+		SELECT id, run_id, sequence, source, state, created_at
+		FROM run_checkpoints
+		WHERE run_id = $1
+		ORDER BY sequence DESC
+		LIMIT $2`
+
+	rows, err := q.db.Query(ctx, query, runID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list run checkpoints: %w", err)
+	}
+	defer rows.Close()
+
+	checkpoints := make([]domain.RunCheckpoint, 0)
+	for rows.Next() {
+		cp, scanErr := scanRunCheckpoint(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list run checkpoints scan: %w", scanErr)
+		}
+		checkpoints = append(checkpoints, *cp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list run checkpoints rows: %w", err)
+	}
+
+	return checkpoints, nil
+}
+
+func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRunUsage")
+	defer span.End()
+
+	if usage.ID == "" {
+		usage.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	if usage.CostMicrousd == 0 {
+		inputCost, outputCost, err := q.lookupPricing(ctx, usage.Provider, usage.Model)
+		if err != nil {
+			return err
+		}
+		if inputCost > 0 || outputCost > 0 {
+			usage.CostMicrousd = int64(usage.PromptTokens)*inputCost + int64(usage.CompletionTokens)*outputCost
+		}
+	}
+
+	query := `
+		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		usage.ID,
+		usage.RunID,
+		usage.Provider,
+		usage.Model,
+		usage.PromptTokens,
+		usage.CompletionTokens,
+		usage.TotalTokens,
+		usage.CostMicrousd,
+	).Scan(&usage.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("create run usage: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunUsage")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at
+		FROM run_usage
+		WHERE run_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2`
+
+	rows, err := q.db.Query(ctx, query, runID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list run usage: %w", err)
+	}
+	defer rows.Close()
+
+	usages := make([]domain.RunUsage, 0)
+	for rows.Next() {
+		u, scanErr := scanRunUsage(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list run usage scan: %w", scanErr)
+		}
+		usages = append(usages, *u)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list run usage rows: %w", err)
+	}
+
+	return usages, nil
+}
+
+func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRunToolCall")
+	defer span.End()
+
+	if call.ID == "" {
+		call.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if call.Status == "" {
+		call.Status = "completed"
+	}
+
+	query := `
+		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		call.ID,
+		call.RunID,
+		call.ToolName,
+		dbscan.NilIfEmptyRawMessage(call.Input),
+		dbscan.NilIfEmptyRawMessage(call.Output),
+		dbscan.NilIfZeroInt(call.DurationMs),
+		call.Status,
+	).Scan(&call.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("create run tool call: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunToolCalls")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, run_id, tool_name, input, output, duration_ms, status, created_at
+		FROM run_tool_calls
+		WHERE run_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2`
+
+	rows, err := q.db.Query(ctx, query, runID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list run tool calls: %w", err)
+	}
+	defer rows.Close()
+
+	calls := make([]domain.RunToolCall, 0)
+	for rows.Next() {
+		c, scanErr := scanRunToolCall(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list run tool calls scan: %w", scanErr)
+		}
+		calls = append(calls, *c)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list run tool calls rows: %w", err)
+	}
+
+	return calls, nil
+}
+
+func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpsertRunOutput")
+	defer span.End()
+
+	if output.ID == "" {
+		output.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		INSERT INTO run_outputs (id, run_id, output_key, schema, value)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (run_id, output_key)
+		DO UPDATE SET schema = EXCLUDED.schema, value = EXCLUDED.value, created_at = NOW()
+		RETURNING created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		output.ID,
+		output.RunID,
+		output.OutputKey,
+		dbscan.NilIfEmptyRawMessage(output.Schema),
+		dbscan.NilIfEmptyRawMessage(output.Value),
+	).Scan(&output.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("upsert run output: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunOutputs")
+	defer span.End()
+
+	query := `
+		SELECT id, run_id, output_key, schema, value, created_at
+		FROM run_outputs
+		WHERE run_id = $1
+		ORDER BY output_key ASC`
+
+	rows, err := q.db.Query(ctx, query, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list run outputs: %w", err)
+	}
+	defer rows.Close()
+
+	outputs := make([]domain.RunOutput, 0)
+	for rows.Next() {
+		o, scanErr := scanRunOutput(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list run outputs scan: %w", scanErr)
+		}
+		outputs = append(outputs, *o)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list run outputs rows: %w", err)
+	}
+
+	return outputs, nil
+}
+
+func (q *Queries) AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.AreAllDescendantsTerminal")
+	defer span.End()
+
+	query := `
+		WITH RECURSIVE descendants AS (
+			SELECT id, status
+			FROM job_runs
+			WHERE parent_run_id = $1
+			UNION ALL
+			SELECT jr.id, jr.status
+			FROM job_runs jr
+			JOIN descendants d ON jr.parent_run_id = d.id
+		)
+		SELECT COUNT(*)
+		FROM descendants
+		WHERE status NOT IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')`
+
+	var nonTerminalCount int
+	if err := q.db.QueryRow(ctx, query, parentRunID).Scan(&nonTerminalCount); err != nil {
+		return false, fmt.Errorf("check descendants terminal: %w", err)
+	}
+
+	return nonTerminalCount == 0, nil
+}
+
+func (q *Queries) lookupPricing(ctx context.Context, provider, model string) (int64, int64, error) {
+	query := `
+		SELECT input_cost_microusd, output_cost_microusd
+		FROM pricing_catalog
+		WHERE provider = $1 AND model = $2 AND active = TRUE
+		ORDER BY effective_from DESC
+		LIMIT 1`
+
+	var inputCost int64
+	var outputCost int64
+	err := q.db.QueryRow(ctx, query, provider, model).Scan(&inputCost, &outputCost)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("lookup pricing: %w", err)
+	}
+
+	return inputCost, outputCost, nil
+}
+
+func scanRunCheckpoint(scanner scanTarget) (*domain.RunCheckpoint, error) {
+	var cp domain.RunCheckpoint
+	var state []byte
+	err := scanner.Scan(&cp.ID, &cp.RunID, &cp.Sequence, &cp.Source, &state, &cp.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if state != nil {
+		cp.State = json.RawMessage(state)
+	}
+	return &cp, nil
+}
+
+func scanRunUsage(scanner scanTarget) (*domain.RunUsage, error) {
+	var usage domain.RunUsage
+	err := scanner.Scan(
+		&usage.ID,
+		&usage.RunID,
+		&usage.Provider,
+		&usage.Model,
+		&usage.PromptTokens,
+		&usage.CompletionTokens,
+		&usage.TotalTokens,
+		&usage.CostMicrousd,
+		&usage.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &usage, nil
+}
+
+func scanRunToolCall(scanner scanTarget) (*domain.RunToolCall, error) {
+	var call domain.RunToolCall
+	var input []byte
+	var output []byte
+	var durationMs *int
+	err := scanner.Scan(&call.ID, &call.RunID, &call.ToolName, &input, &output, &durationMs, &call.Status, &call.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if input != nil {
+		call.Input = json.RawMessage(input)
+	}
+	if output != nil {
+		call.Output = json.RawMessage(output)
+	}
+	if durationMs != nil {
+		call.DurationMs = *durationMs
+	}
+	return &call, nil
+}
+
+func scanRunOutput(scanner scanTarget) (*domain.RunOutput, error) {
+	var output domain.RunOutput
+	var schema []byte
+	var value []byte
+	err := scanner.Scan(&output.ID, &output.RunID, &output.OutputKey, &schema, &value, &output.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if schema != nil {
+		output.Schema = json.RawMessage(schema)
+	}
+	if value != nil {
+		output.Value = json.RawMessage(value)
+	}
+	return &output, nil
+}
+
 func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByJob")
 	defer span.End()

@@ -199,6 +199,75 @@ func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 	}
 }
 
+func TestHandleSDKCheckpoint_Success(t *testing.T) {
+	created := false
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+		},
+		createRunCheckpointFn: func(_ context.Context, checkpoint *domain.RunCheckpoint) error {
+			created = true
+			if checkpoint.RunID != "run-123" {
+				t.Fatalf("run_id = %q, want run-123", checkpoint.RunID)
+			}
+			if len(checkpoint.State) == 0 {
+				t.Fatal("expected non-empty checkpoint state")
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/checkpoint", "run-123", `{"state":{"cursor":12}}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !created {
+		t.Fatal("expected CreateRunCheckpoint to be called")
+	}
+}
+
+func TestHandleSDKUsage_Success(t *testing.T) {
+	created := false
+	ms := &mockAPIStore{
+		createRunUsageFn: func(_ context.Context, usage *domain.RunUsage) error {
+			created = true
+			if usage.RunID != "run-123" {
+				t.Fatalf("run_id = %q, want run-123", usage.RunID)
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/usage", "run-123", `{"provider":"openai","model":"gpt-4","prompt_tokens":10,"completion_tokens":5}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !created {
+		t.Fatal("expected CreateRunUsage to be called")
+	}
+}
+
+func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/output", "run-123", `{"output_key":"final","schema":{"type":"object","required":["name"]},"value":{"age":12}}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleSDKHeartbeat_Success(t *testing.T) {
 	var updateCalled atomic.Bool
 	ms := &mockAPIStore{
@@ -549,6 +618,57 @@ func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
+	getRunCalls := 0
+	updatedParent := false
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			if id == "run-child" {
+				getRunCalls++
+				if getRunCalls == 1 {
+					return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ParentRunID: "run-parent"}, nil
+				}
+				return &domain.JobRun{ID: id, Status: domain.StatusCompleted, ParentRunID: "run-parent"}, nil
+			}
+			if id == "run-parent" {
+				return &domain.JobRun{ID: id, Status: domain.StatusWaiting}, nil
+			}
+			return nil, store.ErrRunNotFound
+		},
+		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
+			if id == "run-parent" {
+				if from != domain.StatusWaiting || to != domain.StatusQueued {
+					t.Fatalf("unexpected parent transition %s -> %s", from, to)
+				}
+				updatedParent = true
+				return nil
+			}
+			if id == "run-child" && to == domain.StatusCompleted {
+				return nil
+			}
+			return nil
+		},
+		areAllDescendantsTerminalFn: func(_ context.Context, parentRunID string) (bool, error) {
+			if parentRunID != "run-parent" {
+				t.Fatalf("parent_run_id = %q, want run-parent", parentRunID)
+			}
+			return true, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-child/complete", "run-child", `{}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !updatedParent {
+		t.Fatal("expected parent run to be resumed")
 	}
 }
 
