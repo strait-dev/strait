@@ -50,6 +50,52 @@ type HealthStatus struct {
 	Status string `json:"status"`
 }
 
+type WorkflowStepRequest struct {
+	JobID     string          `json:"job_id"`
+	StepRef   string          `json:"step_ref"`
+	DependsOn []string        `json:"depends_on,omitempty"`
+	Condition json.RawMessage `json:"condition,omitempty"`
+	OnFailure string          `json:"on_failure,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+}
+
+type CreateWorkflowRequest struct {
+	ProjectID   string                `json:"project_id"`
+	Name        string                `json:"name"`
+	Slug        string                `json:"slug"`
+	Description string                `json:"description,omitempty"`
+	Enabled     *bool                 `json:"enabled,omitempty"`
+	Steps       []WorkflowStepRequest `json:"steps,omitempty"`
+}
+
+type WorkflowResponse struct {
+	domain.Workflow
+	Steps []domain.WorkflowStep `json:"steps"`
+}
+
+type TriggerWorkflowRequest struct {
+	ProjectID   string          `json:"project_id,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	TriggeredBy string          `json:"triggered_by,omitempty"`
+}
+
+type CreateAPIKeyRequest struct {
+	ProjectID string   `json:"project_id"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes,omitempty"`
+}
+
+type APIKeyCreateResponse struct {
+	ID        string     `json:"id"`
+	ProjectID string     `json:"project_id"`
+	Name      string     `json:"name"`
+	Key       string     `json:"key"`
+	KeyPrefix string     `json:"key_prefix"`
+	Scopes    []string   `json:"scopes"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
 func New(baseURL, apiKey string, timeout time.Duration) (*Client, error) {
 	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if trimmed == "" {
@@ -176,6 +222,105 @@ func (c *Client) HealthReady(ctx context.Context) (*HealthStatus, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+
+	var out []domain.Workflow
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/workflows", query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*WorkflowResponse, error) {
+	var out WorkflowResponse
+	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/workflows", workflowID), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (*WorkflowResponse, error) {
+	var out WorkflowResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/workflows", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) TriggerWorkflow(ctx context.Context, workflowID string, req TriggerWorkflowRequest) (*domain.WorkflowRun, error) {
+	var out domain.WorkflowRun
+	if err := c.doJSON(ctx, http.MethodPost, path.Join("/v1/workflows", workflowID, "trigger"), nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListWorkflowRunsByProject(ctx context.Context, projectID, status string, limit int) ([]domain.WorkflowRun, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+	if strings.TrimSpace(status) != "" {
+		query.Set("status", strings.TrimSpace(status))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+
+	var out []domain.WorkflowRun
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/workflow-runs", query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetWorkflowRun(ctx context.Context, workflowRunID string) (*domain.WorkflowRun, error) {
+	var out domain.WorkflowRun
+	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/workflow-runs", workflowRunID), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CancelWorkflowRun(ctx context.Context, workflowRunID string) (*domain.WorkflowRun, error) {
+	var out domain.WorkflowRun
+	if err := c.doJSON(ctx, http.MethodDelete, path.Join("/v1/workflow-runs", workflowRunID), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListWorkflowStepRuns(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+	var out []domain.WorkflowStepRun
+	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/workflow-runs", workflowRunID, "steps"), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) CreateAPIKey(ctx context.Context, req CreateAPIKeyRequest) (*APIKeyCreateResponse, error) {
+	var out APIKeyCreateResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api-keys", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListAPIKeys(ctx context.Context, projectID string) ([]domain.APIKey, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+
+	var out []domain.APIKey
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/api-keys", query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) RevokeAPIKey(ctx context.Context, keyID string) error {
+	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/api-keys", keyID), nil, nil, &map[string]string{})
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, query url.Values, body any, out any) error {
