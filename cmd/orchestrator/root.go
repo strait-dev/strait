@@ -139,6 +139,9 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newMigrateCommand(state))
 	cmd.AddCommand(newTriggerCommand(state))
 	cmd.AddCommand(newHealthCommand(state))
+	cmd.AddCommand(newWorkflowsCommand(state))
+	cmd.AddCommand(newWorkflowRunsCommand(state))
+	cmd.AddCommand(newAPIKeysCommand(state))
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -151,19 +154,22 @@ func normalizeLegacyArgs(args []string) []string {
 	}
 
 	subcommands := map[string]struct{}{
-		"serve":      {},
-		"version":    {},
-		"completion": {},
-		"context":    {},
-		"auth":       {},
-		"login":      {},
-		"logout":     {},
-		"jobs":       {},
-		"runs":       {},
-		"migrate":    {},
-		"trigger":    {},
-		"health":     {},
-		"help":       {},
+		"serve":         {},
+		"version":       {},
+		"completion":    {},
+		"context":       {},
+		"auth":          {},
+		"login":         {},
+		"logout":        {},
+		"jobs":          {},
+		"runs":          {},
+		"migrate":       {},
+		"trigger":       {},
+		"health":        {},
+		"workflows":     {},
+		"workflow-runs": {},
+		"api-keys":      {},
+		"help":          {},
 	}
 
 	first := args[0]
