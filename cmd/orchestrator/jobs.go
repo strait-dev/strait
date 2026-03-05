@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,8 @@ func newJobsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newJobsCreateCommand(state))
 	cmd.AddCommand(newJobsTriggerCommand(state))
 	cmd.AddCommand(newJobsDeleteCommand(state))
+	cmd.AddCommand(newJobsDescribeCommand(state))
+	cmd.AddCommand(newJobsEditCommand(state))
 
 	return cmd
 }
@@ -54,6 +57,132 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion")
+
+	return cmd
+}
+
+func newJobsDescribeCommand(state *appState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "describe <job-id>",
+		Short: "Show rich details and recent runs for a job",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			job, err := cli.GetJob(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+
+			runs, err := cli.ListRuns(context.Background(), job.ProjectID, "", 100)
+			if err != nil {
+				return err
+			}
+
+			recent := make([]map[string]any, 0, 10)
+			for _, run := range runs {
+				if run.JobID != job.ID {
+					continue
+				}
+				recent = append(recent, map[string]any{
+					"id":          run.ID,
+					"status":      run.Status,
+					"attempt":     run.Attempt,
+					"triggeredBy": run.TriggeredBy,
+					"createdAt":   run.CreatedAt,
+				})
+				if len(recent) >= 10 {
+					break
+				}
+			}
+
+			payload := map[string]any{
+				"job":         job,
+				"recent_runs": recent,
+			}
+			return printData(state, payload)
+		},
+	}
+
+	return cmd
+}
+
+func newJobsEditCommand(state *appState) *cobra.Command {
+	var field string
+
+	cmd := &cobra.Command{
+		Use:   "edit <job-id>",
+		Short: "Update a job field via --field key=value",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if strings.TrimSpace(field) == "" {
+				return fmt.Errorf("--field key=value is required")
+			}
+
+			parts := strings.SplitN(field, "=", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid --field format, expected key=value")
+			}
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+
+			upd := client.UpdateJobRequest{}
+			switch key {
+			case "name":
+				upd.Name = &val
+			case "slug":
+				upd.Slug = &val
+			case "description":
+				upd.Description = &val
+			case "cron":
+				upd.Cron = &val
+			case "endpoint_url", "endpoint":
+				upd.EndpointURL = &val
+			case "enabled":
+				parsed, err := strconv.ParseBool(val)
+				if err != nil {
+					return fmt.Errorf("enabled must be true|false")
+				}
+				upd.Enabled = &parsed
+			case "max_attempts":
+				parsed, err := strconv.Atoi(val)
+				if err != nil {
+					return fmt.Errorf("max_attempts must be an integer")
+				}
+				upd.MaxAttempts = &parsed
+			case "timeout_secs":
+				parsed, err := strconv.Atoi(val)
+				if err != nil {
+					return fmt.Errorf("timeout_secs must be an integer")
+				}
+				upd.TimeoutSecs = &parsed
+			case "run_ttl_secs":
+				parsed, err := strconv.Atoi(val)
+				if err != nil {
+					return fmt.Errorf("run_ttl_secs must be an integer")
+				}
+				upd.RunTTLSecs = &parsed
+			default:
+				return fmt.Errorf("unsupported field %q", key)
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+			job, err := cli.UpdateJob(context.Background(), args[0], upd)
+			if err != nil {
+				return err
+			}
+
+			return printData(state, job)
+		},
+	}
+
+	cmd.Flags().StringVar(&field, "field", "", "field update in key=value form")
 
 	return cmd
 }
