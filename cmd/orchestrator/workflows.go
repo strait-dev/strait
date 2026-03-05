@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"orchestrator/internal/cli/client"
@@ -349,6 +350,7 @@ func newWorkflowsRunsCommand(state *appState) *cobra.Command {
 
 func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 	var payload string
+	var payloadFile string
 
 	cmd := &cobra.Command{
 		Use:   "trigger <workflow-id-or-slug>",
@@ -366,11 +368,17 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 			}
 
 			req := client.TriggerWorkflowRequest{ProjectID: state.opts.projectID}
-			if strings.TrimSpace(payload) != "" {
-				req.Payload = json.RawMessage(payload)
-				if !json.Valid(req.Payload) {
-					return fmt.Errorf("payload must be valid JSON")
+			if payloadFile != "" {
+				raw, err := os.ReadFile(payloadFile) //nolint:gosec
+				if err != nil {
+					return err
 				}
+				req.Payload = json.RawMessage(raw)
+			} else if strings.TrimSpace(payload) != "" {
+				req.Payload = json.RawMessage(payload)
+			}
+			if len(req.Payload) > 0 && !json.Valid(req.Payload) {
+				return fmt.Errorf("payload must be valid JSON")
 			}
 
 			run, err := cli.TriggerWorkflow(context.Background(), workflowID, req)
@@ -382,6 +390,7 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&payload, "payload", "", "inline JSON payload")
+	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "path to payload JSON file")
 
 	return cmd
 }
