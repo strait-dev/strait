@@ -1,0 +1,234 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"orchestrator/internal/cli/client"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/spf13/cobra"
+)
+
+type exportDocument struct {
+	APIVersion string         `yaml:"apiVersion"`
+	Kind       string         `yaml:"kind"`
+	Metadata   manifestMeta   `yaml:"metadata"`
+	Spec       map[string]any `yaml:"spec"`
+}
+
+func newExportCommand(state *appState) *cobra.Command {
+	var projectID string
+	var outputDir string
+
+	cmd := &cobra.Command{
+		Use:   "export <resource>",
+		Short: "Export server state as declarative YAML",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			resource := strings.ToLower(strings.TrimSpace(args[0]))
+			if projectID == "" {
+				projectID = state.opts.projectID
+			}
+			if projectID == "" {
+				return fmt.Errorf("project ID is required")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			docs, err := exportDocuments(context.Background(), cli, projectID, resource)
+			if err != nil {
+				return err
+			}
+			if len(docs) == 0 {
+				return fmt.Errorf("no resources exported")
+			}
+
+			if outputDir == "" {
+				return writeYAMLStream(os.Stdout, docs)
+			}
+
+			if err := os.MkdirAll(outputDir, 0o750); err != nil {
+				return err
+			}
+			return writeYAMLFiles(outputDir, docs)
+		},
+	}
+
+	cmd.Flags().StringVar(&projectID, "project", "", "project ID")
+	cmd.Flags().StringVar(&outputDir, "output-dir", "", "write one file per manifest into directory")
+
+	return cmd
+}
+
+func exportDocuments(ctx context.Context, cli *client.Client, projectID, resource string) ([]exportDocument, error) {
+	switch resource {
+	case "jobs", "job":
+		return exportJobs(ctx, cli, projectID)
+	case "workflows", "workflow":
+		return exportWorkflows(ctx, cli, projectID)
+	case "api-keys", "apikeys", "api-key":
+		return exportAPIKeys(ctx, cli, projectID)
+	case "all":
+		jobs, err := exportJobs(ctx, cli, projectID)
+		if err != nil {
+			return nil, err
+		}
+		workflows, err := exportWorkflows(ctx, cli, projectID)
+		if err != nil {
+			return nil, err
+		}
+		keys, err := exportAPIKeys(ctx, cli, projectID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]exportDocument, 0, len(jobs)+len(workflows)+len(keys))
+		out = append(out, jobs...)
+		out = append(out, workflows...)
+		out = append(out, keys...)
+		return out, nil
+	default:
+		return nil, fmt.Errorf("unsupported resource %q", resource)
+	}
+}
+
+func exportJobs(ctx context.Context, cli *client.Client, projectID string) ([]exportDocument, error) {
+	jobs, err := cli.ListJobs(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	docs := make([]exportDocument, 0, len(jobs))
+	for _, job := range jobs {
+		docs = append(docs, exportDocument{
+			APIVersion: "v1",
+			Kind:       "Job",
+			Metadata:   manifestMeta{Name: job.Name},
+			Spec: map[string]any{
+				"project_id":   job.ProjectID,
+				"slug":         job.Slug,
+				"description":  job.Description,
+				"cron":         job.Cron,
+				"endpoint_url": job.EndpointURL,
+				"max_attempts": job.MaxAttempts,
+				"timeout_secs": job.TimeoutSecs,
+				"enabled":      job.Enabled,
+				"run_ttl_secs": job.RunTTLSecs,
+			},
+		})
+	}
+	return docs, nil
+}
+
+func exportWorkflows(ctx context.Context, cli *client.Client, projectID string) ([]exportDocument, error) {
+	workflows, err := cli.ListWorkflows(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	docs := make([]exportDocument, 0, len(workflows))
+	for _, wf := range workflows {
+		detail, err := cli.GetWorkflow(ctx, wf.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		steps := make([]map[string]any, 0, len(detail.Steps))
+		for _, step := range detail.Steps {
+			entry := map[string]any{
+				"job_id":     step.JobID,
+				"step_ref":   step.StepRef,
+				"depends_on": step.DependsOn,
+				"on_failure": step.OnFailure,
+			}
+			if len(step.Condition) > 0 {
+				entry["condition"] = string(step.Condition)
+			}
+			if len(step.Payload) > 0 {
+				entry["payload"] = string(step.Payload)
+			}
+			steps = append(steps, entry)
+		}
+
+		docs = append(docs, exportDocument{
+			APIVersion: "v1",
+			Kind:       "Workflow",
+			Metadata:   manifestMeta{Name: wf.Name},
+			Spec: map[string]any{
+				"project_id":  wf.ProjectID,
+				"slug":        wf.Slug,
+				"description": wf.Description,
+				"enabled":     wf.Enabled,
+				"steps":       steps,
+			},
+		})
+	}
+	return docs, nil
+}
+
+func exportAPIKeys(ctx context.Context, cli *client.Client, projectID string) ([]exportDocument, error) {
+	keys, err := cli.ListAPIKeys(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	docs := make([]exportDocument, 0, len(keys))
+	for _, key := range keys {
+		docs = append(docs, exportDocument{
+			APIVersion: "v1",
+			Kind:       "APIKey",
+			Metadata:   manifestMeta{Name: key.Name},
+			Spec: map[string]any{
+				"project_id": key.ProjectID,
+				"scopes":     key.Scopes,
+				"key_prefix": key.KeyPrefix,
+			},
+		})
+	}
+	return docs, nil
+}
+
+func writeYAMLStream(w io.Writer, docs []exportDocument) error {
+	enc := yaml.NewEncoder(w)
+	defer enc.Close()
+	for _, doc := range docs {
+		if err := enc.Encode(doc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeYAMLFiles(outputDir string, docs []exportDocument) error {
+	for i, doc := range docs {
+		name := sanitizeFilename(doc.Metadata.Name)
+		if name == "" {
+			name = fmt.Sprintf("%s-%d", strings.ToLower(doc.Kind), i+1)
+		}
+		path := filepath.Join(outputDir, fmt.Sprintf("%s.yaml", name))
+		content, err := yaml.Marshal(doc)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sanitizeFilename(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, " ", "-")
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, "\\", "-")
+	return s
+}

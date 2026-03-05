@@ -155,6 +155,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newValidateCommand(state))
 	cmd.AddCommand(newApplyCommand(state))
 	cmd.AddCommand(newDiffCommand(state))
+	cmd.AddCommand(newExportCommand(state))
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -195,6 +196,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"validate":      {},
 		"apply":         {},
 		"diff":          {},
+		"export":        {},
 		"help":          {},
 	}
 
