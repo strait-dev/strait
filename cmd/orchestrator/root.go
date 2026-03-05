@@ -156,6 +156,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newApplyCommand(state))
 	cmd.AddCommand(newDiffCommand(state))
 	cmd.AddCommand(newExportCommand(state))
+	cmd.AddCommand(newDBCommand())
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -197,6 +198,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"apply":         {},
 		"diff":          {},
 		"export":        {},
+		"db":            {},
 		"help":          {},
 	}
 
