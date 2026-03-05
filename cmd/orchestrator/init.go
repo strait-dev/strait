@@ -26,6 +26,13 @@ type initJobManifest struct {
 	Spec       map[string]any    `yaml:"spec"`
 }
 
+type initWorkflowManifest struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   map[string]string `yaml:"metadata"`
+	Spec       map[string]any    `yaml:"spec"`
+}
+
 func newInitCommand(state *appState) *cobra.Command {
 	var yes bool
 	var template string
@@ -77,7 +84,15 @@ func newInitCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			dockerComposeStatus, err := writeInitDockerCompose()
+			if err != nil {
+				return err
+			}
 			manifestStatus, err := writeInitJobManifest(template, name)
+			if err != nil {
+				return err
+			}
+			workflowManifestStatus, err := writeInitWorkflowManifest(template, name)
 			if err != nil {
 				return err
 			}
@@ -88,7 +103,9 @@ func newInitCommand(state *appState) *cobra.Command {
 				"files": []map[string]any{
 					{"path": ".orchestrator.yaml", "status": configStatus},
 					{"path": ".env", "status": envStatus},
+					{"path": "docker-compose.yml", "status": dockerComposeStatus},
 					{"path": "definitions/jobs.yaml", "status": manifestStatus},
+					{"path": "definitions/workflows.yaml", "status": workflowManifestStatus},
 				},
 			})
 		},
@@ -150,6 +167,20 @@ func writeInitEnv() (string, error) {
 	return "created", nil
 }
 
+func writeInitDockerCompose() (string, error) {
+	path := "docker-compose.yml"
+	if _, err := os.Stat(path); err == nil {
+		return "skipped", nil
+	}
+
+	compose := []byte("services:\n  postgres:\n    image: postgres:16\n    environment:\n      POSTGRES_USER: orchestrator\n      POSTGRES_PASSWORD: orchestrator\n      POSTGRES_DB: orchestrator\n    ports:\n      - \"5432:5432\"\n\n  redis:\n    image: redis:7\n    ports:\n      - \"6379:6379\"\n")
+	if err := os.WriteFile(path, compose, 0o600); err != nil {
+		return "", err
+	}
+
+	return "created", nil
+}
+
 func writeInitJobManifest(template, projectName string) (string, error) {
 
 	dir := "definitions"
@@ -185,6 +216,53 @@ func writeInitJobManifest(template, projectName string) (string, error) {
 			"endpoint_url": "http://localhost:3000/webhook",
 			"timeout_secs": 60,
 			"max_attempts": 3,
+		},
+	}
+
+	encoded, err := yaml.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(target, encoded, 0o600); err != nil {
+		return "", err
+	}
+
+	return "created", nil
+}
+
+func writeInitWorkflowManifest(template, projectName string) (string, error) {
+	if template != "full" {
+		return "not_applicable", nil
+	}
+
+	dir := "definitions"
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", err
+	}
+
+	target := filepath.Join(dir, "workflows.yaml")
+	if _, err := os.Stat(target); err == nil {
+		return "skipped", nil
+	}
+
+	m := initWorkflowManifest{
+		APIVersion: "v1",
+		Kind:       "Workflow",
+		Metadata:   map[string]string{"name": "example-full-workflow"},
+		Spec: map[string]any{
+			"project_id":  projectName,
+			"slug":        "example-full-workflow",
+			"description": "example full template workflow",
+			"enabled":     true,
+			"steps": []map[string]any{
+				{
+					"step_ref":   "send_webhook",
+					"job_id":     "example-full-job",
+					"depends_on": []string{},
+					"on_failure": "fail",
+				},
+			},
 		},
 	}
 
