@@ -998,6 +998,136 @@ func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
 	}
 }
 
+func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("unexpected project id %q", projectID)
+			}
+			return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 1}, nil
+		},
+		countProjectQueuedRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 1, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFProjectQuotas = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run not to be enqueued when project quota exceeded")
+	}
+}
+
+func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, RateLimitMax: 2, RateLimitWindowSecs: 60}, nil
+		},
+		countRunsForJobSinceFn: func(_ context.Context, _ string, _ time.Time) (int, error) {
+			return 2, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run not to be enqueued when rate limit exceeded")
+	}
+}
+
+func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, DedupWindowSecs: 300}, nil
+		},
+		findRecentRunByPayloadFn: func(_ context.Context, jobID string, payload json.RawMessage, _ time.Time) (*domain.JobRun, error) {
+			if jobID != "job-123" {
+				t.Fatalf("unexpected job id %q", jobID)
+			}
+			if string(payload) != `{"a":1}` {
+				t.Fatalf("unexpected canonical payload %s", string(payload))
+			}
+			return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"a":1}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected enqueue to be skipped when dedup window hit")
+	}
+}
+
+func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, ExecutionWindowCron: "0 0 1 1 *", Timezone: "UTC"}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		capturedRun = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFExecutionWindows = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if capturedRun.Status != domain.StatusDelayed {
+		t.Fatalf("expected delayed status, got %s", capturedRun.Status)
+	}
+	if capturedRun.ScheduledAt == nil {
+		t.Fatal("expected scheduled_at to be set by execution window")
+	}
+	if !capturedRun.ScheduledAt.After(time.Now().Add(24 * time.Hour)) {
+		t.Fatalf("expected execution window to push scheduled_at to future, got %v", capturedRun.ScheduledAt)
+	}
+}
+
 func TestHandleCreateJob_WithRunTTL(t *testing.T) {
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {

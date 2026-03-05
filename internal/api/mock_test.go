@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -19,6 +20,11 @@ type mockAPIStore struct {
 	updateJobFn               func(ctx context.Context, job *domain.Job) error
 	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
 	getRunByIdempotencyKeyFn  func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
+	findRecentRunByPayloadFn  func(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
+	countRunsForJobSinceFn    func(ctx context.Context, jobID string, since time.Time) (int, error)
+	getProjectQuotaFn         func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	countProjectQueuedRunsFn  func(ctx context.Context, projectID string) (int, error)
+	countProjectActiveRunsFn  func(ctx context.Context, projectID string) (int, error)
 	listRunsByProjectFn       func(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	listChildRunsFn           func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
@@ -97,6 +103,41 @@ func (m *mockAPIStore) GetRunByIdempotencyKey(ctx context.Context, jobID, idempo
 		return m.getRunByIdempotencyKeyFn(ctx, jobID, idempotencyKey)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error) {
+	if m.findRecentRunByPayloadFn != nil {
+		return m.findRecentRunByPayloadFn(ctx, jobID, payload, since)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error) {
+	if m.countRunsForJobSinceFn != nil {
+		return m.countRunsForJobSinceFn(ctx, jobID, since)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
+	if m.getProjectQuotaFn != nil {
+		return m.getProjectQuotaFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error) {
+	if m.countProjectQueuedRunsFn != nil {
+		return m.countProjectQueuedRunsFn(ctx, projectID)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) CountProjectActiveRuns(ctx context.Context, projectID string) (int, error) {
+	if m.countProjectActiveRunsFn != nil {
+		return m.countProjectActiveRunsFn(ctx, projectID)
+	}
+	return 0, nil
 }
 
 func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error) {
@@ -304,9 +345,10 @@ func (m *mockAPIStore) UpdateStepRunStatus(ctx context.Context, id string, statu
 
 // mockQueue implements queue.Queue for testing.
 type mockQueue struct {
-	enqueueFn  func(ctx context.Context, run *domain.JobRun) error
-	dequeueFn  func(ctx context.Context) (*domain.JobRun, error)
-	dequeueNFn func(ctx context.Context, n int) ([]domain.JobRun, error)
+	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
+	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
+	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
 }
 
 func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -326,6 +368,13 @@ func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
 	if m.dequeueNFn != nil {
 		return m.dequeueNFn(ctx, n)
+	}
+	return nil, nil
+}
+
+func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
+	if m.dequeueNByProjectFn != nil {
+		return m.dequeueNByProjectFn(ctx, n, projectID)
 	}
 	return nil, nil
 }

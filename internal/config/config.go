@@ -54,6 +54,9 @@ type Config struct {
 	FFExecutionWindows  bool `mapstructure:"FF_EXECUTION_WINDOWS"`
 	FFQueuePartitioning bool `mapstructure:"FF_QUEUE_PARTITIONING"`
 
+	WorkerPartitions       []string `mapstructure:"WORKER_PARTITIONS"`
+	WorkerPartitionWeights string   `mapstructure:"WORKER_PARTITION_WEIGHTS"`
+
 	FFProgressStreaming bool `mapstructure:"FF_PROGRESS_STREAMING"`
 	FFCheckpoints       bool `mapstructure:"FF_CHECKPOINTS"`
 	FFRunContinuation   bool `mapstructure:"FF_RUN_CONTINUATION"`
@@ -102,6 +105,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_PROJECT_QUOTAS", false)
 	viper.SetDefault("FF_EXECUTION_WINDOWS", false)
 	viper.SetDefault("FF_QUEUE_PARTITIONING", false)
+	viper.SetDefault("WORKER_PARTITIONS", []string{})
+	viper.SetDefault("WORKER_PARTITION_WEIGHTS", "")
 	viper.SetDefault("FF_PROGRESS_STREAMING", false)
 	viper.SetDefault("FF_CHECKPOINTS", false)
 	viper.SetDefault("FF_RUN_CONTINUATION", false)
@@ -141,6 +146,8 @@ func Load() (*Config, error) {
 	cfg.CORSAllowedOrigins = viper.GetStringSlice("CORS_ALLOWED_ORIGINS")
 	cfg.CORSAllowCredentials = viper.GetBool("CORS_ALLOW_CREDENTIALS")
 	cfg.RedisSentinelAddrs = viper.GetStringSlice("REDIS_SENTINEL_ADDRS")
+	cfg.WorkerPartitions = viper.GetStringSlice("WORKER_PARTITIONS")
+	cfg.WorkerPartitionWeights = viper.GetString("WORKER_PARTITION_WEIGHTS")
 
 	if cfg.DatabaseURL == "" {
 		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}

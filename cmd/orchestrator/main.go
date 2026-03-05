@@ -232,6 +232,13 @@ func run() error {
 	// Start worker executor
 	if cfg.Mode == "worker" || cfg.Mode == "all" {
 		p := worker.NewPool(cfg.WorkerConcurrency)
+		partitions := []string(nil)
+		partitionWeights := ""
+		if cfg.FFQueuePartitioning && len(cfg.WorkerPartitions) > 0 {
+			partitions = cfg.WorkerPartitions
+			partitionWeights = cfg.WorkerPartitionWeights
+			slog.Info("worker queue partitioning enabled", "partitions", partitions)
+		}
 		exec := worker.NewExecutor(worker.ExecutorConfig{
 			Pool:              p,
 			Queue:             q,
@@ -241,6 +248,8 @@ func run() error {
 			Publisher:         pub,
 			Metrics:           metrics,
 			WorkflowCallback:  stepCallback,
+			Partitions:        partitions,
+			PartitionWeights:  partitionWeights,
 		})
 
 		g.Go(func() error {

@@ -186,3 +186,63 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 
 	return runs, nil
 }
+
+func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.DequeueNByProject")
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		WITH claimed AS (
+			SELECT jr.id
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			WHERE jr.status = '%s'
+			  AND jr.project_id = $2
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (
+				j.max_concurrency IS NULL OR (
+					SELECT COUNT(*)
+					FROM job_runs active
+					WHERE active.job_id = jr.job_id
+					  AND active.status IN ('dequeued', 'executing')
+				) < j.max_concurrency
+			  )
+			ORDER BY jr.priority DESC, jr.created_at ASC
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1
+		), updated AS (
+			UPDATE job_runs
+			SET status = '%s', started_at = NOW()
+			WHERE id IN (SELECT id FROM claimed)
+			RETURNING id, job_id, project_id, status, attempt, payload, result, error,
+			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
+		)
+		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
+		FROM updated
+		ORDER BY created_at ASC`, domain.StatusQueued, domain.StatusDequeued)
+
+	rows, err := q.db.Query(ctx, query, n, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue runs by project: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, n)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue runs by project scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue runs by project rows: %w", err)
+	}
+
+	return runs, nil
+}

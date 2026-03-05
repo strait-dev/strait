@@ -86,3 +86,10 @@ func NilIfEmptyRawMessage(value json.RawMessage) any {
 	}
 	return value
 }
+
+func NilIfZeroInt(value int) any {
+	if value == 0 {
+		return nil
+	}
+	return value
+}

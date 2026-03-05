@@ -26,10 +26,11 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	query := `
 		INSERT INTO jobs (
 			id, project_id, name, slug, description, cron, payload_schema,
-			endpoint_url, max_attempts, timeout_secs, enabled,
+			endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
 			webhook_url, webhook_secret, run_ttl_secs, version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 1)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 1)
 		RETURNING created_at, updated_at, version`
 
 	var runTTL *int
@@ -50,6 +51,12 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.EndpointURL,
 		job.MaxAttempts,
 		job.TimeoutSecs,
+		dbscan.NilIfZeroInt(job.MaxConcurrency),
+		dbscan.NilIfEmptyString(job.ExecutionWindowCron),
+		dbscan.NilIfEmptyString(job.Timezone),
+		dbscan.NilIfZeroInt(job.RateLimitMax),
+		dbscan.NilIfZeroInt(job.RateLimitWindowSecs),
+		dbscan.NilIfZeroInt(job.DedupWindowSecs),
 		job.Enabled,
 		dbscan.NilIfEmptyString(job.WebhookURL),
 		dbscan.NilIfEmptyString(job.WebhookSecret),
@@ -68,7 +75,9 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE id = $1`
 
@@ -89,7 +98,9 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -110,7 +121,9 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at DESC`
@@ -144,10 +157,12 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	query := `
 		WITH snapshot AS (
 			INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
-				endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
-			SELECT $14, id, version, name, slug, description, cron, payload_schema,
-				endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs
-			FROM jobs WHERE id = $13
+				endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs)
+			SELECT $20, id, version, name, slug, description, cron, payload_schema,
+				endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs
+			FROM jobs WHERE id = $19
 		)
 		UPDATE jobs
 		SET name = $1,
@@ -158,13 +173,19 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    endpoint_url = $6,
 		    max_attempts = $7,
 		    timeout_secs = $8,
-		    enabled = $9,
-		    webhook_url = $10,
-		    webhook_secret = $11,
-		    run_ttl_secs = $12,
+		    max_concurrency = $9,
+		    execution_window_cron = $10,
+		    timezone = $11,
+		    rate_limit_max = $12,
+		    rate_limit_window_secs = $13,
+		    dedup_window_secs = $14,
+		    enabled = $15,
+		    webhook_url = $16,
+		    webhook_secret = $17,
+		    run_ttl_secs = $18,
 		    version = version + 1,
 		    updated_at = NOW()
-		WHERE id = $13
+		WHERE id = $19
 		RETURNING updated_at, version`
 
 	var runTTL *int
@@ -183,6 +204,12 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		job.EndpointURL,
 		job.MaxAttempts,
 		job.TimeoutSecs,
+		dbscan.NilIfZeroInt(job.MaxConcurrency),
+		dbscan.NilIfEmptyString(job.ExecutionWindowCron),
+		dbscan.NilIfEmptyString(job.Timezone),
+		dbscan.NilIfZeroInt(job.RateLimitMax),
+		dbscan.NilIfZeroInt(job.RateLimitWindowSecs),
+		dbscan.NilIfZeroInt(job.DedupWindowSecs),
 		job.Enabled,
 		dbscan.NilIfEmptyString(job.WebhookURL),
 		dbscan.NilIfEmptyString(job.WebhookSecret),
@@ -216,7 +243,9 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
+		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -243,6 +272,84 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 	return jobs, nil
 }
 
+func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetProjectQuota")
+	defer span.End()
+
+	query := `
+		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone
+		FROM project_quotas
+		WHERE project_id = $1`
+
+	quota := &ProjectQuota{}
+	var maxQueued *int
+	var maxExecuting *int
+	var maxJobs *int
+	var timezone *string
+	err := q.db.QueryRow(ctx, query, projectID).Scan(
+		&quota.ProjectID,
+		&maxQueued,
+		&maxExecuting,
+		&maxJobs,
+		&timezone,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get project quota: %w", err)
+	}
+
+	if maxQueued != nil {
+		quota.MaxQueuedRuns = *maxQueued
+	}
+	if maxExecuting != nil {
+		quota.MaxExecutingRuns = *maxExecuting
+	}
+	if maxJobs != nil {
+		quota.MaxJobs = *maxJobs
+	}
+	if timezone != nil {
+		quota.Timezone = *timezone
+	}
+
+	return quota, nil
+}
+
+func (q *Queries) CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CountProjectQueuedRuns")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1 AND status IN ('queued', 'delayed')`
+
+	var count int
+	if err := q.db.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project queued runs: %w", err)
+	}
+
+	return count, nil
+}
+
+func (q *Queries) CountProjectActiveRuns(ctx context.Context, projectID string) (int, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CountProjectActiveRuns")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1 AND status IN ('dequeued', 'executing')`
+
+	var count int
+	if err := q.db.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project active runs: %w", err)
+	}
+
+	return count, nil
+}
+
 type scanTarget interface {
 	Scan(dest ...any) error
 }
@@ -252,6 +359,12 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var description *string
 	var cron *string
 	var payloadSchema []byte
+	var maxConcurrency *int
+	var executionWindowCron *string
+	var timezone *string
+	var rateLimitMax *int
+	var rateLimitWindowSecs *int
+	var dedupWindowSecs *int
 	var webhookURL *string
 	var webhookSecret *string
 	var runTTLSecs *int
@@ -267,6 +380,12 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&job.EndpointURL,
 		&job.MaxAttempts,
 		&job.TimeoutSecs,
+		&maxConcurrency,
+		&executionWindowCron,
+		&timezone,
+		&rateLimitMax,
+		&rateLimitWindowSecs,
+		&dedupWindowSecs,
 		&job.Enabled,
 		&webhookURL,
 		&webhookSecret,
@@ -296,6 +415,24 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	}
 	if runTTLSecs != nil {
 		job.RunTTLSecs = *runTTLSecs
+	}
+	if maxConcurrency != nil {
+		job.MaxConcurrency = *maxConcurrency
+	}
+	if executionWindowCron != nil {
+		job.ExecutionWindowCron = *executionWindowCron
+	}
+	if timezone != nil {
+		job.Timezone = *timezone
+	}
+	if rateLimitMax != nil {
+		job.RateLimitMax = *rateLimitMax
+	}
+	if rateLimitWindowSecs != nil {
+		job.RateLimitWindowSecs = *rateLimitWindowSecs
+	}
+	if dedupWindowSecs != nil {
+		job.DedupWindowSecs = *dedupWindowSecs
 	}
 
 	return &job, nil

@@ -51,9 +51,10 @@ func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) 
 }
 
 type mockQueue struct {
-	enqueueFn  func(ctx context.Context, run *domain.JobRun) error
-	dequeueFn  func(ctx context.Context) (*domain.JobRun, error)
-	dequeueNFn func(ctx context.Context, n int) ([]domain.JobRun, error)
+	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
+	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
+	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
 }
 
 func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -73,6 +74,13 @@ func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
 	if m.dequeueNFn != nil {
 		return m.dequeueNFn(ctx, n)
+	}
+	return nil, nil
+}
+
+func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
+	if m.dequeueNByProjectFn != nil {
+		return m.dequeueNByProjectFn(ctx, n, projectID)
 	}
 	return nil, nil
 }

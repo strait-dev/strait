@@ -79,9 +79,10 @@ func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 }
 
 type mockExecQueue struct {
-	enqueueFn  func(ctx context.Context, run *domain.JobRun) error
-	dequeueFn  func(ctx context.Context) (*domain.JobRun, error)
-	dequeueNFn func(ctx context.Context, n int) ([]domain.JobRun, error)
+	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
+	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
+	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
 }
 
 func (m *mockExecQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -103,6 +104,13 @@ func (m *mockExecQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 		return nil, nil
 	}
 	return m.dequeueNFn(ctx, n)
+}
+
+func (m *mockExecQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
+	if m.dequeueNByProjectFn == nil {
+		return nil, nil
+	}
+	return m.dequeueNByProjectFn(ctx, n, projectID)
 }
 
 var _ queue.Queue = (*mockExecQueue)(nil)
@@ -954,6 +962,55 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 	}
 	if got := attempts.Load(); got != 2 {
 		t.Errorf("attempts = %d, want 2", got)
+	}
+}
+
+func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
+	store := &mockExecutorStore{}
+
+	called := false
+	q := &mockExecQueue{
+		dequeueNByProjectFn: func(_ context.Context, n int, projectID string) ([]domain.JobRun, error) {
+			called = true
+			if n <= 0 {
+				t.Fatalf("expected positive dequeue size")
+			}
+			if projectID != "proj-a" {
+				t.Fatalf("projectID = %q, want %q", projectID, "proj-a")
+			}
+			return nil, nil
+		},
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			t.Fatal("did not expect global DequeueN when partitions are configured")
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	defer pool.Shutdown()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Second,
+		Partitions:        []string{"proj-a"},
+	})
+
+	exec.poll(context.Background())
+	if !called {
+		t.Fatal("expected partitioned dequeue to be called")
+	}
+}
+
+func TestBuildPartitionCycle_Weights(t *testing.T) {
+	cycle := buildPartitionCycle([]string{"proj-a", "proj-b"}, "proj-a:2,proj-b:1")
+	if len(cycle) != 3 {
+		t.Fatalf("cycle len = %d, want 3", len(cycle))
+	}
+	if cycle[0] != "proj-a" || cycle[1] != "proj-a" || cycle[2] != "proj-b" {
+		t.Fatalf("unexpected cycle order: %#v", cycle)
 	}
 }
 

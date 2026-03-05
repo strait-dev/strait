@@ -13,29 +13,41 @@ import (
 )
 
 type CreateJobRequest struct {
-	ProjectID     string          `json:"project_id"`
-	Name          string          `json:"name"`
-	Slug          string          `json:"slug"`
-	Description   string          `json:"description,omitempty"`
-	Cron          string          `json:"cron,omitempty"`
-	PayloadSchema json.RawMessage `json:"payload_schema,omitempty"`
-	EndpointURL   string          `json:"endpoint_url"`
-	MaxAttempts   int             `json:"max_attempts"`
-	TimeoutSecs   int             `json:"timeout_secs"`
-	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
+	ProjectID           string          `json:"project_id"`
+	Name                string          `json:"name"`
+	Slug                string          `json:"slug"`
+	Description         string          `json:"description,omitempty"`
+	Cron                string          `json:"cron,omitempty"`
+	PayloadSchema       json.RawMessage `json:"payload_schema,omitempty"`
+	EndpointURL         string          `json:"endpoint_url"`
+	MaxAttempts         int             `json:"max_attempts"`
+	TimeoutSecs         int             `json:"timeout_secs"`
+	MaxConcurrency      int             `json:"max_concurrency,omitempty"`
+	ExecutionWindowCron string          `json:"execution_window_cron,omitempty"`
+	Timezone            string          `json:"timezone,omitempty"`
+	RateLimitMax        int             `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs int             `json:"rate_limit_window_secs,omitempty"`
+	DedupWindowSecs     int             `json:"dedup_window_secs,omitempty"`
+	RunTTLSecs          int             `json:"run_ttl_secs,omitempty"`
 }
 
 type UpdateJobRequest struct {
-	Name          *string          `json:"name,omitempty"`
-	Slug          *string          `json:"slug,omitempty"`
-	Description   *string          `json:"description,omitempty"`
-	Cron          *string          `json:"cron,omitempty"`
-	PayloadSchema *json.RawMessage `json:"payload_schema,omitempty"`
-	EndpointURL   *string          `json:"endpoint_url,omitempty"`
-	MaxAttempts   *int             `json:"max_attempts,omitempty"`
-	TimeoutSecs   *int             `json:"timeout_secs,omitempty"`
-	RunTTLSecs    *int             `json:"run_ttl_secs,omitempty"`
-	Enabled       *bool            `json:"enabled,omitempty"`
+	Name                *string          `json:"name,omitempty"`
+	Slug                *string          `json:"slug,omitempty"`
+	Description         *string          `json:"description,omitempty"`
+	Cron                *string          `json:"cron,omitempty"`
+	PayloadSchema       *json.RawMessage `json:"payload_schema,omitempty"`
+	EndpointURL         *string          `json:"endpoint_url,omitempty"`
+	MaxAttempts         *int             `json:"max_attempts,omitempty"`
+	TimeoutSecs         *int             `json:"timeout_secs,omitempty"`
+	MaxConcurrency      *int             `json:"max_concurrency,omitempty"`
+	ExecutionWindowCron *string          `json:"execution_window_cron,omitempty"`
+	Timezone            *string          `json:"timezone,omitempty"`
+	RateLimitMax        *int             `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs *int             `json:"rate_limit_window_secs,omitempty"`
+	DedupWindowSecs     *int             `json:"dedup_window_secs,omitempty"`
+	RunTTLSecs          *int             `json:"run_ttl_secs,omitempty"`
+	Enabled             *bool            `json:"enabled,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -70,18 +82,32 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.ExecutionWindowCron != "" {
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid execution_window_cron expression")
+			return
+		}
+	}
+
 	job := &domain.Job{
-		ProjectID:     req.ProjectID,
-		Name:          req.Name,
-		Slug:          req.Slug,
-		Description:   req.Description,
-		Cron:          req.Cron,
-		PayloadSchema: req.PayloadSchema,
-		EndpointURL:   req.EndpointURL,
-		MaxAttempts:   req.MaxAttempts,
-		TimeoutSecs:   req.TimeoutSecs,
-		RunTTLSecs:    req.RunTTLSecs,
-		Enabled:       true,
+		ProjectID:           req.ProjectID,
+		Name:                req.Name,
+		Slug:                req.Slug,
+		Description:         req.Description,
+		Cron:                req.Cron,
+		PayloadSchema:       req.PayloadSchema,
+		EndpointURL:         req.EndpointURL,
+		MaxAttempts:         req.MaxAttempts,
+		TimeoutSecs:         req.TimeoutSecs,
+		MaxConcurrency:      req.MaxConcurrency,
+		ExecutionWindowCron: req.ExecutionWindowCron,
+		Timezone:            req.Timezone,
+		RateLimitMax:        req.RateLimitMax,
+		RateLimitWindowSecs: req.RateLimitWindowSecs,
+		DedupWindowSecs:     req.DedupWindowSecs,
+		RunTTLSecs:          req.RunTTLSecs,
+		Enabled:             true,
 	}
 
 	if err := s.store.CreateJob(r.Context(), job); err != nil {
@@ -150,6 +176,14 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.ExecutionWindowCron != nil && *req.ExecutionWindowCron != "" {
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		if _, err := parser.Parse(*req.ExecutionWindowCron); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid execution_window_cron expression")
+			return
+		}
+	}
+
 	if req.Name != nil {
 		job.Name = *req.Name
 	}
@@ -173,6 +207,24 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TimeoutSecs != nil {
 		job.TimeoutSecs = *req.TimeoutSecs
+	}
+	if req.MaxConcurrency != nil {
+		job.MaxConcurrency = *req.MaxConcurrency
+	}
+	if req.ExecutionWindowCron != nil {
+		job.ExecutionWindowCron = *req.ExecutionWindowCron
+	}
+	if req.Timezone != nil {
+		job.Timezone = *req.Timezone
+	}
+	if req.RateLimitMax != nil {
+		job.RateLimitMax = *req.RateLimitMax
+	}
+	if req.RateLimitWindowSecs != nil {
+		job.RateLimitWindowSecs = *req.RateLimitWindowSecs
+	}
+	if req.DedupWindowSecs != nil {
+		job.DedupWindowSecs = *req.DedupWindowSecs
 	}
 	if req.RunTTLSecs != nil {
 		job.RunTTLSecs = *req.RunTTLSecs

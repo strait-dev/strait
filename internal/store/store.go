@@ -37,6 +37,9 @@ type JobStore interface {
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	DeleteJob(ctx context.Context, id string) error
 	ListCronJobs(ctx context.Context) ([]domain.Job, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 }
 
 type RunStore interface {
@@ -53,6 +56,16 @@ type RunStore interface {
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
+	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
+	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+}
+
+type ProjectQuota struct {
+	ProjectID        string
+	MaxQueuedRuns    int
+	MaxExecutingRuns int
+	MaxJobs          int
+	Timezone         string
 }
 
 type EventStore interface {

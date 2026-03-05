@@ -32,9 +32,14 @@ type APIStore interface {
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
+	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
+	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
 	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)

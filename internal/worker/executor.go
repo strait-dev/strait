@@ -11,6 +11,8 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -47,6 +49,8 @@ type Executor struct {
 	publisher        pubsub.Publisher
 	metrics          *telemetry.Metrics
 	workflowCallback WorkflowCallback
+	partitionCycle   []string
+	nextPartition    int
 	logger           *slog.Logger
 }
 
@@ -61,6 +65,8 @@ type ExecutorConfig struct {
 	HeartbeatInterval time.Duration
 	Metrics           *telemetry.Metrics
 	WorkflowCallback  WorkflowCallback
+	Partitions        []string
+	PartitionWeights  string
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -86,6 +92,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		publisher:        cfg.Publisher,
 		metrics:          cfg.Metrics,
 		workflowCallback: cfg.WorkflowCallback,
+		partitionCycle:   buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
 		logger:           slog.Default(),
 	}
 }
@@ -150,7 +157,13 @@ func (e *Executor) poll(ctx context.Context) {
 		return
 	}
 
-	runs, err := e.queue.DequeueN(ctx, available)
+	var runs []domain.JobRun
+	var err error
+	if len(e.partitionCycle) == 0 {
+		runs, err = e.queue.DequeueN(ctx, available)
+	} else {
+		runs, err = e.dequeueAcrossPartitions(ctx, available)
+	}
 	if e.metrics != nil {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())
 	}
@@ -180,6 +193,72 @@ func (e *Executor) poll(ctx context.Context) {
 			e.execute(execCtx, &run)
 		})
 	}
+}
+
+func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([]domain.JobRun, error) {
+	out := make([]domain.JobRun, 0, capacity)
+	if capacity <= 0 || len(e.partitionCycle) == 0 {
+		return out, nil
+	}
+
+	remaining := capacity
+	iterations := len(e.partitionCycle)
+	for i := 0; i < iterations && remaining > 0; i++ {
+		partition := e.partitionCycle[e.nextPartition%len(e.partitionCycle)]
+		e.nextPartition = (e.nextPartition + 1) % len(e.partitionCycle)
+
+		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
+		if err != nil {
+			return nil, err
+		}
+		if len(claimed) == 0 {
+			continue
+		}
+
+		out = append(out, claimed...)
+		remaining -= len(claimed)
+	}
+
+	return out, nil
+}
+
+func buildPartitionCycle(partitions []string, weightsRaw string) []string {
+	if len(partitions) == 0 {
+		return nil
+	}
+
+	weights := make(map[string]int)
+	if weightsRaw != "" {
+		for _, token := range strings.FieldsFunc(weightsRaw, func(r rune) bool { return r == ',' }) {
+			token = strings.TrimSpace(token)
+			if token == "" {
+				continue
+			}
+			parts := strings.SplitN(token, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			weight, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err != nil || weight <= 0 {
+				continue
+			}
+			weights[key] = weight
+		}
+	}
+
+	cycle := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		w := weights[partition]
+		if w <= 0 {
+			w = 1
+		}
+		for i := 0; i < w; i++ {
+			cycle = append(cycle, partition)
+		}
+	}
+
+	return cycle
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {

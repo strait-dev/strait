@@ -335,6 +335,44 @@ func TestDequeueN_RespectsMaxConcurrency(t *testing.T) {
 	}
 }
 
+func TestDequeueNByProject_FiltersPartition(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	jobA := mustCreateJob(t, ctx, st, "project-queue-partition-a")
+	jobB := mustCreateJob(t, ctx, st, "project-queue-partition-b")
+
+	runA := &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID}
+	runB := &domain.JobRun{ID: newID(), JobID: jobB.ID, ProjectID: jobB.ProjectID}
+	if err := q.Enqueue(ctx, runA); err != nil {
+		t.Fatalf("Enqueue() runA error = %v", err)
+	}
+	if err := q.Enqueue(ctx, runB); err != nil {
+		t.Fatalf("Enqueue() runB error = %v", err)
+	}
+
+	dequeued, err := q.DequeueNByProject(ctx, 10, jobA.ProjectID)
+	if err != nil {
+		t.Fatalf("DequeueNByProject() error = %v", err)
+	}
+	if len(dequeued) != 1 {
+		t.Fatalf("DequeueNByProject() len = %d, want 1", len(dequeued))
+	}
+	if dequeued[0].ProjectID != jobA.ProjectID {
+		t.Fatalf("DequeueNByProject() project_id = %q, want %q", dequeued[0].ProjectID, jobA.ProjectID)
+	}
+
+	other, err := st.GetRun(ctx, runB.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if other.Status != domain.StatusQueued {
+		t.Fatalf("other run status = %q, want %q", other.Status, domain.StatusQueued)
+	}
+}
+
 func mustQueue(t *testing.T) *queue.PostgresQueue {
 	t.Helper()
 

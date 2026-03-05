@@ -127,6 +127,50 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	return run, nil
 }
 
+func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.FindRecentRunByPayload")
+	defer span.End()
+
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id
+		FROM job_runs
+		WHERE job_id = $1
+		  AND payload = $2::jsonb
+		  AND created_at >= $3
+		ORDER BY created_at DESC
+		LIMIT 1`
+
+	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, jobID, dbscan.NilIfEmptyRawMessage(payload), since))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find recent run by payload: %w", err)
+	}
+
+	return run, nil
+}
+
+func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CountRunsForJobSince")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE job_id = $1
+		  AND created_at >= $2`
+
+	var count int
+	if err := q.db.QueryRow(ctx, query, jobID, since).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count runs for job since: %w", err)
+	}
+
+	return count, nil
+}
+
 func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByJob")
 	defer span.End()

@@ -86,6 +86,25 @@ func TestNilIfEmptyRawMessage(t *testing.T) {
 	}
 }
 
+func TestNilIfZeroInt(t *testing.T) {
+	t.Run("zero returns nil", func(t *testing.T) {
+		if got := NilIfZeroInt(0); got != nil {
+			t.Errorf("NilIfZeroInt(0) = %v, want nil", got)
+		}
+	})
+
+	t.Run("non-zero returns value", func(t *testing.T) {
+		got := NilIfZeroInt(12)
+		v, ok := got.(int)
+		if !ok {
+			t.Fatalf("NilIfZeroInt(12) type = %T, want int", got)
+		}
+		if v != 12 {
+			t.Errorf("NilIfZeroInt(12) = %d, want 12", v)
+		}
+	})
+}
+
 // mockScanner implements Scanner for unit testing ScanRun.
 // Uses reflect to assign values to arbitrary destination pointers.
 type mockScanner struct {

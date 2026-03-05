@@ -83,6 +83,18 @@ func (m *mockEngineQueue) Enqueue(ctx context.Context, run *domain.JobRun) error
 	return nil
 }
 
+func (m *mockEngineQueue) Dequeue(context.Context) (*domain.JobRun, error) {
+	return nil, nil
+}
+
+func (m *mockEngineQueue) DequeueN(context.Context, int) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
+func (m *mockEngineQueue) DequeueNByProject(context.Context, int, string) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
 func TestTriggerWorkflow(t *testing.T) {
 	t.Run("happy path starts root steps only", func(t *testing.T) {
 		stepRunsCreated := make(map[string]domain.WorkflowStepRun)
