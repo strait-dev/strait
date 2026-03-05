@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"orchestrator/internal/cli/client"
+	"orchestrator/internal/domain"
+
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +21,8 @@ func newRunsCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newRunsGetCommand(state))
 	cmd.AddCommand(newRunsCancelCommand(state))
 	cmd.AddCommand(newRunsLogsCommand(state))
+	cmd.AddCommand(newRunsWatchCommand(state))
+	cmd.AddCommand(newRunsReplayCommand(state))
 
 	return cmd
 }
@@ -167,6 +172,98 @@ func newRunsLogsCommand(state *appState) *cobra.Command {
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval when following")
 	cmd.Flags().StringVar(&level, "level", "", "event level filter")
 	cmd.Flags().StringVar(&eventType, "type", "", "event type filter")
+
+	return cmd
+}
+
+func newRunsWatchCommand(state *appState) *cobra.Command {
+	var interval time.Duration
+	var timeout time.Duration
+
+	cmd := &cobra.Command{
+		Use:   "watch <run-id>",
+		Short: "Watch a run until it reaches a terminal state",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			deadline := time.Now().Add(timeout)
+			for {
+				run, err := cli.GetRun(context.Background(), args[0])
+				if err != nil {
+					return err
+				}
+
+				if err := printData(state, map[string]any{
+					"id":      run.ID,
+					"status":  run.Status,
+					"attempt": run.Attempt,
+				}); err != nil {
+					return err
+				}
+
+				if run.Status.IsTerminal() {
+					if run.Status == domain.StatusCompleted {
+						return nil
+					}
+					return fmt.Errorf("run reached terminal status %q", run.Status)
+				}
+
+				if timeout > 0 && time.Now().After(deadline) {
+					return fmt.Errorf("watch timeout reached")
+				}
+
+				time.Sleep(interval)
+			}
+		},
+	}
+
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval")
+	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "max watch duration (0 disables timeout)")
+
+	return cmd
+}
+
+func newRunsReplayCommand(state *appState) *cobra.Command {
+	var wait bool
+
+	cmd := &cobra.Command{
+		Use:   "replay <run-id>",
+		Short: "Replay a run using its original payload",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			original, err := cli.GetRun(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+
+			triggered, err := cli.TriggerJob(context.Background(), original.JobID, client.TriggerJobRequest{Payload: original.Payload}, "")
+			if err != nil {
+				return err
+			}
+
+			if err := printData(state, triggered); err != nil {
+				return err
+			}
+
+			if !wait {
+				return nil
+			}
+
+			watchCmd := newRunsWatchCommand(state)
+			return watchCmd.RunE(watchCmd, []string{triggered.ID})
+		},
+	}
+
+	cmd.Flags().BoolVar(&wait, "wait", false, "wait for replayed run to reach terminal state")
 
 	return cmd
 }
