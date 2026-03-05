@@ -283,6 +283,7 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	stepRef := chi.URLParam(r, "stepRef")
+	beforeRun, _ := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 
 	var req approveWorkflowStepRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -308,6 +309,11 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step approval")
 		return
+	}
+
+	afterRun, _ := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
+		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "approve_step")
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{

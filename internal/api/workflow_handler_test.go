@@ -730,6 +730,68 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 	})
 }
 
+func TestHandleApproveWorkflowStep(t *testing.T) {
+	t.Run("success publishes workflow hook on status transition", func(t *testing.T) {
+		approved := false
+		published := map[string]int{}
+		getWorkflowRunCalls := 0
+
+		cb := &mockWorkflowTrigger{
+			approveStepFn: func(_ context.Context, workflowRunID, stepRef, approver string) error {
+				if workflowRunID != "wr-1" || stepRef != "review" || approver != "alice" {
+					t.Fatalf("unexpected approve args: %s %s %s", workflowRunID, stepRef, approver)
+				}
+				approved = true
+				return nil
+			},
+		}
+
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				getWorkflowRunCalls++
+				if getWorkflowRunCalls == 1 {
+					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+				}
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+				if workflowRunID != "wr-1" || stepRef != "review" {
+					t.Fatalf("unexpected step lookup args: %s %s", workflowRunID, stepRef)
+				}
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepCompleted}, nil
+			},
+			getStepApprovalByStepRunFn: func(_ context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
+				if stepRunID != "sr-1" {
+					t.Fatalf("unexpected stepRunID %q", stepRunID)
+				}
+				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "alice"}, nil
+			},
+		}
+
+		pub := &mockPublisher{publishFn: func(_ context.Context, channel string, _ []byte) error {
+			published[channel]++
+			return nil
+		}}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if !approved {
+			t.Fatal("expected approve callback to be called")
+		}
+		if published["workflow-run:wr-1"] != 1 {
+			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
+		}
+		if published["workflow:wf-1:runs"] != 1 {
+			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
+		}
+	})
+}
+
 func TestHandleListWorkflowStepRuns(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		ms := &mockAPIStore{
