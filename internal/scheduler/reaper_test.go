@@ -164,6 +164,29 @@ func TestReaper_RunLoop(t *testing.T) {
 	}
 }
 
+func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
+	var deleted atomic.Int64
+	ms := &mockReaperStore{
+		deleteOldWorkflowRunsFn: func(_ context.Context, before time.Time, limit int) (int64, error) {
+			if limit <= 0 {
+				t.Fatalf("expected positive limit, got %d", limit)
+			}
+			if before.IsZero() {
+				t.Fatal("expected non-zero before timestamp")
+			}
+			deleted.Store(3)
+			return 3, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r.reapOldWorkflowRuns(context.Background())
+
+	if deleted.Load() != 3 {
+		t.Fatalf("expected deleted count 3, got %d", deleted.Load())
+	}
+}
+
 func TestReaper_ReapStale_ListError(t *testing.T) {
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{

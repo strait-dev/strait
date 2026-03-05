@@ -24,6 +24,7 @@ type ReaperStore interface {
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
 type WorkflowCallback interface {
@@ -31,20 +32,24 @@ type WorkflowCallback interface {
 }
 
 type Reaper struct {
-	store            ReaperStore
-	interval         time.Duration
-	staleThreshold   time.Duration
-	workflowCallback WorkflowCallback
-	logger           *slog.Logger
+	store             ReaperStore
+	interval          time.Duration
+	staleThreshold    time.Duration
+	workflowRetention time.Duration
+	deleteBatchLimit  int
+	workflowCallback  WorkflowCallback
+	logger            *slog.Logger
 }
 
 func NewReaper(s ReaperStore, interval, staleThreshold time.Duration, workflowCallback WorkflowCallback) *Reaper {
 	return &Reaper{
-		store:            s,
-		interval:         interval,
-		staleThreshold:   staleThreshold,
-		workflowCallback: workflowCallback,
-		logger:           slog.Default(),
+		store:             s,
+		interval:          interval,
+		staleThreshold:    staleThreshold,
+		workflowRetention: 30 * 24 * time.Hour,
+		deleteBatchLimit:  100,
+		workflowCallback:  workflowCallback,
+		logger:            slog.Default(),
 	}
 }
 
@@ -74,7 +79,27 @@ func (r *Reaper) Run(ctx context.Context) {
 			r.reapExpired(ctx)
 			r.reapTimedOutWorkflows(ctx)
 			r.reapExpiredApprovals(ctx)
+			r.reapOldWorkflowRuns(ctx)
 		}
+	}
+}
+
+func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapOldWorkflowRuns")
+	defer span.End()
+
+	if r.workflowRetention <= 0 {
+		return
+	}
+
+	before := time.Now().Add(-r.workflowRetention)
+	count, err := r.store.DeleteWorkflowRunsFinishedBefore(ctx, before, r.deleteBatchLimit)
+	if err != nil {
+		slog.Error("failed to delete old workflow runs", "error", err)
+		return
+	}
+	if count > 0 {
+		slog.Info("deleted old workflow runs", "count", count, "before", before.UTC())
 	}
 }
 

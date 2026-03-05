@@ -176,6 +176,7 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
 		return
 	}
+	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusCanceled, "cancel")
 
 	respondJSON(w, http.StatusOK, updatedRun)
 }
@@ -214,6 +215,7 @@ func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) 
 		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
 		return
 	}
+	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusPaused, "pause")
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
@@ -248,6 +250,7 @@ func (s *Server) handleResumeWorkflowRun(w http.ResponseWriter, r *http.Request)
 		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
 		return
 	}
+	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusRunning, "resume")
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 

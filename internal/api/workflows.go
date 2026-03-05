@@ -373,6 +373,7 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.publishWorkflowRunHook(r.Context(), run, domain.WfStatusPending, run.Status, "trigger")
 
 	respondJSON(w, http.StatusCreated, run)
 }

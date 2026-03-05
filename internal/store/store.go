@@ -120,6 +120,7 @@ type WorkflowRunStore interface {
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
 	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
 	ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error)
+	DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error)
 }

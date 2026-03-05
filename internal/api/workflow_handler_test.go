@@ -268,6 +268,7 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 func TestHandleTriggerWorkflow(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		labelsSaved := false
+		published := map[string]int{}
 		trigger := &mockWorkflowTrigger{
 			triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, _ json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
 				if workflowID != "wf-1" || projectID != "proj-1" || triggeredBy != "manual" {
@@ -292,7 +293,11 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 			},
 		}
 
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+		pub := &mockPublisher{publishFn: func(_ context.Context, channel string, _ []byte) error {
+			published[channel]++
+			return nil
+		}}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, trigger)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", `{"project_id":"proj-1","labels":{"env":"test"}}`))
 
@@ -301,6 +306,12 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 		}
 		if !labelsSaved {
 			t.Fatal("expected workflow run labels to be persisted")
+		}
+		if published["workflow-run:wr-1"] != 1 {
+			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
+		}
+		if published["workflow:wf-1:runs"] != 1 {
+			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
 		}
 	})
 

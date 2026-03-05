@@ -44,6 +44,7 @@ type mockReaperStore struct {
 	getStepRunByRunAndRefFn   func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	updateWorkflowApprovalFn  func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	deleteOldWorkflowRunsFn   func(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
 type mockCronStore struct {
@@ -182,4 +183,11 @@ func (m *mockReaperStore) UpdateWorkflowStepApproval(ctx context.Context, id str
 		return m.updateWorkflowApprovalFn(ctx, id, status, approvedBy, approvedAt, errMsg)
 	}
 	return nil
+}
+
+func (m *mockReaperStore) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	if m.deleteOldWorkflowRunsFn != nil {
+		return m.deleteOldWorkflowRunsFn(ctx, before, limit)
+	}
+	return 0, nil
 }

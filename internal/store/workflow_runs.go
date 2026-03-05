@@ -164,6 +164,36 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	return runs, nil
 }
 
+func (q *Queries) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteWorkflowRunsFinishedBefore")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		WITH doomed AS (
+			SELECT id
+			FROM workflow_runs
+			WHERE status IN ('completed', 'failed', 'canceled')
+			  AND finished_at IS NOT NULL
+			  AND finished_at < $1
+			ORDER BY finished_at ASC
+			LIMIT $2
+		)
+		DELETE FROM workflow_runs wr
+		USING doomed
+		WHERE wr.id = doomed.id`
+
+	tag, err := q.db.Exec(ctx, query, before, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete old workflow runs: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
 func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateWorkflowRunStatus")
 	defer span.End()

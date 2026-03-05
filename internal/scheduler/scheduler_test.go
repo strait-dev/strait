@@ -29,6 +29,10 @@ func (m *mockSchedulerStore) CountRunningWorkflowRuns(ctx context.Context, workf
 	return m.cron.CountRunningWorkflowRuns(ctx, workflowID)
 }
 
+func (m *mockSchedulerStore) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	return m.reaper.DeleteWorkflowRunsFinishedBefore(ctx, before, limit)
+}
+
 func (m *mockSchedulerStore) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	return m.poller.ListDueRuns(ctx)
 }
