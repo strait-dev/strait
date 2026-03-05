@@ -52,6 +52,7 @@ type RunStore interface {
 	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 }
 
 type EventStore interface {

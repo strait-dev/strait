@@ -437,6 +437,72 @@ func TestHandleTriggerJob_DelayedSchedule(t *testing.T) {
 	}
 }
 
+func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:            id,
+				ProjectID:     "proj-1",
+				Enabled:       true,
+				TimeoutSecs:   120,
+				PayloadSchema: json.RawMessage(`{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`),
+			}, nil
+		},
+	}
+
+	enqueued := false
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFPayloadValidation = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"name":"leo"}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueued {
+		t.Fatal("expected run to be enqueued")
+	}
+}
+
+func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:            id,
+				ProjectID:     "proj-1",
+				Enabled:       true,
+				TimeoutSecs:   120,
+				PayloadSchema: json.RawMessage(`{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`),
+			}, nil
+		},
+	}
+
+	enqueued := false
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFPayloadValidation = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"age":12}}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run to not be enqueued")
+	}
+}
+
 func TestHandleTriggerJob_EnqueueError(t *testing.T) {
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {

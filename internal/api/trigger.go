@@ -44,6 +44,13 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.config.FFPayloadValidation {
+		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
+			respondError(w, http.StatusBadRequest, "payload validation failed: "+err.Error())
+			return
+		}
+	}
+
 	idempotencyKey := r.Header.Get("X-Idempotency-Key")
 	if idempotencyKey == "" {
 		idempotencyKey = r.Header.Get("Idempotency-Key")

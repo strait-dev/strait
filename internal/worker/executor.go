@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"time"
 
@@ -225,7 +227,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		if execCtx.Err() == context.DeadlineExceeded {
 			e.handleTimeout(ctx, run, job)
 		} else {
-			e.handleFailure(ctx, run, job, err.Error())
+			e.handleFailure(ctx, run, job, err)
 		}
 		return
 	}
@@ -319,9 +321,43 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	e.submitWebhook(ctx, job, run)
 }
 
-func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, errMsg string) {
+func classifyError(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+
+	var endpointErr *domain.EndpointError
+	if errors.As(err, &endpointErr) {
+		switch {
+		case endpointErr.StatusCode == http.StatusTooManyRequests:
+			return "rate_limited"
+		case endpointErr.StatusCode == http.StatusUnauthorized || endpointErr.StatusCode == http.StatusForbidden:
+			return "auth"
+		case endpointErr.StatusCode >= http.StatusBadRequest && endpointErr.StatusCode < http.StatusInternalServerError:
+			return "client"
+		case endpointErr.StatusCode >= http.StatusInternalServerError:
+			return "server"
+		}
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return "transient"
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "transient"
+	}
+
+	return "unknown"
+}
+
+func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, err error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleFailure")
 	defer span.End()
+
+	errMsg := err.Error()
+	errClass := classifyError(err)
 
 	e.logger.Warn(
 		"run failed",
@@ -330,6 +366,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"attempt", run.Attempt,
 		"max_attempts", job.MaxAttempts,
 		"error", errMsg,
+		"error_class", errClass,
 	)
 
 	if run.Attempt < job.MaxAttempts {
@@ -338,6 +375,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
 			"error":         errMsg,
+			"error_class":   errClass,
 			"started_at":    nil,
 			"finished_at":   nil,
 		})
@@ -363,16 +401,17 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	}
 
 	now := time.Now()
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
+	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
 		"finished_at": now,
 		"error":       errMsg,
+		"error_class": errClass,
 	})
-	if err != nil {
+	if updateErr != nil {
 		e.logger.Error(
 			"failed to mark run failed",
 			"run_id", run.ID,
 			"job_id", run.JobID,
-			"error", err,
+			"error", updateErr,
 		)
 		return
 	}
@@ -401,6 +440,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
 			"error":         "execution timed out",
+			"error_class":   "transient",
 			"started_at":    nil,
 			"finished_at":   nil,
 		})
@@ -422,6 +462,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusTimedOut, map[string]any{
 		"finished_at": now,
 		"error":       "execution timed out",
+		"error_class": "transient",
 	})
 	if err != nil {
 		e.logger.Error(
@@ -456,6 +497,7 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	err := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusSystemFailed, map[string]any{
 		"finished_at": now,
 		"error":       reason,
+		"error_class": "server",
 	})
 	if err != nil {
 		e.logger.Error(

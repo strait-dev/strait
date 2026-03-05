@@ -226,6 +226,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		"payload":              {},
 		"result":               {},
 		"error":                {},
+		"error_class":          {},
 		"triggered_by":         {},
 		"scheduled_at":         {},
 		"started_at":           {},
@@ -471,4 +472,28 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	}
 
 	return runs, nil
+}
+
+func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteTerminalRunsPastRetention")
+	defer span.End()
+
+	shortCutoff := time.Now().Add(-shortRetention)
+	longCutoff := time.Now().Add(-longRetention)
+
+	query := `
+		DELETE FROM job_runs
+		WHERE finished_at IS NOT NULL
+		  AND (
+			(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
+			OR
+			(status IN ('timed_out', 'crashed', 'system_failed') AND finished_at <= $2)
+		  )`
+
+	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete terminal runs past retention: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
 }

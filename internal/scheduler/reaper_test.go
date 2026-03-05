@@ -316,3 +316,26 @@ func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
 		t.Fatalf("expected 1 successful transition, got %d", transitioned.Load())
 	}
 }
+
+func TestReaper_ReapTerminalRetention(t *testing.T) {
+	var called atomic.Int32
+	ms := &mockReaperStore{
+		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+			if shortRetention != 30*24*time.Hour {
+				t.Fatalf("short retention = %v, want %v", shortRetention, 30*24*time.Hour)
+			}
+			if longRetention != 90*24*time.Hour {
+				t.Fatalf("long retention = %v, want %v", longRetention, 90*24*time.Hour)
+			}
+			called.Add(1)
+			return 2, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r.reapTerminalRetention(context.Background())
+
+	if called.Load() != 1 {
+		t.Fatalf("retention call count = %d, want 1", called.Load())
+	}
+}

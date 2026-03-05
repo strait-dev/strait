@@ -208,6 +208,7 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.runTokenAuth)
 		r.Route("/runs/{runID}", func(r chi.Router) {
 			r.Post("/log", s.handleSDKLog)
+			r.Post("/progress", s.handleSDKProgress)
 			r.Post("/heartbeat", s.handleSDKHeartbeat)
 			r.Post("/complete", s.handleSDKComplete)
 			r.Post("/fail", s.handleSDKFail)

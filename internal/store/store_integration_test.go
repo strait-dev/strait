@@ -781,6 +781,66 @@ func TestListChildRuns(t *testing.T) {
 	assertTimesAsc(t, extractRunCreatedAt(children))
 }
 
+func TestDeleteTerminalRunsPastRetention(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-delete-retention")
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	oldCompleted := baseRun(job, newID())
+	oldCompleted.Status = domain.StatusCompleted
+	finishedOldCompleted := now.Add(-31 * 24 * time.Hour)
+	oldCompleted.FinishedAt = &finishedOldCompleted
+	if err := q.CreateRun(ctx, oldCompleted); err != nil {
+		t.Fatalf("CreateRun() oldCompleted error = %v", err)
+	}
+
+	oldTimedOut := baseRun(job, newID())
+	oldTimedOut.Status = domain.StatusTimedOut
+	finishedOldTimedOut := now.Add(-91 * 24 * time.Hour)
+	oldTimedOut.FinishedAt = &finishedOldTimedOut
+	if err := q.CreateRun(ctx, oldTimedOut); err != nil {
+		t.Fatalf("CreateRun() oldTimedOut error = %v", err)
+	}
+
+	recentCompleted := baseRun(job, newID())
+	recentCompleted.Status = domain.StatusCompleted
+	finishedRecent := now.Add(-5 * 24 * time.Hour)
+	recentCompleted.FinishedAt = &finishedRecent
+	if err := q.CreateRun(ctx, recentCompleted); err != nil {
+		t.Fatalf("CreateRun() recentCompleted error = %v", err)
+	}
+
+	queued := baseRun(job, newID())
+	queued.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, queued); err != nil {
+		t.Fatalf("CreateRun() queued error = %v", err)
+	}
+
+	deleted, err := q.DeleteTerminalRunsPastRetention(ctx, 30*24*time.Hour, 90*24*time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteTerminalRunsPastRetention() error = %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("deleted = %d, want 2", deleted)
+	}
+
+	if _, err := q.GetRun(ctx, oldCompleted.ID); !errors.Is(err, store.ErrRunNotFound) {
+		t.Fatalf("GetRun(oldCompleted) error = %v, want ErrRunNotFound", err)
+	}
+	if _, err := q.GetRun(ctx, oldTimedOut.ID); !errors.Is(err, store.ErrRunNotFound) {
+		t.Fatalf("GetRun(oldTimedOut) error = %v, want ErrRunNotFound", err)
+	}
+	if _, err := q.GetRun(ctx, recentCompleted.ID); err != nil {
+		t.Fatalf("GetRun(recentCompleted) error = %v", err)
+	}
+	if _, err := q.GetRun(ctx, queued.ID); err != nil {
+		t.Fatalf("GetRun(queued) error = %v", err)
+	}
+}
+
 func TestInsertEvent(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -193,6 +193,71 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, event)
 }
 
+func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Percent    float64 `json:"percent"`
+		Message    string  `json:"message"`
+		Step       string  `json:"step,omitempty"`
+		ETASeconds int     `json:"eta_seconds,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Percent < 0 || req.Percent > 100 {
+		respondError(w, http.StatusBadRequest, "percent must be between 0 and 100")
+		return
+	}
+
+	dataMap := map[string]any{
+		"percent": req.Percent,
+	}
+	if req.Step != "" {
+		dataMap["step"] = req.Step
+	}
+	if req.ETASeconds > 0 {
+		dataMap["eta_seconds"] = req.ETASeconds
+	}
+	data, err := json.Marshal(dataMap)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to marshal progress payload")
+		return
+	}
+
+	event := &domain.RunEvent{
+		RunID:   runID,
+		Type:    domain.EventProgress,
+		Level:   "info",
+		Message: req.Message,
+		Data:    data,
+	}
+
+	if err := s.store.InsertEvent(r.Context(), event); err != nil {
+		slog.Error("failed to insert progress event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		respondError(w, http.StatusInternalServerError, "failed to insert event")
+		return
+	}
+
+	if s.pubsub != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"type":       "event",
+			"event_type": string(domain.EventProgress),
+			"run_id":     runID,
+			"level":      "info",
+			"message":    req.Message,
+			"data":       dataMap,
+			"timestamp":  time.Now().UTC(),
+		})
+		channel := fmt.Sprintf("run:%s", runID)
+		_ = s.pubsub.Publish(r.Context(), channel, payload)
+	}
+
+	respondJSON(w, http.StatusCreated, event)
+}
+
 func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")

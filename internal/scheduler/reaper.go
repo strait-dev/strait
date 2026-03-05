@@ -15,6 +15,7 @@ type ReaperStore interface {
 	ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
 
@@ -26,6 +27,8 @@ type Reaper struct {
 	store            ReaperStore
 	interval         time.Duration
 	staleThreshold   time.Duration
+	shortRetention   time.Duration
+	longRetention    time.Duration
 	workflowCallback WorkflowCallback
 	logger           *slog.Logger
 }
@@ -35,6 +38,8 @@ func NewReaper(s ReaperStore, interval, staleThreshold time.Duration, workflowCa
 		store:            s,
 		interval:         interval,
 		staleThreshold:   staleThreshold,
+		shortRetention:   30 * 24 * time.Hour,
+		longRetention:    90 * 24 * time.Hour,
 		workflowCallback: workflowCallback,
 		logger:           slog.Default(),
 	}
@@ -56,6 +61,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapStaleDequeued(loopCtx)
 		r.reapStale(loopCtx)
 		r.reapExpired(loopCtx)
+		r.reapTerminalRetention(loopCtx)
 	})
 	loop.Run(ctx)
 }
@@ -132,5 +138,19 @@ func (r *Reaper) reapStaleDequeued(ctx context.Context) {
 		}
 
 		slog.Warn("stale dequeued run re-queued", "run_id", run.ID, "job_id", run.JobID)
+	}
+}
+
+func (r *Reaper) reapTerminalRetention(ctx context.Context) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapTerminalRetention")
+	defer span.End()
+
+	deleted, err := r.store.DeleteTerminalRunsPastRetention(ctx, r.shortRetention, r.longRetention)
+	if err != nil {
+		slog.Error("failed to delete retained terminal runs", "error", err)
+		return
+	}
+	if deleted > 0 {
+		slog.Info("deleted terminal runs past retention", "count", deleted)
 	}
 }

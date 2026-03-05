@@ -160,6 +160,45 @@ func TestHandleSDKLog_StoreError(t *testing.T) {
 	}
 }
 
+func TestHandleSDKProgress_Success(t *testing.T) {
+	var insertCalled atomic.Bool
+	ms := &mockAPIStore{
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			insertCalled.Store(true)
+			if event.Type != domain.EventProgress {
+				t.Fatalf("event type = %s, want %s", event.Type, domain.EventProgress)
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/progress", "run-123", `{"percent":45,"message":"working","step":"phase-1","eta_seconds":30}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !insertCalled.Load() {
+		t.Fatal("expected InsertEvent to be called")
+	}
+}
+
+func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/progress", "run-123", `{"percent":101,"message":"working"}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
 func TestHandleSDKHeartbeat_Success(t *testing.T) {
 	var updateCalled atomic.Bool
 	ms := &mockAPIStore{

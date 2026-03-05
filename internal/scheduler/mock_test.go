@@ -35,6 +35,7 @@ type mockReaperStore struct {
 	listStaleRunsFn     func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	listExpiredRunsFn   func(ctx context.Context) ([]domain.JobRun, error)
 	listStaleDequeuedFn func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	deleteRetentionFn   func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 	updateRunStatusFn   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
 
@@ -102,4 +103,11 @@ func (m *mockReaperStore) UpdateRunStatus(ctx context.Context, id string, from, 
 		return m.updateRunStatusFn(ctx, id, from, to, fields)
 	}
 	return nil
+}
+
+func (m *mockReaperStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+	if m.deleteRetentionFn != nil {
+		return m.deleteRetentionFn(ctx, shortRetention, longRetention)
+	}
+	return 0, nil
 }
