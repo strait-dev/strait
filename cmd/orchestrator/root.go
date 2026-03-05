@@ -167,7 +167,31 @@ func newRootCommand() *cobra.Command {
 	rawArgs = expandAliasArgs(rawArgs, configPath)
 	cmd.SetArgs(normalizeLegacyArgs(rawArgs))
 
+	registerRootCompletions(cmd)
+
 	return cmd
+}
+
+func registerRootCompletions(cmd *cobra.Command) {
+	_ = cmd.RegisterFlagCompletionFunc("format", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"table", "json", "yaml", "csv", "wide", "go-template", "jsonpath"}, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	_ = cmd.RegisterFlagCompletionFunc("context", func(c *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		configPath := ""
+		if flag := c.Flag("config"); flag != nil {
+			configPath = strings.TrimSpace(flag.Value.String())
+		}
+		loaded, err := cliconfig.Load(configPath)
+		if err != nil || loaded == nil || loaded.Data == nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		results := make([]string, 0, len(loaded.Data.Contexts))
+		for name := range loaded.Data.Contexts {
+			results = append(results, name)
+		}
+		return results, cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 func normalizeLegacyArgs(args []string) []string {

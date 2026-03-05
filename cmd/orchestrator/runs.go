@@ -72,6 +72,9 @@ func newRunsListCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&projectID, "project", "", "project ID")
 	cmd.Flags().StringVar(&status, "status", "", "status filter")
 	cmd.Flags().IntVar(&limit, "limit", 50, "max runs to return")
+	_ = cmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"delayed", "queued", "dequeued", "executing", "waiting", "completed", "failed", "timed_out", "crashed", "system_failed", "canceled", "expired"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }
@@ -172,6 +175,12 @@ func newRunsLogsCommand(state *appState) *cobra.Command {
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval when following")
 	cmd.Flags().StringVar(&level, "level", "", "event level filter")
 	cmd.Flags().StringVar(&eventType, "type", "", "event type filter")
+	_ = cmd.RegisterFlagCompletionFunc("level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = cmd.RegisterFlagCompletionFunc("type", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"log", "state_change", "error", "progress"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }
