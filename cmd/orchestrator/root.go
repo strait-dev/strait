@@ -128,6 +128,7 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().DurationVar(&opts.timeout, "timeout", 30*time.Second, "API request timeout")
 
 	cmd.AddCommand(newServeCommand())
+	cmd.AddCommand(newServerCommand())
 	cmd.AddCommand(newVersionCommand(state))
 	cmd.AddCommand(newCompletionCommand(cmd))
 	cmd.AddCommand(newContextCommand(state))
@@ -156,6 +157,7 @@ func normalizeLegacyArgs(args []string) []string {
 
 	subcommands := map[string]struct{}{
 		"serve":         {},
+		"server":        {},
 		"version":       {},
 		"completion":    {},
 		"context":       {},
