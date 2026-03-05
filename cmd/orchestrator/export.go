@@ -27,6 +27,7 @@ func newExportCommand(state *appState) *cobra.Command {
 	var outputDir string
 	var nameContains string
 	var dryRun bool
+	var forceOverwrite bool
 
 	cmd := &cobra.Command{
 		Use:       "export <resource>",
@@ -90,7 +91,7 @@ func newExportCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			paths, err := writeYAMLFiles(outputDir, docs)
+			paths, err := writeYAMLFiles(outputDir, docs, forceOverwrite)
 			if err != nil {
 				return err
 			}
@@ -108,6 +109,7 @@ func newExportCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&outputDir, "output-dir", "", "write one file per manifest into directory")
 	cmd.Flags().StringVar(&nameContains, "name-contains", "", "filter manifests by metadata.name substring")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview what would be exported without writing output")
+	cmd.Flags().BoolVar(&forceOverwrite, "force-overwrite", false, "overwrite existing output files in --output-dir mode")
 
 	_ = cmd.RegisterFlagCompletionFunc("project", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if strings.TrimSpace(state.opts.projectID) == "" {
@@ -254,7 +256,7 @@ func writeYAMLStream(w io.Writer, docs []exportDocument) error {
 	return nil
 }
 
-func writeYAMLFiles(outputDir string, docs []exportDocument) ([]string, error) {
+func writeYAMLFiles(outputDir string, docs []exportDocument, forceOverwrite bool) ([]string, error) {
 	paths := make([]string, 0, len(docs))
 	for i, doc := range docs {
 		name := sanitizeFilename(doc.Metadata.Name)
@@ -262,6 +264,13 @@ func writeYAMLFiles(outputDir string, docs []exportDocument) ([]string, error) {
 			name = fmt.Sprintf("%s-%d", strings.ToLower(doc.Kind), i+1)
 		}
 		path := filepath.Join(outputDir, fmt.Sprintf("%s.yaml", name))
+		if !forceOverwrite {
+			if _, err := os.Stat(path); err == nil {
+				return nil, fmt.Errorf("refusing to overwrite existing file %q without --force-overwrite", path)
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
 		content, err := yaml.Marshal(doc)
 		if err != nil {
 			return nil, err

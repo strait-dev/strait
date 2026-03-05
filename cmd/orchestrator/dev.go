@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,6 +63,8 @@ func newDevCommand(state *appState) *cobra.Command {
 		},
 	}
 
+	cmd.AddCommand(newDevStatusCommand(state))
+
 	cmd.Flags().BoolVar(&noDocker, "no-docker", false, "skip docker compose startup")
 	cmd.Flags().IntVar(&port, "port", 8080, "API port for dev mode")
 	cmd.Flags().BoolVar(&seed, "seed", false, "attempt to seed example data")
@@ -73,4 +76,56 @@ func setEnvIfEmpty(key, value string) {
 	if os.Getenv(key) == "" {
 		_ = os.Setenv(key, value)
 	}
+}
+
+func newDevStatusCommand(state *appState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "status",
+		Short:   "Show local dev readiness checks",
+		Long:    "Runs local development readiness checks for docker tooling, env vars, and server reachability.",
+		Example: "orchestrator dev status",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			checks := make([]map[string]any, 0, 8)
+
+			_, dockerErr := exec.LookPath("docker")
+			checks = append(checks, diagnoseCheck("docker binary", dockerErr == nil, errDetail(dockerErr), "install docker desktop or docker engine"))
+
+			composeErr := exec.Command("docker", "compose", "version").Run()
+			checks = append(checks, diagnoseCheck("docker compose", composeErr == nil, errDetail(composeErr), "install docker compose plugin"))
+
+			databaseURL := os.Getenv("DATABASE_URL")
+			checks = append(checks, diagnoseCheck("DATABASE_URL", databaseURL != "", boolString(databaseURL != ""), "set DATABASE_URL or run orchestrator dev"))
+
+			redisURL := os.Getenv("REDIS_URL")
+			checks = append(checks, diagnoseCheck("REDIS_URL", redisURL != "", boolString(redisURL != ""), "set REDIS_URL or run orchestrator dev"))
+
+			internalSecret := os.Getenv("INTERNAL_SECRET")
+			checks = append(checks, diagnoseCheck("INTERNAL_SECRET", internalSecret != "", boolString(internalSecret != ""), "set INTERNAL_SECRET for auth signing"))
+
+			jwtSigningKey := os.Getenv("JWT_SIGNING_KEY")
+			checks = append(checks, diagnoseCheck("JWT_SIGNING_KEY", jwtSigningKey != "", boolString(jwtSigningKey != ""), "set JWT_SIGNING_KEY for auth tokens"))
+
+			cli, err := newAPIClient(state)
+			if err == nil {
+				health, healthErr := cli.Health(context.Background())
+				checks = append(checks, diagnoseCheck("server health", healthErr == nil, healthDetail(health, healthErr), "start server with `orchestrator dev`"))
+			} else {
+				checks = append(checks, diagnoseCheck("api client", false, err.Error(), "set valid --server and --api-key for status checks"))
+			}
+
+			if err := printData(state, checks); err != nil {
+				return err
+			}
+
+			for _, check := range checks {
+				if ok, _ := check["ok"].(bool); !ok {
+					return fmt.Errorf("dev status found failing checks")
+				}
+			}
+
+			return nil
+		},
+	}
+
+	return cmd
 }
