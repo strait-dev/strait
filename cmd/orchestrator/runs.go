@@ -101,22 +101,72 @@ func newRunsGetCommand(state *appState) *cobra.Command {
 }
 
 func newRunsCancelCommand(state *appState) *cobra.Command {
+	var all bool
+	var projectID string
+	var status string
+	var limit int
+	var yes bool
+
 	cmd := &cobra.Command{
-		Use:   "cancel <run-id>",
-		Short: "Cancel run by ID",
-		Args:  cobra.ExactArgs(1),
+		Use:   "cancel <run-id> [run-id...]",
+		Short: "Cancel one or more runs",
+		Args: func(_ *cobra.Command, args []string) error {
+			if all || len(args) > 0 {
+				return nil
+			}
+			return fmt.Errorf("provide run IDs or use --all")
+		},
 		RunE: func(_ *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
-			run, err := cli.CancelRun(context.Background(), args[0])
-			if err != nil {
-				return err
+
+			targetIDs := make([]string, 0)
+			if all {
+				if projectID == "" {
+					projectID = state.opts.projectID
+				}
+				if projectID == "" {
+					return fmt.Errorf("project ID is required for --all")
+				}
+				runs, listErr := cli.ListRuns(context.Background(), projectID, status, limit)
+				if listErr != nil {
+					return listErr
+				}
+				for _, run := range runs {
+					targetIDs = append(targetIDs, run.ID)
+				}
+			} else {
+				targetIDs = append(targetIDs, args...)
 			}
-			return printData(state, run)
+
+			if len(targetIDs) == 0 {
+				return fmt.Errorf("no runs matched cancellation criteria")
+			}
+			if len(targetIDs) > 1 && !yes {
+				return fmt.Errorf("bulk cancel requires --yes confirmation")
+			}
+
+			results := make([]map[string]any, 0, len(targetIDs))
+			for _, id := range targetIDs {
+				run, cancelErr := cli.CancelRun(context.Background(), id)
+				if cancelErr != nil {
+					results = append(results, map[string]any{"id": id, "canceled": false, "error": cancelErr.Error()})
+					continue
+				}
+				results = append(results, map[string]any{"id": id, "canceled": true, "status": run.Status})
+			}
+
+			return printData(state, results)
 		},
 	}
+
+	cmd.Flags().BoolVar(&all, "all", false, "cancel all runs matching filters")
+	cmd.Flags().StringVar(&projectID, "project", "", "project ID for --all mode")
+	cmd.Flags().StringVar(&status, "status", "", "status filter for --all mode")
+	cmd.Flags().IntVar(&limit, "limit", 100, "max runs to consider for --all mode")
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm bulk cancellation")
 
 	return cmd
 }
