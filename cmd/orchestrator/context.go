@@ -175,7 +175,10 @@ func printData(state *appState, data any) error {
 	}
 
 	return output.Render(os.Stdout, data, output.Options{
-		Format: format,
-		TTY:    tty,
+		Format:    format,
+		NoHeaders: state.opts.noHeaders,
+		Template:  state.opts.outputTpl,
+		JSONPath:  state.opts.outputPath,
+		TTY:       tty,
 	})
 }

@@ -20,6 +20,9 @@ type rootOptions struct {
 	apiKey       string
 	projectID    string
 	outputFormat string
+	noHeaders    bool
+	outputTpl    string
+	outputPath   string
 	noColor      bool
 	quiet        bool
 	verbose      bool
@@ -120,6 +123,9 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.apiKey, "api-key", "", "API key")
 	cmd.PersistentFlags().StringVar(&opts.projectID, "project", "", "default project ID")
 	cmd.PersistentFlags().StringVarP(&opts.outputFormat, "format", "o", "", "output format")
+	cmd.PersistentFlags().BoolVar(&opts.noHeaders, "no-headers", false, "omit headers for table output")
+	cmd.PersistentFlags().StringVar(&opts.outputTpl, "output-template", "", "go template for --format go-template")
+	cmd.PersistentFlags().StringVar(&opts.outputPath, "output-jsonpath", "", "jsonpath for --format jsonpath")
 	cmd.PersistentFlags().BoolVar(&opts.noColor, "no-color", false, "disable color output")
 	cmd.PersistentFlags().BoolVarP(&opts.quiet, "quiet", "q", false, "minimal output")
 	cmd.PersistentFlags().BoolVarP(&opts.verbose, "verbose", "v", false, "verbose output")
