@@ -39,6 +39,10 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	var status *domain.RunStatus
 	if statusRaw := query.Get("status"); statusRaw != "" {
 		parsed := domain.RunStatus(statusRaw)
+		if !parsed.IsValid() {
+			respondError(w, http.StatusBadRequest, "status is invalid")
+			return
+		}
 		status = &parsed
 	}
 

@@ -115,3 +115,12 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 		t.Fatalf("validTransitions has %d statuses, expected %d", len(validTransitions), len(allStatuses))
 	}
 }
+
+func TestRunStatusIsValid(t *testing.T) {
+	if !StatusQueued.IsValid() {
+		t.Fatal("expected queued to be valid")
+	}
+	if RunStatus("not-valid").IsValid() {
+		t.Fatal("expected arbitrary status to be invalid")
+	}
+}

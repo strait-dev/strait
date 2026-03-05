@@ -154,6 +154,17 @@ func (s RunStatus) IsTerminal() bool {
 	}
 }
 
+func (s RunStatus) IsValid() bool {
+	switch s {
+	case StatusDelayed, StatusQueued, StatusDequeued, StatusExecuting, StatusWaiting,
+		StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed,
+		StatusCanceled, StatusExpired:
+		return true
+	default:
+		return false
+	}
+}
+
 func TerminalStatuses() []RunStatus {
 	return []RunStatus{
 		StatusCompleted,
@@ -182,6 +193,15 @@ const (
 func (s WorkflowRunStatus) IsTerminal() bool {
 	switch s {
 	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s WorkflowRunStatus) IsValid() bool {
+	switch s {
+	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
 		return true
 	default:
 		return false

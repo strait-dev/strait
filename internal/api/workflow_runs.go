@@ -63,6 +63,10 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 	var status *domain.WorkflowRunStatus
 	if statusRaw := query.Get("status"); statusRaw != "" {
 		parsed := domain.WorkflowRunStatus(statusRaw)
+		if !parsed.IsValid() {
+			respondError(w, http.StatusBadRequest, "status is invalid")
+			return
+		}
 		status = &parsed
 	}
 

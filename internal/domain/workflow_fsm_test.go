@@ -63,3 +63,12 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkflowRunStatusIsValid(t *testing.T) {
+	if !WfStatusRunning.IsValid() {
+		t.Fatal("expected running to be valid")
+	}
+	if WorkflowRunStatus("not-valid").IsValid() {
+		t.Fatal("expected arbitrary workflow status to be invalid")
+	}
+}

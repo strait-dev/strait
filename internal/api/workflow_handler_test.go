@@ -435,6 +435,26 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 			t.Fatalf("expected 400, got %d", w.Code)
 		}
 	})
+
+	t.Run("invalid status", func(t *testing.T) {
+		called := false
+		ms := &mockAPIStore{
+			listWorkflowRunsByProjFn: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int) ([]domain.WorkflowRun, error) {
+				called = true
+				return nil, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&status=invalid-status", ""))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
+		}
+		if called {
+			t.Fatal("expected ListWorkflowRunsByProject to not be called for invalid status")
+		}
+	})
 }
 
 func TestHandleGetWorkflowRun(t *testing.T) {
