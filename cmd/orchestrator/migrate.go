@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 
 	"orchestrator/migrations"
 
@@ -24,6 +27,42 @@ func newMigrateCommand(_ *appState) *cobra.Command {
 	cmd.AddCommand(newMigrateUpCommand())
 	cmd.AddCommand(newMigrateDownCommand())
 	cmd.AddCommand(newMigrateStatusCommand())
+	cmd.AddCommand(newMigrateCreateCommand())
+
+	return cmd
+}
+
+func newMigrateCreateCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a new up/down SQL migration pair",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := sanitizeMigrationName(args[0])
+			if name == "" {
+				return fmt.Errorf("migration name must contain alphanumeric characters")
+			}
+
+			next, err := nextMigrationVersion("migrations")
+			if err != nil {
+				return err
+			}
+
+			upPath := filepath.Join("migrations", fmt.Sprintf("%06d_%s.up.sql", next, name))
+			downPath := filepath.Join("migrations", fmt.Sprintf("%06d_%s.down.sql", next, name))
+
+			if err := os.WriteFile(upPath, []byte("-- Write your UP migration here\n"), 0o600); err != nil {
+				return err
+			}
+			if err := os.WriteFile(downPath, []byte("-- Write your DOWN migration here\n"), 0o600); err != nil {
+				return err
+			}
+
+			fmt.Printf("created %s\n", upPath)
+			fmt.Printf("created %s\n", downPath)
+			return nil
+		},
+	}
 
 	return cmd
 }
@@ -178,4 +217,39 @@ func parsePositiveInt(raw string) (int, error) {
 		return 0, fmt.Errorf("number must be positive")
 	}
 	return n, nil
+}
+
+func nextMigrationVersion(dir string) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+
+	re := regexp.MustCompile(`^(\d{6})_.*\.(up|down)\.sql$`)
+	maxVersion := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		matches := re.FindStringSubmatch(entry.Name())
+		if len(matches) != 3 {
+			continue
+		}
+		v, convErr := strconv.Atoi(matches[1])
+		if convErr != nil {
+			continue
+		}
+		if v > maxVersion {
+			maxVersion = v
+		}
+	}
+
+	return maxVersion + 1, nil
+}
+
+func sanitizeMigrationName(raw string) string {
+	clean := regexp.MustCompile(`[^a-zA-Z0-9]+`).ReplaceAllString(raw, "_")
+	clean = regexp.MustCompile(`_+`).ReplaceAllString(clean, "_")
+	clean = regexp.MustCompile(`^_|_$`).ReplaceAllString(clean, "")
+	return clean
 }
