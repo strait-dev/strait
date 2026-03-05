@@ -26,11 +26,11 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	query := `
 		INSERT INTO jobs (
 			id, project_id, name, slug, description, cron, payload_schema,
-			endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+			endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
 			webhook_url, webhook_secret, run_ttl_secs, version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 1)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 1)
 		RETURNING created_at, updated_at, version`
 
 	var runTTL *int
@@ -49,6 +49,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.Cron),
 		dbscan.NilIfEmptyRawMessage(job.PayloadSchema),
 		job.EndpointURL,
+		dbscan.NilIfEmptyString(job.FallbackEndpointURL),
 		job.MaxAttempts,
 		job.TimeoutSecs,
 		dbscan.NilIfZeroInt(job.MaxConcurrency),
@@ -75,7 +76,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -98,7 +99,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -121,7 +122,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -157,12 +158,12 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	query := `
 		WITH snapshot AS (
 			INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
-				endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+				endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs)
-			SELECT $20, id, version, name, slug, description, cron, payload_schema,
-				endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+			SELECT $21, id, version, name, slug, description, cron, payload_schema,
+				endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs
-			FROM jobs WHERE id = $19
+			FROM jobs WHERE id = $20
 		)
 		UPDATE jobs
 		SET name = $1,
@@ -171,21 +172,22 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    cron = $4,
 		    payload_schema = $5,
 		    endpoint_url = $6,
-		    max_attempts = $7,
-		    timeout_secs = $8,
-		    max_concurrency = $9,
-		    execution_window_cron = $10,
-		    timezone = $11,
-		    rate_limit_max = $12,
-		    rate_limit_window_secs = $13,
-		    dedup_window_secs = $14,
-		    enabled = $15,
-		    webhook_url = $16,
-		    webhook_secret = $17,
-		    run_ttl_secs = $18,
+		    fallback_endpoint_url = $7,
+		    max_attempts = $8,
+		    timeout_secs = $9,
+		    max_concurrency = $10,
+		    execution_window_cron = $11,
+		    timezone = $12,
+		    rate_limit_max = $13,
+		    rate_limit_window_secs = $14,
+		    dedup_window_secs = $15,
+		    enabled = $16,
+		    webhook_url = $17,
+		    webhook_secret = $18,
+		    run_ttl_secs = $19,
 		    version = version + 1,
 		    updated_at = NOW()
-		WHERE id = $19
+		WHERE id = $20
 		RETURNING updated_at, version`
 
 	var runTTL *int
@@ -202,6 +204,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.Cron),
 		dbscan.NilIfEmptyRawMessage(job.PayloadSchema),
 		job.EndpointURL,
+		dbscan.NilIfEmptyString(job.FallbackEndpointURL),
 		job.MaxAttempts,
 		job.TimeoutSecs,
 		dbscan.NilIfZeroInt(job.MaxConcurrency),
@@ -243,7 +246,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 
 	query := `
 		SELECT id, project_id, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
+		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
@@ -359,6 +362,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var description *string
 	var cron *string
 	var payloadSchema []byte
+	var fallbackEndpointURL *string
 	var maxConcurrency *int
 	var executionWindowCron *string
 	var timezone *string
@@ -378,6 +382,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&cron,
 		&payloadSchema,
 		&job.EndpointURL,
+		&fallbackEndpointURL,
 		&job.MaxAttempts,
 		&job.TimeoutSecs,
 		&maxConcurrency,
@@ -406,6 +411,9 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	}
 	if payloadSchema != nil {
 		job.PayloadSchema = json.RawMessage(payloadSchema)
+	}
+	if fallbackEndpointURL != nil {
+		job.FallbackEndpointURL = *fallbackEndpointURL
 	}
 	if webhookURL != nil {
 		job.WebhookURL = *webhookURL

@@ -20,6 +20,7 @@ type CreateJobRequest struct {
 	Cron                string          `json:"cron,omitempty"`
 	PayloadSchema       json.RawMessage `json:"payload_schema,omitempty"`
 	EndpointURL         string          `json:"endpoint_url"`
+	FallbackEndpointURL string          `json:"fallback_endpoint_url,omitempty"`
 	MaxAttempts         int             `json:"max_attempts"`
 	TimeoutSecs         int             `json:"timeout_secs"`
 	MaxConcurrency      int             `json:"max_concurrency,omitempty"`
@@ -38,6 +39,7 @@ type UpdateJobRequest struct {
 	Cron                *string          `json:"cron,omitempty"`
 	PayloadSchema       *json.RawMessage `json:"payload_schema,omitempty"`
 	EndpointURL         *string          `json:"endpoint_url,omitempty"`
+	FallbackEndpointURL *string          `json:"fallback_endpoint_url,omitempty"`
 	MaxAttempts         *int             `json:"max_attempts,omitempty"`
 	TimeoutSecs         *int             `json:"timeout_secs,omitempty"`
 	MaxConcurrency      *int             `json:"max_concurrency,omitempty"`
@@ -65,6 +67,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if err := validateURL(req.EndpointURL); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
 		return
+	}
+	if req.FallbackEndpointURL != "" {
+		if err := validateURL(req.FallbackEndpointURL); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
+			return
+		}
 	}
 
 	if req.MaxAttempts == 0 {
@@ -98,6 +106,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		Cron:                req.Cron,
 		PayloadSchema:       req.PayloadSchema,
 		EndpointURL:         req.EndpointURL,
+		FallbackEndpointURL: req.FallbackEndpointURL,
 		MaxAttempts:         req.MaxAttempts,
 		TimeoutSecs:         req.TimeoutSecs,
 		MaxConcurrency:      req.MaxConcurrency,
@@ -202,6 +211,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.EndpointURL != nil {
 		job.EndpointURL = *req.EndpointURL
 	}
+	if req.FallbackEndpointURL != nil {
+		job.FallbackEndpointURL = *req.FallbackEndpointURL
+	}
 	if req.MaxAttempts != nil {
 		job.MaxAttempts = *req.MaxAttempts
 	}
@@ -231,6 +243,13 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled
+	}
+
+	if job.FallbackEndpointURL != "" {
+		if err := validateURL(job.FallbackEndpointURL); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
+			return
+		}
 	}
 
 	if err := s.store.UpdateJob(r.Context(), job); err != nil {

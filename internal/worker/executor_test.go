@@ -633,6 +633,84 @@ func TestExecutor_SmartRetryDisabled_ClientErrorStillRetries(t *testing.T) {
 	}
 }
 
+func TestExecutor_Fallback_TransientErrorUsesFallbackEndpoint(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("rate limited"))
+	}))
+	defer primary.Close()
+
+	fallbackCalled := atomic.Int32{}
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fallbackCalled.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"source":"fallback"}`))
+	}))
+	defer fallback.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob(primary.URL, 2, 5)
+		job.FallbackEndpointURL = fallback.URL
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, primary.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if fallbackCalled.Load() != 1 {
+		t.Fatalf("fallback call count = %d, want 1", fallbackCalled.Load())
+	}
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("bad request"))
+	}))
+	defer primary.Close()
+
+	fallbackCalled := atomic.Int32{}
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fallbackCalled.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"source":"fallback"}`))
+	}))
+	defer fallback.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob(primary.URL, 1, 5)
+		job.FallbackEndpointURL = fallback.URL
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, primary.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if fallbackCalled.Load() != 0 {
+		t.Fatalf("fallback call count = %d, want 0", fallbackCalled.Load())
+	}
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusFailed {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	}
+}
+
 func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

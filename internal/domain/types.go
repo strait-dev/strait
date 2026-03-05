@@ -47,6 +47,7 @@ type Job struct {
 	Cron                string          `json:"cron,omitempty"`
 	PayloadSchema       json.RawMessage `json:"payload_schema,omitempty"`
 	EndpointURL         string          `json:"endpoint_url"`
+	FallbackEndpointURL string          `json:"fallback_endpoint_url,omitempty"`
 	MaxAttempts         int             `json:"max_attempts"`
 	TimeoutSecs         int             `json:"timeout_secs"`
 	MaxConcurrency      int             `json:"max_concurrency,omitempty"`
@@ -188,21 +189,22 @@ type APIKey struct {
 }
 
 type JobVersion struct {
-	ID            string          `json:"id"`
-	JobID         string          `json:"job_id"`
-	Version       int             `json:"version"`
-	Name          string          `json:"name"`
-	Slug          string          `json:"slug"`
-	Description   string          `json:"description,omitempty"`
-	Cron          string          `json:"cron,omitempty"`
-	PayloadSchema json.RawMessage `json:"payload_schema,omitempty"`
-	EndpointURL   string          `json:"endpoint_url"`
-	MaxAttempts   int             `json:"max_attempts"`
-	TimeoutSecs   int             `json:"timeout_secs"`
-	WebhookURL    string          `json:"webhook_url,omitempty"`
-	WebhookSecret string          `json:"webhook_secret,omitempty"`
-	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
+	ID                  string          `json:"id"`
+	JobID               string          `json:"job_id"`
+	Version             int             `json:"version"`
+	Name                string          `json:"name"`
+	Slug                string          `json:"slug"`
+	Description         string          `json:"description,omitempty"`
+	Cron                string          `json:"cron,omitempty"`
+	PayloadSchema       json.RawMessage `json:"payload_schema,omitempty"`
+	EndpointURL         string          `json:"endpoint_url"`
+	FallbackEndpointURL string          `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts         int             `json:"max_attempts"`
+	TimeoutSecs         int             `json:"timeout_secs"`
+	WebhookURL          string          `json:"webhook_url,omitempty"`
+	WebhookSecret       string          `json:"webhook_secret,omitempty"`
+	RunTTLSecs          int             `json:"run_ttl_secs,omitempty"`
+	CreatedAt           time.Time       `json:"created_at"`
 }
 
 func (s RunStatus) IsTerminal() bool {

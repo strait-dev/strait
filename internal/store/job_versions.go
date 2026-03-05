@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
 
 	"github.com/jackc/pgx/v5"
@@ -18,8 +19,8 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 
 	query := `
 		INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
-			endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING created_at`
 
 	var desc, cronStr, webhookURL, webhookSecret *string
@@ -46,7 +47,7 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 
 	return q.db.QueryRow(ctx, query,
 		v.ID, v.JobID, v.Version, v.Name, v.Slug, desc, cronStr, payloadSchema,
-		v.EndpointURL, v.MaxAttempts, v.TimeoutSecs, webhookURL, webhookSecret, runTTL,
+		v.EndpointURL, dbscan.NilIfEmptyString(v.FallbackEndpointURL), v.MaxAttempts, v.TimeoutSecs, webhookURL, webhookSecret, runTTL,
 	).Scan(&v.CreatedAt)
 }
 
@@ -56,7 +57,7 @@ func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string) ([]dom
 
 	query := `
 		SELECT id, job_id, version, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
+		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
 		FROM job_versions
 		WHERE job_id = $1
 		ORDER BY version DESC`
@@ -84,7 +85,7 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 
 	query := `
 		SELECT id, job_id, version, name, slug, description, cron, payload_schema,
-		       endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
+		       endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
 		FROM job_versions
 		WHERE job_id = $1 AND version = $2`
 
@@ -101,13 +102,14 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	var v domain.JobVersion
 	var description, cronStr, webhookURL, webhookSecret *string
+	var fallbackEndpointURL *string
 	var payloadSchema []byte
 	var runTTLSecs *int
 
 	err := scanner.Scan(
 		&v.ID, &v.JobID, &v.Version, &v.Name, &v.Slug,
 		&description, &cronStr, &payloadSchema,
-		&v.EndpointURL, &v.MaxAttempts, &v.TimeoutSecs,
+		&v.EndpointURL, &fallbackEndpointURL, &v.MaxAttempts, &v.TimeoutSecs,
 		&webhookURL, &webhookSecret, &runTTLSecs,
 		&v.CreatedAt,
 	)
@@ -122,6 +124,9 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	}
 	if payloadSchema != nil {
 		v.PayloadSchema = json.RawMessage(payloadSchema)
+	}
+	if fallbackEndpointURL != nil {
+		v.FallbackEndpointURL = *fallbackEndpointURL
 	}
 	if webhookURL != nil {
 		v.WebhookURL = *webhookURL

@@ -425,6 +425,21 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 
 	result, err := e.dispatch(execCtx, job, run)
 	if err != nil {
+		if job.FallbackEndpointURL != "" {
+			errClass := classifyError(err)
+			if shouldUseFallbackForClass(errClass) {
+				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run)
+				if fallbackErr == nil {
+					e.handleSuccess(ctx, run, job, fallbackResult)
+					return
+				}
+				err = errors.Join(
+					fmt.Errorf("primary dispatch failed: %w", err),
+					fmt.Errorf("fallback dispatch failed: %w", fallbackErr),
+				)
+			}
+		}
+
 		if execCtx.Err() == context.DeadlineExceeded {
 			e.handleTimeout(ctx, run, job)
 		} else {
@@ -446,12 +461,17 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}()
 
+	return e.dispatchToEndpoint(ctx, job.EndpointURL, run)
+}
+
+func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun) (json.RawMessage, error) {
+
 	var body io.Reader
 	if len(run.Payload) > 0 {
 		body = bytes.NewReader(run.Payload)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, job.EndpointURL, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
@@ -564,6 +584,15 @@ func shouldRetryForClass(errClass string) bool {
 		return false
 	default:
 		return true
+	}
+}
+
+func shouldUseFallbackForClass(errClass string) bool {
+	switch errClass {
+	case "transient", "rate_limited":
+		return true
+	default:
+		return false
 	}
 }
 
