@@ -299,6 +299,42 @@ func TestDequeueN_RespectsNextRetryAt(t *testing.T) {
 	}
 }
 
+func TestDequeueN_RespectsMaxConcurrency(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-n-max-concurrency")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max_concurrency error = %v", err)
+	}
+
+	active := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Status:    domain.StatusExecuting,
+		Attempt:   1,
+	}
+	if err := st.CreateRun(ctx, active); err != nil {
+		t.Fatalf("CreateRun() active error = %v", err)
+	}
+
+	candidate := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, candidate); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 0 {
+		t.Fatalf("DequeueN() len = %d, want 0", len(dequeued))
+	}
+}
+
 func mustQueue(t *testing.T) *queue.PostgresQueue {
 	t.Helper()
 

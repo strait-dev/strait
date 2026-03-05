@@ -95,13 +95,22 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
 		WHERE id = (
-			SELECT id
-			FROM job_runs
-			WHERE status = '%s'
-			  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
-			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-			ORDER BY priority DESC, created_at ASC
-			FOR UPDATE SKIP LOCKED
+			SELECT jr.id
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			WHERE jr.status = '%s'
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (
+				j.max_concurrency IS NULL OR (
+					SELECT COUNT(*)
+					FROM job_runs active
+					WHERE active.job_id = jr.job_id
+					  AND active.status IN ('dequeued', 'executing')
+				) < j.max_concurrency
+			  )
+			ORDER BY jr.priority DESC, jr.created_at ASC
+			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT 1
 		)
 		RETURNING id, job_id, project_id, status, attempt, payload, result, error,
@@ -125,13 +134,22 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 
 	query := fmt.Sprintf(`
 		WITH claimed AS (
-			SELECT id
-			FROM job_runs
-			WHERE status = '%s'
-			  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
-			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-			ORDER BY priority DESC, created_at ASC
-			FOR UPDATE SKIP LOCKED
+			SELECT jr.id
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			WHERE jr.status = '%s'
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (
+				j.max_concurrency IS NULL OR (
+					SELECT COUNT(*)
+					FROM job_runs active
+					WHERE active.job_id = jr.job_id
+					  AND active.status IN ('dequeued', 'executing')
+				) < j.max_concurrency
+			  )
+			ORDER BY jr.priority DESC, jr.created_at ASC
+			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT $1
 		), updated AS (
 			UPDATE job_runs
