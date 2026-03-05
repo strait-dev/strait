@@ -144,6 +144,8 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newWorkflowRunsCommand(state))
 	cmd.AddCommand(newAPIKeysCommand(state))
 	cmd.AddCommand(newStatsCommand(state))
+	cmd.AddCommand(newAPICommand(state))
+	cmd.AddCommand(newWaitCommand(state))
 
 	cmd.SetArgs(normalizeLegacyArgs(os.Args[1:]))
 
@@ -173,6 +175,8 @@ func normalizeLegacyArgs(args []string) []string {
 		"workflow-runs": {},
 		"api-keys":      {},
 		"stats":         {},
+		"api":           {},
+		"wait":          {},
 		"help":          {},
 	}
 
