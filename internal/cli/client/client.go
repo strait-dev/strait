@@ -96,6 +96,12 @@ type APIKeyCreateResponse struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type QueueStats struct {
+	Queued    int `json:"queued"`
+	Executing int `json:"executing"`
+	Delayed   int `json:"delayed"`
+}
+
 func New(baseURL, apiKey string, timeout time.Duration) (*Client, error) {
 	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if trimmed == "" {
@@ -145,6 +151,10 @@ func (c *Client) CreateJob(ctx context.Context, req CreateJobRequest) (*domain.J
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) DeleteJob(ctx context.Context, id string) error {
+	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/jobs", id), nil, nil, nil)
 }
 
 func (c *Client) TriggerJob(ctx context.Context, jobID string, req TriggerJobRequest, idempotencyKey string) (*TriggerJobResponse, error) {
@@ -321,6 +331,14 @@ func (c *Client) ListAPIKeys(ctx context.Context, projectID string) ([]domain.AP
 
 func (c *Client) RevokeAPIKey(ctx context.Context, keyID string) error {
 	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/api-keys", keyID), nil, nil, &map[string]string{})
+}
+
+func (c *Client) Stats(ctx context.Context) (*QueueStats, error) {
+	var out QueueStats
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/stats", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, query url.Values, body any, out any) error {
