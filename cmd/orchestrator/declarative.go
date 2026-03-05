@@ -309,32 +309,92 @@ func applyManifest(ctx context.Context, cli *client.Client, m manifest) (map[str
 
 	switch kind {
 	case "job":
+		slug := getSlugOrName(m.Spec, name)
+		existing, err := findExistingJob(ctx, cli, getString(m.Spec, "project_id"), slug, name)
+		if err != nil {
+			return nil, err
+		}
+
 		req := client.CreateJobRequest{
 			ProjectID:   getString(m.Spec, "project_id"),
 			Name:        name,
-			Slug:        getSlugOrName(m.Spec, name),
+			Slug:        slug,
 			Description: getString(m.Spec, "description"),
 			Cron:        getString(m.Spec, "cron"),
 			EndpointURL: getString(m.Spec, "endpoint_url"),
 			MaxAttempts: getIntDefault(m.Spec, "max_attempts", 3),
 			TimeoutSecs: getIntDefault(m.Spec, "timeout_secs", 60),
+			RunTTLSecs:  getIntDefault(m.Spec, "run_ttl_secs", 0),
 		}
+
+		if existing != nil {
+			nameVal := req.Name
+			slugVal := req.Slug
+			descVal := req.Description
+			cronVal := req.Cron
+			endpointVal := req.EndpointURL
+			maxAttemptsVal := req.MaxAttempts
+			timeoutSecsVal := req.TimeoutSecs
+			runTTLVal := req.RunTTLSecs
+
+			upd := client.UpdateJobRequest{
+				Name:        &nameVal,
+				Slug:        &slugVal,
+				Description: &descVal,
+				Cron:        &cronVal,
+				EndpointURL: &endpointVal,
+				MaxAttempts: &maxAttemptsVal,
+				TimeoutSecs: &timeoutSecsVal,
+				RunTTLSecs:  &runTTLVal,
+			}
+			job, updateErr := cli.UpdateJob(ctx, existing.ID, upd)
+			if updateErr != nil {
+				return nil, updateErr
+			}
+			return map[string]any{"action": "updated", "kind": "Job", "name": name, "id": job.ID}, nil
+		}
+
 		job, err := cli.CreateJob(ctx, req)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"action": "created", "kind": "Job", "name": name, "id": job.ID}, nil
 	case "workflow":
+		slug := getSlugOrName(m.Spec, name)
+		existing, err := findExistingWorkflow(ctx, cli, getString(m.Spec, "project_id"), slug, name)
+		if err != nil {
+			return nil, err
+		}
+
 		req := client.CreateWorkflowRequest{
 			ProjectID:   getString(m.Spec, "project_id"),
 			Name:        name,
-			Slug:        getSlugOrName(m.Spec, name),
+			Slug:        slug,
 			Description: getString(m.Spec, "description"),
 		}
 		if rawSteps, ok := m.Spec["steps"]; ok {
 			raw, _ := json.Marshal(rawSteps)
 			_ = json.Unmarshal(raw, &req.Steps)
 		}
+
+		if existing != nil {
+			steps := req.Steps
+			nameVal := req.Name
+			slugVal := req.Slug
+			descVal := req.Description
+			upd := client.UpdateWorkflowRequest{
+				Name:        &nameVal,
+				Slug:        &slugVal,
+				Description: &descVal,
+				Steps:       &steps,
+			}
+			wf, updateErr := cli.UpdateWorkflow(ctx, existing.ID, upd)
+			if updateErr != nil {
+				return nil, updateErr
+			}
+			return map[string]any{"action": "updated", "kind": "Workflow", "name": name, "id": wf.ID}, nil
+		}
+
 		wf, err := cli.CreateWorkflow(ctx, req)
 		if err != nil {
 			return nil, err
@@ -357,6 +417,36 @@ func applyManifest(ctx context.Context, cli *client.Client, m manifest) (map[str
 	default:
 		return nil, fmt.Errorf("unsupported kind %q", m.Kind)
 	}
+}
+
+type manifestResourceRef struct {
+	ID string
+}
+
+func findExistingJob(ctx context.Context, cli *client.Client, projectID, slug, name string) (*manifestResourceRef, error) {
+	jobs, err := cli.ListJobs(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, job := range jobs {
+		if job.Slug == slug || job.Name == name {
+			return &manifestResourceRef{ID: job.ID}, nil
+		}
+	}
+	return nil, nil
+}
+
+func findExistingWorkflow(ctx context.Context, cli *client.Client, projectID, slug, name string) (*manifestResourceRef, error) {
+	workflows, err := cli.ListWorkflows(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, wf := range workflows {
+		if wf.Slug == slug || wf.Name == name {
+			return &manifestResourceRef{ID: wf.ID}, nil
+		}
+	}
+	return nil, nil
 }
 
 func diffManifest(ctx context.Context, cli *client.Client, state *appState, m manifest) (string, error) {

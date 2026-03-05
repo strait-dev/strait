@@ -34,6 +34,19 @@ type CreateJobRequest struct {
 	Schema      json.RawMessage `json:"payload_schema,omitempty"`
 }
 
+type UpdateJobRequest struct {
+	Name        *string          `json:"name,omitempty"`
+	Slug        *string          `json:"slug,omitempty"`
+	Description *string          `json:"description,omitempty"`
+	Cron        *string          `json:"cron,omitempty"`
+	EndpointURL *string          `json:"endpoint_url,omitempty"`
+	MaxAttempts *int             `json:"max_attempts,omitempty"`
+	TimeoutSecs *int             `json:"timeout_secs,omitempty"`
+	RunTTLSecs  *int             `json:"run_ttl_secs,omitempty"`
+	Enabled     *bool            `json:"enabled,omitempty"`
+	Schema      *json.RawMessage `json:"payload_schema,omitempty"`
+}
+
 type TriggerJobRequest struct {
 	Payload     json.RawMessage `json:"payload,omitempty"`
 	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
@@ -66,6 +79,14 @@ type CreateWorkflowRequest struct {
 	Description string                `json:"description,omitempty"`
 	Enabled     *bool                 `json:"enabled,omitempty"`
 	Steps       []WorkflowStepRequest `json:"steps,omitempty"`
+}
+
+type UpdateWorkflowRequest struct {
+	Name        *string                `json:"name,omitempty"`
+	Slug        *string                `json:"slug,omitempty"`
+	Description *string                `json:"description,omitempty"`
+	Enabled     *bool                  `json:"enabled,omitempty"`
+	Steps       *[]WorkflowStepRequest `json:"steps,omitempty"`
 }
 
 type WorkflowResponse struct {
@@ -155,6 +176,14 @@ func (c *Client) CreateJob(ctx context.Context, req CreateJobRequest) (*domain.J
 
 func (c *Client) DeleteJob(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/jobs", id), nil, nil, nil)
+}
+
+func (c *Client) UpdateJob(ctx context.Context, id string, req UpdateJobRequest) (*domain.Job, error) {
+	var out domain.Job
+	if err := c.doJSON(ctx, http.MethodPatch, path.Join("/v1/jobs", id), nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *Client) TriggerJob(ctx context.Context, jobID string, req TriggerJobRequest, idempotencyKey string) (*TriggerJobResponse, error) {
@@ -256,6 +285,14 @@ func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*WorkflowR
 func (c *Client) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (*WorkflowResponse, error) {
 	var out WorkflowResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/v1/workflows", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) UpdateWorkflow(ctx context.Context, id string, req UpdateWorkflowRequest) (*WorkflowResponse, error) {
+	var out WorkflowResponse
+	if err := c.doJSON(ctx, http.MethodPatch, path.Join("/v1/workflows", id), nil, req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
