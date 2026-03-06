@@ -19,6 +19,7 @@ func TestRootCommand_HasExpectedSubcommands(t *testing.T) {
 		"wait", "docs", "logs", "events", "verify", "diagnose",
 		"top", "tui", "validate", "apply", "diff", "export",
 		"db", "run", "send", "secrets", "fixtures",
+		"check", "cleanup", "extension",
 	}
 
 	subs := make(map[string]bool)

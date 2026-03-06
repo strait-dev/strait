@@ -50,7 +50,7 @@ func newTUICommand(state *appState) *cobra.Command {
 			header := tview.NewTextView().
 				SetDynamicColors(true).
 				SetWrap(true).
-				SetText("[::b]Orchestrator TUI[::-]  [yellow]Tab[-]:cycle focus  [yellow]r[-]:refresh  [yellow]q[-]:quit")
+				SetText("[::b]Orchestrator TUI[::-]  [yellow]Tab[-]:focus  [yellow]j/k[-]:nav  [yellow]Enter[-]:inspect  [yellow]r[-]:refresh  [yellow]q[-]:quit")
 
 			statsView := tview.NewTextView().SetDynamicColors(true)
 			statsView.SetBorder(true)
@@ -175,7 +175,7 @@ func newTUICommand(state *appState) *cobra.Command {
 						for i, run := range runs {
 							row := i + 1
 							runsTable.SetCell(row, 0, tview.NewTableCell(run.ID))
-							runsTable.SetCell(row, 1, tview.NewTableCell(string(run.Status)))
+							runsTable.SetCell(row, 1, tview.NewTableCell(tviewStatusColor(run.Status)))
 							runsTable.SetCell(row, 2, tview.NewTableCell(fmt.Sprintf("%d", run.Attempt)))
 							runsTable.SetCell(row, 3, tview.NewTableCell(run.CreatedAt.UTC().Format(time.RFC3339)))
 							rowsByIndex[row] = runRow{ID: run.ID, Status: run.Status}
@@ -236,6 +236,18 @@ func newTUICommand(state *appState) *cobra.Command {
 				case 'r':
 					_ = refresh()
 					return nil
+				case 'j':
+					row, col := runsTable.GetSelection()
+					if row < runsTable.GetRowCount()-1 {
+						runsTable.Select(row+1, col)
+					}
+					return nil
+				case 'k':
+					row, col := runsTable.GetSelection()
+					if row > 1 {
+						runsTable.Select(row-1, col)
+					}
+					return nil
 				}
 
 				return event
@@ -260,4 +272,22 @@ func newTUICommand(state *appState) *cobra.Command {
 
 func tcellAttrBold() tcell.AttrMask {
 	return tcell.AttrBold
+}
+
+// tviewStatusColor wraps a run status in tview color tags.
+func tviewStatusColor(status domain.RunStatus) string {
+	switch status {
+	case domain.StatusCompleted:
+		return "[green]" + string(status) + "[-]"
+	case domain.StatusFailed, domain.StatusSystemFailed, domain.StatusCrashed:
+		return "[red]" + string(status) + "[-]"
+	case domain.StatusExecuting, domain.StatusQueued, domain.StatusDequeued:
+		return "[yellow]" + string(status) + "[-]"
+	case domain.StatusDelayed, domain.StatusWaiting:
+		return "[blue]" + string(status) + "[-]"
+	case domain.StatusCanceled, domain.StatusExpired, domain.StatusTimedOut:
+		return "[gray]" + string(status) + "[-]"
+	default:
+		return string(status)
+	}
 }

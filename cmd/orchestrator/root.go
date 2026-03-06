@@ -172,6 +172,8 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newEventsCommand(state))
 	cmd.AddCommand(newVerifyCommand(state))
 	cmd.AddCommand(newDiagnoseCommand(state))
+	cmd.AddCommand(newCheckCommand(state))
+	cmd.AddCommand(newCleanupCommand(state))
 	cmd.AddCommand(newTopCommand(state))
 	cmd.AddCommand(newTUICommand(state))
 	cmd.AddCommand(newValidateCommand(state))
@@ -183,6 +185,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newSendCommand(state))
 	cmd.AddCommand(newSecretsCommand(state))
 	cmd.AddCommand(newFixturesCommand(state))
+	cmd.AddCommand(newExtensionCommand(state))
 
 	rawArgs := os.Args[1:]
 	configPath := extractConfigPath(rawArgs)
