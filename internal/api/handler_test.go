@@ -1254,3 +1254,131 @@ func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
 		t.Fatalf("expected too-many error, got %s", w.Body.String())
 	}
 }
+
+// Job Health Scoring (2.41).
+
+func TestHandleGetJobHealth_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test"}, nil
+		},
+		getJobHealthStatsFn: func(_ context.Context, jobID string, since time.Time) (*store.JobHealthStats, error) {
+			return &store.JobHealthStats{
+				TotalRuns:       100,
+				CompletedRuns:   85,
+				FailedRuns:      10,
+				TimedOutRuns:    3,
+				CrashedRuns:     2,
+				CanceledRuns:    0,
+				SuccessRate:     85.0,
+				AvgDurationSecs: 5.5,
+				P95DurationSecs: 12.3,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobHealthScoring = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health?window=7d", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp JobHealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.JobID != "job-123" {
+		t.Fatalf("job_id = %q, want %q", resp.JobID, "job-123")
+	}
+	if resp.Window != "7d" {
+		t.Fatalf("window = %q, want %q", resp.Window, "7d")
+	}
+	if resp.TotalRuns != 100 {
+		t.Fatalf("total_runs = %d, want %d", resp.TotalRuns, 100)
+	}
+	if resp.SuccessRate != 85.0 {
+		t.Fatalf("success_rate = %f, want %f", resp.SuccessRate, 85.0)
+	}
+}
+
+func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*store.JobHealthStats, error) {
+			return &store.JobHealthStats{TotalRuns: 10, CompletedRuns: 10, SuccessRate: 100.0}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobHealthScoring = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp JobHealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Window != "7d" {
+		t.Fatalf("window = %q, want %q (default)", resp.Window, "7d")
+	}
+}
+
+func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobHealthScoring = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health?window=2w", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "invalid window") {
+		t.Fatalf("expected invalid-window error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleGetJobHealth_NotFound(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return nil, store.ErrJobNotFound
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobHealthScoring = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/missing/health", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleGetJobHealth_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "job health scoring feature is not enabled") {
+		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -585,4 +586,61 @@ func (s *Server) handleBatchDisableJobs(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondJSON(w, http.StatusOK, BatchUpdateResult{Updated: updated})
+}
+
+// JobHealthResponse wraps health stats with the time window.
+type JobHealthResponse struct {
+	JobID  string    `json:"job_id"`
+	Window string    `json:"window"`
+	Since  time.Time `json:"since"`
+	*store.JobHealthStats
+}
+
+func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFJobHealthScoring {
+		respondError(w, http.StatusBadRequest, "job health scoring feature is not enabled")
+		return
+	}
+
+	jobID := chi.URLParam(r, "jobID")
+
+	_, err := s.store.GetJob(r.Context(), jobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			respondError(w, http.StatusNotFound, "job not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get job")
+		return
+	}
+
+	window := r.URL.Query().Get("window")
+	var since time.Time
+	switch window {
+	case "1h":
+		since = time.Now().Add(-time.Hour)
+	case "1d":
+		since = time.Now().Add(-24 * time.Hour)
+	case "30d":
+		since = time.Now().Add(-30 * 24 * time.Hour)
+	case "7d", "":
+		window = "7d"
+		since = time.Now().Add(-7 * 24 * time.Hour)
+	default:
+		respondError(w, http.StatusBadRequest, "invalid window: must be 1h, 1d, 7d, or 30d")
+		return
+	}
+
+	stats, err := s.store.GetJobHealthStats(r.Context(), jobID, since)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to compute health stats")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, JobHealthResponse{
+		JobID:          jobID,
+		Window:         window,
+		Since:          since,
+		JobHealthStats: stats,
+	})
 }

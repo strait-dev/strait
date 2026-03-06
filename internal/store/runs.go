@@ -173,6 +173,54 @@ func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since 
 	return count, nil
 }
 
+// GetJobHealthStats returns aggregated health metrics for a job's runs over a given window.
+func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*JobHealthStats, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobHealthStats")
+	defer span.End()
+
+	query := `
+		SELECT
+			COUNT(*) AS total_runs,
+			COUNT(*) FILTER (WHERE status = 'completed') AS completed_runs,
+			COUNT(*) FILTER (WHERE status = 'failed') AS failed_runs,
+			COUNT(*) FILTER (WHERE status = 'timed_out') AS timed_out_runs,
+			COUNT(*) FILTER (WHERE status IN ('crashed', 'system_failed')) AS crashed_runs,
+			COUNT(*) FILTER (WHERE status = 'canceled') AS canceled_runs,
+			COALESCE(
+				AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL),
+				0
+			) AS avg_duration_secs,
+			COALESCE(
+				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at))) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL),
+				0
+			) AS p95_duration_secs
+		FROM job_runs
+		WHERE job_id = $1
+			AND created_at >= $2
+			AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')`
+
+	stats := &JobHealthStats{}
+	err := q.db.QueryRow(ctx, query, jobID, since).Scan(
+		&stats.TotalRuns,
+		&stats.CompletedRuns,
+		&stats.FailedRuns,
+		&stats.TimedOutRuns,
+		&stats.CrashedRuns,
+		&stats.CanceledRuns,
+		&stats.AvgDurationSecs,
+		&stats.P95DurationSecs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get job health stats: %w", err)
+	}
+
+	if stats.TotalRuns > 0 {
+		stats.SuccessRate = float64(stats.CompletedRuns) / float64(stats.TotalRuns) * 100
+	}
+
+	return stats, nil
+}
+
 func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRunCheckpoint")
 	defer span.End()

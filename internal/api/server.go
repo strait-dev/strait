@@ -87,6 +87,7 @@ type APIStore interface {
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	DeleteJobSecret(ctx context.Context, id string) error
 	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
+	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 }
 
 // Pinger checks service health.
@@ -193,6 +194,7 @@ func (s *Server) routes() chi.Router {
 				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.Get("/versions", s.handleListJobVersions)
 				r.Post("/clone", s.handleCloneJob)
+				r.Get("/health", s.handleGetJobHealth)
 			})
 		})
 

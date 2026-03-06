@@ -101,6 +101,19 @@ type ProjectQuota struct {
 	Timezone         string
 }
 
+// JobHealthStats contains aggregated health metrics for a job.
+type JobHealthStats struct {
+	TotalRuns       int     `json:"total_runs"`
+	CompletedRuns   int     `json:"completed_runs"`
+	FailedRuns      int     `json:"failed_runs"`
+	TimedOutRuns    int     `json:"timed_out_runs"`
+	CrashedRuns     int     `json:"crashed_runs"`
+	CanceledRuns    int     `json:"canceled_runs"`
+	SuccessRate     float64 `json:"success_rate"`
+	AvgDurationSecs float64 `json:"avg_duration_secs"`
+	P95DurationSecs float64 `json:"p95_duration_secs"`
+}
+
 type EventStore interface {
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error)
