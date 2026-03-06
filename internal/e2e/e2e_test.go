@@ -42,16 +42,30 @@ func TestMain(m *testing.M) {
 	}
 
 	testStore = store.New(testEnv.DB.Pool)
+	testStore.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
 	testServer = api.NewServer(&config.Config{
 		InternalSecret:           "test-secret",
 		JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
+		SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
 		RateLimitRequests:        5000,
 		RateLimitWindow:          time.Minute,
 		TriggerRateLimitRequests: 5000,
 		TriggerRateLimitWindow:   time.Minute,
 		CORSAllowedOrigins:       []string{"*"},
 		CORSAllowCredentials:     false,
+		FFJobTags:                true,
+		FFPayloadValidation:      true,
+		FFRunAnnotations:         true,
+		FFSecretInjection:        true,
+		FFRunReplay:              true,
+		FFDryRun:                 true,
+		FFBatchJobOps:            true,
+		FFEnvironments:           true,
+		FFJobGroups:              true,
+		FFJobDependencies:        true,
+		FFJobHealthScoring:       true,
+		FFExecutionTracing:       true,
 	}, testStore, testQueue, nil, nil, nil, nil, nil)
 
 	code := m.Run()
