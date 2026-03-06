@@ -477,48 +477,74 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 		fullURL.RawQuery = query.Encode()
 	}
 
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
-		payload, marshalErr := json.Marshal(body)
+		var marshalErr error
+		bodyBytes, marshalErr = json.Marshal(body)
 		if marshalErr != nil {
 			return marshalErr
 		}
-		bodyReader = bytes.NewReader(payload)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, fullURL.String(), bodyReader)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
+	const maxRetries = 3
+	var lastErr error
 
-	resp, err := c.http.Do(req) //nolint:gosec // endpoint is configured by explicit CLI input and validated in constructor
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		var apiErr map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
-		if msg, ok := apiErr["error"].(string); ok && msg != "" {
-			return fmt.Errorf("request failed (%d): %s", resp.StatusCode, msg)
+	for attempt := range maxRetries {
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
 		}
-		return fmt.Errorf("request failed with status %d", resp.StatusCode)
+
+		req, reqErr := http.NewRequestWithContext(ctx, method, fullURL.String(), bodyReader)
+		if reqErr != nil {
+			return reqErr
+		}
+		req.Header.Set("Accept", "application/json")
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if c.apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, doErr := c.http.Do(req) //nolint:gosec // endpoint is configured by explicit CLI input and validated in constructor
+		if doErr != nil {
+			return doErr
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("request failed with status %d", resp.StatusCode)
+			if attempt < maxRetries-1 {
+				backoff := time.Duration(1<<uint(attempt)) * time.Second // 1s, 2s, 4s
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(backoff):
+				}
+			}
+			continue
+		}
+
+		defer resp.Body.Close() //nolint:gocritic // only reached on non-retry path
+
+		if resp.StatusCode >= http.StatusBadRequest {
+			var apiErr map[string]any
+			_ = json.NewDecoder(resp.Body).Decode(&apiErr)
+			if msg, ok := apiErr["error"].(string); ok && msg != "" {
+				return fmt.Errorf("request failed (%d): %s", resp.StatusCode, msg)
+			}
+			return fmt.Errorf("request failed with status %d", resp.StatusCode)
+		}
+
+		if out == nil {
+			return nil
+		}
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
 
-	if out == nil {
-		return nil
-	}
-
-	return json.NewDecoder(resp.Body).Decode(out)
+	return lastErr
 }
