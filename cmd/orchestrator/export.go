@@ -38,11 +38,9 @@ func newExportCommand(state *appState) *cobra.Command {
 		Args:      cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resource := strings.ToLower(strings.TrimSpace(args[0]))
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)

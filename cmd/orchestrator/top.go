@@ -114,11 +114,9 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 			if limit <= 0 {
 				return fmt.Errorf("limit must be greater than zero")
 			}
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required (use --project)")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)

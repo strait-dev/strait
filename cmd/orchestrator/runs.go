@@ -36,11 +36,9 @@ func newRunsListCommand(state *appState) *cobra.Command {
 		Use:   "list",
 		Short: "List runs",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required (use --project)")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)
@@ -124,11 +122,9 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 
 			targetIDs := make([]string, 0)
 			if all {
-				if projectID == "" {
-					projectID = state.opts.projectID
-				}
-				if projectID == "" {
-					return fmt.Errorf("project ID is required for --all")
+				projectID, err = requireProjectID(state, projectID)
+				if err != nil {
+					return err
 				}
 				runs, listErr := cli.ListRuns(cmd.Context(), projectID, status, limit, nil)
 				if listErr != nil {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"sort"
 	"time"
 
@@ -26,18 +25,15 @@ func newLogsCommand(state *appState) *cobra.Command {
 			}
 			ctx := cmd.Context()
 
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-
 			seen := map[string]struct{}{}
 			for {
 				runsToRead := []string{}
 				if runID != "" {
 					runsToRead = append(runsToRead, runID)
 				} else {
-					if projectID == "" {
-						return fmt.Errorf("project is required when --run is not provided")
+					projectID, err = requireProjectID(state, projectID)
+					if err != nil {
+						return err
 					}
 					runs, listErr := cli.ListRuns(ctx, projectID, "", 20, nil)
 					if listErr != nil {

@@ -27,11 +27,9 @@ status. Use --dry-run to preview what would be removed.`,
   orchestrator cleanup --runs-older-than 720h --yes
   orchestrator cleanup --runs-older-than 168h --status failed --yes`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required (use --project)")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 			if olderThan <= 0 {
 				return fmt.Errorf("--runs-older-than is required and must be positive")

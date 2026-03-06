@@ -92,11 +92,9 @@ func newWorkflowRunsListCommand(state *appState) *cobra.Command {
 		Use:   "list",
 		Short: "List workflow runs",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)

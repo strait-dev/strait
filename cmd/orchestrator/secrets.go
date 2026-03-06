@@ -41,11 +41,9 @@ func newSecretsCreateCommand(state *appState) *cobra.Command {
 		Short: "Create or update a secret value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			name := strings.TrimSpace(args[0])
@@ -89,11 +87,9 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 		Use:   "list",
 		Short: "List secret names for a project",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			cfg := state.config
@@ -129,11 +125,9 @@ func newSecretsDeleteCommand(state *appState) *cobra.Command {
 			if err := requireConfirmation(state, "Delete this secret?", yes); err != nil {
 				return err
 			}
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			name := strings.TrimSpace(args[0])
@@ -141,7 +135,7 @@ func newSecretsDeleteCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("secret name is required")
 			}
 
-			err := keyring.Delete(secretServiceName, secretKey(projectID, name))
+			err = keyring.Delete(secretServiceName, secretKey(projectID, name))
 			if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 				return err
 			}

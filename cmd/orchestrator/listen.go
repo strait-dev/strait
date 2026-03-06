@@ -27,11 +27,9 @@ Deduplicates by run ID so each run appears only once (or when status changes).`,
   orchestrator listen --project proj_1 --status executing
   orchestrator listen --interval 3s`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" {
-				projectID = state.opts.projectID
-			}
-			if projectID == "" {
-				return fmt.Errorf("project ID is required (use --project)")
+			projectID, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)

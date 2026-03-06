@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"orchestrator/internal/cli/client"
@@ -29,9 +28,9 @@ func newFixturesCreateCommand(state *appState) *cobra.Command {
 		Use:   "create",
 		Short: "Create fixture data",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID := state.opts.projectID
-			if projectID == "" {
-				return fmt.Errorf("project ID is required")
+			projectID, err := requireProjectID(state, "")
+			if err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)
@@ -100,9 +99,9 @@ func newFixturesCleanCommand(state *appState) *cobra.Command {
 		Use:   "clean",
 		Short: "Remove fixture jobs",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			projectID := state.opts.projectID
-			if projectID == "" {
-				return fmt.Errorf("project ID is required")
+			projectID, err := requireProjectID(state, "")
+			if err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)
