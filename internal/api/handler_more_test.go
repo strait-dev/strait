@@ -1316,3 +1316,102 @@ func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 		t.Errorf("status = %d, want 500", w.Code)
 	}
 }
+
+func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
+	tests := []struct {
+		name     string
+		priority int
+	}{
+		{"zero_priority", 0},
+		{"mid_priority", 5},
+		{"max_priority", 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+				if run.Priority != tt.priority {
+					t.Errorf("priority = %d, want %d", run.Priority, tt.priority)
+				}
+				return nil
+			}}
+			ms := &mockAPIStore{
+				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+					return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+				},
+			}
+			srv := newTestServer(t, ms, mq, nil)
+			body := fmt.Sprintf(`{"payload":{},"priority":%d}`, tt.priority)
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, r)
+			if w.Code != http.StatusCreated {
+				t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":11}`)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "priority must be between 0 and 10") {
+		t.Errorf("body = %s, want priority error message", w.Body.String())
+	}
+}
+
+func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":-1}`)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
+	tests := []struct {
+		name       string
+		priority   int
+		wantStatus int
+	}{
+		{"negative_one", -1, http.StatusBadRequest},
+		{"zero", 0, http.StatusCreated},
+		{"ten", 10, http.StatusCreated},
+		{"eleven", 11, http.StatusBadRequest},
+		{"large_negative", -100, http.StatusBadRequest},
+		{"large_positive", 999, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := &mockAPIStore{
+				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+					return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+				},
+			}
+			srv := newTestServer(t, ms, &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}, nil)
+			body := fmt.Sprintf(`{"payload":{},"priority":%d}`, tt.priority)
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, r)
+			if w.Code != tt.wantStatus {
+				t.Errorf("[priority=%d] status = %d, want %d; body: %s", tt.priority, w.Code, tt.wantStatus, w.Body.String())
+			}
+		})
+	}
+}

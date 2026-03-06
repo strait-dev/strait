@@ -628,6 +628,119 @@ func TestStepCallback_OnJobRunTerminal_GetStepRunError(t *testing.T) {
 	}
 }
 
+func TestStepCallback_OnJobRunTerminal_UpdateStepRunStatusErrorWrapped(t *testing.T) {
+	baseErr := errors.New("write failed")
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepRunning}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return baseErr
+		},
+	}
+
+	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "update step run terminal status") {
+		t.Errorf("error = %v, want update step context", err)
+	}
+	if !errors.Is(err, baseErr) {
+		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
+	}
+}
+
+func TestStepCallback_OnJobRunTerminal_CheckStepRetryErrorWrapped(t *testing.T) {
+	baseErr := errors.New("workflow lookup failed")
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Attempt: 1, Status: domain.StepRunning}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return nil, baseErr
+		},
+	}
+
+	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "check step retry") {
+		t.Errorf("error = %v, want check step retry context", err)
+	}
+	if !errors.Is(err, baseErr) {
+		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
+	}
+}
+
+func TestStepCallback_OnJobRunTerminal_ProcessCompletedStepErrorWrapped(t *testing.T) {
+	baseErr := errors.New("deps update failed")
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepRunning}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, baseErr
+		},
+	}
+
+	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "process completed step s1") {
+		t.Errorf("error = %v, want process completed step context", err)
+	}
+	if !errors.Is(err, baseErr) {
+		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
+	}
+}
+
+func TestStepCallback_OnJobRunTerminal_ProcessFailedStepErrorWrapped(t *testing.T) {
+	baseErr := errors.New("get workflow run failed")
+	getWorkflowRunCalls := 0
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Attempt: 1, Status: domain.StepRunning}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			getWorkflowRunCalls++
+			if getWorkflowRunCalls == 1 {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusRunning}, nil
+			}
+			return nil, baseErr
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "s1", RetryMaxAttempts: 0, OnFailure: domain.FailWorkflow}}, nil
+		},
+	}
+
+	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "process failed step s1") {
+		t.Errorf("error = %v, want process failed step context", err)
+	}
+	if !errors.Is(err, baseErr) {
+		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
+	}
+}
+
 func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 	startCalls := 0
 	ms := &mockCallbackStore{

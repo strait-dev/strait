@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -314,6 +315,85 @@ func TestConsumerRunContinuesAfterRecoverableError(t *testing.T) {
 
 	if calls.Load() < 2 {
 		t.Fatalf("receive calls = %d, want at least 2", calls.Load())
+	}
+}
+
+func TestConsumer_ProcessMessages_AckError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/c-ack/receive":
+			_, _ = w.Write([]byte(`{"data":[{"ack_id":"a1","record":{"id":1},"action":"insert","metadata":{"table_name":"job_runs"}}]}`))
+		case "/api/http_pull_consumers/c-ack/ack":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("ack failed"))
+		case "/api/http_pull_consumers/c-ack/nack":
+			t.Fatal("nack should not be called")
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(NewClient(ts.URL, "c-ack", "token"), ConsumerConfig{ConsumerName: "c-ack", BatchSize: 10, WaitTimeMs: 1}, slog.Default())
+	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return nil }})
+
+	err := consumer.poll(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "ack cdc messages") {
+		t.Errorf("error = %v, want ack context", err)
+	}
+}
+
+func TestConsumerPoll_ReceiveErrorWrapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/c-receive/receive":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("receive failed"))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(NewClient(ts.URL, "c-receive", "token"), ConsumerConfig{ConsumerName: "c-receive", BatchSize: 10, WaitTimeMs: 1}, slog.Default())
+
+	err := consumer.poll(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "receive cdc messages") {
+		t.Errorf("error = %v, want receive context", err)
+	}
+}
+
+func TestConsumerPoll_NackErrorWrapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/c-nack/receive":
+			_, _ = w.Write([]byte(`{"data":[{"ack_id":"a1","record":{"id":1},"action":"update","metadata":{"table_name":"job_runs"}}]}`))
+		case "/api/http_pull_consumers/c-nack/ack":
+			t.Fatal("ack should not be called")
+		case "/api/http_pull_consumers/c-nack/nack":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("nack failed"))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(NewClient(ts.URL, "c-nack", "token"), ConsumerConfig{ConsumerName: "c-nack", BatchSize: 10, WaitTimeMs: 1}, slog.Default())
+	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return errors.New("boom") }})
+
+	err := consumer.poll(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "nack cdc messages") {
+		t.Errorf("error = %v, want nack context", err)
 	}
 }
 
