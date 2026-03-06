@@ -48,6 +48,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.CreatedAt,
 		&workflowStepRunID,
 		&executionTrace,
+		&run.DebugMode,
 	)
 	if err != nil {
 		return nil, err

@@ -1776,3 +1776,254 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 		t.Fatalf("expected API_URL variable, got %v", resp["variables"]["API_URL"])
 	}
 }
+
+// Phase C: Execution Replay/Debug tests.
+
+func TestHandleGetDebugBundle_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		getDebugBundleFn: func(_ context.Context, runID string) (*domain.DebugBundle, error) {
+			if runID != "run-1" {
+				t.Fatalf("unexpected runID: %s", runID)
+			}
+			return &domain.DebugBundle{
+				Run:         &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted},
+				Events:      []domain.RunEvent{{ID: "evt-1", RunID: "run-1", Message: "started"}},
+				Checkpoints: []domain.RunCheckpoint{{ID: "cp-1", RunID: "run-1", Sequence: 1}},
+				Usage:       []domain.RunUsage{},
+				ToolCalls:   []domain.RunToolCall{},
+				Outputs:     []domain.RunOutput{},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFDebugBundle = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var bundle domain.DebugBundle
+	if err := json.Unmarshal(w.Body.Bytes(), &bundle); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if bundle.Run.ID != "run-1" {
+		t.Fatalf("expected run-1, got %s", bundle.Run.ID)
+	}
+	if len(bundle.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(bundle.Events))
+	}
+	if len(bundle.Checkpoints) != 1 {
+		t.Fatalf("expected 1 checkpoint, got %d", len(bundle.Checkpoints))
+	}
+}
+
+func TestHandleGetDebugBundle_FeatureDisabled(t *testing.T) {
+	ms := &mockAPIStore{
+		getDebugBundleFn: func(_ context.Context, _ string) (*domain.DebugBundle, error) {
+			t.Fatal("GetDebugBundle should not be called when FFDebugBundle is disabled")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
+	ms := &mockAPIStore{
+		getDebugBundleFn: func(_ context.Context, _ string) (*domain.DebugBundle, error) {
+			return nil, store.ErrRunNotFound
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFDebugBundle = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSetDebugMode_Success(t *testing.T) {
+	var calledRunID string
+	var calledDebugMode bool
+	ms := &mockAPIStore{
+		updateRunDebugModeFn: func(_ context.Context, runID string, debugMode bool) error {
+			calledRunID = runID
+			calledDebugMode = debugMode
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFDebugBundle = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if calledRunID != "run-1" {
+		t.Fatalf("expected run-1, got %s", calledRunID)
+	}
+	if !calledDebugMode {
+		t.Fatal("expected debug_mode to be true")
+	}
+}
+
+func TestHandleSetDebugMode_FeatureDisabled(t *testing.T) {
+	ms := &mockAPIStore{
+		updateRunDebugModeFn: func(_ context.Context, _ string, _ bool) error {
+			t.Fatal("UpdateRunDebugMode should not be called when FFDebugBundle is disabled")
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
+	ms := &mockAPIStore{
+		updateRunDebugModeFn: func(_ context.Context, _ string, _ bool) error {
+			return store.ErrRunNotFound
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFDebugBundle = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
+	var enqueuedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        "run-1",
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusFailed,
+				Payload:   json.RawMessage(`{"original":true}`),
+			}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
+		},
+		listRunCheckpointsFn: func(_ context.Context, runID string, _ int) ([]domain.RunCheckpoint, error) {
+			if runID != "run-1" {
+				t.Fatalf("unexpected runID: %s", runID)
+			}
+			return []domain.RunCheckpoint{
+				{ID: "cp-1", RunID: "run-1", Sequence: 1, State: json.RawMessage(`{"step":1}`)},
+				{ID: "cp-2", RunID: "run-1", Sequence: 2, State: json.RawMessage(`{"step":2}`)},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedRun = run
+			return nil
+		},
+	}, nil)
+	srv.config.FFRunReplay = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=2", ""))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueuedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if string(enqueuedRun.Payload) != `{"step":2}` {
+		t.Fatalf("expected checkpoint state as payload, got %s", string(enqueuedRun.Payload))
+	}
+	if !enqueuedRun.DebugMode {
+		t.Fatal("expected debug_mode to be true for checkpoint replay")
+	}
+}
+
+func TestHandleReplayRun_CheckpointNotFound(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        "run-1",
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusFailed,
+			}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
+		},
+		listRunCheckpointsFn: func(_ context.Context, _ string, _ int) ([]domain.RunCheckpoint, error) {
+			return []domain.RunCheckpoint{
+				{ID: "cp-1", RunID: "run-1", Sequence: 1, State: json.RawMessage(`{"step":1}`)},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunReplay = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=99", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:     "run-1",
+				JobID:  "job-1",
+				Status: domain.StatusFailed,
+			}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunReplay = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=abc", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

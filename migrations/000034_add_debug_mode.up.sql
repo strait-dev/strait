@@ -1,0 +1,1 @@
+ALTER TABLE job_runs ADD COLUMN debug_mode BOOLEAN NOT NULL DEFAULT false;

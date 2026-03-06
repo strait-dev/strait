@@ -103,6 +103,8 @@ type RunStore interface {
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
+	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
 }
 
 type ProjectQuota struct {

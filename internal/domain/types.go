@@ -132,6 +132,7 @@ type JobRun struct {
 	JobVersion        int               `json:"job_version"`
 	WorkflowStepRunID string            `json:"workflow_step_run_id,omitempty"`
 	ExecutionTrace    *ExecutionTrace   `json:"execution_trace,omitempty"`
+	DebugMode         bool              `json:"debug_mode"`
 	CreatedAt         time.Time         `json:"created_at"`
 }
 
@@ -195,6 +196,16 @@ type ExecutionTrace struct {
 	TransferMs  int64 `json:"transfer_ms"`   // response body transfer time
 	TotalMs     int64 `json:"total_ms"`      // total wall time from dequeue to terminal
 	DispatchMs  int64 `json:"dispatch_ms"`   // HTTP roundtrip time (connect + ttfb + transfer)
+}
+
+// DebugBundle aggregates all debug data for a run.
+type DebugBundle struct {
+	Run         *JobRun         `json:"run"`
+	Events      []RunEvent      `json:"events"`
+	Checkpoints []RunCheckpoint `json:"checkpoints"`
+	Usage       []RunUsage      `json:"usage"`
+	ToolCalls   []RunToolCall   `json:"tool_calls"`
+	Outputs     []RunOutput     `json:"outputs"`
 }
 
 type CircuitState string

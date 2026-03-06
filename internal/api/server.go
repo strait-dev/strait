@@ -99,6 +99,9 @@ type APIStore interface {
 	DeleteJobSecret(ctx context.Context, id string) error
 	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
+	ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error)
 }
 
 // Pinger checks service health.
@@ -250,6 +253,8 @@ func (s *Server) routes() chi.Router {
 				r.Get("/usage", s.handleListRunUsage)
 				r.Get("/tool-calls", s.handleListRunToolCalls)
 				r.Get("/outputs", s.handleListRunOutputs)
+				r.Get("/debug-bundle", s.handleGetDebugBundle)
+				r.Post("/debug", s.handleSetDebugMode)
 			})
 		})
 

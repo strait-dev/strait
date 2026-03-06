@@ -87,6 +87,9 @@ type mockAPIStore struct {
 	deleteJobSecretFn           func(ctx context.Context, id string) error
 	batchUpdateJobsEnabledFn    func(ctx context.Context, ids []string, enabled bool) (int64, error)
 	getJobHealthStatsFn         func(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	getDebugBundleFn            func(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	updateRunDebugModeFn        func(ctx context.Context, runID string, debugMode bool) error
+	listEventsFn                func(ctx context.Context, runID string) ([]domain.RunEvent, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -605,6 +608,27 @@ func (m *mockAPIStore) GetJobHealthStats(ctx context.Context, jobID string, sinc
 		return m.getJobHealthStatsFn(ctx, jobID, since)
 	}
 	return &store.JobHealthStats{}, nil
+}
+
+func (m *mockAPIStore) GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error) {
+	if m.getDebugBundleFn != nil {
+		return m.getDebugBundleFn(ctx, runID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error {
+	if m.updateRunDebugModeFn != nil {
+		return m.updateRunDebugModeFn(ctx, runID, debugMode)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error) {
+	if m.listEventsFn != nil {
+		return m.listEventsFn(ctx, runID)
+	}
+	return nil, nil
 }
 
 // mockQueue implements queue.Queue for testing.

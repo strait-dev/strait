@@ -185,6 +185,36 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	payload := originalRun.Payload
+	debugMode := false
+
+	// Checkpoint-based replay: restore from a specific checkpoint sequence
+	if fromCheckpointRaw := r.URL.Query().Get("from_checkpoint"); fromCheckpointRaw != "" {
+		seq, parseErr := strconv.Atoi(fromCheckpointRaw)
+		if parseErr != nil || seq <= 0 {
+			respondError(w, http.StatusBadRequest, "from_checkpoint must be a positive integer")
+			return
+		}
+		checkpoints, listErr := s.store.ListRunCheckpoints(r.Context(), runID, 1000)
+		if listErr != nil {
+			respondError(w, http.StatusInternalServerError, "failed to list checkpoints")
+			return
+		}
+		var found bool
+		for _, cp := range checkpoints {
+			if cp.Sequence == seq {
+				payload = cp.State
+				found = true
+				break
+			}
+		}
+		if !found {
+			respondError(w, http.StatusNotFound, "checkpoint not found")
+			return
+		}
+		debugMode = true
+	}
+
 	now := time.Now()
 	var expiresAt time.Time
 	if job.RunTTLSecs > 0 {
@@ -197,12 +227,13 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 		JobID:          originalRun.JobID,
 		ProjectID:      originalRun.ProjectID,
 		Attempt:        1,
-		Payload:        originalRun.Payload,
+		Payload:        payload,
 		TriggeredBy:    domain.TriggerManual,
 		Priority:       originalRun.Priority,
 		IdempotencyKey: originalRun.IdempotencyKey,
 		JobVersion:     originalRun.JobVersion,
 		ExpiresAt:      &expiresAt,
+		DebugMode:      debugMode,
 	}
 
 	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
@@ -289,4 +320,52 @@ func (s *Server) handleListChildRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, children)
+}
+
+func (s *Server) handleGetDebugBundle(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFDebugBundle {
+		respondError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	runID := chi.URLParam(r, "runID")
+	bundle, err := s.store.GetDebugBundle(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get debug bundle")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, bundle)
+}
+
+func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFDebugBundle {
+		respondError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		DebugMode bool `json:"debug_mode"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := s.store.UpdateRunDebugMode(r.Context(), runID, req.DebugMode); err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to update debug mode")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
