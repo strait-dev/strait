@@ -59,6 +59,15 @@ func NewReaper(s ReaperStore, interval, staleThreshold time.Duration, workflowCa
 	}
 }
 
+// WithWorkflowRetention sets the retention period for completed workflow runs.
+// Runs older than this duration are purged by the reaper.
+func (r *Reaper) WithWorkflowRetention(d time.Duration) *Reaper {
+	if d > 0 {
+		r.workflowRetention = d
+	}
+	return r
+}
+
 func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
 	if r.workflowCallback == nil {
 		return

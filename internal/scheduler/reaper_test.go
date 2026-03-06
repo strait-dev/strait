@@ -1108,3 +1108,67 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 		}
 	})
 }
+
+func TestReaper_WithWorkflowRetention(t *testing.T) {
+	t.Run("sets_positive_retention", func(t *testing.T) {
+		ms := &mockReaperStore{}
+		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r.WithWorkflowRetention(7 * 24 * time.Hour)
+
+		if r.workflowRetention != 7*24*time.Hour {
+			t.Fatalf("expected 7d retention, got %v", r.workflowRetention)
+		}
+	})
+
+	t.Run("ignores_zero_retention", func(t *testing.T) {
+		ms := &mockReaperStore{}
+		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r.WithWorkflowRetention(0)
+
+		if r.workflowRetention != defaultWorkflowRetention {
+			t.Fatalf("expected default retention, got %v", r.workflowRetention)
+		}
+	})
+
+	t.Run("ignores_negative_retention", func(t *testing.T) {
+		ms := &mockReaperStore{}
+		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r.WithWorkflowRetention(-time.Hour)
+
+		if r.workflowRetention != defaultWorkflowRetention {
+			t.Fatalf("expected default retention, got %v", r.workflowRetention)
+		}
+	})
+
+	t.Run("custom_retention_used_in_reap", func(t *testing.T) {
+		var deletedBefore time.Time
+		var deleteCalls atomic.Int32
+
+		ms := &mockReaperStore{
+			deleteOldWorkflowRunsFn: func(_ context.Context, before time.Time, limit int) (int64, error) {
+				deletedBefore = before
+				deleteCalls.Add(1)
+				if limit != defaultDeleteBatchLimit {
+					t.Fatalf("expected batch limit %d, got %d", defaultDeleteBatchLimit, limit)
+				}
+				return 5, nil
+			},
+		}
+
+		customRetention := 3 * 24 * time.Hour
+		r := NewReaper(ms, time.Second, 30*time.Second, nil).
+			WithWorkflowRetention(customRetention)
+		r.reapOldWorkflowRuns(context.Background())
+
+		if deleteCalls.Load() != 1 {
+			t.Fatalf("expected 1 delete call, got %d", deleteCalls.Load())
+		}
+
+		// The before time should be approximately now - 3 days
+		expectedBefore := time.Now().Add(-customRetention)
+		diff := expectedBefore.Sub(deletedBefore)
+		if diff < -time.Minute || diff > time.Minute {
+			t.Fatalf("expected before time near %v, got %v (diff: %v)", expectedBefore, deletedBefore, diff)
+		}
+	})
+}
