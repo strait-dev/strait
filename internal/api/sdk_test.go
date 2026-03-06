@@ -218,6 +218,7 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	srv.config.FFRunAnnotations = true
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod","region":"eu"}}`)
 
@@ -239,6 +240,7 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	srv.config.FFRunAnnotations = true
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod"}}`)
 
@@ -259,6 +261,125 @@ func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleSDKAnnotate_FeatureDisabled(t *testing.T) {
+	ms := &mockAPIStore{
+		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+			t.Fatal("UpdateRunMetadata should not be called when annotations feature is disabled")
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod"}}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "run annotations feature is not enabled") {
+		t.Fatalf("expected annotations-disabled error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
+	annotations := make(map[string]string)
+	for i := range 51 {
+		annotations[strings.Repeat("k", i+1)] = "v"
+	}
+
+	payload, err := json.Marshal(map[string]any{"annotations": annotations})
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	ms := &mockAPIStore{
+		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	srv.config.FFRunAnnotations = true
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "too many annotations (max 50)") {
+		t.Fatalf("expected too-many-annotations error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"annotations": map[string]string{
+			strings.Repeat("k", 129): "prod",
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	ms := &mockAPIStore{
+		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	srv.config.FFRunAnnotations = true
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "annotation key too long (max 128 characters)") {
+		t.Fatalf("expected key-too-long error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"annotations": map[string]string{
+			"env": strings.Repeat("v", 1025),
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	ms := &mockAPIStore{
+		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
+			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	srv.config.FFRunAnnotations = true
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "annotation value too long (max 1024 characters)") {
+		t.Fatalf("expected value-too-long error, got %s", w.Body.String())
 	}
 }
 

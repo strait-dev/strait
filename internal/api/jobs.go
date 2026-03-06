@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"orchestrator/internal/domain"
@@ -100,6 +101,17 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(req.Tags) > 0 {
+		if !s.config.FFJobTags {
+			respondError(w, http.StatusBadRequest, "job tags feature is not enabled")
+			return
+		}
+		if err := validateTags(req.Tags); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	job := &domain.Job{
 		ProjectID:           req.ProjectID,
 		Name:                req.Name,
@@ -164,6 +176,10 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		err  error
 	)
 	if tagKey != "" {
+		if !s.config.FFJobTags {
+			respondError(w, http.StatusBadRequest, "job tags feature is not enabled")
+			return
+		}
 		jobs, err = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue)
 	} else {
 		jobs, err = s.store.ListJobs(r.Context(), projectID)
@@ -227,6 +243,14 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		job.PayloadSchema = *req.PayloadSchema
 	}
 	if req.Tags != nil {
+		if !s.config.FFJobTags {
+			respondError(w, http.StatusBadRequest, "job tags feature is not enabled")
+			return
+		}
+		if err := validateTags(*req.Tags); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		job.Tags = *req.Tags
 	}
 	if req.EndpointURL != nil {
@@ -300,4 +324,22 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusNoContent, nil)
+}
+
+func validateTags(tags map[string]string) error {
+	if len(tags) > 20 {
+		return fmt.Errorf("too many tags (max 20)")
+	}
+	for key, value := range tags {
+		if key == "" {
+			return fmt.Errorf("tag keys must be non-empty")
+		}
+		if len(key) > 64 {
+			return fmt.Errorf("tag key too long (max 64 characters)")
+		}
+		if len(value) > 256 {
+			return fmt.Errorf("tag value too long (max 256 characters)")
+		}
+	}
+	return nil
 }

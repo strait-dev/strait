@@ -128,6 +128,87 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	}
 }
 
+func TestHandleCreateJob_TagsFeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+
+	body := `{
+		"project_id": "proj-1",
+		"name": "Tagged Job",
+		"slug": "tagged-job",
+		"endpoint_url": "https://example.com/callback",
+		"tags": {"team": "core"}
+	}`
+
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "job tags feature is not enabled") {
+		t.Fatalf("expected disabled-tags error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
+	tags := make(map[string]string)
+	for i := range 21 {
+		tags[strings.Repeat("k", i+1)] = "v"
+	}
+
+	req := map[string]any{
+		"project_id":   "proj-1",
+		"name":         "Tagged Job",
+		"slug":         "tagged-job",
+		"endpoint_url": "https://example.com/callback",
+		"tags":         tags,
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFJobTags = true
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", string(body)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "too many tags (max 20)") {
+		t.Fatalf("expected too-many-tags error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
+	req := map[string]any{
+		"project_id":   "proj-1",
+		"name":         "Tagged Job",
+		"slug":         "tagged-job",
+		"endpoint_url": "https://example.com/callback",
+		"tags": map[string]string{
+			strings.Repeat("k", 65): "core",
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFJobTags = true
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", string(body)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "tag key too long (max 64 characters)") {
+		t.Fatalf("expected key-too-long error, got %s", w.Body.String())
+	}
+}
+
 func TestHandleGetJob_Success(t *testing.T) {
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -222,6 +303,7 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobTags = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
@@ -236,6 +318,19 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 	}
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
+	}
+}
+
+func TestHandleListJobs_FilterByTag_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "job tags feature is not enabled") {
+		t.Fatalf("expected disabled-tags error, got %s", w.Body.String())
 	}
 }
 
@@ -403,6 +498,74 @@ func TestHandleDeleteJob_SoftDelete(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
+		},
+		updateJobFn: func(_ context.Context, _ *domain.Job) error {
+			t.Fatal("UpdateJob should not be called for invalid tags")
+			return nil
+		},
+	}
+
+	req := map[string]any{
+		"tags": map[string]string{
+			"team": strings.Repeat("v", 257),
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobTags = true
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", string(body)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "tag value too long (max 256 characters)") {
+		t.Fatalf("expected value-too-long error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
+		},
+		updateJobFn: func(_ context.Context, _ *domain.Job) error {
+			t.Fatal("UpdateJob should not be called for invalid tags")
+			return nil
+		},
+	}
+
+	req := map[string]any{
+		"tags": map[string]string{
+			"": "core",
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobTags = true
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", string(body)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "tag keys must be non-empty") {
+		t.Fatalf("expected empty-key error, got %s", w.Body.String())
+	}
+}
+
 func TestHandleReplayRun_Success(t *testing.T) {
 	originalPayload := json.RawMessage(`{"k":"v"}`)
 	originalRun := &domain.JobRun{
@@ -428,7 +591,7 @@ func TestHandleReplayRun_Success(t *testing.T) {
 			if id != "job-1" {
 				t.Fatalf("unexpected job id: %s", id)
 			}
-			return &domain.Job{ID: id, TimeoutSecs: 60, RunTTLSecs: 0}, nil
+			return &domain.Job{ID: id, TimeoutSecs: 60, RunTTLSecs: 0, Enabled: true}, nil
 		},
 	}
 
@@ -441,6 +604,7 @@ func TestHandleReplayRun_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFRunReplay = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
 
@@ -464,6 +628,49 @@ func TestHandleReplayRun_Success(t *testing.T) {
 	}
 	if enqueued.IdempotencyKey != originalRun.IdempotencyKey {
 		t.Fatalf("expected idempotency key %q, got %q", originalRun.IdempotencyKey, enqueued.IdempotencyKey)
+	}
+}
+
+func TestHandleReplayRun_FeatureDisabled(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			t.Fatal("GetRun should not be called when replay feature is disabled")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "run replay is not enabled") {
+		t.Fatalf("expected replay-disabled error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleReplayRun_DisabledJob(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-123", JobID: "job-1", Status: domain.StatusFailed}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", Enabled: false, TimeoutSecs: 60}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunReplay = true
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "job is disabled") {
+		t.Fatalf("expected disabled-job error, got %s", w.Body.String())
 	}
 }
 

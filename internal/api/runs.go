@@ -148,6 +148,10 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFRunReplay {
+		respondError(w, http.StatusBadRequest, "run replay is not enabled")
+		return
+	}
 	runID := chi.URLParam(r, "runID")
 	originalRun, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
@@ -171,6 +175,10 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondError(w, http.StatusInternalServerError, "failed to get job")
+		return
+	}
+	if !job.Enabled {
+		respondError(w, http.StatusBadRequest, "job is disabled")
 		return
 	}
 

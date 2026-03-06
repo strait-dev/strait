@@ -261,6 +261,10 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
+	if !s.config.FFRunAnnotations {
+		respondError(w, http.StatusBadRequest, "run annotations feature is not enabled")
+		return
+	}
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -274,10 +278,22 @@ func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "annotations are required")
 		return
 	}
+	if len(req.Annotations) > 50 {
+		respondError(w, http.StatusBadRequest, "too many annotations (max 50)")
+		return
+	}
 
-	for key := range req.Annotations {
+	for key, value := range req.Annotations {
 		if strings.TrimSpace(key) == "" {
 			respondError(w, http.StatusBadRequest, "annotation keys must be non-empty")
+			return
+		}
+		if len(key) > 128 {
+			respondError(w, http.StatusBadRequest, "annotation key too long (max 128 characters)")
+			return
+		}
+		if len(value) > 1024 {
+			respondError(w, http.StatusBadRequest, "annotation value too long (max 1024 characters)")
 			return
 		}
 	}
