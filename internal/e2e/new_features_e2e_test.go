@@ -31,7 +31,7 @@ func TestE2E_DLQ_ListDeadLetterRuns(t *testing.T) {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 	triggerResp := mustDecodeObject(t, w)
-	runID := asString(t, triggerResp, "run_id")
+	runID := asString(t, triggerResp, "id")
 
 	// Move run to dead_letter via store (simulating executor DLQ)
 	err := testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
@@ -74,7 +74,7 @@ func TestE2E_DLQ_ReplayDeadLetterRun(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
-	runID := asString(t, mustDecodeObject(t, w), "run_id")
+	runID := asString(t, mustDecodeObject(t, w), "id")
 
 	// Move to dead_letter
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
@@ -105,7 +105,7 @@ func TestE2E_DLQ_ReplayNonDLQRun_Fails(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
-	runID := asString(t, mustDecodeObject(t, w), "run_id")
+	runID := asString(t, mustDecodeObject(t, w), "id")
 
 	// Try to DLQ-replay a run that is still queued
 	w = doRequest(t, http.MethodPost, fmt.Sprintf("/v1/runs/%s/dlq-replay", runID), "")
@@ -137,7 +137,7 @@ func TestE2E_DebugBundle_GetBundle(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
-	runID := asString(t, mustDecodeObject(t, w), "run_id")
+	runID := asString(t, mustDecodeObject(t, w), "id")
 
 	// Get debug bundle
 	w = doRequest(t, http.MethodGet, fmt.Sprintf("/v1/runs/%s/debug-bundle", runID), "")
@@ -171,7 +171,7 @@ func TestE2E_Debug_SetDebugMode(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
-	runID := asString(t, mustDecodeObject(t, w), "run_id")
+	runID := asString(t, mustDecodeObject(t, w), "id")
 
 	// Enable debug mode
 	w = doRequest(t, http.MethodPost, fmt.Sprintf("/v1/runs/%s/debug", runID),
@@ -219,7 +219,7 @@ func TestE2E_RunContinuation_SDKContinue(t *testing.T) {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 	triggerResp := mustDecodeObject(t, w)
-	runID := asString(t, triggerResp, "run_id")
+	runID := asString(t, triggerResp, "id")
 	runToken := asString(t, triggerResp, "run_token")
 
 	// Move run to executing
@@ -262,7 +262,7 @@ func TestE2E_RunContinuation_InheritsPayload(t *testing.T) {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 	triggerResp := mustDecodeObject(t, w)
-	runID := asString(t, triggerResp, "run_id")
+	runID := asString(t, triggerResp, "id")
 	runToken := asString(t, triggerResp, "run_token")
 
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
@@ -299,7 +299,7 @@ func TestE2E_RunContinuation_RejectsNonExecutingRun(t *testing.T) {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 	triggerResp := mustDecodeObject(t, w)
-	runID := asString(t, triggerResp, "run_id")
+	runID := asString(t, triggerResp, "id")
 	runToken := asString(t, triggerResp, "run_token")
 
 	// Run is still queued — should not be able to continue
@@ -323,7 +323,7 @@ func TestE2E_RunContinuation_Lineage(t *testing.T) {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 	triggerResp := mustDecodeObject(t, w)
-	runID := asString(t, triggerResp, "run_id")
+	runID := asString(t, triggerResp, "id")
 	runToken := asString(t, triggerResp, "run_token")
 
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
@@ -366,7 +366,7 @@ func TestE2E_AdaptiveTimeout_FeatureFlagEnabled(t *testing.T) {
 		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 	triggerResp := mustDecodeObject(t, w)
-	runID := asString(t, triggerResp, "run_id")
+	runID := asString(t, triggerResp, "id")
 
 	// Move to completed to populate health stats.
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
