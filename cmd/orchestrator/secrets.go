@@ -40,7 +40,7 @@ func newSecretsCreateCommand(state *appState) *cobra.Command {
 		Use:   "create <name>",
 		Short: "Create or update a secret value",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			projectID, err := requireProjectID(state, projectID)
 			if err != nil {
 				return err
@@ -86,7 +86,7 @@ func newSecretsListCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List secret names for a project",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			projectID, err := requireProjectID(state, projectID)
 			if err != nil {
 				return err
@@ -121,7 +121,7 @@ func newSecretsDeleteCommand(state *appState) *cobra.Command {
 		Use:   "delete <name>",
 		Short: "Delete a secret",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if err := requireConfirmation(state, "Delete this secret?", yes); err != nil {
 				return err
 			}

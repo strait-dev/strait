@@ -26,7 +26,7 @@ type updateCheckCache struct {
 // Returns the latest version tag or empty string on error.
 func checkForUpdate() string {
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(githubReleasesURL) //nolint:gosec,noctx // hardcoded URL, fire-and-forget background check
+	resp, err := client.Get(githubReleasesURL) //nolint:noctx // fire-and-forget background check
 	if err != nil {
 		return ""
 	}
@@ -87,7 +87,7 @@ func setCachedUpdate(latestVersion string) {
 	}
 
 	dir := filepath.Dir(cachePath)
-	_ = os.MkdirAll(dir, 0o755)
+	_ = os.MkdirAll(dir, 0o750)
 	_ = os.WriteFile(cachePath, data, 0o644) //nolint:gosec // cache file with standard permissions
 }
 
@@ -106,7 +106,7 @@ func newUpgradeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Check for CLI updates",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			latest := checkForUpdate()
 			if latest == "" {
 				return fmt.Errorf("failed to check for updates")

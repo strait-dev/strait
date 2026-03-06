@@ -108,7 +108,7 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cancel <run-id> [run-id...]",
 		Short: "Cancel one or more runs",
-		Args: func(cmd *cobra.Command, args []string) error {
+		Args: func(_ *cobra.Command, args []string) error {
 			if all || len(args) > 0 {
 				return nil
 			}

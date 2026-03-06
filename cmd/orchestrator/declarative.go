@@ -41,7 +41,7 @@ func newValidateCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Validate declarative definition files",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			manifests, err := loadManifestInputs(files)
 			if err != nil {
 				return err

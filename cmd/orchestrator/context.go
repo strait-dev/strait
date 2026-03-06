@@ -35,7 +35,7 @@ func newContextCreateCommand(state *appState) *cobra.Command {
 		Use:   "create <name>",
 		Short: "Create or update a context",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			cfg, path, err := loadConfigForWrite(state)
 			if err != nil {
@@ -92,7 +92,7 @@ func newContextUseCommand(state *appState) *cobra.Command {
 		Use:   "use <name>",
 		Short: "Set active context",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			cfg, path, err := loadConfigForWrite(state)
 			if err != nil {
@@ -117,7 +117,7 @@ func newContextListCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all contexts",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := state.config
 			if cfg == nil {
 				cfg = &cliconfig.File{}
@@ -145,7 +145,7 @@ func newContextCurrentCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "current",
 		Short: "Show active context",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := state.config
 			if cfg == nil || cfg.ActiveContext == "" {
 				return printData(state, map[string]any{"active_context": ""})

@@ -28,7 +28,7 @@ acyclicity, and optionally checks endpoint URL reachability.`,
 		Example: `  orchestrator check -f jobs.yaml
   orchestrator check -f jobs.yaml -f workflows.yaml --check-endpoints
   orchestrator check -f manifests/ --endpoint-timeout 5s`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			manifests, err := loadManifestInputs(files)
 			if err != nil {
 				return err
@@ -240,14 +240,14 @@ func checkEndpointReachable(endpoint string, timeout time.Duration) error {
 	client := &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: false}, //nolint:gosec // default secure config
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: false},
 		},
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse // don't follow redirects
 		},
 	}
 
-	resp, err := client.Head(endpoint) //nolint:gosec // endpoint URL is user-provided manifest input, not untrusted
+	resp, err := client.Head(endpoint)
 	if err != nil {
 		return fmt.Errorf("endpoint unreachable: %w", err)
 	}

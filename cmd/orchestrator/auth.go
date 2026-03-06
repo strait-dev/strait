@@ -88,7 +88,7 @@ func newLogoutCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logout",
 		Short: "Remove stored API key from keychain",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			targetContext := contextName
 			if targetContext == "" {
 				targetContext = state.opts.contextName
@@ -122,7 +122,7 @@ func newAuthCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "status",
 		Short: "Show authentication status",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			targetContext := state.opts.contextName
 			if targetContext == "" {
 				targetContext = "default"

@@ -32,7 +32,7 @@ func newExtensionListCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List discovered extensions",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			extensions := discoverExtensions()
 			if len(extensions) == 0 {
 				return printData(state, map[string]any{
@@ -61,7 +61,7 @@ func newExtensionRunCommand() *cobra.Command {
 		Short:              "Run an extension",
 		Args:               cobra.MinimumNArgs(1),
 		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			binName := extensionPrefix + name
 

@@ -38,12 +38,18 @@ var date = "unknown"
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 
+	code := run(ctx)
+	cancel()
+	os.Exit(code)
+}
+
+func run(ctx context.Context) int {
 	if err := newRootCommand().ExecuteContext(ctx); err != nil {
 		slog.Error("fatal", "error", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func runServe(modeOverride string) error {
@@ -131,9 +137,9 @@ func runServe(modeOverride string) error {
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
-	startCDCConsumer(g, gCtx, cfg, pub)
-	startAPIServer(g, gCtx, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
-	if err := startWorker(g, gCtx, cfg, queries, q, pub, metrics, stepCallback); err != nil {
+	startCDCConsumer(gCtx, g, cfg, pub)
+	startAPIServer(gCtx, g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
+	if err := startWorker(gCtx, g, cfg, queries, q, pub, metrics, stepCallback); err != nil {
 		return err
 	}
 
@@ -215,7 +221,7 @@ func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, in
 }
 
 // startCDCConsumer registers and starts the Sequin CDC consumer if configured.
-func startCDCConsumer(g *errgroup.Group, gCtx context.Context, cfg *config.Config, pub pubsub.Publisher) {
+func startCDCConsumer(gCtx context.Context, g *errgroup.Group, cfg *config.Config, pub pubsub.Publisher) {
 	if cfg.SequinBaseURL == "" {
 		return
 	}
@@ -245,7 +251,7 @@ func startCDCConsumer(g *errgroup.Group, gCtx context.Context, cfg *config.Confi
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *errgroup.Group, gCtx context.Context, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
+func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -279,7 +285,7 @@ func startAPIServer(g *errgroup.Group, gCtx context.Context, cfg *config.Config,
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *errgroup.Group, gCtx context.Context, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback) error {
+func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback) error {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return nil
 	}

@@ -112,7 +112,7 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 			continue
 		}
 
-		defer resp.Body.Close() //nolint:gocritic // only reached on non-retry path
+		defer resp.Body.Close()
 
 		if resp.StatusCode >= http.StatusBadRequest {
 			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

@@ -182,7 +182,7 @@ func TestCIMode_Flag(t *testing.T) {
 	}
 }
 
-// --- test helpers ---
+// Test helpers.
 
 func findSubcommand(t *testing.T, parent interface{ Commands() []*cobra.Command }, name string) *cobra.Command {
 	t.Helper()

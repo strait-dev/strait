@@ -125,7 +125,7 @@ func newRootCommand() *cobra.Command {
 
 			return nil
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return runServe("")
 		},
 	}
@@ -322,7 +322,7 @@ func newServeCommand() *cobra.Command {
 		Use:   "serve",
 		Short: "Start orchestrator server components",
 		Long:  "Starts orchestrator runtime in api, worker, or all mode.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return runServe(mode)
 		},
 	}
@@ -341,7 +341,7 @@ func newVersionCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print CLI version information",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if short {
 				fmt.Println(version)
 				return nil
@@ -422,7 +422,7 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 		Short:     "Generate shell completion scripts",
 		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
 		Args:      cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			switch args[0] {
 			case "bash":
 				return root.GenBashCompletion(os.Stdout)

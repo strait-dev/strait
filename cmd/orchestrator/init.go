@@ -43,7 +43,7 @@ func newInitCommand(state *appState) *cobra.Command {
 		Short:   "Initialize local orchestrator project files",
 		Long:    "Creates baseline orchestrator project files such as config, env, and declarative definitions.",
 		Example: "orchestrator init\n  orchestrator init --yes --name demo-project --template minimal\n  orchestrator init --template full",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if !yes {
 				if !stdoutIsTTY() {
 					return fmt.Errorf("init requires --yes when stdout is not a TTY")

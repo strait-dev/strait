@@ -41,7 +41,7 @@ Requires pg_dump to be installed and available in PATH.`,
   orchestrator backup create --output backup.sql
   orchestrator backup create --database-url postgres://user:pass@host:5432/db
   orchestrator backup create --format custom --output backup.dump`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if _, err := exec.LookPath("pg_dump"); err != nil {
 				return fmt.Errorf("pg_dump not found in PATH: install PostgreSQL client tools")
 			}
@@ -77,7 +77,7 @@ Requires pg_dump to be installed and available in PATH.`,
 				args = append(args, "--verbose")
 			}
 
-			pgDump := exec.Command("pg_dump", args...)
+			pgDump := exec.Command("pg_dump", args...) //nolint:gosec // args built from validated flags, not user-controlled input
 			pgDump.Stdout = os.Stdout
 			pgDump.Stderr = os.Stderr
 
@@ -121,7 +121,7 @@ Requires pg_restore and/or psql to be installed and available in PATH.`,
 		Example: `  orchestrator backup restore --input backup.sql
   orchestrator backup restore --input backup.dump --clean
   orchestrator backup restore --input backup.dump --database-url postgres://user:pass@host:5432/db`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if input == "" {
 				return fmt.Errorf("--input is required")
 			}
@@ -143,7 +143,7 @@ Requires pg_restore and/or psql to be installed and available in PATH.`,
 				return restoreWithPsql(dsn, input, verbose || state.opts.verbose)
 			}
 
-				return restoreWithPgRestore(dsn, input, clean, verbose || state.opts.verbose)
+			return restoreWithPgRestore(dsn, input, clean, verbose || state.opts.verbose)
 		},
 	}
 
@@ -168,7 +168,7 @@ func resolveDatabaseURL(flagValue string) string {
 }
 
 func isPlainSQL(path string) bool {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path is the backup file provided by --input flag
 	if err != nil {
 		return true // default to psql
 	}
@@ -201,7 +201,7 @@ func restoreWithPsql(dsn, input string, verbose bool) error {
 		fmt.Fprintf(os.Stderr, "running: psql --dbname=*** --file=%s\n", input)
 	}
 
-	psql := exec.Command("psql", args...)
+	psql := exec.Command("psql", args...) //nolint:gosec // args built from validated flags
 	psql.Stdout = os.Stdout
 	psql.Stderr = os.Stderr
 
@@ -230,7 +230,7 @@ func restoreWithPgRestore(dsn, input string, clean, verbose bool) error {
 		fmt.Fprintf(os.Stderr, "running: pg_restore --dbname=*** %s\n", input)
 	}
 
-	pgRestore := exec.Command("pg_restore", args...)
+	pgRestore := exec.Command("pg_restore", args...) //nolint:gosec // args built from validated flags
 	pgRestore.Stdout = os.Stdout
 	pgRestore.Stderr = os.Stderr
 

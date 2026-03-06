@@ -18,7 +18,7 @@ func newDocsCommand(root *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "docs",
 		Short: "Generate CLI documentation",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if !man && !markdown {
 				return fmt.Errorf("at least one of --man or --markdown is required")
 			}

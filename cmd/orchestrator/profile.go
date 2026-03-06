@@ -58,7 +58,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
 				req.Header.Set("Authorization", "Bearer "+state.opts.apiKey)
 			}
 
-			resp, err := client.Do(req)
+			resp, err := client.Do(req) //nolint:gosec // URL is constructed from --server flag, not external input
 			if err != nil {
 				return fmt.Errorf("failed to fetch profile: %w", err)
 			}
@@ -69,7 +69,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
 				return fmt.Errorf("server returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 			}
 
-			f, err := os.Create(output)
+			f, err := os.Create(output) //nolint:gosec // output path is from --output flag
 			if err != nil {
 				return fmt.Errorf("failed to create output file: %w", err)
 			}
@@ -80,7 +80,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
 				return fmt.Errorf("failed to write profile data: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "profile written to %s (%d bytes)\n", output, n)
+			fmt.Fprintf(os.Stderr, "profile written to %s (%d bytes)\n", output, n) //nolint:gosec // output is a user-provided flag value, not attacker-controlled
 
 			if kind == "cpu" {
 				fmt.Fprintf(os.Stderr, "analyze with: go tool pprof %s\n", output)

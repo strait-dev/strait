@@ -474,7 +474,7 @@ func TestDoJSON_RetryExhausted(t *testing.T) {
 	}
 }
 
-// --- test helpers ---
+// Test helpers.
 
 func mustClient(t *testing.T, baseURL string) *Client {
 	t.Helper()

@@ -54,16 +54,16 @@ visual timeline format.`,
 
 			// Header
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("Run: %s\n", run.ID))
-			b.WriteString(fmt.Sprintf("Job: %s\n", run.JobID))
-			b.WriteString(fmt.Sprintf("Status: %s\n", styles.Status(string(run.Status))))
-			b.WriteString(fmt.Sprintf("Attempt: %d  Triggered by: %s\n", run.Attempt, run.TriggeredBy))
-			b.WriteString(fmt.Sprintf("Created: %s\n", run.CreatedAt.UTC().Format(time.RFC3339)))
+			fmt.Fprintf(&b, "Run: %s\n", run.ID)
+			fmt.Fprintf(&b, "Job: %s\n", run.JobID)
+			fmt.Fprintf(&b, "Status: %s\n", styles.Status(string(run.Status)))
+			fmt.Fprintf(&b, "Attempt: %d  Triggered by: %s\n", run.Attempt, run.TriggeredBy)
+			fmt.Fprintf(&b, "Created: %s\n", run.CreatedAt.UTC().Format(time.RFC3339))
 			if run.StartedAt != nil {
-				b.WriteString(fmt.Sprintf("Started: %s\n", run.StartedAt.UTC().Format(time.RFC3339)))
+				fmt.Fprintf(&b, "Started: %s\n", run.StartedAt.UTC().Format(time.RFC3339))
 			}
 			if run.FinishedAt != nil {
-				b.WriteString(fmt.Sprintf("Finished: %s\n", run.FinishedAt.UTC().Format(time.RFC3339)))
+				fmt.Fprintf(&b, "Finished: %s\n", run.FinishedAt.UTC().Format(time.RFC3339))
 			}
 
 			// Duration
@@ -73,18 +73,18 @@ visual timeline format.`,
 					end = *run.FinishedAt
 				}
 				dur := end.Sub(*run.StartedAt)
-				b.WriteString(fmt.Sprintf("Duration: %s\n", dur.Truncate(time.Millisecond)))
+				fmt.Fprintf(&b, "Duration: %s\n", dur.Truncate(time.Millisecond))
 			}
 
 			if run.Error != "" {
-				b.WriteString(fmt.Sprintf("Error: %s\n", run.Error))
+				fmt.Fprintf(&b, "Error: %s\n", run.Error)
 			}
 
 			if showPayload && run.Payload != nil {
-				b.WriteString(fmt.Sprintf("Payload: %s\n", string(run.Payload)))
+				fmt.Fprintf(&b, "Payload: %s\n", string(run.Payload))
 			}
 			if showResult && run.Result != nil {
-				b.WriteString(fmt.Sprintf("Result: %s\n", string(run.Result)))
+				fmt.Fprintf(&b, "Result: %s\n", string(run.Result))
 			}
 
 			b.WriteString("\n")
@@ -109,8 +109,8 @@ visual timeline format.`,
 					level = "info"
 				}
 
-				b.WriteString(fmt.Sprintf("  %s %s [%s/%s] %s\n",
-					ts, marker, level, event.Type, event.Message))
+				fmt.Fprintf(&b, "  %s %s [%s/%s] %s\n",
+					ts, marker, level, event.Type, event.Message)
 			}
 
 			if len(events) == 0 {
