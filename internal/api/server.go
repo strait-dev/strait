@@ -37,7 +37,7 @@ type APIStore interface {
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
-	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id string) error

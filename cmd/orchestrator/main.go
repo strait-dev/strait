@@ -260,7 +260,11 @@ func run() error {
 		g.Go(func() error {
 			<-gCtx.Done()
 			slog.Info("shutting down worker pool")
-			p.Shutdown()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := p.Shutdown(shutdownCtx); err != nil {
+				slog.Warn("worker pool shutdown timed out", "error", err)
+			}
 			return nil
 		})
 

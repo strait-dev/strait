@@ -67,18 +67,19 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.We
 	return d, nil
 }
 
-func (q *Queries) ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWebhookDeliveries")
 	defer span.End()
 
 	baseQuery := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
-						 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at
-				  FROM webhook_deliveries`
-	args := []any{}
-	param := 1
+					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at
+				  FROM webhook_deliveries
+				  WHERE job_id IN (SELECT id FROM jobs WHERE project_id = $1)`
+	args := []any{projectID}
+	param := 2
 
 	if status != "" {
-		baseQuery += fmt.Sprintf(" WHERE status = $%d", param)
+		baseQuery += fmt.Sprintf(" AND status = $%d", param)
 		args = append(args, status)
 		param++
 	}
@@ -86,7 +87,6 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, status string, limi
 	baseQuery += " ORDER BY created_at DESC"
 	baseQuery += fmt.Sprintf(" LIMIT $%d", param)
 	args = append(args, limit)
-
 	rows, err := q.db.Query(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list webhook deliveries: %w", err)

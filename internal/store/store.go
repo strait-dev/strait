@@ -62,7 +62,7 @@ type EventStore interface {
 type WebhookDeliveryStore interface {
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
 }

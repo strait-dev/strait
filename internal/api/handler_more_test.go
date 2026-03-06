@@ -1163,7 +1163,7 @@ func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			return []domain.WebhookDelivery{
 				{ID: "del-1", RunID: "run-1", JobID: "job-1", WebhookURL: "https://example.com/hook", Status: "delivered", Attempts: 1, MaxAttempts: 3, CreatedAt: now, UpdatedAt: now},
 			}, nil
@@ -1171,7 +1171,7 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1191,14 +1191,14 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	var gotStatus string
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotStatus = status
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?status=pending", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&status=pending", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1213,14 +1213,14 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=10", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=10", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1235,14 +1235,14 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1257,14 +1257,14 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=200", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=200", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1279,7 +1279,7 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=abc", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=abc", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1291,7 +1291,7 @@ func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=-5", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=-5", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1302,18 +1302,30 @@ func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 
 func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListWebhookDeliveries_MissingProjectID(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 

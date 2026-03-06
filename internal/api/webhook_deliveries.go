@@ -6,8 +6,13 @@ import (
 )
 
 func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status")
+	projectID := r.URL.Query().Get("project_id")
+	if projectID == "" {
+		respondError(w, http.StatusBadRequest, "project_id is required")
+		return
+	}
 
+	status := r.URL.Query().Get("status")
 	limit := defaultPageLimit
 	if limitRaw := r.URL.Query().Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
@@ -21,7 +26,7 @@ func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Requ
 		limit = parsedLimit
 	}
 
-	deliveries, err := s.store.ListWebhookDeliveries(r.Context(), status, limit)
+	deliveries, err := s.store.ListWebhookDeliveries(r.Context(), projectID, status, limit)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list webhook deliveries")
 		return

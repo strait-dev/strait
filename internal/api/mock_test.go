@@ -24,7 +24,7 @@ type mockAPIStore struct {
 	listChildRunsFn            func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	insertEventFn              func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn  func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
-	listWebhookDeliveriesFn    func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	listWebhookDeliveriesFn    func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
 	createAPIKeyFn             func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn     func(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	revokeAPIKeyFn             func(ctx context.Context, id string) error
@@ -141,9 +141,9 @@ func (m *mockAPIStore) ListEventsByRunFiltered(ctx context.Context, runID string
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 	if m.listWebhookDeliveriesFn != nil {
-		return m.listWebhookDeliveriesFn(ctx, status, limit)
+		return m.listWebhookDeliveriesFn(ctx, projectID, status, limit)
 	}
 	return nil, nil
 }

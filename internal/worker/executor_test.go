@@ -157,7 +157,7 @@ func newTestExecutor(t *testing.T, store *mockExecutorStore, q queue.Queue, hear
 	t.Helper()
 
 	pool := NewPool(4)
-	t.Cleanup(pool.Shutdown)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
 
 	exec := NewExecutor(ExecutorConfig{
 		Pool:              pool,
@@ -384,7 +384,7 @@ func TestExecutor_HandleSystemFailure(t *testing.T) {
 
 func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
 	pool := NewPool(1)
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown(context.Background()) }()
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -524,7 +524,7 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 
 	shutdownDone := make(chan struct{})
 	go func() {
-		pool.Shutdown()
+		_ = pool.Shutdown(context.Background())
 		close(shutdownDone)
 	}()
 
@@ -694,7 +694,7 @@ func TestExecutor_NilMetrics(t *testing.T) {
 		PollInterval:      time.Millisecond,
 		HeartbeatInterval: time.Hour,
 	})
-	t.Cleanup(exec.pool.Shutdown)
+	t.Cleanup(func() { _ = exec.pool.Shutdown(context.Background()) })
 
 	job := testJob("http://example.invalid", 1, 5)
 	run := testRun(1)
@@ -984,7 +984,7 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 
 func TestExecutor_PanicRecovery(t *testing.T) {
 	pool := NewPool(1)
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown(context.Background()) }()
 
 	store := &mockExecutorStore{}
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
@@ -1006,7 +1006,7 @@ func TestExecutor_PanicRecovery(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-	pool.Shutdown()
+	_ = pool.Shutdown(context.Background())
 
 	calls := store.statusUpdates()
 	if len(calls) != 1 {
@@ -1026,7 +1026,7 @@ func TestExecutor_PanicRecovery(t *testing.T) {
 
 func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
 	pool := NewPool(1)
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown(context.Background()) }()
 
 	store := &mockExecutorStore{}
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
@@ -1048,7 +1048,7 @@ func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-	pool.Shutdown()
+	_ = pool.Shutdown(context.Background())
 
 	calls := store.statusUpdates()
 	if len(calls) != 1 {
