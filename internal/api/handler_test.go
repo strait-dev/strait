@@ -2027,3 +2027,66 @@ func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestHandleListRunLineage_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		listRunLineageFn: func(_ context.Context, runID string) ([]domain.JobRun, error) {
+			if runID != "run-1" {
+				t.Fatalf("expected run-1, got %s", runID)
+			}
+			return []domain.JobRun{
+				{ID: "run-root", LineageDepth: 0},
+				{ID: "run-1", ContinuationOf: "run-root", LineageDepth: 1},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var runs []domain.JobRun
+	if err := json.NewDecoder(w.Body).Decode(&runs); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+	if runs[0].ID != "run-root" {
+		t.Fatalf("expected first run to be root, got %s", runs[0].ID)
+	}
+}
+
+func TestHandleListRunLineage_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFRunContinuation = false
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleListRunLineage_StoreError(t *testing.T) {
+	ms := &mockAPIStore{
+		listRunLineageFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}

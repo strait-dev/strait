@@ -102,6 +102,8 @@ type APIStore interface {
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
 	ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error)
+	CreateRun(ctx context.Context, run *domain.JobRun) error
+	ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error)
 }
 
 // Pinger checks service health.
@@ -255,6 +257,7 @@ func (s *Server) routes() chi.Router {
 				r.Get("/outputs", s.handleListRunOutputs)
 				r.Get("/debug-bundle", s.handleGetDebugBundle)
 				r.Post("/debug", s.handleSetDebugMode)
+				r.Get("/lineage", s.handleListRunLineage)
 			})
 		})
 
@@ -304,6 +307,7 @@ func (s *Server) routes() chi.Router {
 			r.Post("/complete", s.handleSDKComplete)
 			r.Post("/fail", s.handleSDKFail)
 			r.Post("/spawn", s.handleSDKSpawn)
+			r.Post("/continue", s.handleSDKContinue)
 		})
 	})
 

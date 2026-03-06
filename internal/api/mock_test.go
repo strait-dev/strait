@@ -90,6 +90,8 @@ type mockAPIStore struct {
 	getDebugBundleFn            func(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	updateRunDebugModeFn        func(ctx context.Context, runID string, debugMode bool) error
 	listEventsFn                func(ctx context.Context, runID string) ([]domain.RunEvent, error)
+	createRunFn                 func(ctx context.Context, run *domain.JobRun) error
+	listRunLineageFn            func(ctx context.Context, runID string) ([]domain.JobRun, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -627,6 +629,20 @@ func (m *mockAPIStore) UpdateRunDebugMode(ctx context.Context, runID string, deb
 func (m *mockAPIStore) ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error) {
 	if m.listEventsFn != nil {
 		return m.listEventsFn(ctx, runID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateRun(ctx context.Context, run *domain.JobRun) error {
+	if m.createRunFn != nil {
+		return m.createRunFn(ctx, run)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error) {
+	if m.listRunLineageFn != nil {
+		return m.listRunLineageFn(ctx, runID)
 	}
 	return nil, nil
 }

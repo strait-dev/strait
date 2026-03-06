@@ -1198,3 +1198,206 @@ func TestHandleListChildRuns_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
+
+func TestHandleSDKContinue_Success(t *testing.T) {
+	var enqueuedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:           id,
+				JobID:        "job-1",
+				ProjectID:    "proj-1",
+				Status:       domain.StatusExecuting,
+				LineageDepth: 2,
+				Priority:     5,
+				Payload:      json.RawMessage(`{"original":true}`),
+			}, nil
+		},
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", ProjectID: "proj-1"}, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedRun = run
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{"payload":{"step":2}}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueuedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if enqueuedRun.ContinuationOf != "run-parent" {
+		t.Fatalf("expected continuation_of=run-parent, got %s", enqueuedRun.ContinuationOf)
+	}
+	if enqueuedRun.LineageDepth != 3 {
+		t.Fatalf("expected lineage_depth=3, got %d", enqueuedRun.LineageDepth)
+	}
+	if enqueuedRun.Priority != 5 {
+		t.Fatalf("expected priority=5, got %d", enqueuedRun.Priority)
+	}
+	if string(enqueuedRun.Payload) != `{"step":2}` {
+		t.Fatalf("expected custom payload, got %s", string(enqueuedRun.Payload))
+	}
+}
+
+func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
+	var enqueuedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        id,
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusExecuting,
+				Payload:   json.RawMessage(`{"inherited":true}`),
+			}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", ProjectID: "proj-1"}, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedRun = run
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if string(enqueuedRun.Payload) != `{"inherited":true}` {
+		t.Fatalf("expected inherited payload, got %s", string(enqueuedRun.Payload))
+	}
+}
+
+func TestHandleSDKContinue_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFRunContinuation = false
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:           id,
+				JobID:        "job-1",
+				ProjectID:    "proj-1",
+				Status:       domain.StatusExecuting,
+				LineageDepth: 10,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:     id,
+				JobID:  "job-1",
+				Status: domain.StatusCompleted,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKContinue_RunNotFound(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return nil, store.ErrRunNotFound
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKContinue_EnqueueError(t *testing.T) {
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        id,
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusExecuting,
+			}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", ProjectID: "proj-1"}, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return errors.New("queue down")
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFRunContinuation = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}

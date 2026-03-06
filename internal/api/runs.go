@@ -369,3 +369,19 @@ func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+func (s *Server) handleListRunLineage(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFRunContinuation {
+		respondError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	runID := chi.URLParam(r, "runID")
+	runs, err := s.store.ListRunLineage(r.Context(), runID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list run lineage")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, runs)
+}

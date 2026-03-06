@@ -23,6 +23,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var parentRunID *string
 	var idempotencyKey *string
 	var workflowStepRunID *string
+	var continuationOf *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -49,6 +50,8 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&workflowStepRunID,
 		&executionTrace,
 		&run.DebugMode,
+		&continuationOf,
+		&run.LineageDepth,
 	)
 	if err != nil {
 		return nil, err
@@ -83,6 +86,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if workflowStepRunID != nil {
 		run.WorkflowStepRunID = *workflowStepRunID
+	}
+	if continuationOf != nil {
+		run.ContinuationOf = *continuationOf
 	}
 
 	return &run, nil

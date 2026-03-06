@@ -701,6 +701,73 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, run)
 }
 
+func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	parentRunID := chi.URLParam(r, "runID")
+
+	if !s.config.FFRunContinuation {
+		respondError(w, http.StatusNotFound, "run continuation is not enabled")
+		return
+	}
+
+	var req struct {
+		Payload json.RawMessage `json:"payload,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	parentRun, err := s.store.GetRun(r.Context(), parentRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if parentRun.Status != domain.StatusExecuting && parentRun.Status != domain.StatusWaiting {
+		respondError(w, http.StatusConflict, "run must be executing or waiting to continue")
+		return
+	}
+
+	const maxLineageDepth = 10
+	if parentRun.LineageDepth >= maxLineageDepth {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("max lineage depth (%d) exceeded", maxLineageDepth))
+		return
+	}
+
+	job, err := s.store.GetJob(r.Context(), parentRun.JobID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get job")
+		return
+	}
+
+	payload := req.Payload
+	if len(payload) == 0 {
+		payload = parentRun.Payload
+	}
+
+	continuationRun := &domain.JobRun{
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		Payload:        payload,
+		TriggeredBy:    domain.TriggerManual,
+		ContinuationOf: parentRunID,
+		LineageDepth:   parentRun.LineageDepth + 1,
+		Priority:       parentRun.Priority,
+	}
+
+	if err := s.queue.Enqueue(r.Context(), continuationRun); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to enqueue continuation run")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, continuationRun)
+}
+
 func (s *Server) resumeWaitingParentIfReady(ctx context.Context, run *domain.JobRun) error {
 	if run == nil || run.ParentRunID == "" {
 		return nil

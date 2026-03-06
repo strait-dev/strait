@@ -105,6 +105,7 @@ type RunStore interface {
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
+	ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error)
 }
 
 type ProjectQuota struct {

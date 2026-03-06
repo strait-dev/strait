@@ -133,6 +133,8 @@ type JobRun struct {
 	WorkflowStepRunID string            `json:"workflow_step_run_id,omitempty"`
 	ExecutionTrace    *ExecutionTrace   `json:"execution_trace,omitempty"`
 	DebugMode         bool              `json:"debug_mode"`
+	ContinuationOf    string            `json:"continuation_of,omitempty"`
+	LineageDepth      int               `json:"lineage_depth"`
 	CreatedAt         time.Time         `json:"created_at"`
 }
 
