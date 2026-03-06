@@ -25,7 +25,7 @@ type UpdateJobGroupRequest struct {
 
 func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusBadRequest, "job groups feature is not enabled")
+		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
@@ -57,7 +57,7 @@ func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusBadRequest, "job groups feature is not enabled")
+		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
@@ -77,7 +77,7 @@ func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusBadRequest, "job groups feature is not enabled")
+		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
@@ -98,7 +98,7 @@ func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusBadRequest, "job groups feature is not enabled")
+		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
@@ -143,7 +143,7 @@ func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusBadRequest, "job groups feature is not enabled")
+		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
@@ -162,7 +162,7 @@ func (s *Server) handleDeleteJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListJobsByGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusBadRequest, "job groups feature is not enabled")
+		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 

@@ -17,7 +17,7 @@ type CreateJobDependencyRequest struct {
 
 func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobDependencies {
-		respondError(w, http.StatusBadRequest, "job dependencies feature is not enabled")
+		respondError(w, http.StatusNotFound, "job dependencies feature is not enabled")
 		return
 	}
 
@@ -82,7 +82,7 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobDependencies {
-		respondError(w, http.StatusBadRequest, "job dependencies feature is not enabled")
+		respondError(w, http.StatusNotFound, "job dependencies feature is not enabled")
 		return
 	}
 
@@ -98,7 +98,7 @@ func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleDeleteJobDependency(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobDependencies {
-		respondError(w, http.StatusBadRequest, "job dependencies feature is not enabled")
+		respondError(w, http.StatusNotFound, "job dependencies feature is not enabled")
 		return
 	}
 

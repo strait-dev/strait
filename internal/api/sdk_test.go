@@ -253,6 +253,7 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 
 func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
+	srv.config.FFRunAnnotations = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{}}`)
@@ -278,8 +279,8 @@ func TestHandleSDKAnnotate_FeatureDisabled(t *testing.T) {
 
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "run annotations feature is not enabled") {
 		t.Fatalf("expected annotations-disabled error, got %s", w.Body.String())

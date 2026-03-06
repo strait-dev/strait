@@ -53,7 +53,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	// Handle dry-run mode
 	if req.DryRun {
 		if !s.config.FFDryRun {
-			respondError(w, http.StatusBadRequest, "dry-run mode is not enabled")
+			respondError(w, http.StatusNotFound, "dry-run mode is not enabled")
 			return
 		}
 		result, err := s.validateTriggerRequest(r.Context(), jobID, req)

@@ -106,7 +106,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.Tags) > 0 {
 		if !s.config.FFJobTags {
-			respondError(w, http.StatusBadRequest, "job tags feature is not enabled")
+			respondError(w, http.StatusNotFound, "job tags feature is not enabled")
 			return
 		}
 		if err := validateTags(req.Tags); err != nil {
@@ -181,7 +181,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	)
 	if tagKey != "" {
 		if !s.config.FFJobTags {
-			respondError(w, http.StatusBadRequest, "job tags feature is not enabled")
+			respondError(w, http.StatusNotFound, "job tags feature is not enabled")
 			return
 		}
 		jobs, err = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue)
@@ -251,7 +251,7 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Tags != nil {
 		if !s.config.FFJobTags {
-			respondError(w, http.StatusBadRequest, "job tags feature is not enabled")
+			respondError(w, http.StatusNotFound, "job tags feature is not enabled")
 			return
 		}
 		if err := validateTags(*req.Tags); err != nil {
@@ -440,7 +440,7 @@ type BatchUpdateResult struct {
 
 func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFBatchJobOps {
-		respondError(w, http.StatusBadRequest, "batch job operations feature is not enabled")
+		respondError(w, http.StatusNotFound, "batch job operations feature is not enabled")
 		return
 	}
 
@@ -530,7 +530,7 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFBatchJobOps {
-		respondError(w, http.StatusBadRequest, "batch job operations feature is not enabled")
+		respondError(w, http.StatusNotFound, "batch job operations feature is not enabled")
 		return
 	}
 
@@ -560,7 +560,7 @@ func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBatchDisableJobs(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFBatchJobOps {
-		respondError(w, http.StatusBadRequest, "batch job operations feature is not enabled")
+		respondError(w, http.StatusNotFound, "batch job operations feature is not enabled")
 		return
 	}
 
@@ -598,7 +598,7 @@ type JobHealthResponse struct {
 
 func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobHealthScoring {
-		respondError(w, http.StatusBadRequest, "job health scoring feature is not enabled")
+		respondError(w, http.StatusNotFound, "job health scoring feature is not enabled")
 		return
 	}
 

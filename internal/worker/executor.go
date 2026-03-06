@@ -98,6 +98,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{
+			Timeout: 5 * time.Minute,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 10,
@@ -497,8 +498,9 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	if e.secretInjection {
 		secrets, err := e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
 		if err != nil {
-			slog.Error("failed to load secrets for job", "job_id", job.ID, "error", err)
-		} else if len(secrets) > 0 {
+			return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+		}
+		if len(secrets) > 0 {
 			extraHeaders = make(map[string]string, len(secrets))
 			for _, secret := range secrets {
 				extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
@@ -542,8 +544,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	if e.secretInjection {
 		secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
 		if err != nil {
-			slog.Error("failed to load secrets for job", "job_id", job.ID, "error", err)
-		} else if len(secrets) > 0 {
+			return nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+		}
+		if len(secrets) > 0 {
 			extraHeaders = make(map[string]string, len(secrets))
 			for _, secret := range secrets {
 				extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue

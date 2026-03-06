@@ -32,7 +32,7 @@ type EnvironmentResponse struct {
 
 func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusBadRequest, "environments feature is not enabled")
+		respondError(w, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -65,7 +65,7 @@ func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusBadRequest, "environments feature is not enabled")
+		respondError(w, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -98,7 +98,7 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusBadRequest, "environments feature is not enabled")
+		respondError(w, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -119,7 +119,7 @@ func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusBadRequest, "environments feature is not enabled")
+		respondError(w, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -167,7 +167,7 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusBadRequest, "environments feature is not enabled")
+		respondError(w, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -186,7 +186,7 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleGetResolvedVariables(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusBadRequest, "environments feature is not enabled")
+		respondError(w, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 

@@ -262,7 +262,7 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 	if !s.config.FFRunAnnotations {
-		respondError(w, http.StatusBadRequest, "run annotations feature is not enabled")
+		respondError(w, http.StatusNotFound, "run annotations feature is not enabled")
 		return
 	}
 	runID := chi.URLParam(r, "runID")
@@ -680,7 +680,9 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if parentRun.Status == domain.StatusExecuting {
-		_ = s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{})
+		if err := s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {
+			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err) //nolint:gosec // structured logging sanitizes values
+		}
 	}
 
 	run := &domain.JobRun{

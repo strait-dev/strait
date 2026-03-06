@@ -20,7 +20,7 @@ type createSecretRequest struct {
 
 func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFSecretInjection {
-		respondError(w, http.StatusBadRequest, "secret injection is not enabled")
+		respondError(w, http.StatusNotFound, "secret injection is not enabled")
 		return
 	}
 
@@ -57,7 +57,7 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListSecrets(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFSecretInjection {
-		respondError(w, http.StatusBadRequest, "secret injection is not enabled")
+		respondError(w, http.StatusNotFound, "secret injection is not enabled")
 		return
 	}
 
@@ -81,7 +81,7 @@ func (s *Server) handleListSecrets(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFSecretInjection {
-		respondError(w, http.StatusBadRequest, "secret injection is not enabled")
+		respondError(w, http.StatusNotFound, "secret injection is not enabled")
 		return
 	}
 

@@ -162,29 +162,59 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 
 	const maxDepth = 10
 
-	chain := make([]*domain.Environment, 0, maxDepth)
-	currentID := id
-	for range maxDepth {
-		env, err := q.GetEnvironment(ctx, currentID)
-		if err != nil {
-			return nil, err
-		}
-		chain = append(chain, env)
+	// Use a recursive CTE to fetch the entire parent chain in a single query.
+	// The chain is returned root-first so we can overlay child variables on top.
+	query := `
+		WITH RECURSIVE chain AS (
+			SELECT id, parent_id, variables, 1 AS depth
+			FROM environments
+			WHERE id = $1
+			UNION ALL
+			SELECT e.id, e.parent_id, e.variables, c.depth + 1
+			FROM environments e
+			JOIN chain c ON e.id = c.parent_id
+			WHERE c.depth < $2
+		)
+		SELECT id, parent_id, variables, depth FROM chain
+		ORDER BY depth DESC`
 
-		if env.ParentID == "" {
-			break
-		}
-
-		currentID = env.ParentID
+	rows, err := q.db.Query(ctx, query, id, maxDepth)
+	if err != nil {
+		return nil, fmt.Errorf("resolve environment variables: %w", err)
 	}
-
-	if len(chain) == maxDepth && chain[len(chain)-1].ParentID != "" {
-		return nil, fmt.Errorf("resolve environment variables: exceeded max inheritance depth %d", maxDepth)
-	}
+	defer rows.Close()
 
 	resolved := make(map[string]string)
-	for i := len(chain) - 1; i >= 0; i-- {
-		maps.Copy(resolved, chain[i].Variables)
+	var lastParentID *string
+	var rowCount int
+	for rows.Next() {
+		var envID string
+		var parentID *string
+		var variablesRaw []byte
+		var depth int
+		if err := rows.Scan(&envID, &parentID, &variablesRaw, &depth); err != nil {
+			return nil, fmt.Errorf("resolve environment variables scan: %w", err)
+		}
+		if len(variablesRaw) > 0 {
+			var vars map[string]string
+			if err := json.Unmarshal(variablesRaw, &vars); err != nil {
+				return nil, fmt.Errorf("resolve environment variables unmarshal: %w", err)
+			}
+			maps.Copy(resolved, vars)
+		}
+		lastParentID = parentID
+		rowCount++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("resolve environment variables rows: %w", err)
+	}
+
+	if rowCount == 0 {
+		return nil, fmt.Errorf("resolve environment variables: environment not found")
+	}
+
+	if rowCount >= maxDepth && lastParentID != nil && *lastParentID != "" {
+		return nil, fmt.Errorf("resolve environment variables: exceeded max inheritance depth %d", maxDepth)
 	}
 
 	return resolved, nil

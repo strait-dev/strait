@@ -70,7 +70,8 @@ func (q *Queries) ListJobGroups(ctx context.Context, projectID string) ([]domain
 		SELECT id, project_id, name, slug, description, created_at, updated_at
 		FROM job_groups
 		WHERE project_id = $1
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT 1000`
 
 	rows, err := q.db.Query(ctx, query, projectID)
 	if err != nil {

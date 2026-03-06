@@ -143,8 +143,8 @@ func TestHandleCreateJob_TagsFeatureDisabled(t *testing.T) {
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "job tags feature is not enabled") {
 		t.Fatalf("expected disabled-tags error, got %s", w.Body.String())
@@ -341,8 +341,8 @@ func TestHandleCreateJobGroup_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{"project_id":"proj-1","name":"Core","slug":"core"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -488,8 +488,8 @@ func TestHandleListJobs_FilterByTag_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "job tags feature is not enabled") {
 		t.Fatalf("expected disabled-tags error, got %s", w.Body.String())
@@ -579,8 +579,8 @@ func TestHandleCreateJobDependency_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-2"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }
 
@@ -943,8 +943,8 @@ func TestHandleReplayRun_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "run replay is not enabled") {
 		t.Fatalf("expected replay-disabled error, got %s", w.Body.String())
@@ -982,6 +982,7 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunReplay = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
 
@@ -1246,8 +1247,8 @@ func TestHandleBatchCreateJobs_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", `{"jobs":[{"project_id":"p","name":"n","slug":"s","endpoint_url":"https://example.com"}]}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 	if !strings.Contains(w.Body.String(), "batch job operations feature is not enabled") {
 		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
@@ -1365,8 +1366,8 @@ func TestHandleBatchEnableJobs_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1"]}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 	if !strings.Contains(w.Body.String(), "batch job operations feature is not enabled") {
 		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
@@ -1513,8 +1514,8 @@ func TestHandleGetJobHealth_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health", ""))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 	if !strings.Contains(w.Body.String(), "job health scoring feature is not enabled") {
 		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
@@ -1571,8 +1572,8 @@ func TestHandleCreateEnvironment_FeatureDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{"project_id":"proj-1","name":"Development","slug":"dev"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

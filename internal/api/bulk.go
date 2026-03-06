@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -305,10 +306,12 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			for _, child := range children {
 				if !child.Status.IsTerminal() {
-					_ = s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
+					if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
 						"finished_at": time.Now(),
 						"error":       "parent run canceled (bulk)",
-					})
+					}); err != nil {
+						slog.Error("failed to cancel child run in bulk", "child_run_id", child.ID, "error", err) //nolint:gosec // structured logging sanitizes values
+					}
 				}
 			}
 		}

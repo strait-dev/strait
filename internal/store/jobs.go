@@ -134,7 +134,8 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT 1000`
 
 	rows, err := q.db.Query(ctx, query, projectID)
 	if err != nil {
