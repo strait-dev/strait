@@ -18,6 +18,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var payload []byte
 	var result []byte
 	var metadata []byte
+	var executionTrace []byte
 	var runError *string
 	var parentRunID *string
 	var idempotencyKey *string
@@ -46,6 +47,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.JobVersion,
 		&run.CreatedAt,
 		&workflowStepRunID,
+		&executionTrace,
 	)
 	if err != nil {
 		return nil, err
@@ -61,6 +63,13 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		if err := json.Unmarshal(metadata, &run.Metadata); err != nil {
 			return nil, err
 		}
+	}
+	if executionTrace != nil {
+		var trace domain.ExecutionTrace
+		if err := json.Unmarshal(executionTrace, &trace); err != nil {
+			return nil, err
+		}
+		run.ExecutionTrace = &trace
 	}
 	if runError != nil {
 		run.Error = *runError

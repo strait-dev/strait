@@ -100,6 +100,7 @@ type JobRun struct {
 	IdempotencyKey    string            `json:"idempotency_key,omitempty"`
 	JobVersion        int               `json:"job_version"`
 	WorkflowStepRunID string            `json:"workflow_step_run_id,omitempty"`
+	ExecutionTrace    *ExecutionTrace   `json:"execution_trace,omitempty"`
 	CreatedAt         time.Time         `json:"created_at"`
 }
 
@@ -152,6 +153,17 @@ type RunOutput struct {
 	Schema    json.RawMessage `json:"schema,omitempty"`
 	Value     json.RawMessage `json:"value"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+// ExecutionTrace captures timing breakdown for a job run execution.
+type ExecutionTrace struct {
+	QueueWaitMs int64 `json:"queue_wait_ms"` // time from created_at to dequeue
+	DequeueMs   int64 `json:"dequeue_ms"`    // time in dequeue operation
+	ConnectMs   int64 `json:"connect_ms"`    // TCP + TLS connection time
+	TtfbMs      int64 `json:"ttfb_ms"`       // time to first byte (after connect)
+	TransferMs  int64 `json:"transfer_ms"`   // response body transfer time
+	TotalMs     int64 `json:"total_ms"`      // total wall time from dequeue to terminal
+	DispatchMs  int64 `json:"dispatch_ms"`   // HTTP roundtrip time (connect + ttfb + transfer)
 }
 
 type CircuitState string

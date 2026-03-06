@@ -255,6 +255,7 @@ func run() error {
 			SmartRetry:        cfg.FFSmartRetry,
 			Bulkheads:         cfg.FFBulkheads,
 			SecretInjection:   cfg.FFSecretInjection,
+			ExecutionTracing:  cfg.FFExecutionTracing,
 		})
 
 		g.Go(func() error {

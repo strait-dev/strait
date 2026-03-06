@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,6 +61,7 @@ type Executor struct {
 	secretInjection  bool
 	smartRetry       bool
 	bulkheads        bool
+	executionTracing bool
 	jobActiveRuns    map[string]int
 	jobActiveRunsMu  sync.Mutex
 	circuitThreshold int
@@ -84,6 +86,7 @@ type ExecutorConfig struct {
 	SecretInjection   bool
 	SmartRetry        bool
 	Bulkheads         bool
+	ExecutionTracing  bool
 }
 
 const (
@@ -119,6 +122,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		secretInjection:  cfg.SecretInjection,
 		smartRetry:       cfg.SmartRetry,
 		bulkheads:        cfg.Bulkheads,
+		executionTracing: cfg.ExecutionTracing,
 		jobActiveRuns:    make(map[string]int),
 		circuitThreshold: defaultCircuitFailureThreshold,
 		circuitOpenFor:   defaultCircuitOpenDuration,
@@ -327,6 +331,8 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.Execute")
 	defer span.End()
 
+	executeStart := time.Now()
+
 	job, err := e.store.GetJob(ctx, run.JobID)
 	if err != nil || job == nil {
 		e.logger.Error(
@@ -427,14 +433,27 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err := e.dispatch(execCtx, job, run)
+	result, execTrace, err := e.tracedDispatch(execCtx, job, run)
+	if execTrace != nil {
+		execTrace.TotalMs = durationMillisecondsAtLeastOne(time.Since(executeStart))
+		queueWait := max(time.Duration(0), executeStart.Sub(run.CreatedAt))
+		execTrace.QueueWaitMs = durationMillisecondsAtLeastOne(queueWait)
+		if run.StartedAt != nil {
+			dequeue := max(time.Duration(0), executeStart.Sub(*run.StartedAt))
+			execTrace.DequeueMs = durationMillisecondsAtLeastOne(dequeue)
+		}
+	}
+	if e.metrics != nil && execTrace != nil {
+		e.metrics.ExecutionTraceDispatch.Record(ctx, float64(execTrace.DispatchMs))
+		e.metrics.ExecutionTraceQueueWait.Record(ctx, float64(execTrace.QueueWaitMs))
+	}
 	if err != nil {
 		if job.FallbackEndpointURL != "" {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
 				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, nil)
 				if fallbackErr == nil {
-					e.handleSuccess(ctx, run, job, fallbackResult)
+					e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
 					return
 				}
 				err = errors.Join(
@@ -445,14 +464,68 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		}
 
 		if execCtx.Err() == context.DeadlineExceeded {
-			e.handleTimeout(ctx, run, job)
+			e.handleTimeout(ctx, run, job, execTrace)
 		} else {
-			e.handleFailure(ctx, run, job, err)
+			e.handleFailure(ctx, run, job, err, execTrace)
 		}
 		return
 	}
 
-	e.handleSuccess(ctx, run, job, result)
+	e.handleSuccess(ctx, run, job, result, execTrace)
+}
+
+func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
+	if !e.executionTracing {
+		result, err := e.dispatch(ctx, job, run)
+		return result, nil, err
+	}
+
+	dispatchStart := time.Now()
+	var connectStart time.Time
+	var connectDone time.Time
+	var gotFirstByte time.Time
+
+	trace := &httptrace.ClientTrace{
+		ConnectStart:         func(string, string) { connectStart = time.Now() },
+		ConnectDone:          func(string, string, error) { connectDone = time.Now() },
+		GotFirstResponseByte: func() { gotFirstByte = time.Now() },
+	}
+
+	tracedCtx := httptrace.WithClientTrace(ctx, trace)
+
+	var extraHeaders map[string]string
+	if e.secretInjection {
+		secrets, err := e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
+		if err != nil {
+			slog.Error("failed to load secrets for job", "job_id", job.ID, "error", err)
+		} else if len(secrets) > 0 {
+			extraHeaders = make(map[string]string, len(secrets))
+			for _, secret := range secrets {
+				extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+			}
+		}
+	}
+
+	result, err := e.dispatchToEndpoint(tracedCtx, job.EndpointURL, run, extraHeaders)
+	gotLastByte := time.Now()
+
+	execTrace := &domain.ExecutionTrace{}
+	if !connectStart.IsZero() && !connectDone.IsZero() {
+		execTrace.ConnectMs = durationMillisecondsAtLeastOne(connectDone.Sub(connectStart))
+	}
+	if !gotFirstByte.IsZero() {
+		base := dispatchStart
+		if !connectDone.IsZero() {
+			base = connectDone
+		}
+		execTrace.TtfbMs = durationMillisecondsAtLeastOne(gotFirstByte.Sub(base))
+	}
+	if !gotFirstByte.IsZero() {
+		execTrace.TransferMs = durationMillisecondsAtLeastOne(gotLastByte.Sub(gotFirstByte))
+	}
+	execTrace.DispatchMs = execTrace.ConnectMs + execTrace.TtfbMs + execTrace.TransferMs
+
+	return result, execTrace, err
 }
 
 func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, error) {
@@ -526,7 +599,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	return nil, nil
 }
 
-func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage) {
+func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
 
@@ -536,6 +609,9 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	}
 	if len(result) > 0 {
 		fields["result"] = result
+	}
+	if execTrace != nil {
+		fields["execution_trace"] = execTrace
 	}
 
 	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, fields)
@@ -616,7 +692,7 @@ func shouldUseFallbackForClass(errClass string) bool {
 	}
 }
 
-func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, err error) {
+func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, err error, execTrace *domain.ExecutionTrace) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleFailure")
 	defer span.End()
 
@@ -675,11 +751,15 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	}
 
 	now := time.Now()
-	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
+	fields := map[string]any{
 		"finished_at": now,
 		"error":       errMsg,
 		"error_class": errClass,
-	})
+	}
+	if execTrace != nil {
+		fields["execution_trace"] = execTrace
+	}
+	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusFailed, fields)
 	if updateErr != nil {
 		e.logger.Error(
 			"failed to mark run failed",
@@ -696,7 +776,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	e.submitWebhook(ctx, job, run)
 }
 
-func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, execTrace *domain.ExecutionTrace) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
 
@@ -739,11 +819,15 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	}
 
 	now := time.Now()
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusTimedOut, map[string]any{
+	fields := map[string]any{
 		"finished_at": now,
 		"error":       "execution timed out",
 		"error_class": "transient",
-	})
+	}
+	if execTrace != nil {
+		fields["execution_trace"] = execTrace
+	}
+	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusTimedOut, fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run timed_out",
@@ -804,4 +888,15 @@ func (e *Executor) recordRunTransition(ctx context.Context, fromStatus, toStatus
 		attribute.String("from", string(fromStatus)),
 		attribute.String("to", string(toStatus)),
 	))
+}
+
+func durationMillisecondsAtLeastOne(d time.Duration) int64 {
+	if d <= 0 {
+		return 0
+	}
+	ms := d.Milliseconds()
+	if ms == 0 {
+		return 1
+	}
+	return ms
 }
