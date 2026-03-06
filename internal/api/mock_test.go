@@ -26,6 +26,9 @@ type mockAPIStore struct {
 	listJobsByGroupFn           func(ctx context.Context, groupID string) ([]domain.Job, error)
 	listJobSecretsFn            func(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	listJobsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
+	createJobDependencyFn       func(ctx context.Context, dep *domain.JobDependency) error
+	listJobDependenciesFn       func(ctx context.Context, jobID string) ([]domain.JobDependency, error)
+	deleteJobDependencyFn       func(ctx context.Context, id string) error
 	updateJobFn                 func(ctx context.Context, job *domain.Job) error
 	getRunFn                    func(ctx context.Context, id string) (*domain.JobRun, error)
 	getRunByIdempotencyKeyFn    func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
@@ -167,6 +170,27 @@ func (m *mockAPIStore) ListJobsByTag(ctx context.Context, projectID, tagKey, tag
 		return m.listJobsByTagFn(ctx, projectID, tagKey, tagValue)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error {
+	if m.createJobDependencyFn != nil {
+		return m.createJobDependencyFn(ctx, dep)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListJobDependencies(ctx context.Context, jobID string) ([]domain.JobDependency, error) {
+	if m.listJobDependenciesFn != nil {
+		return m.listJobDependenciesFn(ctx, jobID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteJobDependency(ctx context.Context, id string) error {
+	if m.deleteJobDependencyFn != nil {
+		return m.deleteJobDependencyFn(ctx, id)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) UpdateJob(ctx context.Context, job *domain.Job) error {

@@ -84,6 +84,7 @@ type Config struct {
 	FFDebugBundle      bool `mapstructure:"FF_DEBUG_BUNDLE"`
 	FFBatchJobOps      bool `mapstructure:"FF_BATCH_JOB_OPS"`
 	FFJobGroups        bool `mapstructure:"FF_JOB_GROUPS"`
+	FFJobDependencies  bool `mapstructure:"FF_JOB_DEPENDENCIES"`
 	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
 }
 
@@ -137,6 +138,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_DEBUG_BUNDLE", false)
 	viper.SetDefault("FF_BATCH_JOB_OPS", false)
 	viper.SetDefault("FF_JOB_GROUPS", false)
+	viper.SetDefault("FF_JOB_DEPENDENCIES", false)
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 

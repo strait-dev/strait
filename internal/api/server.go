@@ -38,6 +38,9 @@ type APIStore interface {
 	ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error)
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
+	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
+	ListJobDependencies(ctx context.Context, jobID string) ([]domain.JobDependency, error)
+	DeleteJobDependency(ctx context.Context, id string) error
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
@@ -192,6 +195,9 @@ func (s *Server) routes() chi.Router {
 				r.Delete("/", s.handleDeleteJob)
 				r.With(httprate.LimitByIP(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
 				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
+				r.Post("/dependencies", s.handleCreateJobDependency)
+				r.Get("/dependencies", s.handleListJobDependencies)
+				r.Delete("/dependencies/{depID}", s.handleDeleteJobDependency)
 				r.Get("/versions", s.handleListJobVersions)
 				r.Post("/clone", s.handleCloneJob)
 				r.Get("/health", s.handleGetJobHealth)

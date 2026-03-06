@@ -496,6 +496,144 @@ func TestHandleListJobs_FilterByTag_FeatureDisabled(t *testing.T) {
 	}
 }
 
+func TestHandleCreateJobDependency_Success(t *testing.T) {
+	ms := &mockAPIStore{}
+	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+	}
+	ms.createJobDependencyFn = func(_ context.Context, dep *domain.JobDependency) error {
+		if dep.JobID != "job-1" {
+			t.Fatalf("job_id = %q, want %q", dep.JobID, "job-1")
+		}
+		if dep.DependsOnJobID != "job-2" {
+			t.Fatalf("depends_on_job_id = %q, want %q", dep.DependsOnJobID, "job-2")
+		}
+		if dep.Condition != "completed" {
+			t.Fatalf("condition = %q, want %q", dep.Condition, "completed")
+		}
+		dep.ID = "dep-1"
+		dep.CreatedAt = time.Now()
+		return nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobDependencies = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-2"}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp domain.JobDependency
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.ID != "dep-1" {
+		t.Fatalf("id = %q, want %q", resp.ID, "dep-1")
+	}
+}
+
+func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
+	ms := &mockAPIStore{}
+	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+	}
+	ms.createJobDependencyFn = func(_ context.Context, _ *domain.JobDependency) error {
+		t.Fatal("CreateJobDependency should not be called")
+		return nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobDependencies = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-1"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
+	ms := &mockAPIStore{}
+	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobDependencies = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateJobDependency_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-2"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleListJobDependencies_Success(t *testing.T) {
+	ms := &mockAPIStore{}
+	ms.listJobDependenciesFn = func(_ context.Context, jobID string) ([]domain.JobDependency, error) {
+		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: time.Now()}}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobDependencies = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []domain.JobDependency
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 dependency, got %d", len(resp))
+	}
+}
+
+func TestHandleDeleteJobDependency_Success(t *testing.T) {
+	ms := &mockAPIStore{}
+	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+	}
+	deletedID := ""
+	ms.deleteJobDependencyFn = func(_ context.Context, id string) error {
+		deletedID = id
+		return nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobDependencies = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-1/dependencies/dep-9", ""))
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if deletedID != "dep-9" {
+		t.Fatalf("deleted id = %q, want %q", deletedID, "dep-9")
+	}
+}
+
 func TestHandleTriggerJob_Success(t *testing.T) {
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {

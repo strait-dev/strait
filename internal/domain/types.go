@@ -77,6 +77,14 @@ type JobGroup struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type JobDependency struct {
+	ID             string    `json:"id"`
+	JobID          string    `json:"job_id"`
+	DependsOnJobID string    `json:"depends_on_job_id"`
+	Condition      string    `json:"condition"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type JobSecret struct {
 	ID             string    `json:"id"`
 	ProjectID      string    `json:"project_id"`

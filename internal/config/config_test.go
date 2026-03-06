@@ -146,6 +146,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.FFJobGroups {
 		t.Fatal("FFJobGroups = true, want false")
 	}
+	if cfg.FFJobDependencies {
+		t.Fatal("FFJobDependencies = true, want false")
+	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {
@@ -203,7 +206,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	bindEnvKeys(
 		t,
 		"DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "PORT", "WORKER_CONCURRENCY", "MODE", "LOG_LEVEL",
-		"FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS", "FF_PROGRESS_STREAMING", "FF_PAYLOAD_VALIDATION", "FF_EXECUTION_TRACING", "FF_JOB_GROUPS",
+		"FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS", "FF_PROGRESS_STREAMING", "FF_PAYLOAD_VALIDATION", "FF_EXECUTION_TRACING", "FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES",
 	)
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret")
@@ -218,6 +221,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("FF_PAYLOAD_VALIDATION", "true")
 	t.Setenv("FF_EXECUTION_TRACING", "true")
 	t.Setenv("FF_JOB_GROUPS", "true")
+	t.Setenv("FF_JOB_DEPENDENCIES", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -253,5 +257,8 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	}
 	if !cfg.FFJobGroups {
 		t.Fatal("FFJobGroups = false, want true")
+	}
+	if !cfg.FFJobDependencies {
+		t.Fatal("FFJobDependencies = false, want true")
 	}
 }
