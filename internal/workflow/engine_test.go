@@ -255,6 +255,7 @@ type mockCallbackStore struct {
 	getStepRunByJobRunIDFn       func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	updateStepRunStatusFn        func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	incrementStepDepsFn          func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
+	incrementStepRunAttemptFn    func(ctx context.Context, id string, newAttempt int) error
 	getWorkflowRunFn             func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	updateWorkflowRunStatusFn    func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	listStepRunsByWorkflowRun    func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
@@ -265,6 +266,7 @@ type mockCallbackStore struct {
 	createWorkflowStepApprovalFn func(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	getWorkflowStepApprovalFn    func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	updateWorkflowStepApprovalFn func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	updateRunStatusFn            func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
 
 func (m *mockCallbackStore) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
@@ -354,6 +356,20 @@ func (m *mockCallbackStore) GetWorkflowStepApprovalByStepRunID(ctx context.Conte
 func (m *mockCallbackStore) UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error {
 	if m.updateWorkflowStepApprovalFn != nil {
 		return m.updateWorkflowStepApprovalFn(ctx, id, status, approvedBy, approvedAt, errMsg)
+	}
+	return nil
+}
+
+func (m *mockCallbackStore) IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error {
+	if m.incrementStepRunAttemptFn != nil {
+		return m.incrementStepRunAttemptFn(ctx, id, newAttempt)
+	}
+	return nil
+}
+
+func (m *mockCallbackStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+	if m.updateRunStatusFn != nil {
+		return m.updateRunStatusFn(ctx, id, from, to, fields)
 	}
 	return nil
 }
@@ -671,4 +687,453 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 	if startCalls == 0 {
 		t.Fatal("expected child step to be started")
 	}
+}
+
+func TestStepCallback_checkStepRetry(t *testing.T) {
+	tests := []struct {
+		name              string
+		stepRun           *domain.WorkflowStepRun
+		getWorkflowRunFn  func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+		listStepsFn       func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+		wantShouldRetry   bool
+		wantNewAttempt    int
+		wantErrContains   string
+		assertNextRetryAt func(t *testing.T, got time.Time, before, after time.Time)
+	}{
+		{
+			name: "no_retry_policy",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "s1",
+				Attempt:       1,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1", RetryMaxAttempts: 0}}, nil
+			},
+			wantShouldRetry: false,
+			wantNewAttempt:  0,
+		},
+		{
+			name: "first_attempt_with_retry_policy",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "s1",
+				Attempt:       1,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{
+					StepRef:               "s1",
+					RetryMaxAttempts:      3,
+					RetryBackoff:          domain.RetryBackoffExponential,
+					RetryInitialDelaySecs: 2,
+					RetryMaxDelaySecs:     120,
+				}}, nil
+			},
+			wantShouldRetry: true,
+			wantNewAttempt:  2,
+			assertNextRetryAt: func(t *testing.T, got time.Time, before, after time.Time) {
+				t.Helper()
+				if got.IsZero() {
+					t.Fatal("nextRetryAt is zero")
+				}
+				if !got.After(before) {
+					t.Fatalf("nextRetryAt %v is not after start %v", got, before)
+				}
+				if !got.After(after) {
+					t.Fatalf("nextRetryAt %v is not after end %v", got, after)
+				}
+			},
+		},
+		{
+			name: "exhausted_attempts",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "s1",
+				Attempt:       2,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1", RetryMaxAttempts: 2}}, nil
+			},
+			wantShouldRetry: false,
+			wantNewAttempt:  0,
+		},
+		{
+			name: "get_workflow_run_error",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "s1",
+				Attempt:       1,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, errors.New("boom")
+			},
+			wantErrContains: "get workflow run",
+		},
+		{
+			name: "list_steps_error",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "s1",
+				Attempt:       1,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return nil, errors.New("boom")
+			},
+			wantErrContains: "list workflow steps",
+		},
+		{
+			name: "step_not_found",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "missing",
+				Attempt:       1,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "s1", RetryMaxAttempts: 3}}, nil
+			},
+			wantErrContains: "step definition not found",
+		},
+		{
+			name: "exponential_backoff_delay",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "s1",
+				Attempt:       1,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{
+					StepRef:               "s1",
+					RetryMaxAttempts:      4,
+					RetryBackoff:          domain.RetryBackoffExponential,
+					RetryInitialDelaySecs: 10,
+					RetryMaxDelaySecs:     120,
+				}}, nil
+			},
+			wantShouldRetry: true,
+			wantNewAttempt:  2,
+			assertNextRetryAt: func(t *testing.T, got time.Time, before, _ time.Time) {
+				t.Helper()
+				delay := got.Sub(before)
+				if delay < 15*time.Second || delay > 25*time.Second {
+					t.Fatalf("delay = %v, want roughly 20s (+-20%%)", delay)
+				}
+			},
+		},
+		{
+			name: "fixed_backoff_delay",
+			stepRun: &domain.WorkflowStepRun{
+				WorkflowRunID: "wr-1",
+				StepRef:       "s1",
+				Attempt:       4,
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{
+					StepRef:               "s1",
+					RetryMaxAttempts:      10,
+					RetryBackoff:          domain.RetryBackoffFixed,
+					RetryInitialDelaySecs: 8,
+					RetryMaxDelaySecs:     120,
+				}}, nil
+			},
+			wantShouldRetry: true,
+			wantNewAttempt:  5,
+			assertNextRetryAt: func(t *testing.T, got time.Time, before, _ time.Time) {
+				t.Helper()
+				delay := got.Sub(before)
+				if delay < 6*time.Second || delay > 10*time.Second {
+					t.Fatalf("delay = %v, want roughly 8s (+-20%%)", delay)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockCallbackStore{
+				getWorkflowRunFn:         tt.getWorkflowRunFn,
+				listStepsByWorkflowVerFn: tt.listStepsFn,
+			}
+			cb := NewStepCallback(store, nil, slog.Default())
+
+			before := time.Now()
+			shouldRetry, nextRetryAt, newAttempt, err := cb.checkStepRetry(context.Background(), tt.stepRun, &domain.JobRun{})
+			after := time.Now()
+
+			if tt.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("checkStepRetry() error = %v", err)
+			}
+			if shouldRetry != tt.wantShouldRetry {
+				t.Fatalf("shouldRetry = %v, want %v", shouldRetry, tt.wantShouldRetry)
+			}
+			if newAttempt != tt.wantNewAttempt {
+				t.Fatalf("newAttempt = %d, want %d", newAttempt, tt.wantNewAttempt)
+			}
+
+			if tt.assertNextRetryAt != nil {
+				tt.assertNextRetryAt(t, nextRetryAt, before, after)
+			}
+		})
+	}
+}
+
+func TestStepCallback_scheduleStepRetry(t *testing.T) {
+	tests := []struct {
+		name                 string
+		incrementErr         error
+		updateRunStatusErr   error
+		wantErrContains      string
+		wantUpdateRunInvoked bool
+	}{
+		{
+			name:                 "success",
+			wantUpdateRunInvoked: true,
+		},
+		{
+			name:                 "increment_attempt_error",
+			incrementErr:         errors.New("boom"),
+			wantErrContains:      "increment step run attempt",
+			wantUpdateRunInvoked: false,
+		},
+		{
+			name:                 "update_run_status_error",
+			updateRunStatusErr:   errors.New("boom"),
+			wantErrContains:      "update job run status for retry",
+			wantUpdateRunInvoked: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			incrementCalled := 0
+			updateRunCalled := 0
+
+			store := &mockCallbackStore{
+				incrementStepRunAttemptFn: func(_ context.Context, id string, newAttempt int) error {
+					incrementCalled++
+					if id != "sr-1" || newAttempt != 2 {
+						t.Fatalf("unexpected increment args: id=%s newAttempt=%d", id, newAttempt)
+					}
+					return tt.incrementErr
+				},
+				updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+					updateRunCalled++
+					if id != "run-1" {
+						t.Fatalf("unexpected run id %s", id)
+					}
+					if from != domain.StatusFailed || to != domain.StatusDelayed {
+						t.Fatalf("unexpected status transition %s -> %s", from, to)
+					}
+					if fields["attempt"] != 2 {
+						t.Fatalf("expected attempt=2, got %+v", fields)
+					}
+					if _, ok := fields["next_retry_at"].(time.Time); !ok {
+						t.Fatalf("expected next_retry_at time.Time, got %+v", fields["next_retry_at"])
+					}
+					return tt.updateRunStatusErr
+				},
+			}
+
+			cb := NewStepCallback(store, nil, slog.Default())
+			err := cb.scheduleStepRetry(
+				context.Background(),
+				&domain.JobRun{ID: "run-1", Status: domain.StatusFailed},
+				&domain.WorkflowStepRun{ID: "sr-1"},
+				time.Now().Add(2*time.Second),
+				2,
+			)
+
+			if tt.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErrContains, err)
+				}
+			} else if err != nil {
+				t.Fatalf("scheduleStepRetry() error = %v", err)
+			}
+
+			if incrementCalled != 1 {
+				t.Fatalf("IncrementStepRunAttempt called %d times, want 1", incrementCalled)
+			}
+			if tt.wantUpdateRunInvoked && updateRunCalled != 1 {
+				t.Fatalf("UpdateRunStatus called %d times, want 1", updateRunCalled)
+			}
+			if !tt.wantUpdateRunInvoked && updateRunCalled != 0 {
+				t.Fatalf("UpdateRunStatus called %d times, want 0", updateRunCalled)
+			}
+		})
+	}
+}
+
+func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
+	t.Run("failed_run_triggers_retry", func(t *testing.T) {
+		incrementCalled := 0
+		updateRunCalled := 0
+
+		ms := &mockCallbackStore{
+			getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{
+					ID:            "sr-1",
+					WorkflowRunID: "wr-1",
+					StepRef:       "s1",
+					Attempt:       1,
+					Status:        domain.StepRunning,
+				}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+				if id == "sr-1" && status != domain.StepFailed {
+					t.Fatalf("unexpected step status: %s", status)
+				}
+				return nil
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{
+					StepRef:               "s1",
+					OnFailure:             domain.FailWorkflow,
+					RetryMaxAttempts:      3,
+					RetryBackoff:          domain.RetryBackoffFixed,
+					RetryInitialDelaySecs: 1,
+					RetryMaxDelaySecs:     5,
+				}}, nil
+			},
+			incrementStepRunAttemptFn: func(_ context.Context, id string, newAttempt int) error {
+				incrementCalled++
+				if id != "sr-1" || newAttempt != 2 {
+					t.Fatalf("unexpected increment args id=%s attempt=%d", id, newAttempt)
+				}
+				return nil
+			},
+			updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+				updateRunCalled++
+				if id != "run-1" || from != domain.StatusFailed || to != domain.StatusDelayed {
+					t.Fatalf("unexpected run transition id=%s %s->%s", id, from, to)
+				}
+				if fields["attempt"] != 2 {
+					t.Fatalf("expected attempt=2, got %+v", fields)
+				}
+				if _, ok := fields["next_retry_at"].(time.Time); !ok {
+					t.Fatalf("missing/invalid next_retry_at: %+v", fields)
+				}
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				t.Fatal("UpdateWorkflowRunStatus should not be called when retry is scheduled")
+				return nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				t.Fatal("ListStepRunsByWorkflowRun should not be called when retry is scheduled")
+				return nil, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if incrementCalled != 1 {
+			t.Fatalf("IncrementStepRunAttempt called %d times, want 1", incrementCalled)
+		}
+		if updateRunCalled != 1 {
+			t.Fatalf("UpdateRunStatus called %d times, want 1", updateRunCalled)
+		}
+	})
+
+	t.Run("failed_run_no_retry_falls_through", func(t *testing.T) {
+		workflowFailed := 0
+		canceledDependents := 0
+
+		ms := &mockCallbackStore{
+			getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{
+					ID:            "sr-fail",
+					WorkflowRunID: "wr-1",
+					StepRef:       "s1",
+					Attempt:       1,
+					Status:        domain.StepRunning,
+				}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+				if id == "sr-fail" && status != domain.StepFailed {
+					t.Fatalf("failed step status = %s, want failed", status)
+				}
+				if id == "sr-other" && status == domain.StepCanceled {
+					canceledDependents++
+				}
+				return nil
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusRunning}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{
+					StepRef:          "s1",
+					OnFailure:        domain.FailWorkflow,
+					RetryMaxAttempts: 0,
+				}}, nil
+			},
+			incrementStepRunAttemptFn: func(_ context.Context, _ string, _ int) error {
+				t.Fatal("IncrementStepRunAttempt should not be called when retry is disabled")
+				return nil
+			},
+			updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+				t.Fatal("UpdateRunStatus should not be called when retry is disabled")
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
+				if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
+					t.Fatalf("unexpected workflow transition %s -> %s", from, to)
+				}
+				workflowFailed++
+				return nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "sr-fail", StepRef: "s1", Status: domain.StepFailed},
+					{ID: "sr-other", StepRef: "s2", Status: domain.StepWaiting},
+				}, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-fail", Status: domain.StatusFailed, Error: "boom"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if workflowFailed != 1 {
+			t.Fatalf("workflow failed updates = %d, want 1", workflowFailed)
+		}
+		if canceledDependents != 1 {
+			t.Fatalf("canceled dependents = %d, want 1", canceledDependents)
+		}
+	})
 }
