@@ -1972,7 +1972,7 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 	}
 }
 
-func TestHandleReplayRun_CheckpointNotFound(t *testing.T) {
+func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return &domain.JobRun{
