@@ -74,6 +74,7 @@ type Config struct {
 	FFRunAnnotations    bool `mapstructure:"FF_RUN_ANNOTATIONS"`
 	FFSecretInjection   bool `mapstructure:"FF_SECRET_INJECTION"`
 	FFRunReplay         bool `mapstructure:"FF_RUN_REPLAY"`
+	FFDryRun            bool `mapstructure:"FF_DRY_RUN"`
 
 	FFRunRetention     bool `mapstructure:"FF_RUN_RETENTION"`
 	FFExecutionTracing bool `mapstructure:"FF_EXECUTION_TRACING"`
@@ -122,6 +123,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_RUN_ANNOTATIONS", false)
 	viper.SetDefault("FF_SECRET_INJECTION", false)
 	viper.SetDefault("FF_RUN_REPLAY", false)
+	viper.SetDefault("FF_DRY_RUN", false)
 	viper.SetDefault("FF_RUN_RETENTION", false)
 	viper.SetDefault("FF_EXECUTION_TRACING", false)
 	viper.SetDefault("FF_DEBUG_BUNDLE", false)

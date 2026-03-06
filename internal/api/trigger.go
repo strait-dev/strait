@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -21,6 +23,7 @@ type TriggerRequest struct {
 	Payload     json.RawMessage `json:"payload,omitempty"`
 	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
 	Priority    int             `json:"priority,omitempty"`
+	DryRun      bool            `json:"dry_run,omitempty"`
 }
 
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +50,20 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle dry-run mode
+	if req.DryRun {
+		if !s.config.FFDryRun {
+			respondError(w, http.StatusBadRequest, "dry-run mode is not enabled")
+			return
+		}
+		result, err := s.validateTriggerRequest(r.Context(), jobID, req)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondJSON(w, http.StatusOK, result)
+		return
+	}
 	if s.config.FFPayloadValidation {
 		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
 			respondError(w, http.StatusBadRequest, "payload validation failed: "+err.Error())
@@ -270,4 +287,119 @@ func cronMatchesInstant(schedule cron.Schedule, ts time.Time) bool {
 	truncated := ts.Truncate(time.Minute)
 	previousMinute := truncated.Add(-time.Minute)
 	return schedule.Next(previousMinute).Equal(truncated)
+}
+
+// DryRunValidationResult contains the result of trigger validation for dry-run mode.
+type DryRunValidationResult struct {
+	Job                *domain.Job     `json:"job"`
+	PayloadHash        string          `json:"payload_hash"`
+	Payload            json.RawMessage `json:"payload,omitempty"`
+	ScheduledAt        *time.Time      `json:"scheduled_at,omitempty"`
+	ExpiresAt          time.Time       `json:"expires_at"`
+	ValidationWarnings []string        `json:"validation_warnings,omitempty"`
+}
+
+func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !job.Enabled {
+		return nil, errors.New("job is disabled")
+	}
+
+	if s.config.FFPayloadValidation {
+		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
+			return nil, fmt.Errorf("payload validation failed: %w", err)
+		}
+	}
+
+	payload, payloadHash, err := canonicalizePayload(req.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("invalid payload: %w", err)
+	}
+
+	var projectQuota *store.ProjectQuota
+	var warnings []string
+	if s.config.FFProjectQuotas || s.config.FFExecutionWindows {
+		projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load project quota: %w", err)
+		}
+	}
+
+	if s.config.FFProjectQuotas && projectQuota != nil {
+		if projectQuota.MaxQueuedRuns > 0 {
+			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return nil, fmt.Errorf("failed to evaluate project queued quota: %w", countErr)
+			}
+			if queuedRuns >= projectQuota.MaxQueuedRuns {
+				return nil, errors.New("project queued quota exceeded")
+			}
+		}
+
+		if projectQuota.MaxExecutingRuns > 0 {
+			activeRuns, countErr := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return nil, fmt.Errorf("failed to evaluate project active quota: %w", countErr)
+			}
+			if activeRuns >= projectQuota.MaxExecutingRuns {
+				return nil, errors.New("project executing quota exceeded")
+			}
+		}
+	}
+
+	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+		runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
+		if countErr != nil {
+			return nil, fmt.Errorf("failed to evaluate job rate limit: %w", countErr)
+		}
+		if runCount >= job.RateLimitMax {
+			return nil, errors.New("job rate limit exceeded")
+		}
+	}
+
+	if job.DedupWindowSecs > 0 {
+		since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
+		existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
+		if findErr != nil {
+			return nil, fmt.Errorf("failed to evaluate payload deduplication: %w", findErr)
+		}
+		if existingRun != nil {
+			warnings = append(warnings, fmt.Sprintf("payload deduplication: run %s", existingRun.ID))
+		}
+	}
+
+	now := time.Now()
+	scheduledAt := req.ScheduledAt
+	if s.config.FFExecutionWindows && job.ExecutionWindowCron != "" {
+		timezone := job.Timezone
+		if timezone == "" && projectQuota != nil {
+			timezone = projectQuota.Timezone
+		}
+		adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
+		if adjustErr != nil {
+			return nil, fmt.Errorf("execution window validation failed: %w", adjustErr)
+		}
+		scheduledAt = adjustedScheduledAt
+	}
+
+	var expiresAt time.Time
+	if job.RunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	} else {
+		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+	}
+
+	return &DryRunValidationResult{
+		Job:                job,
+		PayloadHash:        payloadHash,
+		Payload:            payload,
+		ScheduledAt:        scheduledAt,
+		ExpiresAt:          expiresAt,
+		ValidationWarnings: warnings,
+	}, nil
 }

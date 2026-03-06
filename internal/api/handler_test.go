@@ -482,3 +482,52 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestHandleTriggerJob_DryRunMode(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "Test",
+				Slug:        "test",
+				EndpointURL: "https://example.com/callback",
+				Enabled:     true,
+				TimeoutSecs: 300,
+				MaxAttempts: 3,
+			}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID}, nil
+		},
+		countProjectQueuedRunsFn: func(_ context.Context, projectID string) (int, error) {
+			return 5, nil
+		},
+	}
+	mq := &mockQueue{}
+	srv := newTestServer(t, ms, mq, nil)
+	// Enable dry-run feature
+	srv.config.FFDryRun = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"dry_run": true}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp DryRunValidationResult
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if resp.Job == nil || resp.Job.ID != "job-123" {
+		t.Fatal("expected non-nil job with id=job-123")
+	}
+	if resp.PayloadHash == "" {
+		t.Fatal("expected non-empty payload_hash")
+	}
+	if resp.ExpiresAt.IsZero() {
+		t.Fatal("expected non-zero expires_at")
+	}
+}

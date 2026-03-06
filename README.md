@@ -167,12 +167,22 @@ curl -X POST http://localhost:8080/v1/jobs \
   }'
 
 # Trigger a job run
+```bash
 curl -X POST http://localhost:8080/v1/jobs/{jobID}/trigger \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -H "Content-Type: application/json" \
   -d '{"payload": {"to": "user@example.com", "subject": "Hello"}}'
 ```
 
+```bash
+# Dry-run trigger (validates without executing)
+curl -X POST http://localhost:8080/v1/jobs/{jobID}/trigger \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": true, "payload": {"data": "test"}}'
+```
+```bash
+# Note: Dry-run mode requires FFDryRun feature flag to be enabled. Returns DryRunValidationResult instead of creating a run.
 ### Runs
 
 | Method | Path | Description |
