@@ -326,6 +326,66 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusNoContent, nil)
 }
 
+type CloneJobRequest struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
+	source, err := s.store.GetJob(r.Context(), jobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			respondError(w, http.StatusNotFound, "job not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get job")
+		return
+	}
+
+	var req CloneJobRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" || req.Slug == "" {
+		respondError(w, http.StatusBadRequest, "name and slug are required")
+		return
+	}
+
+	clone := &domain.Job{
+		ProjectID:           source.ProjectID,
+		Name:                req.Name,
+		Slug:                req.Slug,
+		Description:         source.Description,
+		Cron:                source.Cron,
+		PayloadSchema:       source.PayloadSchema,
+		Tags:                source.Tags,
+		EndpointURL:         source.EndpointURL,
+		FallbackEndpointURL: source.FallbackEndpointURL,
+		MaxAttempts:         source.MaxAttempts,
+		TimeoutSecs:         source.TimeoutSecs,
+		MaxConcurrency:      source.MaxConcurrency,
+		ExecutionWindowCron: source.ExecutionWindowCron,
+		Timezone:            source.Timezone,
+		RateLimitMax:        source.RateLimitMax,
+		RateLimitWindowSecs: source.RateLimitWindowSecs,
+		DedupWindowSecs:     source.DedupWindowSecs,
+		WebhookURL:          source.WebhookURL,
+		WebhookSecret:       source.WebhookSecret,
+		RunTTLSecs:          source.RunTTLSecs,
+		Enabled:             true,
+	}
+
+	if err := s.store.CreateJob(r.Context(), clone); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to clone job")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, clone)
+}
+
 func validateTags(tags map[string]string) error {
 	if len(tags) > 20 {
 		return fmt.Errorf("too many tags (max 20)")

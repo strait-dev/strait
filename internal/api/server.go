@@ -182,6 +182,7 @@ func (s *Server) routes() chi.Router {
 				r.With(httprate.LimitByIP(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
 				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.Get("/versions", s.handleListJobVersions)
+				r.Post("/clone", s.handleCloneJob)
 			})
 		})
 

@@ -738,3 +738,93 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 		t.Fatal("expected non-zero expires_at")
 	}
 }
+
+func TestHandleCloneJob_Success(t *testing.T) {
+	sourceJob := &domain.Job{
+		ID:          "job-source",
+		ProjectID:   "proj-1",
+		Name:        "Original Job",
+		Slug:        "original-job",
+		Description: "A test job",
+		EndpointURL: "https://example.com/hook",
+		MaxAttempts: 5,
+		TimeoutSecs: 120,
+		RunTTLSecs:  3600,
+		Enabled:     true,
+	}
+	ms := &mockAPIStore{}
+	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
+		if id == "job-source" {
+			return sourceJob, nil
+		}
+		return nil, store.ErrJobNotFound
+	}
+	ms.createJobFn = func(_ context.Context, job *domain.Job) error {
+		job.ID = "job-cloned"
+		return nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-source/clone", `{"name":"Cloned Job","slug":"cloned-job"}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+	var cloned domain.Job
+	if err := json.Unmarshal(w.Body.Bytes(), &cloned); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cloned.Name != "Cloned Job" {
+		t.Fatalf("name = %q, want %q", cloned.Name, "Cloned Job")
+	}
+	if cloned.Slug != "cloned-job" {
+		t.Fatalf("slug = %q, want %q", cloned.Slug, "cloned-job")
+	}
+	if cloned.EndpointURL != sourceJob.EndpointURL {
+		t.Fatalf("endpoint_url = %q, want %q", cloned.EndpointURL, sourceJob.EndpointURL)
+	}
+	if cloned.MaxAttempts != sourceJob.MaxAttempts {
+		t.Fatalf("max_attempts = %d, want %d", cloned.MaxAttempts, sourceJob.MaxAttempts)
+	}
+	if cloned.TimeoutSecs != sourceJob.TimeoutSecs {
+		t.Fatalf("timeout_secs = %d, want %d", cloned.TimeoutSecs, sourceJob.TimeoutSecs)
+	}
+	if cloned.RunTTLSecs != sourceJob.RunTTLSecs {
+		t.Fatalf("run_ttl_secs = %d, want %d", cloned.RunTTLSecs, sourceJob.RunTTLSecs)
+	}
+	if cloned.ProjectID != sourceJob.ProjectID {
+		t.Fatalf("project_id = %q, want %q", cloned.ProjectID, sourceJob.ProjectID)
+	}
+}
+
+func TestHandleCloneJob_NotFound(t *testing.T) {
+	ms := &mockAPIStore{}
+	ms.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		return nil, store.ErrJobNotFound
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/nonexistent/clone", `{"name":"Clone","slug":"clone"}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleCloneJob_MissingFields(t *testing.T) {
+	ms := &mockAPIStore{}
+	ms.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		return &domain.Job{ID: "job-1", ProjectID: "proj-1", EndpointURL: "https://example.com"}, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/clone", `{"name":""}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
