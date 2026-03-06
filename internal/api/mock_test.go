@@ -24,6 +24,12 @@ type mockAPIStore struct {
 	updateJobGroupFn            func(ctx context.Context, group *domain.JobGroup) error
 	deleteJobGroupFn            func(ctx context.Context, id string) error
 	listJobsByGroupFn           func(ctx context.Context, groupID string) ([]domain.Job, error)
+	createEnvironmentFn         func(ctx context.Context, env *domain.Environment) error
+	getEnvironmentFn            func(ctx context.Context, id string) (*domain.Environment, error)
+	listEnvironmentsFn          func(ctx context.Context, projectID string) ([]domain.Environment, error)
+	updateEnvironmentFn         func(ctx context.Context, env *domain.Environment) error
+	deleteEnvironmentFn         func(ctx context.Context, id string) error
+	getResolvedEnvVarsFn        func(ctx context.Context, id string) (map[string]string, error)
 	listJobSecretsFn            func(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	listJobsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
 	createJobDependencyFn       func(ctx context.Context, dep *domain.JobDependency) error
@@ -154,6 +160,48 @@ func (m *mockAPIStore) DeleteJobGroup(ctx context.Context, id string) error {
 func (m *mockAPIStore) ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error) {
 	if m.listJobsByGroupFn != nil {
 		return m.listJobsByGroupFn(ctx, groupID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateEnvironment(ctx context.Context, env *domain.Environment) error {
+	if m.createEnvironmentFn != nil {
+		return m.createEnvironmentFn(ctx, env)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetEnvironment(ctx context.Context, id string) (*domain.Environment, error) {
+	if m.getEnvironmentFn != nil {
+		return m.getEnvironmentFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error) {
+	if m.listEnvironmentsFn != nil {
+		return m.listEnvironmentsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateEnvironment(ctx context.Context, env *domain.Environment) error {
+	if m.updateEnvironmentFn != nil {
+		return m.updateEnvironmentFn(ctx, env)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteEnvironment(ctx context.Context, id string) error {
+	if m.deleteEnvironmentFn != nil {
+		return m.deleteEnvironmentFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error) {
+	if m.getResolvedEnvVarsFn != nil {
+		return m.getResolvedEnvVarsFn(ctx, id)
 	}
 	return nil, nil
 }

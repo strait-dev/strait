@@ -77,6 +77,17 @@ type JobGroup struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type Environment struct {
+	ID        string            `json:"id"`
+	ProjectID string            `json:"project_id"`
+	Name      string            `json:"name"`
+	Slug      string            `json:"slug"`
+	ParentID  string            `json:"parent_id,omitempty"`
+	Variables map[string]string `json:"variables,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
 type JobDependency struct {
 	ID             string    `json:"id"`
 	JobID          string    `json:"job_id"`

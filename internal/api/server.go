@@ -36,6 +36,12 @@ type APIStore interface {
 	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	DeleteJobGroup(ctx context.Context, id string) error
 	ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error)
+	CreateEnvironment(ctx context.Context, env *domain.Environment) error
+	GetEnvironment(ctx context.Context, id string) (*domain.Environment, error)
+	ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error)
+	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
+	DeleteEnvironment(ctx context.Context, id string) error
+	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
@@ -212,6 +218,17 @@ func (s *Server) routes() chi.Router {
 				r.Patch("/", s.handleUpdateJobGroup)
 				r.Delete("/", s.handleDeleteJobGroup)
 				r.Get("/jobs", s.handleListJobsByGroup)
+			})
+		})
+
+		r.Route("/environments", func(r chi.Router) {
+			r.Post("/", s.handleCreateEnvironment)
+			r.Get("/", s.handleListEnvironments)
+			r.Route("/{envID}", func(r chi.Router) {
+				r.Get("/", s.handleGetEnvironment)
+				r.Patch("/", s.handleUpdateEnvironment)
+				r.Delete("/", s.handleDeleteEnvironment)
+				r.Get("/variables", s.handleGetResolvedVariables)
 			})
 		})
 

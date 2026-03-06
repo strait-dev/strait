@@ -1520,3 +1520,158 @@ func TestHandleGetJobHealth_FeatureDisabled(t *testing.T) {
 		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
 	}
 }
+
+func TestHandleCreateEnvironment_Success(t *testing.T) {
+	var created atomic.Bool
+	ms := &mockAPIStore{
+		createEnvironmentFn: func(_ context.Context, env *domain.Environment) error {
+			created.Store(true)
+			env.ID = "env-123"
+			env.CreatedAt = time.Now()
+			env.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFEnvironments = true
+
+	body := `{
+		"project_id": "proj-1",
+		"name": "Development",
+		"slug": "dev",
+		"variables": {"LOG_LEVEL":"debug"}
+	}`
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !created.Load() {
+		t.Fatal("CreateEnvironment was not called")
+	}
+}
+
+func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFEnvironments = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateEnvironment_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{"project_id":"proj-1","name":"Development","slug":"dev"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetEnvironment_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		getEnvironmentFn: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{
+				ID:        id,
+				ProjectID: "proj-1",
+				Name:      "Development",
+				Slug:      "dev",
+				Variables: map[string]string{"LOG_LEVEL": "debug"},
+			}, nil
+		},
+		getResolvedEnvVarsFn: func(_ context.Context, id string) (map[string]string, error) {
+			if id != "env-1" {
+				t.Fatalf("unexpected environment id: %s", id)
+			}
+			return map[string]string{"LOG_LEVEL": "debug", "REGION": "us-east-1"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFEnvironments = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-1", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp["id"] != "env-1" {
+		t.Fatalf("expected id=env-1, got %v", resp["id"])
+	}
+	resolved, ok := resp["resolved_variables"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected resolved_variables object, got %T", resp["resolved_variables"])
+	}
+	if resolved["REGION"] != "us-east-1" {
+		t.Fatalf("expected resolved REGION, got %v", resolved["REGION"])
+	}
+}
+
+func TestHandleListEnvironments_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		listEnvironmentsFn: func(_ context.Context, projectID string) ([]domain.Environment, error) {
+			return []domain.Environment{
+				{ID: "env-1", ProjectID: projectID, Name: "Development", Slug: "dev"},
+				{ID: "env-2", ProjectID: projectID, Name: "Production", Slug: "production"},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFEnvironments = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/?project_id=proj-1", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(resp) != 2 {
+		t.Fatalf("expected 2 environments, got %d", len(resp))
+	}
+}
+
+func TestHandleGetResolvedVariables_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		getResolvedEnvVarsFn: func(_ context.Context, id string) (map[string]string, error) {
+			if id != "env-1" {
+				t.Fatalf("unexpected environment id: %s", id)
+			}
+			return map[string]string{"API_URL": "https://api.example.com", "LOG_LEVEL": "debug"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFEnvironments = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-1/variables", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp["variables"]["API_URL"] != "https://api.example.com" {
+		t.Fatalf("expected API_URL variable, got %v", resp["variables"]["API_URL"])
+	}
+}

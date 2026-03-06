@@ -16,6 +16,7 @@ import (
 var (
 	ErrJobNotFound             = errors.New("job not found")
 	ErrJobGroupNotFound        = errors.New("job group not found")
+	ErrEnvironmentNotFound     = errors.New("environment not found")
 	ErrJobSecretNotFound       = errors.New("job secret not found")
 	ErrRunNotFound             = errors.New("run not found")
 	ErrRunConflict             = errors.New("run status update conflict")
@@ -51,6 +52,15 @@ type JobGroupStore interface {
 	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	DeleteJobGroup(ctx context.Context, id string) error
 	ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error)
+}
+
+type EnvironmentStore interface {
+	CreateEnvironment(ctx context.Context, env *domain.Environment) error
+	GetEnvironment(ctx context.Context, id string) (*domain.Environment, error)
+	ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error)
+	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
+	DeleteEnvironment(ctx context.Context, id string) error
+	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 }
 
 type JobSecretStore interface {
@@ -191,6 +201,7 @@ type WorkflowStepRunStore interface {
 type Store interface {
 	JobStore
 	JobGroupStore
+	EnvironmentStore
 	JobSecretStore
 	RunStore
 	EventStore
