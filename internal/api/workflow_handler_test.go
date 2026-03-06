@@ -55,7 +55,13 @@ func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPubl
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
 	}
-	return NewServer(cfg, s, q, pub, nil, nil, nil, trigger)
+	return NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          s,
+		Queue:          q,
+		PubSub:         pub,
+		WorkflowEngine: trigger,
+	})
 }
 
 func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, wfCallback WorkflowCallback, trigger WorkflowTrigger) *Server {
@@ -64,7 +70,14 @@ func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, p
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
 	}
-	return NewServer(cfg, s, q, pub, nil, nil, wfCallback, trigger)
+	return NewServer(ServerDeps{
+		Config:           cfg,
+		Store:            s,
+		Queue:            q,
+		PubSub:           pub,
+		WorkflowCallback: wfCallback,
+		WorkflowEngine:   trigger,
+	})
 }
 
 func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {

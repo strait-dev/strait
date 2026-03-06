@@ -53,7 +53,11 @@ func BenchmarkHandleTriggerJob(b *testing.B) {
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
-	srv := NewServer(benchmarkConfig(), ms, mq, nil, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  mq,
+	})
 	body := `{"payload":{"key":"value"}}`
 	var reqCount atomic.Uint64
 
@@ -83,7 +87,11 @@ func BenchmarkHandleBulkTrigger(b *testing.B) {
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
 	}
-	srv := NewServer(benchmarkConfig(), ms, mq, nil, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  mq,
+	})
 	body := `{"items":[{},{},{},{},{},{},{},{},{},{}]}`
 
 	b.ReportAllocs()
@@ -114,7 +122,11 @@ func BenchmarkHandleBulkCancel(b *testing.B) {
 			return nil, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  &mockQueue{},
+	})
 	body := `{"run_ids":["run-1","run-2","run-3","run-4","run-5","run-6","run-7","run-8","run-9","run-10"]}`
 
 	b.ReportAllocs()
@@ -139,7 +151,11 @@ func BenchmarkHandleStats(b *testing.B) {
 			return &store.QueueStats{Queued: 10, Executing: 4, Delayed: 2}, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  &mockQueue{},
+	})
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -173,7 +189,11 @@ func BenchmarkHandleListJobs(b *testing.B) {
 			return jobs, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  &mockQueue{},
+	})
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -205,7 +225,11 @@ func BenchmarkAPIKeyAuth(b *testing.B) {
 			return &store.QueueStats{Queued: 1, Executing: 1, Delayed: 1}, nil
 		},
 	}
-	srv := NewServer(benchmarkConfig(), ms, &mockQueue{}, nil, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  &mockQueue{},
+	})
 	auth := "Bearer " + rawKey
 
 	b.ReportAllocs()

@@ -9,11 +9,16 @@ import (
 )
 
 func TestCORS_AllowedOrigin(t *testing.T) {
-	srv := NewServer(&config.Config{
-		InternalSecret:     "test-secret",
-		JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
-		CORSAllowedOrigins: []string{"https://example.com"},
-	}, &mockAPIStore{}, &mockQueue{}, &mockPublisher{}, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-secret",
+			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			CORSAllowedOrigins: []string{"https://example.com"},
+		},
+		Store:  &mockAPIStore{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req.Header.Set("Origin", "https://example.com")
@@ -32,11 +37,16 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 }
 
 func TestCORS_Preflight(t *testing.T) {
-	srv := NewServer(&config.Config{
-		InternalSecret:     "test-secret",
-		JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
-		CORSAllowedOrigins: []string{"https://example.com"},
-	}, &mockAPIStore{}, &mockQueue{}, &mockPublisher{}, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-secret",
+			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			CORSAllowedOrigins: []string{"https://example.com"},
+		},
+		Store:  &mockAPIStore{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
 
 	req := httptest.NewRequest(http.MethodOptions, "/v1/jobs", nil)
 	req.Header.Set("Origin", "https://example.com")
@@ -62,11 +72,16 @@ func TestCORS_Preflight(t *testing.T) {
 }
 
 func TestCORS_WildcardOrigin(t *testing.T) {
-	srv := NewServer(&config.Config{
-		InternalSecret:     "test-secret",
-		JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
-		CORSAllowedOrigins: []string{"*"},
-	}, &mockAPIStore{}, &mockQueue{}, &mockPublisher{}, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-secret",
+			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			CORSAllowedOrigins: []string{"*"},
+		},
+		Store:  &mockAPIStore{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req.Header.Set("Origin", "https://any-domain.com")
@@ -81,12 +96,17 @@ func TestCORS_WildcardOrigin(t *testing.T) {
 }
 
 func TestCORS_Credentials(t *testing.T) {
-	srv := NewServer(&config.Config{
-		InternalSecret:       "test-secret",
-		JWTSigningKey:        "test-jwt-key-must-be-32-chars-long",
-		CORSAllowedOrigins:   []string{"https://example.com"},
-		CORSAllowCredentials: true,
-	}, &mockAPIStore{}, &mockQueue{}, &mockPublisher{}, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:       "test-secret",
+			JWTSigningKey:        "test-jwt-key-must-be-32-chars-long",
+			CORSAllowedOrigins:   []string{"https://example.com"},
+			CORSAllowCredentials: true,
+		},
+		Store:  &mockAPIStore{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req.Header.Set("Origin", "https://example.com")
@@ -101,11 +121,16 @@ func TestCORS_Credentials(t *testing.T) {
 }
 
 func TestCORS_NoOriginHeader(t *testing.T) {
-	srv := NewServer(&config.Config{
-		InternalSecret:     "test-secret",
-		JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
-		CORSAllowedOrigins: []string{"https://example.com"},
-	}, &mockAPIStore{}, &mockQueue{}, &mockPublisher{}, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-secret",
+			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			CORSAllowedOrigins: []string{"https://example.com"},
+		},
+		Store:  &mockAPIStore{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 
@@ -119,11 +144,16 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 }
 
 func TestCORS_ExposedHeaders(t *testing.T) {
-	srv := NewServer(&config.Config{
-		InternalSecret:     "test-secret",
-		JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
-		CORSAllowedOrigins: []string{"*"},
-	}, &mockAPIStore{}, &mockQueue{}, &mockPublisher{}, nil, nil, nil, nil)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     "test-secret",
+			JWTSigningKey:      "test-jwt-key-must-be-32-chars-long",
+			CORSAllowedOrigins: []string{"*"},
+		},
+		Store:  &mockAPIStore{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req.Header.Set("Origin", "https://example.com")

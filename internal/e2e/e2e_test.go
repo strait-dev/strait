@@ -43,16 +43,20 @@ func TestMain(m *testing.M) {
 
 	testStore = store.New(testEnv.DB.Pool)
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
-	testServer = api.NewServer(&config.Config{
-		InternalSecret:           "test-secret",
-		JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
-		RateLimitRequests:        5000,
-		RateLimitWindow:          time.Minute,
-		TriggerRateLimitRequests: 5000,
-		TriggerRateLimitWindow:   time.Minute,
-		CORSAllowedOrigins:       []string{"*"},
-		CORSAllowCredentials:     false,
-	}, testStore, testQueue, nil, nil, nil, nil, nil)
+	testServer = api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:           "test-secret",
+			JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
+			RateLimitRequests:        5000,
+			RateLimitWindow:          time.Minute,
+			TriggerRateLimitRequests: 5000,
+			TriggerRateLimitWindow:   time.Minute,
+			CORSAllowedOrigins:       []string{"*"},
+			CORSAllowCredentials:     false,
+		},
+		Store: testStore,
+		Queue: testQueue,
+	})
 
 	code := m.Run()
 	testEnv.Cleanup(ctx)

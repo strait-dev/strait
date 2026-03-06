@@ -205,7 +205,16 @@ func run() error {
 		if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
 			pinger = redisPub
 		}
-		srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger, stepCallback, workflowEngine)
+		srv := api.NewServer(api.ServerDeps{
+			Config:           cfg,
+			Store:            queries,
+			Queue:            q,
+			PubSub:           pub,
+			MetricsHandler:   metricsHandler,
+			Pinger:           pinger,
+			WorkflowCallback: stepCallback,
+			WorkflowEngine:   workflowEngine,
+		})
 		httpServer := &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Port),
 			Handler:           srv,

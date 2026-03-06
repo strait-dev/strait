@@ -103,17 +103,29 @@ type Server struct {
 	workflowEngine   WorkflowTrigger
 }
 
+// ServerDeps holds all dependencies required to construct a Server.
+type ServerDeps struct {
+	Config           *config.Config
+	Store            APIStore
+	Queue            queue.Queue
+	PubSub           pubsub.Publisher
+	MetricsHandler   http.Handler
+	Pinger           Pinger
+	WorkflowCallback WorkflowCallback
+	WorkflowEngine   WorkflowTrigger
+}
+
 // NewServer creates a new HTTP API server with the given dependencies.
-func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, pinger Pinger, wfCallback WorkflowCallback, workflowEngine WorkflowTrigger) *Server {
+func NewServer(deps ServerDeps) *Server {
 	srv := &Server{
-		store:            s,
-		queue:            q,
-		pubsub:           pub,
-		config:           cfg,
-		metricsHandler:   metricsHandler,
-		pinger:           pinger,
-		workflowCallback: wfCallback,
-		workflowEngine:   workflowEngine,
+		store:            deps.Store,
+		queue:            deps.Queue,
+		pubsub:           deps.PubSub,
+		config:           deps.Config,
+		metricsHandler:   deps.MetricsHandler,
+		pinger:           deps.Pinger,
+		workflowCallback: deps.WorkflowCallback,
+		workflowEngine:   deps.WorkflowEngine,
 	}
 	srv.router = srv.routes()
 	return srv
