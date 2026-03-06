@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
 	"orchestrator/internal/cli/client"
@@ -13,7 +12,7 @@ func newVerifyCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Run post-deployment verification checks",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
@@ -21,17 +20,17 @@ func newVerifyCommand(state *appState) *cobra.Command {
 
 			checks := make([]map[string]any, 0, 4)
 
-			health, err := cli.Health(context.Background())
+			health, err := cli.Health(cmd.Context())
 			checks = append(checks, map[string]any{"check": "health", "ok": err == nil, "detail": healthDetail(health, err)})
 
-			ready, err := cli.HealthReady(context.Background())
+			ready, err := cli.HealthReady(cmd.Context())
 			checks = append(checks, map[string]any{"check": "readiness", "ok": err == nil, "detail": healthDetail(ready, err)})
 
-			stats, err := cli.Stats(context.Background())
+			stats, err := cli.Stats(cmd.Context())
 			checks = append(checks, map[string]any{"check": "stats", "ok": err == nil, "detail": statsDetail(stats, err)})
 
 			if state.opts.projectID != "" {
-				_, err = cli.ListJobs(context.Background(), state.opts.projectID)
+				_, err = cli.ListJobs(cmd.Context(), state.opts.projectID)
 				checks = append(checks, map[string]any{"check": "auth/jobs list", "ok": err == nil, "detail": errDetail(err)})
 			}
 

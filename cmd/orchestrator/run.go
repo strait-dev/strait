@@ -16,7 +16,7 @@ func newRunCommand(state *appState) *cobra.Command {
 		Use:   "run -- <command> [args...]",
 		Short: "Run local command with orchestrator context env vars",
 		Args:  cobra.ArbitraryArgs,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("command is required")
 			}

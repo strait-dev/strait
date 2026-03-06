@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"time"
@@ -20,11 +19,12 @@ func newLogsCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "View run logs/events",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			if projectID == "" {
 				projectID = state.opts.projectID
@@ -39,7 +39,7 @@ func newLogsCommand(state *appState) *cobra.Command {
 					if projectID == "" {
 						return fmt.Errorf("project is required when --run is not provided")
 					}
-					runs, listErr := cli.ListRuns(context.Background(), projectID, "", 20, nil)
+					runs, listErr := cli.ListRuns(ctx, projectID, "", 20, nil)
 					if listErr != nil {
 						return listErr
 					}
@@ -50,7 +50,7 @@ func newLogsCommand(state *appState) *cobra.Command {
 
 				rows := make([]map[string]any, 0)
 				for _, rid := range runsToRead {
-					events, eventsErr := cli.ListRunEvents(context.Background(), rid, level, eventType)
+					events, eventsErr := cli.ListRunEvents(ctx, rid, level, eventType)
 					if eventsErr != nil {
 						continue
 					}
@@ -84,7 +84,11 @@ func newLogsCommand(state *appState) *cobra.Command {
 				if !follow {
 					return nil
 				}
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}

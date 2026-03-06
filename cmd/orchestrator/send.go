@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,7 +18,7 @@ func newSendCommand(state *appState) *cobra.Command {
 		Use:   "send <event-type>",
 		Short: "Send raw event payload to orchestrator",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			eventType := strings.TrimSpace(args[0])
 			if eventType == "" {
 				return fmt.Errorf("event type is required")
@@ -48,7 +47,7 @@ func newSendCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target.String(), bytes.NewReader(raw))
+			req, err := http.NewRequestWithContext(cmd.Context(), http.MethodPost, target.String(), bytes.NewReader(raw))
 			if err != nil {
 				return err
 			}

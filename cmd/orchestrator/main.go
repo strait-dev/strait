@@ -37,7 +37,10 @@ var commit = "none"
 var date = "unknown"
 
 func main() {
-	if err := newRootCommand().Execute(); err != nil {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	if err := newRootCommand().ExecuteContext(ctx); err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}

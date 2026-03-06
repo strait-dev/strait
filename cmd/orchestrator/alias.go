@@ -28,7 +28,7 @@ func newAliasSetCommand(state *appState) *cobra.Command {
 		Use:   "set <name> <expansion>",
 		Short: "Set a command alias",
 		Args:  cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, path, err := loadConfigForWrite(state)
 			if err != nil {
 				return err
@@ -51,7 +51,7 @@ func newAliasListCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List configured aliases",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := state.config
 			if cfg == nil {
 				cfg = &cliconfig.File{}
@@ -78,7 +78,7 @@ func newAliasDeleteCommand(state *appState) *cobra.Command {
 		Use:   "delete <name>",
 		Short: "Delete command alias",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, path, err := loadConfigForWrite(state)
 			if err != nil {
 				return err

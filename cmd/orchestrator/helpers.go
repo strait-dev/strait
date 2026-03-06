@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"orchestrator/internal/cli/client"
 	cliconfig "orchestrator/internal/cli/config"
@@ -71,4 +73,37 @@ func requireConfirmation(state *appState, msg string, yes bool) error {
 		return fmt.Errorf("operation cancelled")
 	}
 	return nil
+}
+
+// pollUntil runs fn repeatedly at the given interval until it returns done=true,
+// an error, or the context is cancelled. Runs fn immediately on first call.
+func pollUntil(ctx context.Context, interval time.Duration, fn func(ctx context.Context) (done bool, err error)) error {
+	if done, err := fn(ctx); done || err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if done, err := fn(ctx); done || err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// requireProjectID resolves the project ID from the flag value or appState default.
+func requireProjectID(state *appState, flagValue string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	if state.opts.projectID != "" {
+		return state.opts.projectID, nil
+	}
+	return "", fmt.Errorf("project ID is required (use --project)")
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,7 +24,7 @@ func newTUICommand(state *appState) *cobra.Command {
 		Short:   "Launch interactive terminal dashboard",
 		Long:    "Opens a live terminal UI with queue metrics, run explorer, and event timeline.",
 		Example: "orchestrator tui --project proj_1\n  orchestrator tui --interval 3s --run-limit 30",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if interval <= 0 {
 				return fmt.Errorf("interval must be greater than zero")
 			}
@@ -86,8 +85,8 @@ func newTUICommand(state *appState) *cobra.Command {
 					return
 				}
 
-				run, runErr := cli.GetRun(context.Background(), runID)
-				events, eventsErr := cli.ListRunEvents(context.Background(), runID, "", "")
+				run, runErr := cli.GetRun(cmd.Context(), runID)
+				events, eventsErr := cli.ListRunEvents(cmd.Context(), runID, "", "")
 
 				if runErr != nil {
 					detailView.SetText(fmt.Sprintf("[red]run fetch error[-]: %v", runErr))
@@ -142,7 +141,7 @@ func newTUICommand(state *appState) *cobra.Command {
 			})
 
 			refresh := func() error {
-				stats, statsErr := cli.Stats(context.Background())
+				stats, statsErr := cli.Stats(cmd.Context())
 				if statsErr != nil {
 					return statsErr
 				}
@@ -150,7 +149,7 @@ func newTUICommand(state *appState) *cobra.Command {
 				runs := make([]domain.JobRun, 0)
 				if projectID != "" {
 					var runsErr error
-					runs, runsErr = cli.ListRuns(context.Background(), projectID, "", runLimit, nil)
+					runs, runsErr = cli.ListRuns(cmd.Context(), projectID, "", runLimit, nil)
 					if runsErr != nil {
 						return runsErr
 					}

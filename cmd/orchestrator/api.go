@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,7 +21,7 @@ func newAPICommand(state *appState) *cobra.Command {
 		Use:   "api <METHOD> <PATH>",
 		Short: "Call raw orchestrator API",
 		Args:  cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			method := strings.ToUpper(strings.TrimSpace(args[0]))
 			endpoint := strings.TrimSpace(args[1])
 			endpointURL, err := url.Parse(endpoint)
@@ -59,7 +58,7 @@ func newAPICommand(state *appState) *cobra.Command {
 				body = bytes.NewReader(raw)
 			}
 
-			req, err := http.NewRequestWithContext(context.Background(), method, full.String(), body)
+			req, err := http.NewRequestWithContext(cmd.Context(), method, full.String(), body)
 			if err != nil {
 				return err
 			}

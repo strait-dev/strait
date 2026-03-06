@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-
 	"github.com/spf13/cobra"
 )
 
@@ -12,21 +10,21 @@ func newHealthCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "health",
 		Short: "Check server health",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
 
 			if ready {
-				status, err := cli.HealthReady(context.Background())
+				status, err := cli.HealthReady(cmd.Context())
 				if err != nil {
 					return err
 				}
 				return printData(state, map[string]any{"ready": status.Status})
 			}
 
-			status, err := cli.Health(context.Background())
+			status, err := cli.Health(cmd.Context())
 			if err != nil {
 				return err
 			}

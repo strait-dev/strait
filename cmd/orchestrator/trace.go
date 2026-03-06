@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -28,7 +27,7 @@ visual timeline format.`,
   orchestrator trace run_abc123 --show-payload --show-result
   orchestrator trace run_abc123 --event-limit 100`,
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
@@ -36,12 +35,12 @@ visual timeline format.`,
 
 			runID := args[0]
 
-			run, err := cli.GetRun(context.Background(), runID)
+			run, err := cli.GetRun(cmd.Context(), runID)
 			if err != nil {
 				return fmt.Errorf("failed to get run: %w", err)
 			}
 
-			events, err := cli.ListRunEvents(context.Background(), runID, "", "")
+			events, err := cli.ListRunEvents(cmd.Context(), runID, "", "")
 			if err != nil {
 				return fmt.Errorf("failed to get events: %w", err)
 			}

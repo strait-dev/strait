@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"time"
@@ -27,7 +26,7 @@ Deduplicates by run ID so each run appears only once (or when status changes).`,
 		Example: `  orchestrator listen --project proj_1
   orchestrator listen --project proj_1 --status executing
   orchestrator listen --interval 3s`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectID == "" {
 				projectID = state.opts.projectID
 			}
@@ -39,14 +38,19 @@ Deduplicates by run ID so each run appears only once (or when status changes).`,
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			seen := make(map[string]string) // runID -> last seen status
 
 			for {
-				runs, err := cli.ListRuns(context.Background(), projectID, status, limit, nil)
+				runs, err := cli.ListRuns(ctx, projectID, status, limit, nil)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "[error] %v\n", err)
-					time.Sleep(interval)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(interval):
+					}
 					continue
 				}
 
@@ -64,7 +68,11 @@ Deduplicates by run ID so each run appears only once (or when status changes).`,
 					}
 				}
 
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}

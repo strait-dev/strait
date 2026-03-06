@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -22,18 +21,19 @@ Exits 0 when executing count reaches 0, exits 1 on timeout.`,
 		Example: `  orchestrator drain
   orchestrator drain --timeout 5m
   orchestrator drain --interval 3s --timeout 10m`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			deadline := time.Now().Add(timeout)
 			attempt := 0
 
 			for {
 				attempt++
-				stats, err := cli.Stats(context.Background())
+				stats, err := cli.Stats(ctx)
 				if err != nil {
 					return fmt.Errorf("failed to fetch stats: %w", err)
 				}
@@ -57,7 +57,11 @@ Exits 0 when executing count reaches 0, exits 1 on timeout.`,
 					return fmt.Errorf("drain timeout: %d runs still executing after %s", stats.Executing, timeout)
 				}
 
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}

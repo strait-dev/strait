@@ -12,6 +12,7 @@ import (
 
 	"orchestrator/internal/cli/client"
 	"orchestrator/internal/cli/styles"
+
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -42,7 +43,7 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 		Use:   "delete <job-id-or-slug>",
 		Short: "Disable a job by ID or slug",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := requireConfirmation(state, "Delete this job?", yes); err != nil {
 				return err
 			}
@@ -52,12 +53,12 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
 
-			if err := cli.DeleteJob(context.Background(), jobID); err != nil {
+			if err := cli.DeleteJob(cmd.Context(), jobID); err != nil {
 				return err
 			}
 
@@ -75,18 +76,18 @@ func newJobsVersionsCommand(state *appState) *cobra.Command {
 		Use:   "versions <job-id-or-slug>",
 		Short: "List version history for a job",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
 
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
 
-			versions, err := cli.ListJobVersions(context.Background(), jobID)
+			versions, err := cli.ListJobVersions(cmd.Context(), jobID)
 			if err != nil {
 				return err
 			}
@@ -103,23 +104,23 @@ func newJobsDescribeCommand(state *appState) *cobra.Command {
 		Use:   "describe <job-id-or-slug>",
 		Short: "Show rich details and recent runs for a job",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
 
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
 
-			job, err := cli.GetJob(context.Background(), jobID)
+			job, err := cli.GetJob(cmd.Context(), jobID)
 			if err != nil {
 				return err
 			}
 
-			runs, err := cli.ListRuns(context.Background(), job.ProjectID, "", 100, nil)
+			runs, err := cli.ListRuns(cmd.Context(), job.ProjectID, "", 100, nil)
 			if err != nil {
 				return err
 			}
@@ -160,19 +161,19 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 		Use:   "edit <job-id-or-slug>",
 		Short: "Edit a job via --field or interactive editor",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
 
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
 
 			if strings.TrimSpace(field) == "" {
-				return runInteractiveJobEdit(context.Background(), cli, state, jobID, editor)
+				return runInteractiveJobEdit(cmd.Context(), cli, state, jobID, editor)
 			}
 
 			parts := strings.SplitN(field, "=", 2)
@@ -222,7 +223,7 @@ func newJobsEditCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("unsupported field %q", key)
 			}
 
-			job, err := cli.UpdateJob(context.Background(), jobID, upd)
+			job, err := cli.UpdateJob(cmd.Context(), jobID, upd)
 			if err != nil {
 				return err
 			}
@@ -339,7 +340,7 @@ func newJobsListCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List jobs",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectID == "" {
 				projectID = state.opts.projectID
 			}
@@ -352,7 +353,7 @@ func newJobsListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			jobs, err := cli.ListJobs(context.Background(), projectID)
+			jobs, err := cli.ListJobs(cmd.Context(), projectID)
 			if err != nil {
 				return err
 			}
@@ -382,17 +383,17 @@ func newJobsGetCommand(state *appState) *cobra.Command {
 		Use:   "get <job-id-or-slug>",
 		Short: "Get a job by ID or slug",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
 
-			job, err := cli.GetJob(context.Background(), jobID)
+			job, err := cli.GetJob(cmd.Context(), jobID)
 			if err != nil {
 				return err
 			}
@@ -409,7 +410,7 @@ func newJobsCreateCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a job",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if req.ProjectID == "" {
 				req.ProjectID = state.opts.projectID
 			}
@@ -422,7 +423,7 @@ func newJobsCreateCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			job, err := cli.CreateJob(context.Background(), req)
+			job, err := cli.CreateJob(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -452,7 +453,7 @@ func newJobsTriggerBulkCommand(state *appState) *cobra.Command {
 		Use:   "trigger-bulk <job-id-or-slug>",
 		Short: "Trigger multiple runs for a job",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(itemsJSON) == "" && strings.TrimSpace(itemsFile) == "" {
 				return fmt.Errorf("either --items-json or --items-file is required")
 			}
@@ -487,12 +488,12 @@ func newJobsTriggerBulkCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
 
-			resp, err := cli.BulkTriggerJob(context.Background(), jobID, client.BulkTriggerRequest{Items: items})
+			resp, err := cli.BulkTriggerJob(cmd.Context(), jobID, client.BulkTriggerRequest{Items: items})
 			if err != nil {
 				return err
 			}
@@ -518,7 +519,7 @@ func newJobsTriggerCommand(state *appState) *cobra.Command {
 		Use:   "trigger <job-id-or-slug>",
 		Short: "Trigger a job",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			req := client.TriggerJobRequest{Priority: priority}
 
 			if strings.TrimSpace(scheduledAt) != "" {
@@ -548,12 +549,12 @@ func newJobsTriggerCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
 
-			resp, err := cli.TriggerJob(context.Background(), jobID, req, idempotencyKey)
+			resp, err := cli.TriggerJob(cmd.Context(), jobID, req, idempotencyKey)
 			if err != nil {
 				return err
 			}

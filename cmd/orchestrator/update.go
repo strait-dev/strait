@@ -103,7 +103,7 @@ func newUpgradeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Check for CLI updates",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			latest := checkForUpdate()
 			if latest == "" {
 				return fmt.Errorf("failed to check for updates")

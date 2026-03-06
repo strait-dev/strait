@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -15,7 +14,7 @@ func newEventsCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "events",
 		Short: "Inspect run events",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if runID == "" {
 				return fmt.Errorf("--run is required")
 			}
@@ -25,7 +24,7 @@ func newEventsCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			events, err := cli.ListRunEvents(context.Background(), runID, level, eventType)
+			events, err := cli.ListRunEvents(cmd.Context(), runID, level, eventType)
 			if err != nil {
 				return err
 			}

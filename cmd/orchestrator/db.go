@@ -29,7 +29,7 @@ func newDBShellCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open psql shell using DATABASE_URL",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 			if databaseURL == "" {
 				return fmt.Errorf("DATABASE_URL is required")
@@ -59,7 +59,7 @@ func newDBStatsCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stats",
 		Short: "Show database table and connection statistics",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 			if databaseURL == "" {
 				return fmt.Errorf("DATABASE_URL is required")

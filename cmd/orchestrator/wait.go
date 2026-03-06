@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -31,7 +30,7 @@ func newWaitQueueCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "queue",
 		Short: "Wait for queue conditions",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !empty {
 				return fmt.Errorf("only --empty is currently supported")
 			}
@@ -40,10 +39,11 @@ func newWaitQueueCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			deadline := time.Now().Add(timeout)
 			for {
-				stats, err := cli.Stats(context.Background())
+				stats, err := cli.Stats(ctx)
 				if err != nil {
 					return err
 				}
@@ -61,7 +61,11 @@ func newWaitQueueCommand(state *appState) *cobra.Command {
 					return fmt.Errorf("timeout waiting for queue to be empty")
 				}
 
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}
@@ -82,7 +86,7 @@ func newWaitRunCommand(state *appState) *cobra.Command {
 		Use:   "run <run-id>",
 		Short: "Wait for a run condition",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			expected, err := parseWaitCondition(condition)
 			if err != nil {
 				return err
@@ -92,10 +96,11 @@ func newWaitRunCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			deadline := time.Now().Add(timeout)
 			for {
-				run, getErr := cli.GetRun(context.Background(), args[0])
+				run, getErr := cli.GetRun(ctx, args[0])
 				if getErr != nil {
 					return getErr
 				}
@@ -112,7 +117,11 @@ func newWaitRunCommand(state *appState) *cobra.Command {
 					return fmt.Errorf("timeout waiting for run %s to reach status %s", run.ID, expected)
 				}
 
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}

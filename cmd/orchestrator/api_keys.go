@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -32,7 +31,7 @@ func newAPIKeysCreateCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create API key",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectID == "" {
 				projectID = state.opts.projectID
 			}
@@ -52,7 +51,7 @@ func newAPIKeysCreateCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			created, err := cli.CreateAPIKey(context.Background(), req)
+			created, err := cli.CreateAPIKey(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -73,7 +72,7 @@ func newAPIKeysListCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List API keys",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectID == "" {
 				projectID = state.opts.projectID
 			}
@@ -85,7 +84,7 @@ func newAPIKeysListCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			keys, err := cli.ListAPIKeys(context.Background(), projectID)
+			keys, err := cli.ListAPIKeys(cmd.Context(), projectID)
 			if err != nil {
 				return err
 			}
@@ -103,12 +102,12 @@ func newAPIKeysRevokeCommand(state *appState) *cobra.Command {
 		Use:   "revoke <key-id>",
 		Short: "Revoke API key",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
-			if err := cli.RevokeAPIKey(context.Background(), args[0]); err != nil {
+			if err := cli.RevokeAPIKey(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			return printData(state, map[string]any{"revoked": true, "id": args[0]})
@@ -140,14 +139,14 @@ func newAPIKeysRotateCommand(state *appState) *cobra.Command {
 
 The new key is printed to stdout. The old key is immediately revoked.`,
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
 
 			// Get the old key info to determine project ID
-			keys, err := cli.ListAPIKeys(context.Background(), state.opts.projectID)
+			keys, err := cli.ListAPIKeys(cmd.Context(), state.opts.projectID)
 			if err != nil {
 				return fmt.Errorf("failed to list keys: %w", err)
 			}
@@ -177,7 +176,7 @@ The new key is printed to stdout. The old key is immediately revoked.`,
 			}
 
 			// Create new key
-			newKey, err := cli.CreateAPIKey(context.Background(), client.CreateAPIKeyRequest{
+			newKey, err := cli.CreateAPIKey(cmd.Context(), client.CreateAPIKeyRequest{
 				ProjectID: oldKey.ProjectID,
 				Name:      keyName,
 			})
@@ -186,7 +185,7 @@ The new key is printed to stdout. The old key is immediately revoked.`,
 			}
 
 			// Revoke old key
-			if err := cli.RevokeAPIKey(context.Background(), args[0]); err != nil {
+			if err := cli.RevokeAPIKey(cmd.Context(), args[0]); err != nil {
 				return fmt.Errorf("created new key %s but failed to revoke old key: %w", newKey.ID, err)
 			}
 

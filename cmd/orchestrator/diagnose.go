@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -22,7 +21,7 @@ func newDiagnoseCommand(state *appState) *cobra.Command {
 		Short:   "Run troubleshooting diagnostics",
 		Long:    "Runs connectivity and configuration checks and reports fixes for failed checks.",
 		Example: "orchestrator diagnose\n  orchestrator diagnose --verbose\n  orchestrator diagnose --check-readiness",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			checks := make([]map[string]any, 0, 10)
 
 			checks = append(checks, diagnoseCheck("server configured", state.opts.serverURL != "", state.opts.serverURL, "set --server or ORCHESTRATOR_SERVER"))
@@ -43,15 +42,15 @@ func newDiagnoseCommand(state *appState) *cobra.Command {
 
 			cli, err := newAPIClient(state)
 			if err == nil {
-				health, hErr := cli.Health(context.Background())
+				health, hErr := cli.Health(cmd.Context())
 				checks = append(checks, diagnoseCheck("health", hErr == nil, healthDetail(health, hErr), "verify server is running and reachable"))
 
 				if includeReadiness {
-					ready, rErr := cli.HealthReady(context.Background())
+					ready, rErr := cli.HealthReady(cmd.Context())
 					checks = append(checks, diagnoseCheck("readiness", rErr == nil, healthDetail(ready, rErr), "verify database and redis dependencies are up"))
 				}
 
-				stats, sErr := cli.Stats(context.Background())
+				stats, sErr := cli.Stats(cmd.Context())
 				checks = append(checks, diagnoseCheck("stats", sErr == nil, statsDetail(stats, sErr), "check server auth and /v1/stats availability"))
 			} else {
 				checks = append(checks, diagnoseCheck("api client", false, err.Error(), "check --server URL, API key, and timeout"))
@@ -153,7 +152,7 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 		Long:    "Analyzes run state, timeline, and likely remediations for a single run.",
 		Example: "orchestrator diagnose run run_123\n  orchestrator diagnose run run_123 --follow\n  orchestrator diagnose run run_123 --level error",
 		Args:    cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval <= 0 {
 				return fmt.Errorf("interval must be greater than zero")
 			}
@@ -165,18 +164,19 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			runID := args[0]
 			seen := map[string]struct{}{}
 
 			for {
-				run, err := cli.GetRun(context.Background(), runID)
+				run, err := cli.GetRun(ctx, runID)
 				if err != nil {
 					return err
 				}
 
 				jobDetails := map[string]any{"id": run.JobID}
-				if job, jobErr := cli.GetJob(context.Background(), run.JobID); jobErr == nil {
+				if job, jobErr := cli.GetJob(ctx, run.JobID); jobErr == nil {
 					jobDetails["name"] = job.Name
 					jobDetails["slug"] = job.Slug
 					jobDetails["enabled"] = job.Enabled
@@ -184,7 +184,7 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 					jobDetails["max_attempts"] = job.MaxAttempts
 				}
 
-				events, err := cli.ListRunEvents(context.Background(), runID, level, eventType)
+				events, err := cli.ListRunEvents(ctx, runID, level, eventType)
 				if err != nil {
 					return err
 				}
@@ -259,7 +259,11 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 					return fmt.Errorf("run is in terminal status %q", run.Status)
 				}
 
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}

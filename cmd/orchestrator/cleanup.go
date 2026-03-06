@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -27,7 +26,7 @@ status. Use --dry-run to preview what would be removed.`,
 		Example: `  orchestrator cleanup --runs-older-than 720h --dry-run
   orchestrator cleanup --runs-older-than 720h --yes
   orchestrator cleanup --runs-older-than 168h --status failed --yes`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectID == "" {
 				projectID = state.opts.projectID
 			}
@@ -51,7 +50,7 @@ status. Use --dry-run to preview what would be removed.`,
 
 			var candidates []string
 			for _, s := range targetStatuses {
-				runs, listErr := cli.ListRuns(context.Background(), projectID, s, limit, nil)
+				runs, listErr := cli.ListRuns(cmd.Context(), projectID, s, limit, nil)
 				if listErr != nil {
 					return fmt.Errorf("listing runs with status %s: %w", s, listErr)
 				}
@@ -91,7 +90,7 @@ status. Use --dry-run to preview what would be removed.`,
 
 			results := make([]map[string]any, 0, len(candidates))
 			for _, id := range candidates {
-				_, cancelErr := cli.CancelRun(context.Background(), id)
+				_, cancelErr := cli.CancelRun(cmd.Context(), id)
 				if cancelErr != nil {
 					results = append(results, map[string]any{"id": id, "cleaned": false, "error": cancelErr.Error()})
 				} else {

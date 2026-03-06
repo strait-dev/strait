@@ -37,7 +37,7 @@ func newMigrateCreateCommand() *cobra.Command {
 		Use:   "create <name>",
 		Short: "Create a new up/down SQL migration pair",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			name := sanitizeMigrationName(args[0])
 			if name == "" {
 				return fmt.Errorf("migration name must contain alphanumeric characters")
@@ -72,7 +72,7 @@ func newMigrateUpCommand() *cobra.Command {
 		Use:   "up [n]",
 		Short: "Apply all pending migrations or N migrations",
 		Args:  cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			m, err := openMigratorFromEnv()
 			if err != nil {
 				return err
@@ -109,7 +109,7 @@ func newMigrateDownCommand(state *appState) *cobra.Command {
 		Use:   "down <n>",
 		Short: "Rollback N migrations",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			count, err := parsePositiveInt(args[0])
 			if err != nil {
 				return err
@@ -142,7 +142,7 @@ func newMigrateStatusCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show current migration version",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			m, err := openMigratorFromEnv()
 			if err != nil {
 				return err

@@ -36,7 +36,7 @@ func newExportCommand(state *appState) *cobra.Command {
 		Example:   "orchestrator export jobs --project proj_1\n  orchestrator export all --project proj_1 --output-dir definitions\n  orchestrator export workflows --name-contains billing --dry-run",
 		ValidArgs: []string{"jobs", "workflows", "api-keys", "all"},
 		Args:      cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			resource := strings.ToLower(strings.TrimSpace(args[0]))
 			if projectID == "" {
 				projectID = state.opts.projectID
@@ -50,7 +50,7 @@ func newExportCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			docs, err := exportDocuments(context.Background(), cli, projectID, resource)
+			docs, err := exportDocuments(cmd.Context(), cli, projectID, resource)
 			if err != nil {
 				return err
 			}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,7 +19,7 @@ func newDevCommand(state *appState) *cobra.Command {
 		Short:   "Run local development mode",
 		Long:    "Starts local orchestrator development runtime with optional Docker dependencies and sensible local defaults.",
 		Example: "orchestrator dev\n  orchestrator dev --no-docker --port 9090\n  orchestrator dev --seed",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !noDocker {
 				if _, err := exec.LookPath("docker"); err != nil {
 					return fmt.Errorf("docker is required for dev mode; install docker or rerun with --no-docker")
@@ -84,7 +83,7 @@ func newDevStatusCommand(state *appState) *cobra.Command {
 		Short:   "Show local dev readiness checks",
 		Long:    "Runs local development readiness checks for docker tooling, env vars, and server reachability.",
 		Example: "orchestrator dev status",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			checks := make([]map[string]any, 0, 8)
 
 			_, dockerErr := exec.LookPath("docker")
@@ -107,7 +106,7 @@ func newDevStatusCommand(state *appState) *cobra.Command {
 
 			cli, err := newAPIClient(state)
 			if err == nil {
-				health, healthErr := cli.Health(context.Background())
+				health, healthErr := cli.Health(cmd.Context())
 				checks = append(checks, diagnoseCheck("server health", healthErr == nil, healthDetail(health, healthErr), "start server with `orchestrator dev`"))
 			} else {
 				checks = append(checks, diagnoseCheck("api client", false, err.Error(), "set valid --server and --api-key for status checks"))

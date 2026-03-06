@@ -41,7 +41,7 @@ func newValidateCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Validate declarative definition files",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			manifests, err := loadManifestInputs(files)
 			if err != nil {
 				return err
@@ -80,7 +80,7 @@ func newApplyCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Apply declarative definitions",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			manifests, err := loadManifestInputs(files)
 			if err != nil {
 				return err
@@ -107,7 +107,7 @@ func newApplyCommand(state *appState) *cobra.Command {
 					continue
 				}
 
-				result, err := applyManifest(context.Background(), cli, item.Data)
+				result, err := applyManifest(cmd.Context(), cli, item.Data)
 				if err != nil {
 					return fmt.Errorf("apply %s/%s: %w", item.Data.Kind, item.Data.Metadata.Name, err)
 				}
@@ -130,7 +130,7 @@ func newDiffCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff",
 		Short: "Show declarative changes against server state",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			manifests, err := loadManifestInputs(files)
 			if err != nil {
 				return err
@@ -149,7 +149,7 @@ func newDiffCommand(state *appState) *cobra.Command {
 				if err := validateManifest(item.Data); err != nil {
 					return fmt.Errorf("%s#%d: %w", item.Source, item.Index, err)
 				}
-				action, err := diffManifest(context.Background(), cli, state, item.Data)
+				action, err := diffManifest(cmd.Context(), cli, state, item.Data)
 				if err != nil {
 					return err
 				}

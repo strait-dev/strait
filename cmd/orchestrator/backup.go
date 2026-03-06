@@ -40,7 +40,7 @@ Requires pg_dump to be installed and available in PATH.`,
   orchestrator backup create --output backup.sql
   orchestrator backup create --database-url postgres://user:pass@host:5432/db
   orchestrator backup create --format custom --output backup.dump`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if _, err := exec.LookPath("pg_dump"); err != nil {
 				return fmt.Errorf("pg_dump not found in PATH: install PostgreSQL client tools")
 			}
@@ -120,7 +120,7 @@ Requires pg_restore and/or psql to be installed and available in PATH.`,
 		Example: `  orchestrator backup restore --input backup.sql
   orchestrator backup restore --input backup.dump --clean
   orchestrator backup restore --input backup.dump --database-url postgres://user:pass@host:5432/db`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if input == "" {
 				return fmt.Errorf("--input is required")
 			}

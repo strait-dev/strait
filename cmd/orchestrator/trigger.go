@@ -21,13 +21,13 @@ func newTriggerCommand(state *appState) *cobra.Command {
 		Use:   "trigger <job-id-or-slug>",
 		Short: "Shortcut for jobs trigger",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
 
-			jobID, err := resolveJobIdentifier(context.Background(), cli, state, args[0])
+			jobID, err := resolveJobIdentifier(cmd.Context(), cli, state, args[0])
 			if err != nil {
 				return err
 			}
@@ -46,7 +46,7 @@ func newTriggerCommand(state *appState) *cobra.Command {
 				return fmt.Errorf("payload must be valid JSON")
 			}
 
-			resp, err := cli.TriggerJob(context.Background(), jobID, req, "")
+			resp, err := cli.TriggerJob(cmd.Context(), jobID, req, "")
 			if err != nil {
 				return err
 			}

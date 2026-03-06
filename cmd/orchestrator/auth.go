@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,7 +25,7 @@ func newLoginCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate with an API key",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			targetContext := contextName
 			if targetContext == "" {
 				targetContext = state.opts.contextName
@@ -45,7 +44,7 @@ func newLoginCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			if err := cliauth.ValidateAPIKey(context.Background(), targetServer, resolvedKey, state.opts.timeout); err != nil {
+			if err := cliauth.ValidateAPIKey(cmd.Context(), targetServer, resolvedKey, state.opts.timeout); err != nil {
 				return err
 			}
 
@@ -89,7 +88,7 @@ func newLogoutCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logout",
 		Short: "Remove stored API key from keychain",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			targetContext := contextName
 			if targetContext == "" {
 				targetContext = state.opts.contextName
@@ -123,7 +122,7 @@ func newAuthCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "status",
 		Short: "Show authentication status",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			targetContext := state.opts.contextName
 			if targetContext == "" {
 				targetContext = "default"

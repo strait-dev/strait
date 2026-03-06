@@ -29,7 +29,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
   orchestrator profile --type cpu --duration 30s --output cpu.prof
   orchestrator profile --type heap --output heap.prof
   orchestrator profile --type goroutine`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			serverURL := strings.TrimRight(state.opts.serverURL, "/")
 			if serverURL == "" {
 				return fmt.Errorf("server URL required: set --server or configure a context")

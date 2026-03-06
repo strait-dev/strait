@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -36,7 +35,7 @@ func newRunsListCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List runs",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectID == "" {
 				projectID = state.opts.projectID
 			}
@@ -49,7 +48,7 @@ func newRunsListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			runs, err := cli.ListRuns(context.Background(), projectID, status, limit, nil)
+			runs, err := cli.ListRuns(cmd.Context(), projectID, status, limit, nil)
 			if err != nil {
 				return err
 			}
@@ -85,12 +84,12 @@ func newRunsGetCommand(state *appState) *cobra.Command {
 		Use:   "get <run-id>",
 		Short: "Get run by ID",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
-			run, err := cli.GetRun(context.Background(), args[0])
+			run, err := cli.GetRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -111,13 +110,13 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cancel <run-id> [run-id...]",
 		Short: "Cancel one or more runs",
-		Args: func(_ *cobra.Command, args []string) error {
+		Args: func(cmd *cobra.Command, args []string) error {
 			if all || len(args) > 0 {
 				return nil
 			}
 			return fmt.Errorf("provide run IDs or use --all")
 		},
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
@@ -131,7 +130,7 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 				if projectID == "" {
 					return fmt.Errorf("project ID is required for --all")
 				}
-				runs, listErr := cli.ListRuns(context.Background(), projectID, status, limit, nil)
+				runs, listErr := cli.ListRuns(cmd.Context(), projectID, status, limit, nil)
 				if listErr != nil {
 					return listErr
 				}
@@ -153,7 +152,7 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 
 			results := make([]map[string]any, 0, len(targetIDs))
 			for _, id := range targetIDs {
-				run, cancelErr := cli.CancelRun(context.Background(), id)
+				run, cancelErr := cli.CancelRun(cmd.Context(), id)
 				if cancelErr != nil {
 					results = append(results, map[string]any{"id": id, "canceled": false, "error": cancelErr.Error()})
 					continue
@@ -184,15 +183,16 @@ func newRunsLogsCommand(state *appState) *cobra.Command {
 		Use:   "logs <run-id>",
 		Short: "Show run events/logs",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			seen := map[string]struct{}{}
 			for {
-				events, err := cli.ListRunEvents(context.Background(), args[0], level, eventType)
+				events, err := cli.ListRunEvents(ctx, args[0], level, eventType)
 				if err != nil {
 					return err
 				}
@@ -219,7 +219,11 @@ func newRunsLogsCommand(state *appState) *cobra.Command {
 				if !follow {
 					return nil
 				}
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}
@@ -246,15 +250,16 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 		Use:   "watch <run-id>",
 		Short: "Watch a run until it reaches a terminal state",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 
 			deadline := time.Now().Add(timeout)
 			for {
-				run, err := cli.GetRun(context.Background(), args[0])
+				run, err := cli.GetRun(ctx, args[0])
 				if err != nil {
 					return err
 				}
@@ -278,7 +283,11 @@ func newRunsWatchCommand(state *appState) *cobra.Command {
 					return fmt.Errorf("watch timeout reached")
 				}
 
-				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(interval):
+				}
 			}
 		},
 	}
@@ -296,18 +305,18 @@ func newRunsReplayCommand(state *appState) *cobra.Command {
 		Use:   "replay <run-id>",
 		Short: "Replay a run using its original payload",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
 			if err != nil {
 				return err
 			}
 
-			original, err := cli.GetRun(context.Background(), args[0])
+			original, err := cli.GetRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 
-			triggered, err := cli.TriggerJob(context.Background(), original.JobID, client.TriggerJobRequest{Payload: original.Payload}, "")
+			triggered, err := cli.TriggerJob(cmd.Context(), original.JobID, client.TriggerJobRequest{Payload: original.Payload}, "")
 			if err != nil {
 				return err
 			}

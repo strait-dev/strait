@@ -28,7 +28,7 @@ acyclicity, and optionally checks endpoint URL reachability.`,
 		Example: `  orchestrator check -f jobs.yaml
   orchestrator check -f jobs.yaml -f workflows.yaml --check-endpoints
   orchestrator check -f manifests/ --endpoint-timeout 5s`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			manifests, err := loadManifestInputs(files)
 			if err != nil {
 				return err

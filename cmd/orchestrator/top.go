@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"time"
@@ -58,7 +57,7 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 				rows := make([]map[string]any, 0)
 
 				if projectID == "" {
-					stats, err := cli.Stats(context.Background())
+					stats, err := cli.Stats(cmd.Context())
 					if err != nil {
 						return err
 					}
@@ -68,7 +67,7 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 						map[string]any{"metric": "delayed", "value": stats.Delayed, "scope": "global", "sampled_at": sampledAt},
 					)
 				} else {
-					runs, err := cli.ListRuns(context.Background(), projectID, "", limit, nil)
+					runs, err := cli.ListRuns(cmd.Context(), projectID, "", limit, nil)
 					if err != nil {
 						return err
 					}
@@ -128,12 +127,12 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 			}
 
 			return runTopLoop(cmd, watch, interval, func() error {
-				jobs, err := cli.ListJobs(context.Background(), projectID)
+				jobs, err := cli.ListJobs(cmd.Context(), projectID)
 				if err != nil {
 					return err
 				}
 
-				runs, err := cli.ListRuns(context.Background(), projectID, "", 500, nil)
+				runs, err := cli.ListRuns(cmd.Context(), projectID, "", 500, nil)
 				if err != nil {
 					return err
 				}
@@ -224,6 +223,7 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 }
 
 func runTopLoop(cmd *cobra.Command, watch bool, interval time.Duration, render func() error) error {
+	ctx := cmd.Context()
 	for {
 		if err := render(); err != nil {
 			return err
@@ -234,6 +234,10 @@ func runTopLoop(cmd *cobra.Command, watch bool, interval time.Duration, render f
 		}
 
 		fmt.Fprintln(cmd.ErrOrStderr(), "--- press Ctrl+C to stop ---")
-		time.Sleep(interval)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(interval):
+		}
 	}
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -29,7 +28,7 @@ func newFixturesCreateCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create fixture data",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			projectID := state.opts.projectID
 			if projectID == "" {
 				return fmt.Errorf("project ID is required")
@@ -47,7 +46,7 @@ func newFixturesCreateCommand(state *appState) *cobra.Command {
 				slug = "fixture-full-job"
 			}
 
-			job, err := cli.CreateJob(context.Background(), client.CreateJobRequest{
+			job, err := cli.CreateJob(cmd.Context(), client.CreateJobRequest{
 				ProjectID:   projectID,
 				Name:        name,
 				Slug:        slug,
@@ -60,7 +59,7 @@ func newFixturesCreateCommand(state *appState) *cobra.Command {
 				if !strings.Contains(strings.ToLower(err.Error()), "duplicate") && !strings.Contains(strings.ToLower(err.Error()), "exists") {
 					return err
 				}
-				jobs, listErr := cli.ListJobs(context.Background(), projectID)
+				jobs, listErr := cli.ListJobs(cmd.Context(), projectID)
 				if listErr != nil {
 					return listErr
 				}
@@ -77,7 +76,7 @@ func newFixturesCreateCommand(state *appState) *cobra.Command {
 
 			payload := map[string]any{"fixture": template, "source": "orchestrator fixtures create"}
 			raw, _ := json.Marshal(payload)
-			run, triggerErr := cli.TriggerJob(context.Background(), job.ID, client.TriggerJobRequest{Payload: raw}, "")
+			run, triggerErr := cli.TriggerJob(cmd.Context(), job.ID, client.TriggerJobRequest{Payload: raw}, "")
 			if triggerErr != nil {
 				return triggerErr
 			}
@@ -100,7 +99,7 @@ func newFixturesCleanCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Remove fixture jobs",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			projectID := state.opts.projectID
 			if projectID == "" {
 				return fmt.Errorf("project ID is required")
@@ -111,7 +110,7 @@ func newFixturesCleanCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			jobs, err := cli.ListJobs(context.Background(), projectID)
+			jobs, err := cli.ListJobs(cmd.Context(), projectID)
 			if err != nil {
 				return err
 			}
@@ -121,7 +120,7 @@ func newFixturesCleanCommand(state *appState) *cobra.Command {
 				if !strings.HasPrefix(job.Slug, "fixture-") {
 					continue
 				}
-				err := cli.DeleteJob(context.Background(), job.ID)
+				err := cli.DeleteJob(cmd.Context(), job.ID)
 				results = append(results, map[string]any{"job_id": job.ID, "slug": job.Slug, "deleted": err == nil, "error": errDetail(err)})
 			}
 
