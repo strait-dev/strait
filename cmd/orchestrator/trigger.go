@@ -74,7 +74,7 @@ func resolveJobIdentifier(ctx context.Context, cli *client.Client, state *appSta
 
 	jobs, err := cli.ListJobs(ctx, projectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolving job %q: %w", idOrSlug, err)
 	}
 	for _, job := range jobs {
 		if job.Slug == idOrSlug {

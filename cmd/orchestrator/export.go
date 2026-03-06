@@ -86,7 +86,7 @@ func newExportCommand(state *appState) *cobra.Command {
 			}
 
 			if err := os.MkdirAll(outputDir, 0o750); err != nil {
-				return err
+				return fmt.Errorf("creating output directory: %w", err)
 			}
 
 			paths, err := writeYAMLFiles(outputDir, docs, forceOverwrite)
@@ -130,15 +130,15 @@ func exportDocuments(ctx context.Context, cli *client.Client, projectID, resourc
 	case "all":
 		jobs, err := exportJobs(ctx, cli, projectID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("exporting jobs: %w", err)
 		}
 		workflows, err := exportWorkflows(ctx, cli, projectID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("exporting workflows: %w", err)
 		}
 		keys, err := exportAPIKeys(ctx, cli, projectID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("exporting API keys: %w", err)
 		}
 		out := make([]exportDocument, 0, len(jobs)+len(workflows)+len(keys))
 		out = append(out, jobs...)
@@ -153,7 +153,7 @@ func exportDocuments(ctx context.Context, cli *client.Client, projectID, resourc
 func exportJobs(ctx context.Context, cli *client.Client, projectID string) ([]exportDocument, error) {
 	jobs, err := cli.ListJobs(ctx, projectID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing jobs: %w", err)
 	}
 	docs := make([]exportDocument, 0, len(jobs))
 	for _, job := range jobs {
@@ -180,13 +180,13 @@ func exportJobs(ctx context.Context, cli *client.Client, projectID string) ([]ex
 func exportWorkflows(ctx context.Context, cli *client.Client, projectID string) ([]exportDocument, error) {
 	workflows, err := cli.ListWorkflows(ctx, projectID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing workflows: %w", err)
 	}
 	docs := make([]exportDocument, 0, len(workflows))
 	for _, wf := range workflows {
 		detail, err := cli.GetWorkflow(ctx, wf.ID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("fetching workflow %s: %w", wf.ID, err)
 		}
 
 		steps := make([]map[string]any, 0, len(detail.Steps))
@@ -225,7 +225,7 @@ func exportWorkflows(ctx context.Context, cli *client.Client, projectID string) 
 func exportAPIKeys(ctx context.Context, cli *client.Client, projectID string) ([]exportDocument, error) {
 	keys, err := cli.ListAPIKeys(ctx, projectID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing API keys: %w", err)
 	}
 	docs := make([]exportDocument, 0, len(keys))
 	for _, key := range keys {
@@ -271,10 +271,10 @@ func writeYAMLFiles(outputDir string, docs []exportDocument, forceOverwrite bool
 		}
 		content, err := yaml.Marshal(doc)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("marshaling YAML for %s: %w", doc.Metadata.Name, err)
 		}
 		if err := os.WriteFile(path, content, 0o600); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("writing %s: %w", path, err)
 		}
 		paths = append(paths, path)
 	}

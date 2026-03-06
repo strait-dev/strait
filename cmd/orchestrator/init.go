@@ -78,23 +78,23 @@ func newInitCommand(state *appState) *cobra.Command {
 
 			configStatus, err := writeInitConfig(name)
 			if err != nil {
-				return err
+				return fmt.Errorf("writing config: %w", err)
 			}
 			envStatus, err := writeInitEnv()
 			if err != nil {
-				return err
+				return fmt.Errorf("writing .env: %w", err)
 			}
 			dockerComposeStatus, err := writeInitDockerCompose()
 			if err != nil {
-				return err
+				return fmt.Errorf("writing docker-compose: %w", err)
 			}
 			manifestStatus, err := writeInitJobManifest(template, name)
 			if err != nil {
-				return err
+				return fmt.Errorf("writing job manifest: %w", err)
 			}
 			workflowManifestStatus, err := writeInitWorkflowManifest(template, name)
 			if err != nil {
-				return err
+				return fmt.Errorf("writing workflow manifest: %w", err)
 			}
 
 			return printData(state, map[string]any{

@@ -142,7 +142,7 @@ Requires pg_restore and/or psql to be installed and available in PATH.`,
 				return restoreWithPsql(dsn, input, verbose || state.opts.verbose)
 			}
 
-			return restoreWithPgRestore(dsn, input, clean, verbose || state.opts.verbose)
+				return restoreWithPgRestore(dsn, input, clean, verbose || state.opts.verbose)
 		},
 	}
 

@@ -406,7 +406,7 @@ func resolveWorkflowIdentifier(ctx context.Context, cli *client.Client, state *a
 
 	workflows, err := cli.ListWorkflows(ctx, projectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolving workflow %q: %w", idOrSlug, err)
 	}
 
 	for _, workflow := range workflows {
