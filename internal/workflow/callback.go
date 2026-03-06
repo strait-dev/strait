@@ -148,6 +148,9 @@ func (s *StepCallback) checkStepRetry(ctx context.Context, stepRun *domain.Workf
 	if err != nil {
 		return false, time.Time{}, 0, fmt.Errorf("get workflow run: %w", err)
 	}
+	if wfRun == nil {
+		return false, time.Time{}, 0, fmt.Errorf("workflow run not found: %s", stepRun.WorkflowRunID)
+	}
 
 	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
@@ -218,6 +221,9 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
 	if err != nil {
 		return fmt.Errorf("get workflow run: %w", err)
+	}
+	if wfRun == nil {
+		return fmt.Errorf("workflow run not found: %s", stepRun.WorkflowRunID)
 	}
 
 	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)

@@ -261,7 +261,7 @@ func (q *Queries) IncrementStepRunAttempt(ctx context.Context, id string, newAtt
 		WHERE id = $2
 		AND attempt = $3`
 
-	tag, err := q.db.Exec(ctx, query, newAttempt, id)
+	tag, err := q.db.Exec(ctx, query, newAttempt, id, newAttempt-1)
 	if err != nil {
 		return fmt.Errorf("increment step run attempt: %w", err)
 	}
