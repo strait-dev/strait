@@ -29,17 +29,25 @@ type Reaper struct {
 	staleThreshold   time.Duration
 	shortRetention   time.Duration
 	longRetention    time.Duration
+	retentionEnabled bool
 	workflowCallback WorkflowCallback
 	logger           *slog.Logger
 }
 
-func NewReaper(s ReaperStore, interval, staleThreshold time.Duration, workflowCallback WorkflowCallback) *Reaper {
+func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRetention time.Duration, retentionEnabled bool, workflowCallback WorkflowCallback) *Reaper {
+	if shortRetention <= 0 {
+		shortRetention = 30 * 24 * time.Hour
+	}
+	if longRetention <= 0 {
+		longRetention = 90 * 24 * time.Hour
+	}
 	return &Reaper{
 		store:            s,
 		interval:         interval,
 		staleThreshold:   staleThreshold,
-		shortRetention:   30 * 24 * time.Hour,
-		longRetention:    90 * 24 * time.Hour,
+		shortRetention:   shortRetention,
+		longRetention:    longRetention,
+		retentionEnabled: retentionEnabled,
 		workflowCallback: workflowCallback,
 		logger:           slog.Default(),
 	}
@@ -61,7 +69,9 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapStaleDequeued(loopCtx)
 		r.reapStale(loopCtx)
 		r.reapExpired(loopCtx)
-		r.reapTerminalRetention(loopCtx)
+		if r.retentionEnabled {
+			r.reapTerminalRetention(loopCtx)
+		}
 	})
 	loop.Run(ctx)
 }

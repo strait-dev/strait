@@ -25,6 +25,8 @@ type Config struct {
 	ReaperInterval      time.Duration `mapstructure:"REAPER_INTERVAL"`
 	StaleThreshold      time.Duration `mapstructure:"STALE_THRESHOLD"`
 	PollerInterval      time.Duration `mapstructure:"POLLER_INTERVAL"`
+	RunRetentionShort   time.Duration `mapstructure:"RUN_RETENTION_SHORT"`
+	RunRetentionLong    time.Duration `mapstructure:"RUN_RETENTION_LONG"`
 	OTELEndpoint        string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 
 	// Database connection pool tuning
@@ -91,6 +93,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("REAPER_INTERVAL", 30*time.Second)
 	viper.SetDefault("STALE_THRESHOLD", 60*time.Second)
 	viper.SetDefault("POLLER_INTERVAL", 5*time.Second)
+	viper.SetDefault("RUN_RETENTION_SHORT", 30*24*time.Hour)
+	viper.SetDefault("RUN_RETENTION_LONG", 90*24*time.Hour)
 	viper.SetDefault("DB_MAX_CONNS", 25)
 	viper.SetDefault("DB_MIN_CONNS", 5)
 	viper.SetDefault("DB_MAX_CONN_LIFETIME", 30*time.Minute)
@@ -141,6 +145,8 @@ func Load() (*Config, error) {
 	cfg.ReaperInterval = viper.GetDuration("REAPER_INTERVAL")
 	cfg.StaleThreshold = viper.GetDuration("STALE_THRESHOLD")
 	cfg.PollerInterval = viper.GetDuration("POLLER_INTERVAL")
+	cfg.RunRetentionShort = viper.GetDuration("RUN_RETENTION_SHORT")
+	cfg.RunRetentionLong = viper.GetDuration("RUN_RETENTION_LONG")
 	cfg.DBMaxConnLifetime = viper.GetDuration("DB_MAX_CONN_LIFETIME")
 	cfg.DBMaxConnIdleTime = viper.GetDuration("DB_MAX_CONN_IDLE_TIME")
 	cfg.DBMaxConns = viper.GetInt32("DB_MAX_CONNS")
