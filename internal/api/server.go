@@ -80,6 +80,8 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
+	SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error
+	ForceCompleteStep(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
 }
 
 type WorkflowTrigger interface {
@@ -234,6 +236,8 @@ func (s *Server) routes() chi.Router {
 				r.Get("/labels", s.handleGetWorkflowRunLabels)
 				r.Get("/steps", s.handleListWorkflowStepRuns)
 				r.Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
+				r.Post("/steps/{stepRef}/skip", s.handleSkipWorkflowStep)
+				r.Post("/steps/{stepRef}/force-complete", s.handleForceCompleteWorkflowStep)
 				r.Post("/retry", s.handleRetryWorkflowRun)
 			})
 		})

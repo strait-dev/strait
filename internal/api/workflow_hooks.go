@@ -30,9 +30,11 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 	}
 
 	if err := s.pubsub.Publish(ctx, fmt.Sprintf("workflow-run:%s", run.ID), payload); err != nil {
-		slog.Warn("failed to publish workflow run hook", "workflow_run_id", run.ID, "error", err) //nolint:gosec // structured log, no injection risk
+		//nolint:gosec // Structured logging with controlled key/value pairs.
+		slog.Warn("failed to publish workflow run hook", "workflow_run_id", run.ID, "error", err)
 	}
 	if err := s.pubsub.Publish(ctx, fmt.Sprintf("workflow:%s:runs", run.WorkflowID), payload); err != nil {
-		slog.Warn("failed to publish workflow hook", "workflow_id", run.WorkflowID, "error", err) //nolint:gosec // structured log, no injection risk
+		//nolint:gosec // Structured logging with controlled key/value pairs.
+		slog.Warn("failed to publish workflow hook", "workflow_id", run.WorkflowID, "error", err)
 	}
 }

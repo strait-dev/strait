@@ -16,11 +16,13 @@ import (
 )
 
 type mockWorkflowTrigger struct {
-	triggerWorkflowFn  func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
-	retryWorkflowRunFn func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
-	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
-	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
-	onJobRunTerminal   func(ctx context.Context, run *domain.JobRun) error
+	triggerWorkflowFn   func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
+	retryWorkflowRunFn  func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
+	approveStepFn       func(ctx context.Context, workflowRunID, stepRef, approver string) error
+	skipStepFn          func(ctx context.Context, workflowRunID, stepRef, reason string) error
+	forceCompleteStepFn func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
+	resumeWorkflowFn    func(ctx context.Context, workflowRunID string) error
+	onJobRunTerminal    func(ctx context.Context, run *domain.JobRun) error
 }
 
 func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
@@ -33,6 +35,20 @@ func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, p
 func (m *mockWorkflowTrigger) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
 	if m.approveStepFn != nil {
 		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
+	}
+	return nil
+}
+
+func (m *mockWorkflowTrigger) SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error {
+	if m.skipStepFn != nil {
+		return m.skipStepFn(ctx, workflowRunID, stepRef, reason)
+	}
+	return nil
+}
+
+func (m *mockWorkflowTrigger) ForceCompleteStep(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error {
+	if m.forceCompleteStepFn != nil {
+		return m.forceCompleteStepFn(ctx, workflowRunID, stepRef, result)
 	}
 	return nil
 }
@@ -831,6 +847,183 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 		}
 		if published["workflow:wf-1:runs"] != 1 {
 			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
+		}
+	})
+}
+
+func TestHandleSkipWorkflowStep(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		skipped := false
+		published := map[string]int{}
+		getWorkflowRunCalls := 0
+
+		cb := &mockWorkflowTrigger{
+			skipStepFn: func(_ context.Context, workflowRunID, stepRef, reason string) error {
+				if workflowRunID != "wr-1" || stepRef != "review" || reason != "manual skip" {
+					t.Fatalf("unexpected skip args: %s %s %s", workflowRunID, stepRef, reason)
+				}
+				skipped = true
+				return nil
+			},
+		}
+
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				getWorkflowRunCalls++
+				if getWorkflowRunCalls == 1 {
+					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+				}
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusCompleted}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+				if workflowRunID != "wr-1" || stepRef != "review" {
+					t.Fatalf("unexpected step lookup args: %s %s", workflowRunID, stepRef)
+				}
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepSkipped}, nil
+			},
+		}
+
+		pub := &mockPublisher{publishFn: func(_ context.Context, channel string, _ []byte) error {
+			published[channel]++
+			return nil
+		}}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{"reason":"manual skip"}`))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if !skipped {
+			t.Fatal("expected skip callback to be called")
+		}
+		if published["workflow-run:wr-1"] != 1 {
+			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
+		}
+		if published["workflow:wf-1:runs"] != 1 {
+			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
+		}
+	})
+
+	t.Run("callback unavailable", func(t *testing.T) {
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{}`))
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d", w.Code)
+		}
+	})
+
+	t.Run("callback error", func(t *testing.T) {
+		cb := &mockWorkflowTrigger{
+			skipStepFn: func(_ context.Context, _, _, _ string) error {
+				return errors.New("cannot skip")
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+		}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/skip", `{}`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleForceCompleteWorkflowStep(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		forced := false
+		published := map[string]int{}
+		getWorkflowRunCalls := 0
+
+		cb := &mockWorkflowTrigger{
+			forceCompleteStepFn: func(_ context.Context, workflowRunID, stepRef string, result json.RawMessage) error {
+				if workflowRunID != "wr-1" || stepRef != "review" {
+					t.Fatalf("unexpected force-complete args: %s %s", workflowRunID, stepRef)
+				}
+				if string(result) != `{"ok":true}` {
+					t.Fatalf("unexpected result payload: %s", string(result))
+				}
+				forced = true
+				return nil
+			},
+		}
+
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				getWorkflowRunCalls++
+				if getWorkflowRunCalls == 1 {
+					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+				}
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusCompleted}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+				if workflowRunID != "wr-1" || stepRef != "review" {
+					t.Fatalf("unexpected step lookup args: %s %s", workflowRunID, stepRef)
+				}
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepCompleted}, nil
+			},
+		}
+
+		pub := &mockPublisher{publishFn: func(_ context.Context, channel string, _ []byte) error {
+			published[channel]++
+			return nil
+		}}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/force-complete", `{"result":{"ok":true}}`))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if !forced {
+			t.Fatal("expected force-complete callback to be called")
+		}
+		if published["workflow-run:wr-1"] != 1 {
+			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
+		}
+		if published["workflow:wf-1:runs"] != 1 {
+			t.Fatalf("expected workflow stream publish once, got %d", published["workflow:wf-1:runs"])
+		}
+	})
+
+	t.Run("callback unavailable", func(t *testing.T) {
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/force-complete", `{}`))
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d", w.Code)
+		}
+	})
+
+	t.Run("callback error", func(t *testing.T) {
+		cb := &mockWorkflowTrigger{
+			forceCompleteStepFn: func(_ context.Context, _, _ string, _ json.RawMessage) error {
+				return errors.New("cannot force-complete")
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+		}
+
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/force-complete", `{}`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
 		}
 	})
 }

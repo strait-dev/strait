@@ -704,6 +704,62 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	return s.checkWorkflowCompletion(ctx, workflowRunID)
 }
 
+func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error {
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, workflowRunID, stepRef)
+	if err != nil {
+		return fmt.Errorf("get step run: %w", err)
+	}
+	if stepRun == nil {
+		return fmt.Errorf("step run not found for %s", stepRef)
+	}
+	if stepRun.Status != domain.StepPending && stepRun.Status != domain.StepWaiting {
+		return fmt.Errorf("cannot skip step in %s status", stepRun.Status)
+	}
+
+	now := time.Now()
+	fields := map[string]any{"finished_at": now}
+	if reason != "" {
+		fields["error"] = reason
+	}
+	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepSkipped, fields); err != nil {
+		return fmt.Errorf("skip step: %w", err)
+	}
+	stepRun.Status = domain.StepSkipped
+
+	if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
+		return fmt.Errorf("fan-in after skip: %w", err)
+	}
+	return s.checkWorkflowCompletion(ctx, workflowRunID)
+}
+
+func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error {
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, workflowRunID, stepRef)
+	if err != nil {
+		return fmt.Errorf("get step run: %w", err)
+	}
+	if stepRun == nil {
+		return fmt.Errorf("step run not found for %s", stepRef)
+	}
+	if stepRun.Status != domain.StepPending && stepRun.Status != domain.StepWaiting {
+		return fmt.Errorf("cannot force-complete step in %s status", stepRun.Status)
+	}
+
+	now := time.Now()
+	fields := map[string]any{"finished_at": now}
+	if len(result) > 0 {
+		fields["output"] = result
+	}
+	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCompleted, fields); err != nil {
+		return fmt.Errorf("force-complete step: %w", err)
+	}
+	stepRun.Status = domain.StepCompleted
+
+	if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
+		return fmt.Errorf("fan-in after force-complete: %w", err)
+	}
+	return s.checkWorkflowCompletion(ctx, workflowRunID)
+}
+
 func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
 	wfRun, err := s.store.GetWorkflowRun(ctx, workflowRunID)
 	if err != nil {

@@ -130,9 +130,6 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 		{"skipped_to_running", StepSkipped, StepRunning},
 		{"canceled_to_running", StepCanceled, StepRunning},
 
-		// Must go through running
-		{"pending_to_completed", StepPending, StepCompleted},
-		{"waiting_to_completed", StepWaiting, StepCompleted},
 		{"pending_to_failed", StepPending, StepFailed},
 		{"waiting_to_failed", StepWaiting, StepFailed},
 

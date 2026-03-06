@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -14,6 +15,14 @@ import (
 
 type approveWorkflowStepRequest struct {
 	Approver string `json:"approver"`
+}
+
+type skipStepRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type forceCompleteStepRequest struct {
+	Result json.RawMessage `json:"result,omitempty"`
 }
 
 func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
@@ -324,6 +333,76 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 		"step_run": stepRun,
 		"approval": approval,
 	})
+}
+
+func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) {
+	if s.workflowCallback == nil {
+		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		return
+	}
+
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	stepRef := chi.URLParam(r, "stepRef")
+	beforeRun, _ := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+
+	var req skipStepRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := s.workflowCallback.SkipStep(r.Context(), workflowRunID, stepRef, req.Reason); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step run")
+		return
+	}
+
+	afterRun, _ := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
+		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "skip_step")
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"step_run": stepRun})
+}
+
+func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.Request) {
+	if s.workflowCallback == nil {
+		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		return
+	}
+
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	stepRef := chi.URLParam(r, "stepRef")
+	beforeRun, _ := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+
+	var req forceCompleteStepRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := s.workflowCallback.ForceCompleteStep(r.Context(), workflowRunID, stepRef, req.Result); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step run")
+		return
+	}
+
+	afterRun, _ := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
+		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "force_complete_step")
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"step_run": stepRun})
 }
 
 func (s *Server) handleRetryWorkflowRun(w http.ResponseWriter, r *http.Request) {

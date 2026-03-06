@@ -1680,6 +1680,190 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 	})
 }
 
+func TestStepCallback_SkipStep(t *testing.T) {
+	t.Run("step in pending status succeeds", func(t *testing.T) {
+		updated := false
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+				if workflowRunID != "wr-1" || stepRef != "s1" {
+					t.Fatalf("unexpected lookup args: %s %s", workflowRunID, stepRef)
+				}
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
+				if id != "sr-1" || status != domain.StepSkipped {
+					t.Fatalf("unexpected step update: id=%s status=%s", id, status)
+				}
+				if _, ok := fields["finished_at"]; !ok {
+					t.Fatalf("expected finished_at field, got %+v", fields)
+				}
+				if fields["error"] != "manual" {
+					t.Fatalf("error field = %v, want manual", fields["error"])
+				}
+				updated = true
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !updated {
+			t.Fatal("expected step update")
+		}
+	})
+
+	t.Run("step in waiting status succeeds", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepWaiting}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
+				if status != domain.StepSkipped {
+					t.Fatalf("status = %s, want skipped", status)
+				}
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.SkipStep(context.Background(), "wr-1", "s1", ""); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("step in running status returns error", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", Status: domain.StepRunning}, nil
+			},
+		}
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.SkipStep(context.Background(), "wr-1", "s1", "")
+		if err == nil || !strings.Contains(err.Error(), "cannot skip step in running status") {
+			t.Fatalf("expected running-status error, got %v", err)
+		}
+	})
+
+	t.Run("step in completed status returns error", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", Status: domain.StepCompleted}, nil
+			},
+		}
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.SkipStep(context.Background(), "wr-1", "s1", "")
+		if err == nil || !strings.Contains(err.Error(), "cannot skip step in completed status") {
+			t.Fatalf("expected completed-status error, got %v", err)
+		}
+	})
+}
+
+func TestStepCallback_ForceCompleteStep(t *testing.T) {
+	t.Run("step in pending status succeeds", func(t *testing.T) {
+		updated := false
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+				if workflowRunID != "wr-1" || stepRef != "s1" {
+					t.Fatalf("unexpected lookup args: %s %s", workflowRunID, stepRef)
+				}
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepPending}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
+				if id != "sr-1" || status != domain.StepCompleted {
+					t.Fatalf("unexpected step update: id=%s status=%s", id, status)
+				}
+				if _, ok := fields["finished_at"]; !ok {
+					t.Fatalf("expected finished_at field, got %+v", fields)
+				}
+				if string(fields["output"].(json.RawMessage)) != `{"ok":true}` {
+					t.Fatalf("output field = %s, want {\"ok\":true}", string(fields["output"].(json.RawMessage)))
+				}
+				updated = true
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", json.RawMessage(`{"ok":true}`)); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !updated {
+			t.Fatal("expected step update")
+		}
+	})
+
+	t.Run("step in waiting status succeeds", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepWaiting}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
+				if status != domain.StepCompleted {
+					t.Fatalf("status = %s, want completed", status)
+				}
+				return nil
+			},
+			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+				return nil, nil
+			},
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		if err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("step in running status returns error", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", Status: domain.StepRunning}, nil
+			},
+		}
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", nil)
+		if err == nil || !strings.Contains(err.Error(), "cannot force-complete step in running status") {
+			t.Fatalf("expected running-status error, got %v", err)
+		}
+	})
+
+	t.Run("step in completed status returns error", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", Status: domain.StepCompleted}, nil
+			},
+		}
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", nil)
+		if err == nil || !strings.Contains(err.Error(), "cannot force-complete step in completed status") {
+			t.Fatalf("expected completed-status error, got %v", err)
+		}
+	})
+}
+
 func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 	t.Run("workflow_run_not_found", func(t *testing.T) {
 		ms := &mockCallbackStore{

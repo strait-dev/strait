@@ -24,8 +24,8 @@ func ValidateWorkflowTransition(from, to WorkflowRunStatus) error {
 }
 
 var validStepTransitions = map[StepRunStatus][]StepRunStatus{
-	StepPending:   {StepWaiting, StepRunning, StepSkipped, StepCanceled},
-	StepWaiting:   {StepRunning, StepSkipped, StepCanceled},
+	StepPending:   {StepWaiting, StepRunning, StepSkipped, StepCanceled, StepCompleted},
+	StepWaiting:   {StepRunning, StepSkipped, StepCanceled, StepCompleted},
 	StepRunning:   {StepCompleted, StepFailed, StepCanceled},
 	StepCompleted: {},
 	StepFailed:    {},
