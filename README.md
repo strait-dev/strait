@@ -66,6 +66,21 @@ A production-grade Go job orchestrator inspired by [Trigger.dev](https://trigger
 - Batch processing with ack/nack lifecycle and long-poll support
 - Graceful shutdown and automatic error recovery with backoff
 
+### CLI
+
+- Full-featured command-line interface with 48+ commands
+- Multi-context configuration for managing multiple environments
+- Declarative resource management with YAML manifests (validate, apply, diff, export)
+- Interactive terminal dashboard (TUI) with queue metrics and run explorer
+- System keychain credential storage (macOS Keychain, Windows Credential Manager)
+- Seven output formats: table, JSON, YAML, CSV, wide, Go template, JSONPath
+- Shell completion for Bash, Zsh, Fish, and PowerShell
+- Extension system for custom plugins (`orchestrator-<name>` executables in PATH)
+- Database backup/restore, migration management, and pprof profiling
+- CI/CD-ready with `--ci` mode, environment variable configuration, and `wait`/`drain` commands
+
+See [CLI.md](CLI.md) for the complete CLI reference.
+
 ## Quick Start
 
 ```bash
@@ -521,7 +536,7 @@ Workers use Postgres `SKIP LOCKED` for dequeuing, so multiple worker instances c
 
 ```
 orchestrator/
-├── cmd/orchestrator/       # Entrypoint, flag parsing, graceful shutdown
+├── cmd/orchestrator/       # CLI commands (48+ commands, one file per group)
 ├── internal/
 │   ├── api/                # HTTP handlers, middleware, auth, routes
 │   ├── cdc/                # Sequin CDC consumer, table handlers, HTTP client
@@ -542,7 +557,8 @@ orchestrator/
 ├── Dockerfile              # Multi-stage Go 1.26 build
 ├── fly.toml                # Fly.io deployment config
 ├── .golangci.yml           # golangci-lint v2 config (18 linters)
-└── .github/workflows/      # CI: lint + test
+├── .github/workflows/      # CI: lint + test
+└── CLI.md                  # CLI reference documentation
 ```
 
 ## Database Schema
