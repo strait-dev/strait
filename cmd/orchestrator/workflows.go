@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"orchestrator/internal/cli/client"
+	"orchestrator/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -114,7 +115,7 @@ func newWorkflowsListCommand(state *appState) *cobra.Command {
 					"id":      wf.ID,
 					"name":    wf.Name,
 					"slug":    wf.Slug,
-					"enabled": wf.Enabled,
+					"enabled": styles.Enabled(wf.Enabled),
 				})
 			}
 			return printData(state, rows)

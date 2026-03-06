@@ -39,7 +39,7 @@ func newLogsCommand(state *appState) *cobra.Command {
 					if projectID == "" {
 						return fmt.Errorf("project is required when --run is not provided")
 					}
-					runs, listErr := cli.ListRuns(context.Background(), projectID, "", 20)
+					runs, listErr := cli.ListRuns(context.Background(), projectID, "", 20, nil)
 					if listErr != nil {
 						return listErr
 					}

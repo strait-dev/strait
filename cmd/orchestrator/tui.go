@@ -150,7 +150,7 @@ func newTUICommand(state *appState) *cobra.Command {
 				runs := make([]domain.JobRun, 0)
 				if projectID != "" {
 					var runsErr error
-					runs, runsErr = cli.ListRuns(context.Background(), projectID, "", runLimit)
+					runs, runsErr = cli.ListRuns(context.Background(), projectID, "", runLimit, nil)
 					if runsErr != nil {
 						return runsErr
 					}

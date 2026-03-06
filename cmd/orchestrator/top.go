@@ -68,7 +68,7 @@ func newTopQueueCommand(state *appState) *cobra.Command {
 						map[string]any{"metric": "delayed", "value": stats.Delayed, "scope": "global", "sampled_at": sampledAt},
 					)
 				} else {
-					runs, err := cli.ListRuns(context.Background(), projectID, "", limit)
+					runs, err := cli.ListRuns(context.Background(), projectID, "", limit, nil)
 					if err != nil {
 						return err
 					}
@@ -133,7 +133,7 @@ func newTopJobsCommand(state *appState) *cobra.Command {
 					return err
 				}
 
-				runs, err := cli.ListRuns(context.Background(), projectID, "", 500)
+				runs, err := cli.ListRuns(context.Background(), projectID, "", 500, nil)
 				if err != nil {
 					return err
 				}

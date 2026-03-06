@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"orchestrator/internal/cli/client"
-
+	"orchestrator/internal/cli/styles"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -119,7 +119,7 @@ func newJobsDescribeCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			runs, err := cli.ListRuns(context.Background(), job.ProjectID, "", 100)
+			runs, err := cli.ListRuns(context.Background(), job.ProjectID, "", 100, nil)
 			if err != nil {
 				return err
 			}
@@ -364,7 +364,7 @@ func newJobsListCommand(state *appState) *cobra.Command {
 					"name":    job.Name,
 					"slug":    job.Slug,
 					"cron":    job.Cron,
-					"enabled": job.Enabled,
+					"enabled": styles.Enabled(job.Enabled),
 				})
 			}
 

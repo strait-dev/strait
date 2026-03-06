@@ -11,6 +11,7 @@ import (
 
 	cliauth "orchestrator/internal/cli/auth"
 	cliconfig "orchestrator/internal/cli/config"
+	"orchestrator/internal/cli/styles"
 
 	"github.com/spf13/cobra"
 )
@@ -116,6 +117,10 @@ func newRootCommand() *cobra.Command {
 			if opts.ciMode || os.Getenv("ORCHESTRATOR_CI") == "true" || os.Getenv("CI") == "true" {
 				opts.ciMode = true
 				opts.noColor = true
+			}
+
+			if opts.noColor {
+				styles.ForceNoColor()
 			}
 
 			return nil

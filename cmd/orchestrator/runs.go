@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"orchestrator/internal/cli/client"
+	"orchestrator/internal/cli/styles"
 	"orchestrator/internal/domain"
 
 	"github.com/spf13/cobra"
@@ -48,7 +49,7 @@ func newRunsListCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			runs, err := cli.ListRuns(context.Background(), projectID, status, limit)
+			runs, err := cli.ListRuns(context.Background(), projectID, status, limit, nil)
 			if err != nil {
 				return err
 			}
@@ -58,7 +59,7 @@ func newRunsListCommand(state *appState) *cobra.Command {
 				rows = append(rows, map[string]any{
 					"id":           run.ID,
 					"job_id":       run.JobID,
-					"status":       run.Status,
+					"status":       styles.Status(string(run.Status)),
 					"attempt":      run.Attempt,
 					"triggered_by": run.TriggeredBy,
 					"created_at":   run.CreatedAt,
@@ -130,7 +131,7 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 				if projectID == "" {
 					return fmt.Errorf("project ID is required for --all")
 				}
-				runs, listErr := cli.ListRuns(context.Background(), projectID, status, limit)
+				runs, listErr := cli.ListRuns(context.Background(), projectID, status, limit, nil)
 				if listErr != nil {
 					return listErr
 				}

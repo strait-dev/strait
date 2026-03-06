@@ -238,7 +238,7 @@ func (c *Client) ListJobVersions(ctx context.Context, jobID string) ([]domain.Jo
 	return out, nil
 }
 
-func (c *Client) ListRuns(ctx context.Context, projectID, status string, limit int) ([]domain.JobRun, error) {
+func (c *Client) ListRuns(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	query := url.Values{}
 	query.Set("project_id", projectID)
 	if strings.TrimSpace(status) != "" {
@@ -247,12 +247,36 @@ func (c *Client) ListRuns(ctx context.Context, projectID, status string, limit i
 	if limit > 0 {
 		query.Set("limit", fmt.Sprintf("%d", limit))
 	}
+	if cursor != nil {
+		query.Set("cursor", cursor.Format(time.RFC3339))
+	}
 
 	var out []domain.JobRun
 	if err := c.doJSON(ctx, http.MethodGet, "/v1/runs", query, nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// ListAllRuns fetches all runs by following cursor-based pagination.
+func (c *Client) ListAllRuns(ctx context.Context, projectID, status string) ([]domain.JobRun, error) {
+	const pageSize = 100
+	var all []domain.JobRun
+	var cursor *time.Time
+
+	for {
+		page, err := c.ListRuns(ctx, projectID, status, pageSize, cursor)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < pageSize {
+			break
+		}
+		last := page[len(page)-1].CreatedAt
+		cursor = &last
+	}
+	return all, nil
 }
 
 func (c *Client) GetRun(ctx context.Context, runID string) (*domain.JobRun, error) {
