@@ -37,9 +37,10 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 	query := `
 		INSERT INTO workflow_runs (
 			id, workflow_id, project_id, status, triggered_by, payload,
-			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at
+			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+			retry_of_run_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -57,6 +58,7 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		run.StartedAt,
 		run.FinishedAt,
 		run.ExpiresAt,
+		dbscan.NilIfEmptyString(run.RetryOfRunID),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow run: %w", err)
@@ -71,7 +73,8 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
-		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at, created_at
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+		       retry_of_run_id, created_at
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -92,7 +95,8 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
-		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at, created_at
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+		       retry_of_run_id, created_at
 		FROM workflow_runs
 		WHERE workflow_id = $1
 		ORDER BY created_at DESC
@@ -126,7 +130,8 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
-		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at, created_at
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+		       retry_of_run_id, created_at
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -265,6 +270,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	var startedAt *time.Time
 	var finishedAt *time.Time
 	var expiresAt *time.Time
+	var retryOfRunID *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -279,6 +285,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 		&startedAt,
 		&finishedAt,
 		&expiresAt,
+		&retryOfRunID,
 		&run.CreatedAt,
 	)
 	if err != nil {
@@ -290,6 +297,9 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	}
 	if runError != nil {
 		run.Error = *runError
+	}
+	if retryOfRunID != nil {
+		run.RetryOfRunID = *retryOfRunID
 	}
 	run.StartedAt = startedAt
 	run.FinishedAt = finishedAt

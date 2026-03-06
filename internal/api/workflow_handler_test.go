@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,10 +16,11 @@ import (
 )
 
 type mockWorkflowTrigger struct {
-	triggerWorkflowFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
-	approveStepFn     func(ctx context.Context, workflowRunID, stepRef, approver string) error
-	resumeWorkflowFn  func(ctx context.Context, workflowRunID string) error
-	onJobRunTerminal  func(ctx context.Context, run *domain.JobRun) error
+	triggerWorkflowFn  func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+	retryWorkflowRunFn func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
+	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
+	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
+	onJobRunTerminal   func(ctx context.Context, run *domain.JobRun) error
 }
 
 func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
@@ -40,6 +42,13 @@ func (m *mockWorkflowTrigger) ResumeWorkflowRun(ctx context.Context, workflowRun
 		return m.resumeWorkflowFn(ctx, workflowRunID)
 	}
 	return nil
+}
+
+func (m *mockWorkflowTrigger) RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error) {
+	if m.retryWorkflowRunFn != nil {
+		return m.retryWorkflowRunFn(ctx, originalRunID)
+	}
+	return nil, nil
 }
 
 func (m *mockWorkflowTrigger) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
@@ -1324,6 +1333,122 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleRetryWorkflowRun(t *testing.T) {
+	t.Run("success - retry failed run", func(t *testing.T) {
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: id, WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusFailed,
+				}, nil
+			},
+		}
+		trigger := &mockWorkflowTrigger{
+			retryWorkflowRunFn: func(_ context.Context, originalRunID string) (*domain.WorkflowRun, error) {
+				if originalRunID != "wr-1" {
+					t.Fatalf("originalRunID = %q, want wr-1", originalRunID)
+				}
+				return &domain.WorkflowRun{
+					ID: "wr-retry-1", WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusRunning, TriggeredBy: domain.TriggerRetry,
+					RetryOfRunID: "wr-1",
+				}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, trigger)
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/retry", ""))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp domain.WorkflowRun
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp.ID != "wr-retry-1" {
+			t.Fatalf("response ID = %q, want wr-retry-1", resp.ID)
+		}
+		if resp.RetryOfRunID != "wr-1" {
+			t.Fatalf("RetryOfRunID = %q, want wr-1", resp.RetryOfRunID)
+		}
+	})
+
+	t.Run("reject retry of non-terminal run", func(t *testing.T) {
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "wr-1", Status: domain.WfStatusRunning,
+				}, nil
+			},
+		}
+		trigger := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/retry", ""))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, store.ErrWorkflowRunNotFound
+			},
+		}
+		trigger := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-missing/retry", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("engine unavailable", func(t *testing.T) {
+		ms := &mockAPIStore{}
+		// No workflow engine configured.
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/retry", ""))
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("engine error propagated", func(t *testing.T) {
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "wr-1", Status: domain.WfStatusFailed,
+				}, nil
+			},
+		}
+		trigger := &mockWorkflowTrigger{
+			retryWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, fmt.Errorf("workflow is disabled: wf-1")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/retry", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }

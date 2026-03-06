@@ -27,6 +27,7 @@ const (
 	TriggerCron     = "cron"
 	TriggerSpawn    = "spawn"
 	TriggerWorkflow = "workflow"
+	TriggerRetry    = "retry"
 )
 
 type EventType string
@@ -308,6 +309,7 @@ type WorkflowRun struct {
 	StartedAt        *time.Time        `json:"started_at,omitempty"`
 	FinishedAt       *time.Time        `json:"finished_at,omitempty"`
 	ExpiresAt        *time.Time        `json:"expires_at,omitempty"`
+	RetryOfRunID     string            `json:"retry_of_run_id,omitempty"`
 	CreatedAt        time.Time         `json:"created_at"`
 }
 

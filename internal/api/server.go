@@ -84,6 +84,7 @@ type WorkflowCallback interface {
 
 type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
 
 const (
@@ -233,6 +234,7 @@ func (s *Server) routes() chi.Router {
 				r.Get("/labels", s.handleGetWorkflowRunLabels)
 				r.Get("/steps", s.handleListWorkflowStepRuns)
 				r.Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
+				r.Post("/retry", s.handleRetryWorkflowRun)
 			})
 		})
 	})

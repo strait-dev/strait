@@ -325,3 +325,36 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 		"approval": approval,
 	})
 }
+
+func (s *Server) handleRetryWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if s.workflowEngine == nil {
+		respondError(w, http.StatusServiceUnavailable, "workflow engine unavailable")
+		return
+	}
+
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			respondError(w, http.StatusNotFound, "workflow run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		return
+	}
+
+	if !run.Status.IsTerminal() {
+		respondError(w, http.StatusBadRequest, "can only retry a workflow run in terminal state")
+		return
+	}
+
+	newRun, err := s.workflowEngine.RetryWorkflowRun(r.Context(), workflowRunID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to retry workflow run: "+err.Error())
+		return
+	}
+
+	s.publishWorkflowRunHook(r.Context(), newRun, domain.WfStatusPending, newRun.Status, "retry")
+
+	respondJSON(w, http.StatusCreated, newRun)
+}

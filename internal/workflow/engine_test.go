@@ -24,6 +24,8 @@ type mockEngineStore struct {
 	updateWorkflowRunStatusFn    func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn        func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	getWorkflowRunFn             func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listStepRunsByWorkflowRunFn  func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 }
 
 func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error) {
@@ -85,6 +87,20 @@ func (m *mockEngineStore) UpdateStepRunStatus(ctx context.Context, id string, st
 func (m *mockEngineStore) GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error) {
 	if m.getStepOutputsFn != nil {
 		return m.getStepOutputsFn(ctx, workflowRunID, stepRefs)
+	}
+	return nil, nil
+}
+
+func (m *mockEngineStore) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
+	if m.getWorkflowRunFn != nil {
+		return m.getWorkflowRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockEngineStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+	if m.listStepRunsByWorkflowRunFn != nil {
+		return m.listStepRunsByWorkflowRunFn(ctx, workflowRunID)
 	}
 	return nil, nil
 }
@@ -1846,6 +1862,595 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}
 		if enqueueCalled {
 			t.Fatal("should not start step when max_parallel_steps reached")
+		}
+	})
+}
+
+func TestRetryWorkflowRun(t *testing.T) {
+	// Helper: build a standard 3-step DAG (a -> b -> c) for retry tests.
+	buildSteps := func() []domain.WorkflowStep {
+		return []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+			{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+			{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"b"}},
+		}
+	}
+
+	t.Run("retry from failed step b in a->b->c DAG", func(t *testing.T) {
+		stepRunsCreated := make(map[string]*domain.WorkflowStepRun)
+		enqueuedJobs := make([]string, 0)
+		steps := buildSteps()
+
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID:              "orig-run-1",
+					WorkflowID:      "wf-1",
+					ProjectID:       "proj-1",
+					Status:          domain.WfStatusFailed,
+					TriggeredBy:     domain.TriggerManual,
+					WorkflowVersion: 1,
+					Payload:         json.RawMessage(`{"input":"data"}`),
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return steps, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"result":"ok"}`)},
+					{ID: "orig-sr-b", StepRef: "b", Status: domain.StepFailed, Error: "timeout"},
+					{ID: "orig-sr-c", StepRef: "c", Status: domain.StepCanceled},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "retry-run-1"
+				if run.RetryOfRunID != "orig-run-1" {
+					t.Fatalf("RetryOfRunID = %q, want orig-run-1", run.RetryOfRunID)
+				}
+				if run.TriggeredBy != domain.TriggerRetry {
+					t.Fatalf("TriggeredBy = %q, want retry", run.TriggeredBy)
+				}
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "retry-sr-" + sr.StepRef
+				stepRunsCreated[sr.StepRef] = sr
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+				return map[string]json.RawMessage{"a": json.RawMessage(`{"result":"ok"}`)}, nil
+			},
+		}
+
+		mq := &mockEngineQueue{
+			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+				enqueuedJobs = append(enqueuedJobs, run.JobID)
+				run.ID = "job-run-" + run.JobID
+				return nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run-1")
+		if err != nil {
+			t.Fatalf("RetryWorkflowRun() error = %v", err)
+		}
+
+		// Verify retry run properties.
+		if newRun.ID != "retry-run-1" {
+			t.Fatalf("new run ID = %q, want retry-run-1", newRun.ID)
+		}
+		if newRun.Status != domain.WfStatusRunning {
+			t.Fatalf("new run status = %q, want running", newRun.Status)
+		}
+		if newRun.RetryOfRunID != "orig-run-1" {
+			t.Fatalf("RetryOfRunID = %q, want orig-run-1", newRun.RetryOfRunID)
+		}
+
+		// Step a should be pre-completed (copied from original).
+		if sr, ok := stepRunsCreated["a"]; !ok {
+			t.Fatal("step run 'a' not created")
+		} else {
+			if sr.Status != domain.StepCompleted {
+				t.Fatalf("step a status = %q, want completed", sr.Status)
+			}
+			if string(sr.Output) != `{"result":"ok"}` {
+				t.Fatalf("step a output = %q, want original output", string(sr.Output))
+			}
+		}
+
+		// Step b should be fresh (was failed, now re-executed).
+		if sr, ok := stepRunsCreated["b"]; !ok {
+			t.Fatal("step run 'b' not created")
+		} else if sr.DepsCompleted != 1 || sr.DepsRequired != 1 {
+			// Step b deps are all complete (a is pre-completed), so it should be started.
+			t.Fatalf("step b deps: completed=%d required=%d, want 1/1", sr.DepsCompleted, sr.DepsRequired)
+		}
+
+		// Step c should be waiting (its dep b was not completed in original).
+		if sr, ok := stepRunsCreated["c"]; !ok {
+			t.Fatal("step run 'c' not created")
+		} else if sr.Status != domain.StepWaiting {
+			t.Fatalf("step c status = %q, want waiting", sr.Status)
+		}
+
+		// Only job-b should be enqueued (step a pre-completed, step c waiting).
+		if len(enqueuedJobs) != 1 || enqueuedJobs[0] != "job-b" {
+			t.Fatalf("enqueued = %v, want [job-b]", enqueuedJobs)
+		}
+	})
+
+	t.Run("cannot retry non-terminal run", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "run-1", Status: domain.WfStatusRunning}, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.RetryWorkflowRun(context.Background(), "run-1")
+		if err == nil || !strings.Contains(err.Error(), "must be terminal") {
+			t.Fatalf("expected terminal state error, got %v", err)
+		}
+	})
+
+	t.Run("cannot retry when workflow is disabled", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "run-1", WorkflowID: "wf-1", Status: domain.WfStatusFailed, WorkflowVersion: 1,
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", Enabled: false}, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.RetryWorkflowRun(context.Background(), "run-1")
+		if err == nil || !strings.Contains(err.Error(), "disabled") {
+			t.Fatalf("expected disabled error, got %v", err)
+		}
+	})
+
+	t.Run("retry run not found", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.RetryWorkflowRun(context.Background(), "no-such-run")
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Fatalf("expected not found error, got %v", err)
+		}
+	})
+
+	t.Run("retry all-completed run re-starts root steps", func(t *testing.T) {
+		// If the original run completed successfully but user wants to retry,
+		// all steps should be re-executed since there's no failed step.
+		stepRunsCreated := make(map[string]*domain.WorkflowStepRun)
+		enqueueCount := 0
+
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "orig-run", WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusCompleted, WorkflowVersion: 1,
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "step-a", JobID: "job-a", StepRef: "a"},
+					{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+				}, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"x":1}`)},
+					{ID: "orig-sr-b", StepRef: "b", Status: domain.StepCompleted, Output: json.RawMessage(`{"y":2}`)},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "retry-run"
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "retry-sr-" + sr.StepRef
+				stepRunsCreated[sr.StepRef] = sr
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+				return nil, nil
+			},
+		}
+
+		mq := &mockEngineQueue{
+			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+				enqueueCount++
+				run.ID = "job-run-" + run.JobID
+				return nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
+		if err != nil {
+			t.Fatalf("RetryWorkflowRun() error = %v", err)
+		}
+		if newRun.ID != "retry-run" {
+			t.Fatalf("run ID = %q", newRun.ID)
+		}
+
+		// All steps completed in original — both should be pre-completed.
+		for _, ref := range []string{"a", "b"} {
+			sr, ok := stepRunsCreated[ref]
+			if !ok {
+				t.Fatalf("step %s not created", ref)
+			}
+			if sr.Status != domain.StepCompleted {
+				t.Fatalf("step %s status = %q, want completed", ref, sr.Status)
+			}
+		}
+
+		// No new jobs should be enqueued since all steps were pre-completed.
+		if enqueueCount != 0 {
+			t.Fatalf("enqueueCount = %d, want 0", enqueueCount)
+		}
+	})
+
+	t.Run("retry respects max parallel steps", func(t *testing.T) {
+		enqueueCount := 0
+		stepRunsCreated := make(map[string]*domain.WorkflowStepRun)
+
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "orig-run", WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusFailed, WorkflowVersion: 1,
+					MaxParallelSteps: 1,
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				// Two independent root steps (no deps on each other).
+				return []domain.WorkflowStep{
+					{ID: "step-x", JobID: "job-x", StepRef: "x"},
+					{ID: "step-y", JobID: "job-y", StepRef: "y"},
+				}, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "orig-sr-x", StepRef: "x", Status: domain.StepFailed},
+					{ID: "orig-sr-y", StepRef: "y", Status: domain.StepCanceled},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "retry-run"
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "retry-sr-" + sr.StepRef
+				stepRunsCreated[sr.StepRef] = sr
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+				return nil, nil
+			},
+		}
+
+		mq := &mockEngineQueue{
+			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+				enqueueCount++
+				run.ID = "job-run-" + run.JobID
+				return nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
+		if err != nil {
+			t.Fatalf("RetryWorkflowRun() error = %v", err)
+		}
+		if newRun == nil {
+			t.Fatal("expected non-nil run")
+		}
+
+		// With max_parallel_steps=1, only 1 step should be enqueued.
+		if enqueueCount != 1 {
+			t.Fatalf("enqueueCount = %d, want 1 (max_parallel_steps=1)", enqueueCount)
+		}
+	})
+
+	t.Run("retry with timeout sets expires_at", func(t *testing.T) {
+		var createdRun *domain.WorkflowRun
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "orig-run", WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusTimedOut, WorkflowVersion: 1,
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", Enabled: true, Version: 1, TimeoutSecs: 300}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "step-a", JobID: "job-a", StepRef: "a"},
+				}, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepFailed},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "retry-run"
+				createdRun = run
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "retry-sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+				return nil, nil
+			},
+		}
+
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
+		if err != nil {
+			t.Fatalf("RetryWorkflowRun() error = %v", err)
+		}
+		if createdRun == nil || createdRun.ExpiresAt == nil {
+			t.Fatal("expected expires_at to be set for workflow with timeout")
+		}
+	})
+
+	t.Run("retry preserves original payload", func(t *testing.T) {
+		var capturedPayload json.RawMessage
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "orig-run", WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusFailed, WorkflowVersion: 1,
+					Payload: json.RawMessage(`{"env":"prod","batch_id":42}`),
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "step-a", JobID: "job-a", StepRef: "a"},
+				}, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepFailed},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "retry-run"
+				capturedPayload = run.Payload
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "retry-sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+				return nil, nil
+			},
+		}
+
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
+		if err != nil {
+			t.Fatalf("RetryWorkflowRun() error = %v", err)
+		}
+		if string(capturedPayload) != `{"env":"prod","batch_id":42}` {
+			t.Fatalf("payload = %q, want original payload", string(capturedPayload))
+		}
+	})
+
+	t.Run("retry canceled run with all steps completed", func(t *testing.T) {
+		stepRunsCreated := make(map[string]*domain.WorkflowStepRun)
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "orig-run", WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusCanceled, WorkflowVersion: 1,
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "step-a", JobID: "job-a", StepRef: "a"},
+				}, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					// Canceled run but step completed before cancellation
+					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"v":1}`)},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "retry-run"
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "retry-sr-" + sr.StepRef
+				stepRunsCreated[sr.StepRef] = sr
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+				return nil, nil
+			},
+		}
+
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
+		if err != nil {
+			t.Fatalf("RetryWorkflowRun() error = %v", err)
+		}
+		if newRun == nil {
+			t.Fatal("expected non-nil run")
+		}
+		// Step a was completed, so should be pre-completed.
+		if sr, ok := stepRunsCreated["a"]; !ok {
+			t.Fatal("step a not created")
+		} else if sr.Status != domain.StepCompleted {
+			t.Fatalf("step a status = %q, want completed", sr.Status)
+		}
+	})
+
+	t.Run("retry store error on get workflow run", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, fmt.Errorf("database connection error")
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.RetryWorkflowRun(context.Background(), "run-1")
+		if err == nil || !strings.Contains(err.Error(), "database connection error") {
+			t.Fatalf("expected database error, got %v", err)
+		}
+	})
+
+	t.Run("retry with fan-out DAG: a->{b,c} where c failed", func(t *testing.T) {
+		stepRunsCreated := make(map[string]*domain.WorkflowStepRun)
+		enqueuedJobs := make([]string, 0)
+
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID: "orig-run", WorkflowID: "wf-1", ProjectID: "proj-1",
+					Status: domain.WfStatusFailed, WorkflowVersion: 1,
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "step-a", JobID: "job-a", StepRef: "a"},
+					{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+					{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"a"}},
+				}, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"a":1}`)},
+					{ID: "orig-sr-b", StepRef: "b", Status: domain.StepCompleted, Output: json.RawMessage(`{"b":2}`)},
+					{ID: "orig-sr-c", StepRef: "c", Status: domain.StepFailed, Error: "oom"},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "retry-run"
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "retry-sr-" + sr.StepRef
+				stepRunsCreated[sr.StepRef] = sr
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+				return map[string]json.RawMessage{"a": json.RawMessage(`{"a":1}`)}, nil
+			},
+		}
+
+		mq := &mockEngineQueue{
+			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+				enqueuedJobs = append(enqueuedJobs, run.JobID)
+				run.ID = "job-run-" + run.JobID
+				return nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
+		if err != nil {
+			t.Fatalf("RetryWorkflowRun() error = %v", err)
+		}
+
+		// Step a: pre-completed. Step b: pre-completed. Step c: re-executed.
+		if stepRunsCreated["a"].Status != domain.StepCompleted {
+			t.Fatalf("step a should be pre-completed")
+		}
+		if stepRunsCreated["b"].Status != domain.StepCompleted {
+			t.Fatalf("step b should be pre-completed")
+		}
+		// Only step c should be enqueued.
+		if len(enqueuedJobs) != 1 || enqueuedJobs[0] != "job-c" {
+			t.Fatalf("enqueued = %v, want [job-c]", enqueuedJobs)
 		}
 	})
 }
