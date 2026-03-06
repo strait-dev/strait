@@ -18,14 +18,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newMigrateCommand(_ *appState) *cobra.Command {
+func newMigrateCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Manage database migrations",
 	}
 
 	cmd.AddCommand(newMigrateUpCommand())
-	cmd.AddCommand(newMigrateDownCommand())
+	cmd.AddCommand(newMigrateDownCommand(state))
 	cmd.AddCommand(newMigrateStatusCommand())
 	cmd.AddCommand(newMigrateCreateCommand())
 
@@ -102,7 +102,7 @@ func newMigrateUpCommand() *cobra.Command {
 	return cmd
 }
 
-func newMigrateDownCommand() *cobra.Command {
+func newMigrateDownCommand(state *appState) *cobra.Command {
 	var yes bool
 
 	cmd := &cobra.Command{
@@ -115,8 +115,8 @@ func newMigrateDownCommand() *cobra.Command {
 				return err
 			}
 
-			if !yes {
-				return fmt.Errorf("down is destructive; rerun with --yes to confirm")
+			if err := requireConfirmation(state, fmt.Sprintf("Roll back %d migration(s)?", count), yes); err != nil {
+				return err
 			}
 
 			m, err := openMigratorFromEnv()

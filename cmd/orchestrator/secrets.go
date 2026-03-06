@@ -126,8 +126,8 @@ func newSecretsDeleteCommand(state *appState) *cobra.Command {
 		Short: "Delete a secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if !yes {
-				return fmt.Errorf("delete requires --yes")
+			if err := requireConfirmation(state, "Delete this secret?", yes); err != nil {
+				return err
 			}
 			if projectID == "" {
 				projectID = state.opts.projectID

@@ -29,6 +29,7 @@ type rootOptions struct {
 	contextName  string
 	configPath   string
 	timeout      time.Duration
+	ciMode       bool
 }
 
 type appState struct {
@@ -112,6 +113,11 @@ func newRootCommand() *cobra.Command {
 			state.config = loaded.Data
 			state.resolved = resolved
 
+			if opts.ciMode || os.Getenv("ORCHESTRATOR_CI") == "true" || os.Getenv("CI") == "true" {
+				opts.ciMode = true
+				opts.noColor = true
+			}
+
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -132,6 +138,7 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.contextName, "context", "", "context name override")
 	cmd.PersistentFlags().StringVar(&opts.configPath, "config", "", "config file path")
 	cmd.PersistentFlags().DurationVar(&opts.timeout, "timeout", 30*time.Second, "API request timeout")
+	cmd.PersistentFlags().BoolVar(&opts.ciMode, "ci", false, "enable CI mode (no color, no prompts)")
 
 	cmd.AddCommand(newServeCommand())
 	cmd.AddCommand(newServerCommand())
@@ -318,6 +325,8 @@ func newVersionCommand(state *appState) *cobra.Command {
 
 			info := map[string]string{
 				"version": version,
+				"commit":  commit,
+				"date":    date,
 				"go":      runtime.Version(),
 				"os_arch": fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 			}
@@ -344,6 +353,8 @@ func newVersionCommand(state *appState) *cobra.Command {
 			}
 
 			fmt.Printf("version: %s\n", info["version"])
+			fmt.Printf("commit: %s\n", info["commit"])
+			fmt.Printf("date: %s\n", info["date"])
 			fmt.Printf("go: %s\n", info["go"])
 			fmt.Printf("os/arch: %s\n", info["os_arch"])
 			if checkServer {
@@ -394,5 +405,6 @@ func cliEnv() map[string]string {
 		"ORCHESTRATOR_FORMAT":  strings.TrimSpace(os.Getenv("ORCHESTRATOR_FORMAT")),
 		"ORCHESTRATOR_CONTEXT": strings.TrimSpace(os.Getenv("ORCHESTRATOR_CONTEXT")),
 		"NO_COLOR":             strings.TrimSpace(os.Getenv("NO_COLOR")),
+		"ORCHESTRATOR_CI":     strings.TrimSpace(os.Getenv("ORCHESTRATOR_CI")),
 	}
 }

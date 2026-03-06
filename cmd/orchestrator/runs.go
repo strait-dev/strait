@@ -144,8 +144,10 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 			if len(targetIDs) == 0 {
 				return fmt.Errorf("no runs matched cancellation criteria")
 			}
-			if len(targetIDs) > 1 && !yes {
-				return fmt.Errorf("bulk cancel requires --yes confirmation")
+			if len(targetIDs) > 1 {
+				if err := requireConfirmation(state, fmt.Sprintf("Cancel %d runs?", len(targetIDs)), yes); err != nil {
+					return err
+				}
 			}
 
 			results := make([]map[string]any, 0, len(targetIDs))

@@ -43,8 +43,8 @@ func newJobsDeleteCommand(state *appState) *cobra.Command {
 		Short: "Disable a job by ID or slug",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if !yes {
-				return fmt.Errorf("delete requires confirmation; rerun with --yes")
+			if err := requireConfirmation(state, "Delete this job?", yes); err != nil {
+				return err
 			}
 
 			cli, err := newAPIClient(state)

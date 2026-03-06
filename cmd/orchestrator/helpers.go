@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"orchestrator/internal/cli/client"
 	cliconfig "orchestrator/internal/cli/config"
@@ -44,4 +46,29 @@ func stdoutIsTTY() bool {
 
 func newAPIClient(state *appState) (*client.Client, error) {
 	return client.New(state.opts.serverURL, state.opts.apiKey, state.opts.timeout)
+}
+
+// requireConfirmation checks CI mode and prompts interactively if needed.
+// Pass yes=true when the user provided --yes flag.
+func requireConfirmation(state *appState, msg string, yes bool) error {
+	if yes {
+		return nil
+	}
+	if state.opts.ciMode {
+		return fmt.Errorf("interactive prompt blocked in CI mode; use --yes to confirm")
+	}
+	if !stdoutIsTTY() {
+		return fmt.Errorf("non-interactive terminal detected; use --yes to confirm")
+	}
+	fmt.Fprintf(os.Stderr, "%s [y/N]: ", msg)
+	reader := bufio.NewReader(os.Stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read confirmation: %w", err)
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "y" && answer != "yes" {
+		return fmt.Errorf("operation cancelled")
+	}
+	return nil
 }

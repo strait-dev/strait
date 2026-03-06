@@ -165,6 +165,10 @@ func newContextCurrentCommand(state *appState) *cobra.Command {
 }
 
 func printData(state *appState, data any) error {
+	if state.opts.quiet {
+		return printQuietIDs(data)
+	}
+
 	tty := stdoutIsTTY()
 	format := state.opts.outputFormat
 	if format == "" {
@@ -181,4 +185,19 @@ func printData(state *appState, data any) error {
 		JSONPath:  state.opts.outputPath,
 		TTY:       tty,
 	})
+}
+
+// printQuietIDs prints only the id field from each row, one per line.
+func printQuietIDs(data any) error {
+	switch v := data.(type) {
+	case []map[string]any:
+		for _, row := range v {
+			if id, ok := row["id"]; ok {
+				fmt.Fprintln(os.Stdout, id)
+			}
+		}
+	default:
+		return output.Render(os.Stdout, data, output.Options{Format: "json"})
+	}
+	return nil
 }
