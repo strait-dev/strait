@@ -145,7 +145,7 @@ func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[str
 	}
 }
 
-func (s *StepCallback) checkStepRetry(ctx context.Context, stepRun *domain.WorkflowStepRun, jobRun *domain.JobRun) (bool, time.Time, int, error) {
+func (s *StepCallback) checkStepRetry(ctx context.Context, stepRun *domain.WorkflowStepRun, _ *domain.JobRun) (bool, time.Time, int, error) {
 	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
 	if err != nil {
 		return false, time.Time{}, 0, fmt.Errorf("get workflow run: %w", err)

@@ -309,6 +309,7 @@ type WorkflowRun struct {
 	ExpiresAt        *time.Time        `json:"expires_at,omitempty"`
 	CreatedAt        time.Time         `json:"created_at"`
 }
+
 // WorkflowStepRun represents execution of a single step within a workflow run.
 type WorkflowStepRun struct {
 	ID             string          `json:"id"`

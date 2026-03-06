@@ -218,7 +218,7 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 						"finished_at": time.Now(),
 						"error":       "parent run canceled (bulk)",
 					}); err != nil {
-						slog.Warn("failed to cancel child run", "child_run_id", child.ID, "error", err)
+						slog.Warn("failed to cancel child run", "child_run_id", child.ID, "error", err.Error())
 					}
 				}
 			}

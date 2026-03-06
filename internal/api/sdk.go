@@ -119,7 +119,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 		})
 		channel := fmt.Sprintf("run:%s", runID)
 		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+			slog.Warn("failed to publish event", "run_id", runID, "error", err.Error())
 		}
 	}
 
@@ -197,7 +197,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		})
 		channel := fmt.Sprintf("run:%s", runID)
 		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+			slog.Warn("failed to publish event", "run_id", runID, "error", err.Error())
 		}
 	}
 
@@ -271,7 +271,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		})
 		channel := fmt.Sprintf("run:%s", runID)
 		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+			slog.Warn("failed to publish event", "run_id", runID, "error", err.Error())
 		}
 	}
 
