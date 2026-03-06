@@ -149,6 +149,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.FFJobDependencies {
 		t.Fatal("FFJobDependencies = true, want false")
 	}
+	if cfg.FFJobHealthScoring {
+		t.Fatal("FFJobHealthScoring = true, want false")
+	}
+	if cfg.FFAdaptiveTimeout {
+		t.Fatal("FFAdaptiveTimeout = true, want false")
+	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {

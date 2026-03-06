@@ -724,6 +724,78 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	return runs, nil
 }
 
+func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListDeadLetterRuns")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace
+		FROM job_runs
+		WHERE project_id = $1 AND status = 'dead_letter'
+		ORDER BY created_at DESC
+		LIMIT $2`
+
+	rows, err := q.db.Query(ctx, query, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list dead letter runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list dead letter runs scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list dead letter runs rows: %w", err)
+	}
+
+	return runs, nil
+}
+
+func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ReplayDeadLetterRun")
+	defer span.End()
+
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	if run.Status != domain.StatusDeadLetter {
+		return nil, fmt.Errorf("run %s is not dead_letter", runID)
+	}
+
+	err = q.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusQueued, map[string]any{
+		"attempt":       1,
+		"error":         "",
+		"started_at":    nil,
+		"finished_at":   nil,
+		"heartbeat_at":  nil,
+		"next_retry_at": nil,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("replay dead letter run: %w", err)
+	}
+
+	updatedRun, err := q.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedRun, nil
+}
+
 func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateRunStatus")
 	defer span.End()

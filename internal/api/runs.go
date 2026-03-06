@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -210,6 +211,65 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusCreated, replayRun)
+}
+
+func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFRunDLQ {
+		respondError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	query := r.URL.Query()
+	projectID := query.Get("project_id")
+	if projectID == "" {
+		respondError(w, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	limit := 50
+	if limitRaw := query.Get("limit"); limitRaw != "" {
+		parsedLimit, err := strconv.Atoi(limitRaw)
+		if err != nil || parsedLimit <= 0 {
+			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		if parsedLimit > 1000 {
+			parsedLimit = 1000
+		}
+		limit = parsedLimit
+	}
+
+	runs, err := s.store.ListDeadLetterRuns(r.Context(), projectID, limit)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list dead letter runs")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, runs)
+}
+
+func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFRunDLQ {
+		respondError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	runID := chi.URLParam(r, "runID")
+	run, err := s.store.ReplayDeadLetterRun(r.Context(), runID)
+	if err != nil {
+		errMsg := err.Error()
+		switch {
+		case strings.Contains(errMsg, "not found"):
+			respondError(w, http.StatusNotFound, "run not found")
+		case strings.Contains(errMsg, "not dead_letter"):
+			respondError(w, http.StatusConflict, "run is not dead_letter")
+		default:
+			respondError(w, http.StatusInternalServerError, "failed to replay dead letter run")
+		}
+		return
+	}
+
+	respondJSON(w, http.StatusOK, run)
 }
 
 func isReplayableRunStatus(status domain.RunStatus) bool {

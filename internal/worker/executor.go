@@ -20,6 +20,7 @@ import (
 	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
+	"orchestrator/internal/store"
 	"orchestrator/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
@@ -36,6 +37,7 @@ type ExecutorStore interface {
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
+	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 }
 
 // WorkflowCallback is called after a job run reaches a terminal state.
@@ -62,6 +64,8 @@ type Executor struct {
 	smartRetry       bool
 	bulkheads        bool
 	executionTracing bool
+	adaptiveTimeout  bool
+	dlqEnabled       bool
 	jobActiveRuns    map[string]int
 	jobActiveRunsMu  sync.Mutex
 	circuitThreshold int
@@ -87,6 +91,8 @@ type ExecutorConfig struct {
 	SmartRetry        bool
 	Bulkheads         bool
 	ExecutionTracing  bool
+	AdaptiveTimeout   bool
+	DLQEnabled        bool
 }
 
 const (
@@ -124,6 +130,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		smartRetry:       cfg.SmartRetry,
 		bulkheads:        cfg.Bulkheads,
 		executionTracing: cfg.ExecutionTracing,
+		adaptiveTimeout:  cfg.AdaptiveTimeout,
+		dlqEnabled:       cfg.DLQEnabled,
 		jobActiveRuns:    make(map[string]int),
 		circuitThreshold: defaultCircuitFailureThreshold,
 		circuitOpenFor:   defaultCircuitOpenDuration,
@@ -431,6 +439,16 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	go e.heartbeat.Run(hbCtx, run.ID)
 
 	timeout := time.Duration(job.TimeoutSecs) * time.Second
+	if e.adaptiveTimeout && job.TimeoutSecs > 0 {
+		stats, err := e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
+		if err == nil && stats.P95DurationSecs > 0 {
+			adaptiveTimeout := time.Duration(stats.P95DurationSecs * 1.5 * float64(time.Second))
+			if adaptiveTimeout > timeout {
+				timeout = adaptiveTimeout
+				e.logger.Debug("using adaptive timeout", "job_id", job.ID, "p95_secs", stats.P95DurationSecs, "timeout", timeout)
+			}
+		}
+	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -762,19 +780,24 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
 	}
-	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusFailed, fields)
+	targetStatus := domain.StatusFailed
+	if e.dlqEnabled {
+		targetStatus = domain.StatusDeadLetter
+	}
+
+	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, targetStatus, fields)
 	if updateErr != nil {
 		e.logger.Error(
-			"failed to mark run failed",
+			"failed to mark run terminal",
 			"run_id", run.ID,
 			"job_id", run.JobID,
 			"error", updateErr,
 		)
 		return
 	}
-	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusFailed)
-	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "failed", "error": errMsg})
-	run.Status = domain.StatusFailed
+	e.recordRunTransition(ctx, domain.StatusExecuting, targetStatus)
+	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": string(targetStatus), "error": errMsg})
+	run.Status = targetStatus
 	e.notifyWorkflowCallback(ctx, run)
 	e.submitWebhook(ctx, job, run)
 }

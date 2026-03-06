@@ -16,6 +16,7 @@ import (
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/queue"
+	orcstore "orchestrator/internal/store"
 )
 
 type statusUpdateCall struct {
@@ -26,13 +27,14 @@ type statusUpdateCall struct {
 }
 
 type mockExecutorStore struct {
-	getJobFn          func(ctx context.Context, id string) (*domain.Job, error)
-	listSecretsFn     func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
-	updateRunStatusFn func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	updateHeartbeatFn func(ctx context.Context, id string) error
-	canDispatchFn     func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
-	recordFailureFn   func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
-	recordSuccessFn   func(ctx context.Context, endpointURL string) error
+	getJobFn            func(ctx context.Context, id string) (*domain.Job, error)
+	listSecretsFn       func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
+	updateRunStatusFn   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateHeartbeatFn   func(ctx context.Context, id string) error
+	canDispatchFn       func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	recordFailureFn     func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	recordSuccessFn     func(ctx context.Context, endpointURL string) error
+	getJobHealthStatsFn func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -99,6 +101,13 @@ func (m *mockExecutorStore) RecordEndpointCircuitSuccess(ctx context.Context, en
 		return nil
 	}
 	return m.recordSuccessFn(ctx, endpointURL)
+}
+
+func (m *mockExecutorStore) GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error) {
+	if m.getJobHealthStatsFn == nil {
+		return nil, nil
+	}
+	return m.getJobHealthStatsFn(ctx, jobID, since)
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
@@ -761,6 +770,66 @@ func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
 	run := testRun(2)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusFailed {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	}
+	if run.Status != domain.StatusFailed {
+		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusFailed)
+	}
+}
+
+func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("hard failure"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.dlqEnabled = true
+
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusDeadLetter {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
+	}
+	if run.Status != domain.StatusDeadLetter {
+		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusDeadLetter)
+	}
+}
+
+func TestExecutor_DLQ_Disabled_TransitionsToFailed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("hard failure"))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.dlqEnabled = false
+
+	run := testRun(1)
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
@@ -1636,5 +1705,136 @@ func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
 	}
 	if trace.TotalMs <= 0 {
 		t.Fatalf("TotalMs = %d, want > 0", trace.TotalMs)
+	}
+}
+
+func TestExecutor_AdaptiveTimeout_UsesP95WhenHigherThanStatic(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(1500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 1), nil
+	}
+	store.getJobHealthStatsFn = func(context.Context, string, time.Time) (*orcstore.JobHealthStats, error) {
+		return &orcstore.JobHealthStats{P95DurationSecs: 2.0}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.adaptiveTimeout = true
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+	if calls[1].to == domain.StatusTimedOut {
+		t.Fatal("run timed out with adaptive timeout enabled, want completed")
+	}
+}
+
+func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(1 * time.Second)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 3), nil
+	}
+	store.getJobHealthStatsFn = func(context.Context, string, time.Time) (*orcstore.JobHealthStats, error) {
+		return &orcstore.JobHealthStats{P95DurationSecs: 0.5}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.adaptiveTimeout = true
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 2), nil
+	}
+	store.getJobHealthStatsFn = func(context.Context, string, time.Time) (*orcstore.JobHealthStats, error) {
+		return nil, errors.New("health stats unavailable")
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.adaptiveTimeout = true
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecutor_AdaptiveTimeout_DisabledByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	var healthStatsCalls atomic.Int32
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 1), nil
+	}
+	store.getJobHealthStatsFn = func(context.Context, string, time.Time) (*orcstore.JobHealthStats, error) {
+		healthStatsCalls.Add(1)
+		return &orcstore.JobHealthStats{P95DurationSecs: 10.0}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+	if healthStatsCalls.Load() != 0 {
+		t.Fatalf("GetJobHealthStats call count = %d, want 0", healthStatsCalls.Load())
 	}
 }

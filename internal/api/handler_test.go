@@ -991,6 +991,106 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 	}
 }
 
+func TestHandleListDeadLetterRuns_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		listDeadLetterRunsFn: func(_ context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("unexpected project_id: %s", projectID)
+			}
+			if limit != 25 {
+				t.Fatalf("unexpected limit: %d", limit)
+			}
+			return []domain.JobRun{{ID: "run-dlq-1", ProjectID: "proj-1", Status: domain.StatusDeadLetter}}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunDLQ = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/dlq?project_id=proj-1&limit=25", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var runs []domain.JobRun
+	if err := json.Unmarshal(w.Body.Bytes(), &runs); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].Status != domain.StatusDeadLetter {
+		t.Fatalf("expected dead_letter, got %s", runs[0].Status)
+	}
+}
+
+func TestHandleListDeadLetterRuns_FeatureDisabled(t *testing.T) {
+	ms := &mockAPIStore{
+		listDeadLetterRunsFn: func(_ context.Context, _ string, _ int) ([]domain.JobRun, error) {
+			t.Fatal("ListDeadLetterRuns should not be called when FFRunDLQ is disabled")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/dlq?project_id=proj-1", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		replayDeadLetterRunFn: func(_ context.Context, runID string) (*domain.JobRun, error) {
+			if runID != "run-123" {
+				t.Fatalf("unexpected runID: %s", runID)
+			}
+			return &domain.JobRun{ID: runID, Status: domain.StatusQueued, Attempt: 1}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunDLQ = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/dlq-replay", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var run domain.JobRun
+	if err := json.Unmarshal(w.Body.Bytes(), &run); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if run.Status != domain.StatusQueued {
+		t.Fatalf("expected queued status, got %s", run.Status)
+	}
+}
+
+func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
+	ms := &mockAPIStore{
+		replayDeadLetterRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return nil, fmt.Errorf("run run-123 is not dead_letter")
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunDLQ = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/dlq-replay", ""))
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {

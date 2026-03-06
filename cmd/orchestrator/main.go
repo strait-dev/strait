@@ -318,6 +318,8 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 		Bulkheads:         cfg.FFBulkheads,
 		SecretInjection:   cfg.FFSecretInjection,
 		ExecutionTracing:  cfg.FFExecutionTracing,
+		AdaptiveTimeout:   cfg.FFAdaptiveTimeout,
+		DLQEnabled:        cfg.FFRunDLQ,
 	})
 
 	g.Go(func() error {

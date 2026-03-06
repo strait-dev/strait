@@ -62,7 +62,9 @@ type APIStore interface {
 	ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error)
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListDeadLetterRuns(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
@@ -234,11 +236,13 @@ func (s *Server) routes() chi.Router {
 
 		r.Route("/runs", func(r chi.Router) {
 			r.Get("/", s.handleListRuns)
+			r.Get("/dlq", s.handleListDeadLetterRuns)
 			r.Post("/bulk-cancel", s.handleBulkCancelRuns)
 			r.Route("/{runID}", func(r chi.Router) {
 				r.Get("/", s.handleGetRun)
 				r.Delete("/", s.handleCancelRun)
 				r.Post("/replay", s.handleReplayRun)
+				r.Post("/dlq-replay", s.handleReplayDeadLetterRun)
 				r.Get("/stream", s.handleRunStream)
 				r.Get("/children", s.handleListChildRuns)
 				r.Get("/events", s.handleListRunEvents)

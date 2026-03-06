@@ -20,6 +20,7 @@ const (
 	StatusSystemFailed RunStatus = "system_failed"
 	StatusCanceled     RunStatus = "canceled"
 	StatusExpired      RunStatus = "expired"
+	StatusDeadLetter   RunStatus = "dead_letter"
 )
 
 const (

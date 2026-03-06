@@ -87,6 +87,7 @@ type Config struct {
 	FFJobGroups        bool `mapstructure:"FF_JOB_GROUPS"`
 	FFJobDependencies  bool `mapstructure:"FF_JOB_DEPENDENCIES"`
 	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
+	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
 }
 
 func Load() (*Config, error) {
@@ -142,6 +143,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_JOB_GROUPS", false)
 	viper.SetDefault("FF_JOB_DEPENDENCIES", false)
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
+	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 
 	viper.AutomaticEnv()
