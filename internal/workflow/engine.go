@@ -264,7 +264,8 @@ func (e *WorkflowEngine) startStep(
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
 
-	payload := mergePayloads(wfRun.Payload, step.Payload, mergedPayload)
+	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
+	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
 	jobRun := &domain.JobRun{
 		JobID:               step.JobID,
 		ProjectID:           wfRun.ProjectID,
@@ -312,7 +313,8 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
 
-	payload := mergePayloads(wfRun.Payload, step.Payload, mergedPayload)
+	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
+	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
 
 	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID)
 	if err != nil {
