@@ -49,7 +49,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
 				Timeout: duration + 10*time.Second, // extra headroom beyond profile duration
 			}
 
-			req, err := http.NewRequest(http.MethodGet, profileURL, nil)
+			req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, profileURL, nil)
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}

@@ -92,11 +92,14 @@ func setCachedUpdate(latestVersion string) {
 }
 
 func updateCachePath() string {
+	if dir := os.Getenv("XDG_CACHE_HOME"); dir != "" {
+		return filepath.Join(dir, "orchestrator", "update-check.json")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "orchestrator", "update-check.json")
+	return filepath.Join(home, ".cache", "orchestrator", "update-check.json")
 }
 
 func newUpgradeCommand() *cobra.Command {

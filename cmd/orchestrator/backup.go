@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -156,10 +157,14 @@ Requires pg_restore and/or psql to be installed and available in PATH.`,
 }
 
 func resolveDatabaseURL(flagValue string) string {
-	if flagValue != "" {
-		return flagValue
+	dsn := flagValue
+	if dsn == "" {
+		dsn = os.Getenv("DATABASE_URL")
 	}
-	return os.Getenv("DATABASE_URL")
+	if dsn != "" && !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
+		return "" // invalid scheme
+	}
+	return dsn
 }
 
 func isPlainSQL(path string) bool {
