@@ -70,6 +70,22 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	}
 
 	stepStatus, fields := mapRunStatusToStepStatus(run)
+
+	// Apply output transformation for completed steps before persisting.
+	if stepStatus == domain.StepCompleted {
+		if rawOut, ok := fields["output"].(json.RawMessage); ok && len(rawOut) > 0 {
+			if transformPath := s.lookupOutputTransform(ctx, stepRun); transformPath != "" {
+				transformed, transformErr := ApplyOutputTransform(rawOut, transformPath)
+				if transformErr != nil {
+					s.logger.Warn("output transform failed, keeping original output",
+						"step_ref", stepRun.StepRef, "transform", transformPath, "error", transformErr)
+				} else {
+					fields["output"] = transformed
+				}
+			}
+		}
+	}
+
 	fields["finished_at"] = time.Now()
 	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, stepStatus, fields); err != nil {
 		s.logger.Error("failed to update step run terminal status", "step_run_id", stepRun.ID, "status", stepStatus, "error", err)
@@ -661,4 +677,26 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 	}
 
 	return nil
+}
+
+// lookupOutputTransform finds the output_transform path for a step.
+// Returns empty string if none is configured or on lookup error.
+func (s *StepCallback) lookupOutputTransform(ctx context.Context, stepRun *domain.WorkflowStepRun) string {
+	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
+	if err != nil || wfRun == nil {
+		return ""
+	}
+
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return ""
+	}
+
+	for _, st := range steps {
+		if st.StepRef == stepRun.StepRef {
+			return st.OutputTransform
+		}
+	}
+
+	return ""
 }

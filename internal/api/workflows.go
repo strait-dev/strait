@@ -32,6 +32,7 @@ type workflowStepRequest struct {
 	RetryInitialDelaySecs int                       `json:"retry_initial_delay_secs,omitempty"`
 	RetryMaxDelaySecs     int                       `json:"retry_max_delay_secs,omitempty"`
 	TimeoutSecsOverride   int                       `json:"timeout_secs_override,omitempty"`
+	OutputTransform       string                    `json:"output_transform,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -149,6 +150,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
 			RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
 			TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
+			OutputTransform:       stepReq.OutputTransform,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to create workflow step")
@@ -290,6 +292,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 				RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
 				RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
 				TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
+				OutputTransform:       stepReq.OutputTransform,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
 				respondError(w, http.StatusInternalServerError, "failed to create workflow step")

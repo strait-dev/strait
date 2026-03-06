@@ -290,6 +290,7 @@ type WorkflowStep struct {
 	RetryInitialDelaySecs int                `json:"retry_initial_delay_secs,omitempty"`
 	RetryMaxDelaySecs     int                `json:"retry_max_delay_secs,omitempty"`
 	TimeoutSecsOverride   int                `json:"timeout_secs_override,omitempty"`
+	OutputTransform       string             `json:"output_transform,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 

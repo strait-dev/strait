@@ -36,9 +36,9 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 			id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload,
 			step_type, approval_timeout_secs, approval_approvers,
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-			timeout_secs_override
+			timeout_secs_override, output_transform
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -60,6 +60,7 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 		step.RetryInitialDelaySecs,
 		step.RetryMaxDelaySecs,
 		step.TimeoutSecsOverride,
+		step.OutputTransform,
 	).Scan(&step.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step: %w", err)
@@ -76,7 +77,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		SELECT id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload,
 		       step_type, approval_timeout_secs, approval_approvers,
 		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-		       timeout_secs_override,
+		       timeout_secs_override, output_transform,
 		       created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
@@ -112,7 +113,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 		SELECT id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload,
 		       step_type, approval_timeout_secs, approval_approvers,
 		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-		       timeout_secs_override,
+		       timeout_secs_override, output_transform,
 		       created_at
 		FROM workflow_steps
 		WHERE id = $1`
@@ -169,6 +170,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 		&step.RetryInitialDelaySecs,
 		&step.RetryMaxDelaySecs,
 		&step.TimeoutSecsOverride,
+		&step.OutputTransform,
 		&step.CreatedAt,
 	)
 	if err != nil {
