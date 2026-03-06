@@ -19,6 +19,7 @@ type Config struct {
 	WorkerConcurrency   int           `mapstructure:"WORKER_CONCURRENCY"`
 	InternalSecret      string        `mapstructure:"INTERNAL_SECRET"`
 	JWTSigningKey       string        `mapstructure:"JWT_SIGNING_KEY"`
+	SecretEncryptionKey string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
 	LogLevel            string        `mapstructure:"LOG_LEVEL"`
 	HeartbeatInterval   time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
 	ReaperInterval      time.Duration `mapstructure:"REAPER_INTERVAL"`
@@ -127,6 +128,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_RUN_RETENTION", false)
 	viper.SetDefault("FF_EXECUTION_TRACING", false)
 	viper.SetDefault("FF_DEBUG_BUNDLE", false)
+	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 
 	viper.AutomaticEnv()
 
@@ -159,6 +161,9 @@ func Load() (*Config, error) {
 	}
 	if len(cfg.JWTSigningKey) < 32 {
 		return nil, &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
+	}
+	if cfg.FFSecretInjection && cfg.SecretEncryptionKey == "" {
+		return nil, &domain.ConfigError{Field: "SECRET_ENCRYPTION_KEY", Message: "is required when FF_SECRET_INJECTION is enabled"}
 	}
 
 	return &cfg, nil

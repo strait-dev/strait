@@ -29,6 +29,7 @@ import (
 // ExecutorStore is the subset of store operations needed by Executor.
 type ExecutorStore interface {
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
@@ -56,6 +57,7 @@ type Executor struct {
 	partitionCycle   []string
 	nextPartition    int
 	circuitBreaker   bool
+	secretInjection  bool
 	smartRetry       bool
 	bulkheads        bool
 	jobActiveRuns    map[string]int
@@ -79,6 +81,7 @@ type ExecutorConfig struct {
 	Partitions        []string
 	PartitionWeights  string
 	CircuitBreaker    bool
+	SecretInjection   bool
 	SmartRetry        bool
 	Bulkheads         bool
 }
@@ -113,6 +116,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		workflowCallback: cfg.WorkflowCallback,
 		partitionCycle:   buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
 		circuitBreaker:   cfg.CircuitBreaker,
+		secretInjection:  cfg.SecretInjection,
 		smartRetry:       cfg.SmartRetry,
 		bulkheads:        cfg.Bulkheads,
 		jobActiveRuns:    make(map[string]int),
@@ -428,7 +432,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		if job.FallbackEndpointURL != "" {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
-				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run)
+				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, nil)
 				if fallbackErr == nil {
 					e.handleSuccess(ctx, run, job, fallbackResult)
 					return
@@ -461,10 +465,23 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}()
 
-	return e.dispatchToEndpoint(ctx, job.EndpointURL, run)
+	var extraHeaders map[string]string
+	if e.secretInjection {
+		secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
+		if err != nil {
+			slog.Error("failed to load secrets for job", "job_id", job.ID, "error", err)
+		} else if len(secrets) > 0 {
+			extraHeaders = make(map[string]string, len(secrets))
+			for _, secret := range secrets {
+				extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+			}
+		}
+	}
+
+	return e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
 }
 
-func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun) (json.RawMessage, error) {
+func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {
 
 	var body io.Reader
 	if len(run.Payload) > 0 {
@@ -480,6 +497,9 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	req.Header.Set("X-Run-ID", run.ID)
 	req.Header.Set("X-Job-ID", run.JobID)
 	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
+	for key, value := range extraHeaders {
+		req.Header.Set(key, value)
+	}
 
 	resp, err := e.httpClient.Do(req) //nolint:gosec // URL from validated job config
 	if err != nil {

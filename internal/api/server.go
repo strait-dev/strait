@@ -26,9 +26,11 @@ import (
 // APIStore is the subset of store operations needed by the API handlers.
 type APIStore interface {
 	CreateJob(ctx context.Context, job *domain.Job) error
+	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	ListJobs(ctx context.Context, projectID string) ([]domain.Job, error)
+	ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
@@ -77,6 +79,7 @@ type APIStore interface {
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	DeleteJobSecret(ctx context.Context, id string) error
 }
 
 // Pinger checks service health.
@@ -161,6 +164,12 @@ func (s *Server) routes() chi.Router {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
+
+		r.Route("/secrets", func(r chi.Router) {
+			r.Post("/", s.handleCreateSecret)
+			r.Get("/", s.handleListSecrets)
+			r.Delete("/{secretID}", s.handleDeleteSecret)
+		})
 
 		r.Route("/jobs", func(r chi.Router) {
 			r.Post("/", s.handleCreateJob)

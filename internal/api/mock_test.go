@@ -14,9 +14,11 @@ import (
 // mockAPIStore implements APIStore for testing.
 type mockAPIStore struct {
 	createJobFn                 func(ctx context.Context, job *domain.Job) error
+	createJobSecretFn           func(ctx context.Context, secret *domain.JobSecret) error
 	getJobFn                    func(ctx context.Context, id string) (*domain.Job, error)
 	getJobBySlugFn              func(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	listJobsFn                  func(ctx context.Context, projectID string) ([]domain.Job, error)
+	listJobSecretsFn            func(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	listJobsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
 	updateJobFn                 func(ctx context.Context, job *domain.Job) error
 	getRunFn                    func(ctx context.Context, id string) (*domain.JobRun, error)
@@ -65,11 +67,19 @@ type mockAPIStore struct {
 	listStepRunsByRunFn         func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	updateWorkflowRunStatusFn   func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn       func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	deleteJobSecretFn           func(ctx context.Context, id string) error
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
 	if m.createJobFn != nil {
 		return m.createJobFn(ctx, job)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error {
+	if m.createJobSecretFn != nil {
+		return m.createJobSecretFn(ctx, secret)
 	}
 	return nil
 }
@@ -91,6 +101,13 @@ func (m *mockAPIStore) GetJobBySlug(ctx context.Context, projectID, slug string)
 func (m *mockAPIStore) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error) {
+	if m.listJobSecretsFn != nil {
+		return m.listJobSecretsFn(ctx, projectID, jobID, environment)
 	}
 	return nil, nil
 }
@@ -427,6 +444,13 @@ func (m *mockAPIStore) UpdateWorkflowRunStatus(ctx context.Context, id string, f
 func (m *mockAPIStore) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
 	if m.updateStepRunStatusFn != nil {
 		return m.updateStepRunStatusFn(ctx, id, status, fields)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteJobSecret(ctx context.Context, id string) error {
+	if m.deleteJobSecretFn != nil {
+		return m.deleteJobSecretFn(ctx, id)
 	}
 	return nil
 }

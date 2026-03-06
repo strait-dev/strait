@@ -148,6 +148,7 @@ func run() error {
 
 	// Create dependencies
 	queries := store.New(pool)
+	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
 	q := queue.NewPostgresQueue(pool)
 
 	// Connect to Redis for pubsub
@@ -253,6 +254,7 @@ func run() error {
 			CircuitBreaker:    cfg.FFCircuitBreaker,
 			SmartRetry:        cfg.FFSmartRetry,
 			Bulkheads:         cfg.FFBulkheads,
+			SecretInjection:   cfg.FFSecretInjection,
 		})
 
 		g.Go(func() error {

@@ -66,6 +66,18 @@ type Job struct {
 	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
+type JobSecret struct {
+	ID             string    `json:"id"`
+	ProjectID      string    `json:"project_id"`
+	JobID          string    `json:"job_id,omitempty"`
+	Environment    string    `json:"environment"`
+	SecretKey      string    `json:"secret_key"`
+	EncryptedValue string    `json:"-"`
+	KeyVersion     int       `json:"key_version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type JobRun struct {
 	ID                string            `json:"id"`
 	JobID             string            `json:"job_id"`

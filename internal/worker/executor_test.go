@@ -27,6 +27,7 @@ type statusUpdateCall struct {
 
 type mockExecutorStore struct {
 	getJobFn          func(ctx context.Context, id string) (*domain.Job, error)
+	listSecretsFn     func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 	updateRunStatusFn func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	updateHeartbeatFn func(ctx context.Context, id string) error
 	canDispatchFn     func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
@@ -59,6 +60,13 @@ func (m *mockExecutorStore) UpdateRunStatus(ctx context.Context, id string, from
 		return nil
 	}
 	return m.updateRunStatusFn(ctx, id, from, to, fields)
+}
+
+func (m *mockExecutorStore) ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error) {
+	if m.listSecretsFn == nil {
+		return nil, nil
+	}
+	return m.listSecretsFn(ctx, jobID, environment)
 }
 
 func (m *mockExecutorStore) UpdateHeartbeat(ctx context.Context, id string) error {
@@ -228,6 +236,34 @@ func TestExecutor_Dispatch_Success(t *testing.T) {
 	if run.Status != domain.StatusCompleted {
 		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusCompleted)
 	}
+}
+
+func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Secret-API_KEY") != "super-secret" {
+			t.Fatalf("X-Secret-API_KEY = %q, want %q", r.Header.Get("X-Secret-API_KEY"), "super-secret")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
+		if jobID != "job-1" || environment != "production" {
+			t.Fatalf("unexpected args: %q %q", jobID, environment)
+		}
+		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.secretInjection = true
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
 }
 
 func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {

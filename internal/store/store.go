@@ -15,6 +15,7 @@ import (
 
 var (
 	ErrJobNotFound             = errors.New("job not found")
+	ErrJobSecretNotFound       = errors.New("job secret not found")
 	ErrRunNotFound             = errors.New("run not found")
 	ErrRunConflict             = errors.New("run status update conflict")
 	ErrWorkflowNotFound        = errors.New("workflow not found")
@@ -40,6 +41,14 @@ type JobStore interface {
 	GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
+}
+
+type JobSecretStore interface {
+	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
+	GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error)
+	ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
+	DeleteJobSecret(ctx context.Context, id string) error
+	ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 }
 
 type RunStore interface {
@@ -158,6 +167,7 @@ type WorkflowStepRunStore interface {
 
 type Store interface {
 	JobStore
+	JobSecretStore
 	RunStore
 	EventStore
 	WebhookDeliveryStore
@@ -171,11 +181,16 @@ type Store interface {
 }
 
 type Queries struct {
-	db DBTX
+	db                  DBTX
+	secretEncryptionKey string
 }
 
 func New(db DBTX) *Queries {
 	return &Queries{db: db}
+}
+
+func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
+	q.secretEncryptionKey = secretEncryptionKey
 }
 
 type TxBeginner interface {
