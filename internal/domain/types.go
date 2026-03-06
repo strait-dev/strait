@@ -255,6 +255,12 @@ const (
 	RetryBackoffFixed       RetryBackoffPolicy = "fixed"
 )
 
+// StepOverride allows selectively enabling or disabling steps at trigger time.
+type StepOverride struct {
+	StepRef string `json:"step_ref"`
+	Enabled bool   `json:"enabled"`
+}
+
 // Workflow represents a workflow DAG definition.
 type Workflow struct {
 	ID                string    `json:"id"`

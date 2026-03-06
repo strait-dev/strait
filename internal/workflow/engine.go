@@ -61,8 +61,9 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	workflowID, projectID string,
 	payload json.RawMessage,
 	triggeredBy string,
+	stepOverrides []domain.StepOverride,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "")
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", stepOverrides)
 }
 
 // TriggerSubWorkflow triggers a workflow as a child of another workflow run.
@@ -73,7 +74,7 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	triggeredBy string,
 	parentWorkflowRunID string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, nil)
 }
 
 func (e *WorkflowEngine) triggerWorkflowInternal(
@@ -82,6 +83,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	payload json.RawMessage,
 	triggeredBy string,
 	parentWorkflowRunID string,
+	stepOverrides []domain.StepOverride,
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
@@ -107,6 +109,15 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	if err != nil {
 		return nil, fmt.Errorf("list workflow steps by version: %w", err)
 	}
+
+	// Apply step overrides to filter steps at trigger time.
+	if len(stepOverrides) > 0 {
+		steps, err = applyStepOverrides(steps, stepOverrides)
+		if err != nil {
+			return nil, fmt.Errorf("apply step overrides: %w", err)
+		}
+	}
+
 	if err := ValidateDAG(steps); err != nil {
 		return nil, fmt.Errorf("validate workflow dag: %w", err)
 	}
@@ -599,4 +610,57 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 	}
 
 	return wfRun, nil
+}
+
+// applyStepOverrides filters steps based on trigger-time overrides.
+// Steps whose step_ref appears in overrides with enabled=false are removed.
+// Remaining steps have their depends_on lists pruned of any removed refs.
+// Returns an error if an override references a non-existent step_ref.
+func applyStepOverrides(steps []domain.WorkflowStep, overrides []domain.StepOverride) ([]domain.WorkflowStep, error) {
+	// Build set of disabled step refs.
+	disabled := make(map[string]struct{})
+	knownRefs := make(map[string]struct{}, len(steps))
+	for _, s := range steps {
+		knownRefs[s.StepRef] = struct{}{}
+	}
+
+	for _, o := range overrides {
+		if _, ok := knownRefs[o.StepRef]; !ok {
+			return nil, fmt.Errorf("step override references unknown step_ref %q", o.StepRef)
+		}
+		if !o.Enabled {
+			disabled[o.StepRef] = struct{}{}
+		}
+	}
+
+	if len(disabled) == 0 {
+		return steps, nil
+	}
+
+	// Filter out disabled steps and prune depends_on.
+	filtered := make([]domain.WorkflowStep, 0, len(steps))
+	for _, s := range steps {
+		if _, skip := disabled[s.StepRef]; skip {
+			continue
+		}
+
+		// Prune disabled refs from depends_on.
+		if len(s.DependsOn) > 0 {
+			pruned := make([]string, 0, len(s.DependsOn))
+			for _, dep := range s.DependsOn {
+				if _, skip := disabled[dep]; !skip {
+					pruned = append(pruned, dep)
+				}
+			}
+			s.DependsOn = pruned
+		}
+
+		filtered = append(filtered, s)
+	}
+
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("all steps disabled by overrides")
+	}
+
+	return filtered, nil
 }

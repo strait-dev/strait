@@ -176,7 +176,7 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", json.RawMessage(`{"k":"v"}`), "manual")
+		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", json.RawMessage(`{"k":"v"}`), "manual", nil)
 		if err != nil {
 			t.Fatalf("TriggerWorkflow() error = %v", err)
 		}
@@ -201,7 +201,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "")
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
 		if err == nil || !strings.Contains(err.Error(), "disabled") {
 			t.Fatalf("expected disabled error, got %v", err)
 		}
@@ -217,7 +217,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "")
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
 		if err == nil || !strings.Contains(err.Error(), "at least one step") {
 			t.Fatalf("expected empty steps error, got %v", err)
 		}
@@ -230,7 +230,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-b", nil, "")
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-b", nil, "", nil)
 		if err == nil || !strings.Contains(err.Error(), "does not belong") {
 			t.Fatalf("expected project mismatch error, got %v", err)
 		}
@@ -2628,7 +2628,7 @@ func TestStartSubWorkflowStep(t *testing.T) {
 		}}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", json.RawMessage(`{"hello":"world"}`), "manual")
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", json.RawMessage(`{"hello":"world"}`), "manual", nil)
 		if err != nil {
 			t.Fatalf("TriggerWorkflow() error = %v", err)
 		}
@@ -2722,7 +2722,7 @@ func TestStartSubWorkflowStep(t *testing.T) {
 		}
 
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil)
 		if err == nil || !strings.Contains(err.Error(), "disabled") {
 			t.Fatalf("expected disabled workflow error, got %v", err)
 		}
@@ -2768,7 +2768,7 @@ func TestGetNestingDepth(t *testing.T) {
 		}}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil)
 		if err != nil {
 			t.Fatalf("expected depth 0 to succeed, got %v", err)
 		}
@@ -3380,4 +3380,220 @@ func TestPropagateToParent_ParentAlreadyTerminal(t *testing.T) {
 	if stepRunLookedUp {
 		t.Fatal("expected GetStepRunByWorkflowRunAndRef not to be called when parent is terminal")
 	}
+}
+
+func TestApplyStepOverrides(t *testing.T) {
+	t.Run("no overrides returns original steps", func(t *testing.T) {
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+			{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+		}
+
+		gotNil, err := applyStepOverrides(steps, nil)
+		if err != nil {
+			t.Fatalf("applyStepOverrides() with nil overrides error = %v", err)
+		}
+		if len(gotNil) != len(steps) {
+			t.Fatalf("len(gotNil) = %d, want %d", len(gotNil), len(steps))
+		}
+		if gotNil[0].StepRef != "a" || gotNil[1].StepRef != "b" {
+			t.Fatalf("unexpected step refs with nil overrides: %v, %v", gotNil[0].StepRef, gotNil[1].StepRef)
+		}
+		if len(gotNil[1].DependsOn) != 1 || gotNil[1].DependsOn[0] != "a" {
+			t.Fatalf("unexpected depends_on with nil overrides: %+v", gotNil[1].DependsOn)
+		}
+
+		gotEmpty, err := applyStepOverrides(steps, []domain.StepOverride{})
+		if err != nil {
+			t.Fatalf("applyStepOverrides() with empty overrides error = %v", err)
+		}
+		if len(gotEmpty) != len(steps) {
+			t.Fatalf("len(gotEmpty) = %d, want %d", len(gotEmpty), len(steps))
+		}
+		if gotEmpty[0].StepRef != "a" || gotEmpty[1].StepRef != "b" {
+			t.Fatalf("unexpected step refs with empty overrides: %v, %v", gotEmpty[0].StepRef, gotEmpty[1].StepRef)
+		}
+		if len(gotEmpty[1].DependsOn) != 1 || gotEmpty[1].DependsOn[0] != "a" {
+			t.Fatalf("unexpected depends_on with empty overrides: %+v", gotEmpty[1].DependsOn)
+		}
+	})
+
+	t.Run("disable one step", func(t *testing.T) {
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+			{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+			{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"b"}},
+		}
+
+		got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
+		if err != nil {
+			t.Fatalf("applyStepOverrides() error = %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("len(got) = %d, want 2", len(got))
+		}
+		if got[0].StepRef != "a" || got[1].StepRef != "c" {
+			t.Fatalf("unexpected filtered step refs: %v, %v", got[0].StepRef, got[1].StepRef)
+		}
+		if len(got[1].DependsOn) != 0 {
+			t.Fatalf("expected c depends_on pruned, got %+v", got[1].DependsOn)
+		}
+	})
+
+	t.Run("unknown step_ref returns error", func(t *testing.T) {
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		}
+
+		_, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "nonexistent", Enabled: false}})
+		if err == nil || !strings.Contains(err.Error(), "unknown step_ref") {
+			t.Fatalf("expected unknown step_ref error, got %v", err)
+		}
+	})
+
+	t.Run("all steps disabled returns error", func(t *testing.T) {
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+			{ID: "step-b", JobID: "job-b", StepRef: "b"},
+		}
+
+		_, err := applyStepOverrides(steps, []domain.StepOverride{
+			{StepRef: "a", Enabled: false},
+			{StepRef: "b", Enabled: false},
+		})
+		if err == nil || !strings.Contains(err.Error(), "all steps disabled") {
+			t.Fatalf("expected all steps disabled error, got %v", err)
+		}
+	})
+
+	t.Run("prunes depends_on for disabled step", func(t *testing.T) {
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+			{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+			{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"a", "b"}},
+		}
+
+		got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
+		if err != nil {
+			t.Fatalf("applyStepOverrides() error = %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("len(got) = %d, want 2", len(got))
+		}
+		if got[1].StepRef != "c" {
+			t.Fatalf("expected second step ref c, got %s", got[1].StepRef)
+		}
+		if len(got[1].DependsOn) != 1 || got[1].DependsOn[0] != "a" {
+			t.Fatalf("expected c depends_on to be [a], got %+v", got[1].DependsOn)
+		}
+	})
+}
+
+func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
+	t.Run("overrides filter steps at trigger", func(t *testing.T) {
+		createdStepRefs := make([]string, 0)
+		enqueueCount := 0
+
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "step-a", JobID: "job-a", StepRef: "a"},
+					{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-override"
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				createdStepRefs = append(createdStepRefs, sr.StepRef)
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, _ domain.StepRunStatus, _ map[string]any) error {
+				if id != "sr-a" {
+					t.Fatalf("unexpected step run status update for %s", id)
+				}
+				return nil
+			},
+		}
+
+		mq := &mockEngineQueue{
+			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+				enqueueCount++
+				run.ID = "jr-a"
+				if run.JobID != "job-a" {
+					t.Fatalf("unexpected enqueued job id: %s", run.JobID)
+				}
+				if run.WorkflowStepRunID != "sr-a" {
+					t.Fatalf("unexpected enqueued workflow_step_run_id: %s", run.WorkflowStepRunID)
+				}
+				return nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		wfRun, err := engine.TriggerWorkflow(
+			context.Background(),
+			"wf-1",
+			"proj-1",
+			json.RawMessage(`{"k":"v"}`),
+			"manual",
+			[]domain.StepOverride{{StepRef: "b", Enabled: false}},
+		)
+		if err != nil {
+			t.Fatalf("TriggerWorkflow() error = %v", err)
+		}
+		if wfRun == nil || wfRun.ID != "wr-override" || wfRun.Status != domain.WfStatusRunning {
+			t.Fatalf("unexpected workflow run: %+v", wfRun)
+		}
+		if len(createdStepRefs) != 1 || createdStepRefs[0] != "a" {
+			t.Fatalf("created step refs = %+v, want [a]", createdStepRefs)
+		}
+		if enqueueCount != 1 {
+			t.Fatalf("enqueue count = %d, want 1", enqueueCount)
+		}
+	})
+
+	t.Run("unknown override step_ref returns error", func(t *testing.T) {
+		createWorkflowRunCalled := false
+
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "step-a", JobID: "job-a", StepRef: "a"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, _ *domain.WorkflowRun) error {
+				createWorkflowRunCalled = true
+				return nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(
+			context.Background(),
+			"wf-1",
+			"proj-1",
+			nil,
+			"manual",
+			[]domain.StepOverride{{StepRef: "nonexistent", Enabled: false}},
+		)
+		if err == nil {
+			t.Fatal("expected error for unknown override step_ref")
+		}
+		if !strings.Contains(err.Error(), "unknown step_ref") {
+			t.Fatalf("expected unknown step_ref error, got %v", err)
+		}
+		if createWorkflowRunCalled {
+			t.Fatal("expected workflow run not to be created when overrides are invalid")
+		}
+	})
 }

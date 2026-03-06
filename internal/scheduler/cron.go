@@ -22,7 +22,7 @@ type CronStore interface {
 }
 
 type WorkflowTrigger interface {
-	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 }
 
 type CronScheduler struct {
@@ -124,7 +124,7 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 		}
 	}
 
-	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron); err != nil {
+	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil); err != nil {
 		slog.Error("failed to trigger cron workflow", "workflow_id", workflow.ID, "project_id", workflow.ProjectID, "error", err)
 		return
 	}

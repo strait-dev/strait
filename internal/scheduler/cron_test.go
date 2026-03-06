@@ -12,12 +12,12 @@ import (
 )
 
 type mockWorkflowTrigger struct {
-	triggerWorkflowFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+	triggerWorkflowFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 }
 
-func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
+func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
 	if m.triggerWorkflowFn != nil {
-		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy)
+		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
 	}
 	return nil, nil
 }
@@ -201,7 +201,7 @@ func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
 			return 1, nil
 		},
 	}, &mockQueue{}, &mockWorkflowTrigger{
-		triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string) (*domain.WorkflowRun, error) {
+		triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
 			triggered = true
 			return &domain.WorkflowRun{ID: "wr-1"}, nil
 		},
@@ -217,7 +217,7 @@ func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
 func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
 	triggered := false
 	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{}, &mockWorkflowTrigger{
-		triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
+		triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
 			if workflowID != "wf-1" || projectID != "proj-1" {
 				t.Fatalf("unexpected trigger args: %s %s", workflowID, projectID)
 			}

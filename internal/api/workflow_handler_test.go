@@ -16,16 +16,16 @@ import (
 )
 
 type mockWorkflowTrigger struct {
-	triggerWorkflowFn  func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+	triggerWorkflowFn  func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 	retryWorkflowRunFn func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
 	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
 	onJobRunTerminal   func(ctx context.Context, run *domain.JobRun) error
 }
 
-func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
+func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
 	if m.triggerWorkflowFn != nil {
-		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy)
+		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
 	}
 	return nil, nil
 }
@@ -293,7 +293,7 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 		labelsSaved := false
 		published := map[string]int{}
 		trigger := &mockWorkflowTrigger{
-			triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, _ json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error) {
+			triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, _ json.RawMessage, triggeredBy string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
 				if workflowID != "wf-1" || projectID != "proj-1" || triggeredBy != "manual" {
 					t.Fatalf("unexpected trigger args: %s %s %s", workflowID, projectID, triggeredBy)
 				}
@@ -340,7 +340,7 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 
 	t.Run("workflow not found", func(t *testing.T) {
 		trigger := &mockWorkflowTrigger{
-			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string) (*domain.WorkflowRun, error) {
+			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
 				return nil, store.ErrWorkflowNotFound
 			},
 		}
@@ -372,7 +372,7 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 	t.Run("workflow disabled", func(t *testing.T) {
 		triggerCalled := false
 		trigger := &mockWorkflowTrigger{
-			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string) (*domain.WorkflowRun, error) {
+			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
 				triggerCalled = true
 				return &domain.WorkflowRun{ID: "wr-1"}, nil
 			},
@@ -1531,6 +1531,93 @@ func TestHandleCreateWorkflow_SubWorkflowValidation(t *testing.T) {
 		}
 		if capturedStep.StepType != domain.WorkflowStepTypeSubWorkflow {
 			t.Fatalf("StepType = %q, want sub_workflow", capturedStep.StepType)
+		}
+	})
+}
+
+func TestHandleTriggerWorkflowWithStepOverrides(t *testing.T) {
+	t.Run("step_overrides passed to engine", func(t *testing.T) {
+		var capturedOverrides []domain.StepOverride
+		trigger := &mockWorkflowTrigger{
+			triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, _ json.RawMessage, _ string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
+				if workflowID != "wf-1" || projectID != "proj-1" {
+					t.Fatalf("unexpected trigger args: %s %s", workflowID, projectID)
+				}
+				capturedOverrides = stepOverrides
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: workflowID, ProjectID: projectID, Status: domain.WfStatusRunning}, nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, Enabled: true}, nil
+			},
+		}
+		pub := &mockPublisher{publishFn: func(_ context.Context, _ string, _ []byte) error {
+			return nil
+		}}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, trigger)
+		w := httptest.NewRecorder()
+		body := `{"project_id":"proj-1","step_overrides":[{"step_ref":"b","enabled":false}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", body))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+		if len(capturedOverrides) != 1 {
+			t.Fatalf("expected 1 override, got %d", len(capturedOverrides))
+		}
+		if capturedOverrides[0].StepRef != "b" || capturedOverrides[0].Enabled {
+			t.Fatalf("unexpected override: %+v", capturedOverrides[0])
+		}
+	})
+
+	t.Run("empty step_overrides does not fail", func(t *testing.T) {
+		trigger := &mockWorkflowTrigger{
+			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
+				if len(stepOverrides) != 0 {
+					t.Fatalf("expected nil/empty overrides, got %d", len(stepOverrides))
+				}
+				return &domain.WorkflowRun{ID: "wr-1", Status: domain.WfStatusRunning}, nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, Enabled: true}, nil
+			},
+		}
+		pub := &mockPublisher{publishFn: func(_ context.Context, _ string, _ []byte) error {
+			return nil
+		}}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, trigger)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", `{"project_id":"proj-1"}`))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("step_overrides error propagated", func(t *testing.T) {
+		trigger := &mockWorkflowTrigger{
+			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
+				return nil, fmt.Errorf("apply step overrides: step override references unknown step_ref %q", "nonexistent")
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, Enabled: true}, nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+		w := httptest.NewRecorder()
+		body := `{"project_id":"proj-1","step_overrides":[{"step_ref":"nonexistent","enabled":false}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", body))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
