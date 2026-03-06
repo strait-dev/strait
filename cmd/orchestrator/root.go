@@ -190,6 +190,8 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newDrainCommand(state))
 	cmd.AddCommand(newTraceCommand(state))
 	cmd.AddCommand(newUpgradeCommand())
+	cmd.AddCommand(newBackupCommand(state))
+	cmd.AddCommand(newProfileCommand(state))
 
 	rawArgs := os.Args[1:]
 	configPath := extractConfigPath(rawArgs)
@@ -275,6 +277,8 @@ func normalizeLegacyArgs(args []string) []string {
 		"drain":         {},
 		"trace":         {},
 		"upgrade":       {},
+		"backup":       {},
+		"profile":      {},
 	}
 
 	first := args[0]
