@@ -65,20 +65,7 @@ func runServe(modeOverride string) error {
 		return fmt.Errorf("invalid mode %q: must be api, worker, or all", cfg.Mode)
 	}
 
-	// Set up structured logging
-	var logLevel slog.Level
-	switch cfg.LogLevel {
-	case "debug":
-		logLevel = slog.LevelDebug
-	case "warn":
-		logLevel = slog.LevelWarn
-	case "error":
-		logLevel = slog.LevelError
-	default:
-		logLevel = slog.LevelInfo
-	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
-	slog.SetDefault(logger)
+	setupLogging(cfg.LogLevel)
 
 	slog.Info("starting orchestrator",
 		"version", version,
@@ -116,31 +103,11 @@ func runServe(modeOverride string) error {
 		}
 	}()
 
-	// Connect to Postgres with pool tuning
-	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	pool, err := connectDatabase(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("parse postgres config: %w", err)
-	}
-	poolConfig.MaxConns = cfg.DBMaxConns
-	poolConfig.MinConns = cfg.DBMinConns
-	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
-	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		return fmt.Errorf("connect to postgres: %w", err)
+		return err
 	}
 	defer pool.Close()
-
-	if err := pool.Ping(ctx); err != nil {
-		return fmt.Errorf("ping postgres: %w", err)
-	}
-	slog.Info("connected to postgres",
-		"max_conns", cfg.DBMaxConns,
-		"min_conns", cfg.DBMinConns,
-		"max_conn_lifetime", cfg.DBMaxConnLifetime,
-		"max_conn_idle_time", cfg.DBMaxConnIdleTime,
-	)
 
 	// Run migrations
 	if err := runMigrations(cfg.DatabaseURL); err != nil {
@@ -151,22 +118,11 @@ func runServe(modeOverride string) error {
 	queries := store.New(pool)
 	q := queue.NewPostgresQueue(pool)
 
-	// Connect to Redis for pubsub
-	var pub pubsub.Publisher
-	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs)
+	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("create redis client: %w", err)
+		return err
 	}
 	if rdb != nil {
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("ping redis: %w", err)
-		}
-		if cfg.RedisSentinelMaster != "" {
-			slog.Info("connected to redis via sentinel", "master", cfg.RedisSentinelMaster)
-		} else {
-			slog.Info("connected to redis")
-		}
-		pub = pubsub.NewRedisPublisher(rdb)
 		defer rdb.Close()
 	}
 
@@ -175,99 +131,10 @@ func runServe(modeOverride string) error {
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
-	if cfg.SequinBaseURL != "" {
-		cdcClient := cdc.NewClient(cfg.SequinBaseURL, cfg.SequinConsumerName, cfg.SequinAPIToken)
-		cdcConsumer := cdc.NewConsumer(cdcClient, cdc.ConsumerConfig{
-			BaseURL:      cfg.SequinBaseURL,
-			ConsumerName: cfg.SequinConsumerName,
-			Credential:   cfg.SequinAPIToken,
-			BatchSize:    cfg.SequinBatchSize,
-			WaitTimeMs:   cfg.SequinWaitTimeMs,
-		}, slog.Default())
-
-		cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
-		cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-		cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
-
-		g.Go(func() error {
-			cdcConsumer.Run(gCtx)
-			return nil
-		})
-
-		slog.Info("cdc consumer enabled",
-			"base_url", cfg.SequinBaseURL,
-			"consumer", cfg.SequinConsumerName,
-		)
-	}
-
-	// Start API server
-	if cfg.Mode == "api" || cfg.Mode == "all" {
-		var pinger api.Pinger
-		if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
-			pinger = redisPub
-		}
-		srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger, stepCallback, workflowEngine)
-		httpServer := &http.Server{
-			Addr:              fmt.Sprintf(":%d", cfg.Port),
-			Handler:           srv,
-			ReadHeaderTimeout: 10 * time.Second,
-		}
-
-		g.Go(func() error {
-			slog.Info("api server listening", "addr", httpServer.Addr)
-			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				return fmt.Errorf("http server: %w", err)
-			}
-			return nil
-		})
-
-		g.Go(func() error {
-			<-gCtx.Done()
-			slog.Info("shutting down api server")
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer shutdownCancel()
-			return httpServer.Shutdown(shutdownCtx)
-		})
-	}
-
-	// Start worker executor
-	if cfg.Mode == "worker" || cfg.Mode == "all" {
-		p := worker.NewPool(cfg.WorkerConcurrency)
-		exec := worker.NewExecutor(worker.ExecutorConfig{
-			Pool:              p,
-			Queue:             q,
-			Store:             queries,
-			PollInterval:      cfg.PollerInterval,
-			HeartbeatInterval: cfg.HeartbeatInterval,
-			Publisher:         pub,
-			Metrics:           metrics,
-			WorkflowCallback:  stepCallback,
-		})
-
-		g.Go(func() error {
-			exec.Run(gCtx)
-			return nil
-		})
-
-		g.Go(func() error {
-			<-gCtx.Done()
-			slog.Info("shutting down worker pool")
-			p.Shutdown()
-			return nil
-		})
-
-		// Start scheduler (cron, delayed poller, reaper)
-		sched := scheduler.New(cfg, queries, q, stepCallback)
-		if err := sched.Start(gCtx); err != nil {
-			return fmt.Errorf("start scheduler: %w", err)
-		}
-
-		g.Go(func() error {
-			<-gCtx.Done()
-			slog.Info("shutting down scheduler")
-			sched.Stop()
-			return nil
-		})
+	startCDCConsumer(g, gCtx, cfg, pub)
+	startAPIServer(g, gCtx, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
+	if err := startWorker(g, gCtx, cfg, queries, q, pub, metrics, stepCallback); err != nil {
+		return err
 	}
 
 	if err := g.Wait(); err != nil {
@@ -275,6 +142,184 @@ func runServe(modeOverride string) error {
 	}
 
 	slog.Info("orchestrator stopped")
+	return nil
+}
+
+// setupLogging configures the default slog logger from a level string.
+func setupLogging(level string) {
+	var logLevel slog.Level
+	switch level {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	slog.SetDefault(logger)
+}
+
+// connectDatabase creates and verifies a Postgres connection pool.
+func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres config: %w", err)
+	}
+	poolConfig.MaxConns = cfg.DBMaxConns
+	poolConfig.MinConns = cfg.DBMinConns
+	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, fmt.Errorf("connect to postgres: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	slog.Info("connected to postgres",
+		"max_conns", cfg.DBMaxConns,
+		"min_conns", cfg.DBMinConns,
+		"max_conn_lifetime", cfg.DBMaxConnLifetime,
+		"max_conn_idle_time", cfg.DBMaxConnIdleTime,
+	)
+	return pool, nil
+}
+
+// connectRedis creates and verifies a Redis client for pub/sub. Returns a nil
+// publisher and client when Redis is not configured.
+func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, interface{ Close() error }, error) {
+	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create redis client: %w", err)
+	}
+	if rdb == nil {
+		return nil, nil, nil
+	}
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return nil, nil, fmt.Errorf("ping redis: %w", err)
+	}
+	if cfg.RedisSentinelMaster != "" {
+		slog.Info("connected to redis via sentinel", "master", cfg.RedisSentinelMaster)
+	} else {
+		slog.Info("connected to redis")
+	}
+	pub := pubsub.NewRedisPublisher(rdb)
+	return pub, rdb, nil
+}
+
+// startCDCConsumer registers and starts the Sequin CDC consumer if configured.
+func startCDCConsumer(g *errgroup.Group, gCtx context.Context, cfg *config.Config, pub pubsub.Publisher) {
+	if cfg.SequinBaseURL == "" {
+		return
+	}
+
+	cdcClient := cdc.NewClient(cfg.SequinBaseURL, cfg.SequinConsumerName, cfg.SequinAPIToken)
+	cdcConsumer := cdc.NewConsumer(cdcClient, cdc.ConsumerConfig{
+		BaseURL:      cfg.SequinBaseURL,
+		ConsumerName: cfg.SequinConsumerName,
+		Credential:   cfg.SequinAPIToken,
+		BatchSize:    cfg.SequinBatchSize,
+		WaitTimeMs:   cfg.SequinWaitTimeMs,
+	}, slog.Default())
+
+	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
+	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
+	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
+
+	g.Go(func() error {
+		cdcConsumer.Run(gCtx)
+		return nil
+	})
+
+	slog.Info("cdc consumer enabled",
+		"base_url", cfg.SequinBaseURL,
+		"consumer", cfg.SequinConsumerName,
+	)
+}
+
+// startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
+func startAPIServer(g *errgroup.Group, gCtx context.Context, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
+	if cfg.Mode != "api" && cfg.Mode != "all" {
+		return
+	}
+
+	var pinger api.Pinger
+	if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
+		pinger = redisPub
+	}
+	srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger, stepCallback, workflowEngine)
+	httpServer := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           srv,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	g.Go(func() error {
+		slog.Info("api server listening", "addr", httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("http server: %w", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		<-gCtx.Done()
+		slog.Info("shutting down api server")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		return httpServer.Shutdown(shutdownCtx)
+	})
+}
+
+// startWorker starts the job executor, worker pool, and scheduler goroutines.
+func startWorker(g *errgroup.Group, gCtx context.Context, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback) error {
+	if cfg.Mode != "worker" && cfg.Mode != "all" {
+		return nil
+	}
+
+	p := worker.NewPool(cfg.WorkerConcurrency)
+	exec := worker.NewExecutor(worker.ExecutorConfig{
+		Pool:              p,
+		Queue:             q,
+		Store:             queries,
+		PollInterval:      cfg.PollerInterval,
+		HeartbeatInterval: cfg.HeartbeatInterval,
+		Publisher:         pub,
+		Metrics:           metrics,
+		WorkflowCallback:  stepCallback,
+	})
+
+	g.Go(func() error {
+		exec.Run(gCtx)
+		return nil
+	})
+
+	g.Go(func() error {
+		<-gCtx.Done()
+		slog.Info("shutting down worker pool")
+		p.Shutdown()
+		return nil
+	})
+
+	// Start scheduler (cron, delayed poller, reaper)
+	sched := scheduler.New(cfg, queries, q, stepCallback)
+	if err := sched.Start(gCtx); err != nil {
+		return fmt.Errorf("start scheduler: %w", err)
+	}
+
+	g.Go(func() error {
+		<-gCtx.Done()
+		slog.Info("shutting down scheduler")
+		sched.Stop()
+		return nil
+	})
 	return nil
 }
 
