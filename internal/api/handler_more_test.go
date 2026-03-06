@@ -1427,3 +1427,93 @@ func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateWorkflowConfig(t *testing.T) {
+	tests := []struct {
+		name             string
+		cronExpr         string
+		cronTimezone     string
+		maxParallelSteps int
+		wantErr          bool
+		wantErrContains  string
+	}{
+		{
+			name:             "valid_no_cron",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "valid_with_cron",
+			cronExpr:         "*/5 * * * *",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "valid_with_cron_and_timezone",
+			cronExpr:         "0 9 * * 1-5",
+			cronTimezone:     "America/New_York",
+			maxParallelSteps: 2,
+		},
+		{
+			name:             "negative_max_parallel_steps",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: -1,
+			wantErr:          true,
+			wantErrContains:  "max_parallel_steps must be >= 0",
+		},
+		{
+			name:             "invalid_cron_expression",
+			cronExpr:         "not-a-cron",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+			wantErr:          true,
+			wantErrContains:  "invalid cron expression",
+		},
+		{
+			name:             "invalid_cron_timezone",
+			cronExpr:         "*/5 * * * *",
+			cronTimezone:     "Invalid/Timezone",
+			maxParallelSteps: 0,
+			wantErr:          true,
+			wantErrContains:  "invalid cron_timezone",
+		},
+		{
+			name:             "valid_cron_timezone_empty_with_cron",
+			cronExpr:         "0 0 * * *",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "zero_max_parallel_steps_valid",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "positive_max_parallel_steps_valid",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateWorkflowConfig(tt.cronExpr, tt.cronTimezone, tt.maxParallelSteps)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Fatalf("error = %v, want containing %q", err, tt.wantErrContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
