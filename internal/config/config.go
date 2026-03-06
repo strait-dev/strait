@@ -50,6 +50,7 @@ type Config struct {
 	CORSAllowCredentials bool     `mapstructure:"CORS_ALLOW_CREDENTIALS"`
 }
 
+// Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	viper.SetDefault("MODE", "all")
 	viper.SetDefault("PORT", 8080)

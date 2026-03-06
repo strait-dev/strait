@@ -20,15 +20,15 @@ func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) 
 	workflowID := chi.URLParam(r, "workflowID")
 	query := r.URL.Query()
 
-	limit := 50
+	limit := defaultPageLimit
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
 			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
-		if parsedLimit > 100 {
-			parsedLimit = 100
+		if parsedLimit > maxPageLimit {
+			parsedLimit = maxPageLimit
 		}
 		limit = parsedLimit
 	}
@@ -70,15 +70,15 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 		status = &parsed
 	}
 
-	limit := 50
+	limit := defaultPageLimit
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
 			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
-		if parsedLimit > 100 {
-			parsedLimit = 100
+		if parsedLimit > maxPageLimit {
+			parsedLimit = maxPageLimit
 		}
 		limit = parsedLimit
 	}

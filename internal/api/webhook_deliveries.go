@@ -8,15 +8,15 @@ import (
 func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 
-	limit := 50
+	limit := defaultPageLimit
 	if limitRaw := r.URL.Query().Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
 			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
-		if parsedLimit > 100 {
-			parsedLimit = 100
+		if parsedLimit > maxPageLimit {
+			parsedLimit = maxPageLimit
 		}
 		limit = parsedLimit
 	}

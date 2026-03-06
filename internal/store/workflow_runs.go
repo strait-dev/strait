@@ -104,7 +104,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 	}
 	defer rows.Close()
 
-	runs := make([]domain.WorkflowRun, 0)
+	runs := make([]domain.WorkflowRun, 0, limit)
 	for rows.Next() {
 		run, scanErr := scanWorkflowRun(rows)
 		if scanErr != nil {
@@ -148,7 +148,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	}
 	defer rows.Close()
 
-	runs := make([]domain.WorkflowRun, 0)
+	runs := make([]domain.WorkflowRun, 0, 16)
 	for rows.Next() {
 		run, scanErr := scanWorkflowRun(rows)
 		if scanErr != nil {

@@ -122,7 +122,7 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 	}
 	defer rows.Close()
 
-	stepRuns := make([]domain.WorkflowStepRun, 0)
+	stepRuns := make([]domain.WorkflowStepRun, 0, 16)
 	for rows.Next() {
 		sr, scanErr := scanWorkflowStepRun(rows)
 		if scanErr != nil {
@@ -218,7 +218,7 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 	}
 	defer rows.Close()
 
-	results := make([]StepDepResult, 0)
+	results := make([]StepDepResult, 0, 4)
 	for rows.Next() {
 		var r StepDepResult
 		var condition []byte

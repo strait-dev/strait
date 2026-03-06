@@ -88,7 +88,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 	}
 	defer rows.Close()
 
-	steps := make([]domain.WorkflowStep, 0)
+	steps := make([]domain.WorkflowStep, 0, 16)
 	for rows.Next() {
 		step, scanErr := scanWorkflowStep(rows)
 		if scanErr != nil {

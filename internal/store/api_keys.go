@@ -71,7 +71,7 @@ func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string) ([
 	}
 	defer rows.Close()
 
-	keys := make([]domain.APIKey, 0)
+	keys := make([]domain.APIKey, 0, 8)
 	for rows.Next() {
 		var key domain.APIKey
 		if err := rows.Scan(

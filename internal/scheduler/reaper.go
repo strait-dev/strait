@@ -10,6 +10,11 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+const (
+	defaultWorkflowRetention = 30 * 24 * time.Hour
+	defaultDeleteBatchLimit  = 100
+)
+
 // ReaperStore is the subset of store operations needed by Reaper.
 type ReaperStore interface {
 	ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
@@ -41,13 +46,14 @@ type Reaper struct {
 	logger            *slog.Logger
 }
 
+// NewReaper creates a new stale and expired run reaper.
 func NewReaper(s ReaperStore, interval, staleThreshold time.Duration, workflowCallback WorkflowCallback) *Reaper {
 	return &Reaper{
 		store:             s,
 		interval:          interval,
 		staleThreshold:    staleThreshold,
-		workflowRetention: 30 * 24 * time.Hour,
-		deleteBatchLimit:  100,
+		workflowRetention: defaultWorkflowRetention,
+		deleteBatchLimit:  defaultDeleteBatchLimit,
 		workflowCallback:  workflowCallback,
 		logger:            slog.Default(),
 	}

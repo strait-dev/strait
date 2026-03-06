@@ -86,6 +86,11 @@ type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
 }
 
+const (
+	defaultPageLimit = 50
+	maxPageLimit     = 100
+)
+
 type Server struct {
 	router           chi.Router
 	store            APIStore
@@ -98,6 +103,7 @@ type Server struct {
 	workflowEngine   WorkflowTrigger
 }
 
+// NewServer creates a new HTTP API server with the given dependencies.
 func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, pinger Pinger, wfCallback WorkflowCallback, workflowEngine WorkflowTrigger) *Server {
 	srv := &Server{
 		store:            s,

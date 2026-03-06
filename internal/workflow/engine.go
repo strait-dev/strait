@@ -37,6 +37,7 @@ type EngineQueue interface {
 	Enqueue(ctx context.Context, run *domain.JobRun) error
 }
 
+// NewWorkflowEngine creates a new workflow engine for triggering and managing workflow runs.
 func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger) *WorkflowEngine {
 	if logger == nil {
 		logger = slog.Default()

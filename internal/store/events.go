@@ -58,7 +58,7 @@ func (q *Queries) ListEvents(ctx context.Context, runID string) ([]domain.RunEve
 	}
 	defer rows.Close()
 
-	events := make([]domain.RunEvent, 0)
+	events := make([]domain.RunEvent, 0, 16)
 	for rows.Next() {
 		var event domain.RunEvent
 		var level *string
@@ -125,7 +125,7 @@ func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, lev
 	}
 	defer rows.Close()
 
-	events := make([]domain.RunEvent, 0)
+	events := make([]domain.RunEvent, 0, 16)
 	for rows.Next() {
 		var event domain.RunEvent
 		var lvl *string

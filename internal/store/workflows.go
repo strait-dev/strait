@@ -112,7 +112,7 @@ func (q *Queries) ListWorkflows(ctx context.Context, projectID string) ([]domain
 	}
 	defer rows.Close()
 
-	workflows := make([]domain.Workflow, 0)
+	workflows := make([]domain.Workflow, 0, 16)
 	for rows.Next() {
 		workflow, scanErr := scanWorkflow(rows)
 		if scanErr != nil {
@@ -244,7 +244,7 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 	}
 	defer rows.Close()
 
-	workflows := make([]domain.Workflow, 0)
+	workflows := make([]domain.Workflow, 0, 8)
 	for rows.Next() {
 		workflow, scanErr := scanWorkflow(rows)
 		if scanErr != nil {

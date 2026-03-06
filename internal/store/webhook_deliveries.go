@@ -93,7 +93,7 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, status string, limi
 	}
 	defer rows.Close()
 
-	deliveries := make([]domain.WebhookDelivery, 0)
+	deliveries := make([]domain.WebhookDelivery, 0, limit)
 	for rows.Next() {
 		d, err := scanWebhookDelivery(rows)
 		if err != nil {
@@ -120,7 +120,7 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 	}
 	defer rows.Close()
 
-	deliveries := make([]domain.WebhookDelivery, 0)
+	deliveries := make([]domain.WebhookDelivery, 0, 16)
 	for rows.Next() {
 		d, err := scanWebhookDelivery(rows)
 		if err != nil {

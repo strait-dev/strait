@@ -109,7 +109,7 @@ func (q *Queries) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domai
 	}
 	defer rows.Close()
 
-	approvals := make([]domain.WorkflowStepApproval, 0)
+	approvals := make([]domain.WorkflowStepApproval, 0, 8)
 	for rows.Next() {
 		approval, scanErr := scanWorkflowStepApproval(rows)
 		if scanErr != nil {

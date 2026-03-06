@@ -42,6 +42,7 @@ type RedisPublisher struct {
 	client *redis.Client
 }
 
+// NewRedisPublisher creates a new Redis-backed event publisher.
 func NewRedisPublisher(client *redis.Client) *RedisPublisher {
 	return &RedisPublisher{client: client}
 }

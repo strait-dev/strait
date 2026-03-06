@@ -67,7 +67,7 @@ func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string) ([]dom
 	}
 	defer rows.Close()
 
-	versions := make([]domain.JobVersion, 0)
+	versions := make([]domain.JobVersion, 0, 16)
 	for rows.Next() {
 		v, err := scanJobVersion(rows)
 		if err != nil {

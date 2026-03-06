@@ -24,6 +24,7 @@ type Scheduler struct {
 	wg     sync.WaitGroup
 }
 
+// New creates a new scheduler that runs the cron, poller, and reaper.
 func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger) *Scheduler {
 	return &Scheduler{
 		cron:   NewCronScheduler(s, q, wfTrigger),

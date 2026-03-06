@@ -122,7 +122,7 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 	}
 	defer rows.Close()
 
-	steps := make([]domain.WorkflowStep, 0)
+	steps := make([]domain.WorkflowStep, 0, 16)
 	for rows.Next() {
 		step, scanErr := scanWorkflowStep(rows)
 		if scanErr != nil {
@@ -173,7 +173,7 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 	}
 	defer rows.Close()
 
-	runs := make([]domain.WorkflowRun, 0)
+	runs := make([]domain.WorkflowRun, 0, 16)
 	for rows.Next() {
 		run, scanErr := scanWorkflowRun(rows)
 		if scanErr != nil {

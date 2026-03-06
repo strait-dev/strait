@@ -32,6 +32,7 @@ type CronScheduler struct {
 	workflowTrigger WorkflowTrigger
 }
 
+// NewCronScheduler creates a new cron-based job and workflow scheduler.
 func NewCronScheduler(s CronStore, q queue.Queue, workflowTrigger WorkflowTrigger) *CronScheduler {
 	return &CronScheduler{
 		cron:            cron.New(),

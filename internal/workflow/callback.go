@@ -39,6 +39,7 @@ type CallbackStore interface {
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
 
+// NewStepCallback creates a new step callback handler for workflow progression.
 func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.Logger) *StepCallback {
 	if logger == nil {
 		logger = slog.Default()

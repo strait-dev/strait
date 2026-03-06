@@ -46,15 +46,15 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		status = &parsed
 	}
 
-	limit := 50
+	limit := defaultPageLimit
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
 			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
-		if parsedLimit > 100 {
-			parsedLimit = 100
+		if parsedLimit > maxPageLimit {
+			parsedLimit = maxPageLimit
 		}
 		limit = parsedLimit
 	}
