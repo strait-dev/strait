@@ -15,6 +15,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// DefaultMaxNestingDepth is the nesting limit when none is specified on the step.
+const DefaultMaxNestingDepth = 10
+
 type WorkflowEngine struct {
 	store  EngineStore
 	queue  EngineQueue
@@ -33,6 +36,7 @@ type EngineStore interface {
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
 type EngineQueue interface {
@@ -57,6 +61,27 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	workflowID, projectID string,
 	payload json.RawMessage,
 	triggeredBy string,
+) (*domain.WorkflowRun, error) {
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "")
+}
+
+// TriggerSubWorkflow triggers a workflow as a child of another workflow run.
+func (e *WorkflowEngine) TriggerSubWorkflow(
+	ctx context.Context,
+	workflowID, projectID string,
+	payload json.RawMessage,
+	triggeredBy string,
+	parentWorkflowRunID string,
+) (*domain.WorkflowRun, error) {
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID)
+}
+
+func (e *WorkflowEngine) triggerWorkflowInternal(
+	ctx context.Context,
+	workflowID, projectID string,
+	payload json.RawMessage,
+	triggeredBy string,
+	parentWorkflowRunID string,
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
@@ -109,13 +134,14 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	}
 
 	wfRun := &domain.WorkflowRun{
-		WorkflowID:       workflowID,
-		ProjectID:        projectID,
-		Status:           domain.WfStatusPending,
-		TriggeredBy:      triggeredBy,
-		WorkflowVersion:  wf.Version,
-		MaxParallelSteps: wf.MaxParallelSteps,
-		Payload:          payload,
+		WorkflowID:          workflowID,
+		ProjectID:           projectID,
+		Status:              domain.WfStatusPending,
+		TriggeredBy:         triggeredBy,
+		WorkflowVersion:     wf.Version,
+		MaxParallelSteps:    wf.MaxParallelSteps,
+		Payload:             payload,
+		ParentWorkflowRunID: parentWorkflowRunID,
 	}
 	if wf.TimeoutSecs > 0 {
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
@@ -217,6 +243,10 @@ func (e *WorkflowEngine) startStep(
 		return nil
 	}
 
+	if step.StepType == domain.WorkflowStepTypeSubWorkflow {
+		return e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
+	}
+
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set step run running: %w", err)
 	}
@@ -242,6 +272,77 @@ func (e *WorkflowEngine) startStep(
 	stepRun.JobRunID = jobRun.ID
 
 	return nil
+}
+
+// startSubWorkflowStep triggers a child workflow for a sub_workflow step.
+func (e *WorkflowEngine) startSubWorkflowStep(
+	ctx context.Context,
+	stepRun *domain.WorkflowStepRun,
+	step *domain.WorkflowStep,
+	wfRun *domain.WorkflowRun,
+	mergedPayload json.RawMessage,
+	now time.Time,
+) error {
+	maxDepth := step.MaxNestingDepth
+	if maxDepth <= 0 {
+		maxDepth = DefaultMaxNestingDepth
+	}
+	currentDepth, err := e.getNestingDepth(ctx, wfRun)
+	if err != nil {
+		return fmt.Errorf("get nesting depth: %w", err)
+	}
+	if currentDepth >= maxDepth {
+		return fmt.Errorf("sub-workflow nesting depth %d exceeds max allowed %d for step %s", currentDepth, maxDepth, step.StepRef)
+	}
+
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("set sub-workflow step running: %w", err)
+	}
+	stepRun.Status = domain.StepRunning
+	stepRun.StartedAt = &now
+
+	payload := mergePayloads(wfRun.Payload, step.Payload, mergedPayload)
+
+	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID)
+	if err != nil {
+		return fmt.Errorf("trigger sub-workflow for step %s: %w", step.StepRef, err)
+	}
+
+	e.logger.Info("sub-workflow triggered",
+		"parent_workflow_run_id", wfRun.ID,
+		"child_workflow_run_id", childRun.ID,
+		"step_ref", step.StepRef,
+		"sub_workflow_id", step.SubWorkflowID,
+		"nesting_depth", currentDepth+1,
+	)
+
+	return nil
+}
+
+// getNestingDepth calculates how deeply nested a workflow run is by walking up the parent chain.
+func (e *WorkflowEngine) getNestingDepth(ctx context.Context, wfRun *domain.WorkflowRun) (int, error) {
+	depth := 0
+	current := wfRun
+	seen := make(map[string]struct{})
+
+	for current.ParentWorkflowRunID != "" {
+		if _, ok := seen[current.ParentWorkflowRunID]; ok {
+			return depth, fmt.Errorf("circular parent reference detected at %s", current.ParentWorkflowRunID)
+		}
+		seen[current.ID] = struct{}{}
+		depth++
+
+		parent, err := e.store.GetWorkflowRun(ctx, current.ParentWorkflowRunID)
+		if err != nil {
+			return depth, fmt.Errorf("get parent workflow run %s: %w", current.ParentWorkflowRunID, err)
+		}
+		if parent == nil {
+			break
+		}
+		current = parent
+	}
+
+	return depth, nil
 }
 
 func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) json.RawMessage {

@@ -33,6 +33,8 @@ type workflowStepRequest struct {
 	RetryMaxDelaySecs     int                       `json:"retry_max_delay_secs,omitempty"`
 	TimeoutSecsOverride   int                       `json:"timeout_secs_override,omitempty"`
 	OutputTransform       string                    `json:"output_transform,omitempty"`
+	SubWorkflowID         string                    `json:"sub_workflow_id,omitempty"`
+	MaxNestingDepth       int                       `json:"max_nesting_depth,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -151,6 +153,8 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
 			TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
 			OutputTransform:       stepReq.OutputTransform,
+			SubWorkflowID:         stepReq.SubWorkflowID,
+			MaxNestingDepth:       stepReq.MaxNestingDepth,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to create workflow step")
@@ -293,6 +297,8 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 				RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
 				TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
 				OutputTransform:       stepReq.OutputTransform,
+				SubWorkflowID:         stepReq.SubWorkflowID,
+				MaxNestingDepth:       stepReq.MaxNestingDepth,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
 				respondError(w, http.StatusInternalServerError, "failed to create workflow step")
@@ -398,6 +404,17 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 			}
 			if step.ApprovalTimeoutSecs < 0 {
 				return errors.New("approval_timeout_secs must be >= 0")
+			}
+		}
+		if step.StepType == domain.WorkflowStepTypeSubWorkflow {
+			if step.SubWorkflowID == "" {
+				return errors.New("sub_workflow steps require sub_workflow_id")
+			}
+			if step.JobID != "" {
+				return errors.New("sub_workflow steps must not have job_id")
+			}
+			if step.MaxNestingDepth < 0 {
+				return errors.New("max_nesting_depth must be >= 0")
 			}
 		}
 		if step.TimeoutSecsOverride < 0 {

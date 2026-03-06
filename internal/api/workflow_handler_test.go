@@ -1452,3 +1452,85 @@ func TestHandleRetryWorkflowRun(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleCreateWorkflow_SubWorkflowValidation(t *testing.T) {
+	t.Run("missing sub_workflow_id returns 400", func(t *testing.T) {
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"step_ref":"sub","step_type":"sub_workflow"}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "sub_workflow_id") {
+			t.Fatalf("expected error about sub_workflow_id, got: %s", w.Body.String())
+		}
+	})
+
+	t.Run("sub_workflow step with job_id returns 400", func(t *testing.T) {
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"step_ref":"sub","step_type":"sub_workflow","sub_workflow_id":"wf-child","job_id":"job-1"}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "must not have job_id") {
+			t.Fatalf("expected error about job_id, got: %s", w.Body.String())
+		}
+	})
+
+	t.Run("negative max_nesting_depth returns 400", func(t *testing.T) {
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"step_ref":"sub","step_type":"sub_workflow","sub_workflow_id":"wf-child","max_nesting_depth":-1}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "max_nesting_depth") {
+			t.Fatalf("expected error about max_nesting_depth, got: %s", w.Body.String())
+		}
+	})
+
+	t.Run("valid sub_workflow step returns 201", func(t *testing.T) {
+		var capturedStep *domain.WorkflowStep
+		ms := &mockAPIStore{
+			createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
+				wf.ID = "wf-1"
+				return nil
+			},
+			createWorkflowStepFn: func(_ context.Context, step *domain.WorkflowStep) error {
+				capturedStep = step
+				return nil
+			},
+			createWorkflowSnapshotFn: func(_ context.Context, _ string, _ int) error {
+				return nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"step_ref":"sub","step_type":"sub_workflow","sub_workflow_id":"wf-child","max_nesting_depth":5}]}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+		if capturedStep == nil {
+			t.Fatal("expected step to be created")
+		}
+		if capturedStep.SubWorkflowID != "wf-child" {
+			t.Fatalf("SubWorkflowID = %q, want wf-child", capturedStep.SubWorkflowID)
+		}
+		if capturedStep.MaxNestingDepth != 5 {
+			t.Fatalf("MaxNestingDepth = %d, want 5", capturedStep.MaxNestingDepth)
+		}
+		if capturedStep.StepType != domain.WorkflowStepTypeSubWorkflow {
+			t.Fatalf("StepType = %q, want sub_workflow", capturedStep.StepType)
+		}
+	})
+}

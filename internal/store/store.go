@@ -123,6 +123,7 @@ type WorkflowRunStore interface {
 	DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error)
+	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
 type WorkflowStepRunStore interface {

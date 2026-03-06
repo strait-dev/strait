@@ -26,6 +26,7 @@ type mockEngineStore struct {
 	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 	getWorkflowRunFn             func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listStepRunsByWorkflowRunFn  func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	getWorkflowRunsByParentFn    func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
 func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error) {
@@ -101,6 +102,13 @@ func (m *mockEngineStore) GetWorkflowRun(ctx context.Context, id string) (*domai
 func (m *mockEngineStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
 	if m.listStepRunsByWorkflowRunFn != nil {
 		return m.listStepRunsByWorkflowRunFn(ctx, workflowRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockEngineStore) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {
+	if m.getWorkflowRunsByParentFn != nil {
+		return m.getWorkflowRunsByParentFn(ctx, parentWorkflowRunID)
 	}
 	return nil, nil
 }
@@ -283,6 +291,7 @@ type mockCallbackStore struct {
 	getWorkflowStepApprovalFn    func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	updateWorkflowStepApprovalFn func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	updateRunStatusFn            func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	getWorkflowRunsByParentFn    func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
 func (m *mockCallbackStore) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
@@ -388,6 +397,13 @@ func (m *mockCallbackStore) UpdateRunStatus(ctx context.Context, id string, from
 		return m.updateRunStatusFn(ctx, id, from, to, fields)
 	}
 	return nil
+}
+
+func (m *mockCallbackStore) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {
+	if m.getWorkflowRunsByParentFn != nil {
+		return m.getWorkflowRunsByParentFn(ctx, parentWorkflowRunID)
+	}
+	return nil, nil
 }
 
 func TestStepCallback_OnJobRunTerminal(t *testing.T) {
@@ -2453,4 +2469,915 @@ func TestRetryWorkflowRun(t *testing.T) {
 			t.Fatalf("enqueued = %v, want [job-c]", enqueuedJobs)
 		}
 	})
+}
+
+func TestTriggerSubWorkflow(t *testing.T) {
+	t.Run("happy path triggers child workflow", func(t *testing.T) {
+		var createdRun *domain.WorkflowRun
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "step-a", JobID: "job-a", StepRef: "a"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "child-run-1"
+				createdRun = run
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		wfRun, err := engine.TriggerSubWorkflow(context.Background(), "wf-child", "proj-1", json.RawMessage(`{"from":"parent"}`), domain.TriggerWorkflow, "parent-run-1")
+		if err != nil {
+			t.Fatalf("TriggerSubWorkflow() error = %v", err)
+		}
+		if wfRun == nil || wfRun.ID != "child-run-1" {
+			t.Fatalf("unexpected workflow run: %+v", wfRun)
+		}
+		if createdRun == nil {
+			t.Fatal("expected child workflow run to be created")
+		}
+		if createdRun.ParentWorkflowRunID != "parent-run-1" {
+			t.Fatalf("ParentWorkflowRunID = %q, want parent-run-1", createdRun.ParentWorkflowRunID)
+		}
+	})
+
+	t.Run("inherits project ID from parent", func(t *testing.T) {
+		parentRun := &domain.WorkflowRun{ID: "parent-run-1", ProjectID: "proj-parent"}
+		var createdRun *domain.WorkflowRun
+
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: parentRun.ProjectID, Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "step-a", JobID: "job-a", StepRef: "a"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "child-run-2"
+				createdRun = run
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-child", parentRun.ProjectID, json.RawMessage(`{"from":"parent"}`), domain.TriggerWorkflow, parentRun.ID)
+		if err != nil {
+			t.Fatalf("TriggerSubWorkflow() error = %v", err)
+		}
+		if createdRun == nil {
+			t.Fatal("expected child workflow run to be created")
+		}
+		if createdRun.ProjectID != parentRun.ProjectID {
+			t.Fatalf("ProjectID = %q, want %q", createdRun.ProjectID, parentRun.ProjectID)
+		}
+	})
+}
+
+func TestStartSubWorkflowStep(t *testing.T) {
+	t.Run("triggers sub-workflow and sets step running", func(t *testing.T) {
+		stepRunningUpdated := false
+		var parentRunID string
+		childTriggered := false
+
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				switch id {
+				case "wf-parent":
+					return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+				case "wf-child":
+					return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+				default:
+					return nil, nil
+				}
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:            "step-sub",
+						StepRef:       "sub",
+						StepType:      domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID: "wf-child",
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				if run.WorkflowID == "wf-parent" {
+					run.ID = "wr-parent"
+					parentRunID = run.ID
+					return nil
+				}
+				if run.WorkflowID == "wf-child" {
+					run.ID = "wr-child"
+					if run.ParentWorkflowRunID == parentRunID {
+						childTriggered = true
+					}
+					return nil
+				}
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef + "-" + sr.WorkflowRunID
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+				if strings.Contains(id, "sr-sub-") && status == domain.StepRunning {
+					stepRunningUpdated = true
+				}
+				return nil
+			},
+		}
+
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-child"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", json.RawMessage(`{"hello":"world"}`), "manual")
+		if err != nil {
+			t.Fatalf("TriggerWorkflow() error = %v", err)
+		}
+		if !stepRunningUpdated {
+			t.Fatal("expected sub-workflow step to be set running")
+		}
+		if !childTriggered {
+			t.Fatal("expected child sub-workflow trigger")
+		}
+	})
+
+	t.Run("fails when nesting depth exceeded", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:              "step-sub",
+						StepRef:         "sub",
+						StepType:        domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID:   "wf-child",
+						MaxNestingDepth: 1,
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-" + run.WorkflowID
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				if id == "ancestor-run" {
+					return &domain.WorkflowRun{ID: "ancestor-run", ParentWorkflowRunID: ""}, nil
+				}
+				return nil, nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "ancestor-run")
+		if err == nil || !strings.Contains(err.Error(), "nesting depth") {
+			t.Fatalf("expected nesting depth error, got %v", err)
+		}
+	})
+
+	t.Run("fails when sub-workflow is disabled", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				if id == "wf-parent" {
+					return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+				}
+				if id == "wf-child" {
+					return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: false, Version: 1}, nil
+				}
+				return nil, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:            "step-sub",
+						StepRef:       "sub",
+						StepType:      domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID: "wf-child",
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-" + run.WorkflowID
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow)
+		if err == nil || !strings.Contains(err.Error(), "disabled") {
+			t.Fatalf("expected disabled workflow error, got %v", err)
+		}
+	})
+}
+
+func TestGetNestingDepth(t *testing.T) {
+	t.Run("depth 0 for root workflow", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:              "step-sub",
+						StepRef:         "sub",
+						StepType:        domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID:   "wf-child",
+						MaxNestingDepth: 2,
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-" + run.WorkflowID
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow)
+		if err != nil {
+			t.Fatalf("expected depth 0 to succeed, got %v", err)
+		}
+	})
+
+	t.Run("depth 1 for single parent", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:              "step-sub",
+						StepRef:         "sub",
+						StepType:        domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID:   "wf-child",
+						MaxNestingDepth: 2,
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-" + run.WorkflowID
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				if id == "p1" {
+					return &domain.WorkflowRun{ID: "p1", ParentWorkflowRunID: ""}, nil
+				}
+				return nil, nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "p1")
+		if err != nil {
+			t.Fatalf("expected depth 1 to succeed, got %v", err)
+		}
+	})
+
+	t.Run("depth 2 for nested chain", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:              "step-sub",
+						StepRef:         "sub",
+						StepType:        domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID:   "wf-child",
+						MaxNestingDepth: 3,
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-" + run.WorkflowID
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				switch id {
+				case "p2":
+					return &domain.WorkflowRun{ID: "p2", ParentWorkflowRunID: "p1"}, nil
+				case "p1":
+					return &domain.WorkflowRun{ID: "p1", ParentWorkflowRunID: ""}, nil
+				default:
+					return nil, nil
+				}
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "p2")
+		if err != nil {
+			t.Fatalf("expected depth 2 to succeed, got %v", err)
+		}
+	})
+
+	t.Run("circular reference detected", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:            "step-sub",
+						StepRef:       "sub",
+						StepType:      domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID: "wf-child",
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-" + run.WorkflowID
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				switch id {
+				case "B":
+					return &domain.WorkflowRun{ID: "B", ParentWorkflowRunID: "A"}, nil
+				case "A":
+					return &domain.WorkflowRun{ID: "A", ParentWorkflowRunID: "B"}, nil
+				default:
+					return nil, nil
+				}
+			},
+		}
+
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "B")
+		if err == nil || !strings.Contains(err.Error(), "circular") {
+			t.Fatalf("expected circular reference error, got %v", err)
+		}
+	})
+
+	t.Run("parent not found returns depth so far", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+				if workflowID == "wf-parent" {
+					return []domain.WorkflowStep{{
+						ID:            "step-sub",
+						StepRef:       "sub",
+						StepType:      domain.WorkflowStepTypeSubWorkflow,
+						SubWorkflowID: "wf-child",
+					}}, nil
+				}
+				return []domain.WorkflowStep{{ID: "step-child", JobID: "job-child", StepRef: "child-root"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-" + run.WorkflowID
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-1"
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "missing-parent")
+		if err != nil {
+			t.Fatalf("expected no error when parent not found, got %v", err)
+		}
+	})
+}
+
+// propagateToParent tests — exercised indirectly through OnJobRunTerminal.
+
+func TestPropagateToParent_ChildCompleted(t *testing.T) {
+	// Flow: job run completed → step completed → fanIn (no children) →
+	// checkWorkflowCompletion (all terminal) → mark child completed →
+	// propagateToParent → find parent step → mark parent step completed →
+	// fanIn on parent (no deps) → checkWorkflowCompletion on parent.
+
+	parentStepCompleted := false
+	childWfMarkedCompleted := false
+	parentWfMarkedCompleted := false
+
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
+			if jobRunID != "jr-child-1" {
+				return nil, nil
+			}
+			return &domain.WorkflowStepRun{
+				ID:            "sr-child-root",
+				WorkflowRunID: "child-run-1",
+				StepRef:       "child-root",
+				Status:        domain.StepRunning,
+				JobRunID:      "jr-child-1",
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
+			if id == "sr-parent-sub" && status == domain.StepCompleted {
+				parentStepCompleted = true
+				// Verify output contains aggregated child outputs
+				if out, ok := fields["output"]; ok {
+					raw, _ := json.Marshal(out)
+					if len(raw) == 0 {
+						t.Error("expected non-empty output for parent step")
+					}
+				}
+			}
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return nil, nil // no deps to fan-in
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			switch id {
+			case "child-run-1":
+				return &domain.WorkflowRun{
+					ID:                  "child-run-1",
+					WorkflowID:          "wf-child",
+					WorkflowVersion:     1,
+					Status:              domain.WfStatusRunning,
+					ParentWorkflowRunID: "parent-run-1",
+				}, nil
+			case "parent-run-1":
+				return &domain.WorkflowRun{
+					ID:              "parent-run-1",
+					WorkflowID:      "wf-parent",
+					WorkflowVersion: 1,
+					Status:          domain.WfStatusRunning,
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, _, to domain.WorkflowRunStatus, _ map[string]any) error {
+			if id == "child-run-1" && to == domain.WfStatusCompleted {
+				childWfMarkedCompleted = true
+			}
+			if id == "parent-run-1" && to == domain.WfStatusCompleted {
+				parentWfMarkedCompleted = true
+			}
+			return nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			switch workflowRunID {
+			case "child-run-1":
+				return []domain.WorkflowStepRun{
+					{ID: "sr-child-root", WorkflowRunID: "child-run-1", StepRef: "child-root", Status: domain.StepCompleted, Output: json.RawMessage(`{"result":"ok"}`)},
+				}, nil
+			case "parent-run-1":
+				return []domain.WorkflowStepRun{
+					{ID: "sr-parent-sub", WorkflowRunID: "parent-run-1", StepRef: "sub-step", Status: domain.StepCompleted},
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+			switch workflowID {
+			case "wf-child":
+				return []domain.WorkflowStep{
+					{ID: "step-child-root", StepRef: "child-root", JobID: "job-c1"},
+				}, nil
+			case "wf-parent":
+				return []domain.WorkflowStep{
+					{ID: "step-parent-sub", StepRef: "sub-step", StepType: domain.WorkflowStepTypeSubWorkflow, SubWorkflowID: "wf-child"},
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+		getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+			if workflowRunID == "parent-run-1" && stepRef == "sub-step" {
+				return &domain.WorkflowStepRun{
+					ID:            "sr-parent-sub",
+					WorkflowRunID: "parent-run-1",
+					StepRef:       "sub-step",
+					Status:        domain.StepRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	engine := NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default())
+	cb := NewStepCallback(ms, engine, slog.Default())
+
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{
+		ID:                "jr-child-1",
+		Status:            domain.StatusCompleted,
+		Result:            json.RawMessage(`{"result":"ok"}`),
+		WorkflowStepRunID: "sr-child-root",
+	})
+	if err != nil {
+		t.Fatalf("OnJobRunTerminal() error = %v", err)
+	}
+
+	if !childWfMarkedCompleted {
+		t.Fatal("expected child workflow run to be marked completed")
+	}
+	if !parentStepCompleted {
+		t.Fatal("expected parent step run to be marked completed")
+	}
+	if !parentWfMarkedCompleted {
+		t.Fatal("expected parent workflow run to be marked completed")
+	}
+}
+
+func TestPropagateToParent_ChildFailed(t *testing.T) {
+	// Flow: job run fails → step fails → handleFailedStep (fail_workflow) →
+	// mark child workflow failed → cancelRemainingSteps → propagateToParent →
+	// mark parent step failed → handleFailedStep on parent.
+
+	parentStepFailed := false
+	childWfMarkedFailed := false
+	parentWfMarkedFailed := false
+
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
+			if jobRunID != "jr-child-1" {
+				return nil, nil
+			}
+			return &domain.WorkflowStepRun{
+				ID:            "sr-child-root",
+				WorkflowRunID: "child-run-1",
+				StepRef:       "child-root",
+				Status:        domain.StepRunning,
+				JobRunID:      "jr-child-1",
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id == "sr-parent-sub" && status == domain.StepFailed {
+				parentStepFailed = true
+			}
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			switch id {
+			case "child-run-1":
+				return &domain.WorkflowRun{
+					ID:                  "child-run-1",
+					WorkflowID:          "wf-child",
+					WorkflowVersion:     1,
+					Status:              domain.WfStatusRunning,
+					ParentWorkflowRunID: "parent-run-1",
+				}, nil
+			case "parent-run-1":
+				return &domain.WorkflowRun{
+					ID:              "parent-run-1",
+					WorkflowID:      "wf-parent",
+					WorkflowVersion: 1,
+					Status:          domain.WfStatusRunning,
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, _, to domain.WorkflowRunStatus, _ map[string]any) error {
+			if id == "child-run-1" && to == domain.WfStatusFailed {
+				childWfMarkedFailed = true
+			}
+			if id == "parent-run-1" && to == domain.WfStatusFailed {
+				parentWfMarkedFailed = true
+			}
+			return nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			switch workflowRunID {
+			case "child-run-1":
+				// All step runs already terminal (the one step is failed)
+				return []domain.WorkflowStepRun{
+					{ID: "sr-child-root", WorkflowRunID: "child-run-1", StepRef: "child-root", Status: domain.StepFailed, Error: "job failed"},
+				}, nil
+			case "parent-run-1":
+				return []domain.WorkflowStepRun{
+					{ID: "sr-parent-sub", WorkflowRunID: "parent-run-1", StepRef: "sub-step", Status: domain.StepFailed},
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+			switch workflowID {
+			case "wf-child":
+				return []domain.WorkflowStep{
+					{ID: "step-child-root", StepRef: "child-root", JobID: "job-c1", OnFailure: domain.FailWorkflow},
+				}, nil
+			case "wf-parent":
+				return []domain.WorkflowStep{
+					{ID: "step-parent-sub", StepRef: "sub-step", StepType: domain.WorkflowStepTypeSubWorkflow, SubWorkflowID: "wf-child", OnFailure: domain.FailWorkflow},
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+		getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+			if workflowRunID == "parent-run-1" && stepRef == "sub-step" {
+				return &domain.WorkflowStepRun{
+					ID:            "sr-parent-sub",
+					WorkflowRunID: "parent-run-1",
+					StepRef:       "sub-step",
+					Status:        domain.StepRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	engine := NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default())
+	cb := NewStepCallback(ms, engine, slog.Default())
+
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{
+		ID:                "jr-child-1",
+		Status:            domain.StatusFailed,
+		Error:             "job failed",
+		WorkflowStepRunID: "sr-child-root",
+	})
+	if err != nil {
+		t.Fatalf("OnJobRunTerminal() error = %v", err)
+	}
+
+	if !childWfMarkedFailed {
+		t.Fatal("expected child workflow run to be marked failed")
+	}
+	if !parentStepFailed {
+		t.Fatal("expected parent step run to be marked failed")
+	}
+	if !parentWfMarkedFailed {
+		t.Fatal("expected parent workflow run to be marked failed")
+	}
+}
+
+func TestPropagateToParent_NoParent(t *testing.T) {
+	// When ParentWorkflowRunID is empty, propagateToParent is a no-op.
+	// The parent's GetWorkflowRun should never be called.
+
+	parentLookedUp := false
+	getRunCalls := 0
+
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID:            "sr-1",
+				WorkflowRunID: "child-run-1",
+				StepRef:       "root",
+				Status:        domain.StepRunning,
+				JobRunID:      "jr-1",
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			getRunCalls++
+			if id == "child-run-1" {
+				return &domain.WorkflowRun{
+					ID:                  "child-run-1",
+					WorkflowID:          "wf-child",
+					WorkflowVersion:     1,
+					Status:              domain.WfStatusRunning,
+					ParentWorkflowRunID: "", // No parent
+				}, nil
+			}
+			// Any other call means we tried to look up a parent
+			parentLookedUp = true
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-1", WorkflowRunID: "child-run-1", StepRef: "root", Status: domain.StepCompleted},
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{ID: "step-1", StepRef: "root", JobID: "job-1"},
+			}, nil
+		},
+	}
+
+	engine := NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default())
+	cb := NewStepCallback(ms, engine, slog.Default())
+
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{
+		ID:                "jr-1",
+		Status:            domain.StatusCompleted,
+		Result:            json.RawMessage(`{"ok":true}`),
+		WorkflowStepRunID: "sr-1",
+	})
+	if err != nil {
+		t.Fatalf("OnJobRunTerminal() error = %v", err)
+	}
+
+	if parentLookedUp {
+		t.Fatal("expected no parent lookup when ParentWorkflowRunID is empty")
+	}
+}
+
+func TestPropagateToParent_ParentAlreadyTerminal(t *testing.T) {
+	// When the parent workflow run is already terminal, propagation stops.
+	// GetStepRunByWorkflowRunAndRef should NOT be called.
+
+	stepRunLookedUp := false
+
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID:            "sr-1",
+				WorkflowRunID: "child-run-1",
+				StepRef:       "root",
+				Status:        domain.StepRunning,
+				JobRunID:      "jr-1",
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			switch id {
+			case "child-run-1":
+				return &domain.WorkflowRun{
+					ID:                  "child-run-1",
+					WorkflowID:          "wf-child",
+					WorkflowVersion:     1,
+					Status:              domain.WfStatusRunning,
+					ParentWorkflowRunID: "parent-run-1",
+				}, nil
+			case "parent-run-1":
+				return &domain.WorkflowRun{
+					ID:              "parent-run-1",
+					WorkflowID:      "wf-parent",
+					WorkflowVersion: 1,
+					Status:          domain.WfStatusCompleted, // Already terminal
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-1", WorkflowRunID: "child-run-1", StepRef: "root", Status: domain.StepCompleted},
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{ID: "step-1", StepRef: "root", JobID: "job-1"},
+			}, nil
+		},
+		getStepRunByRunAndRefFn: func(_ context.Context, _, _ string) (*domain.WorkflowStepRun, error) {
+			stepRunLookedUp = true
+			return nil, nil
+		},
+	}
+
+	engine := NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default())
+	cb := NewStepCallback(ms, engine, slog.Default())
+
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{
+		ID:                "jr-1",
+		Status:            domain.StatusCompleted,
+		Result:            json.RawMessage(`{"ok":true}`),
+		WorkflowStepRunID: "sr-1",
+	})
+	if err != nil {
+		t.Fatalf("OnJobRunTerminal() error = %v", err)
+	}
+
+	if stepRunLookedUp {
+		t.Fatal("expected GetStepRunByWorkflowRunAndRef not to be called when parent is terminal")
+	}
 }

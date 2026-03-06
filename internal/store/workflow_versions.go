@@ -59,7 +59,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			id, workflow_version_id, job_id, step_ref, depends_on, condition, on_failure, payload,
 			step_type, approval_timeout_secs, approval_approvers,
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-			timeout_secs_override, output_transform
+			timeout_secs_override, output_transform,
+			sub_workflow_id, max_nesting_depth
 		)
 		SELECT
 			$1 || ':' || step_ref,
@@ -78,7 +79,9 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			retry_initial_delay_secs,
 			retry_max_delay_secs,
 			timeout_secs_override,
-			output_transform
+			output_transform,
+			sub_workflow_id,
+			max_nesting_depth
 		FROM workflow_steps
 		WHERE workflow_id = $2`
 
@@ -112,6 +115,8 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 			wvs.retry_max_delay_secs,
 			wvs.timeout_secs_override,
 			wvs.output_transform,
+			wvs.sub_workflow_id,
+			wvs.max_nesting_depth,
 			wvs.created_at
 		FROM workflow_version_steps wvs
 		JOIN workflow_versions wv ON wv.id = wvs.workflow_version_id
@@ -163,7 +168,7 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, created_at
 		FROM workflow_runs
 		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL

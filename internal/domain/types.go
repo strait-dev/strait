@@ -243,8 +243,9 @@ const (
 type WorkflowStepType string
 
 const (
-	WorkflowStepTypeJob      WorkflowStepType = "job"
-	WorkflowStepTypeApproval WorkflowStepType = "approval"
+	WorkflowStepTypeJob         WorkflowStepType = "job"
+	WorkflowStepTypeApproval    WorkflowStepType = "approval"
+	WorkflowStepTypeSubWorkflow WorkflowStepType = "sub_workflow"
 )
 
 type RetryBackoffPolicy string
@@ -292,25 +293,28 @@ type WorkflowStep struct {
 	RetryMaxDelaySecs     int                `json:"retry_max_delay_secs,omitempty"`
 	TimeoutSecsOverride   int                `json:"timeout_secs_override,omitempty"`
 	OutputTransform       string             `json:"output_transform,omitempty"`
+	SubWorkflowID         string             `json:"sub_workflow_id,omitempty"`
+	MaxNestingDepth       int                `json:"max_nesting_depth,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
 // WorkflowRun represents an execution instance of a workflow.
 type WorkflowRun struct {
-	ID               string            `json:"id"`
-	WorkflowID       string            `json:"workflow_id"`
-	ProjectID        string            `json:"project_id"`
-	Status           WorkflowRunStatus `json:"status"`
-	TriggeredBy      string            `json:"triggered_by"`
-	WorkflowVersion  int               `json:"workflow_version"`
-	MaxParallelSteps int               `json:"max_parallel_steps,omitempty"`
-	Payload          json.RawMessage   `json:"payload,omitempty"`
-	Error            string            `json:"error,omitempty"`
-	StartedAt        *time.Time        `json:"started_at,omitempty"`
-	FinishedAt       *time.Time        `json:"finished_at,omitempty"`
-	ExpiresAt        *time.Time        `json:"expires_at,omitempty"`
-	RetryOfRunID     string            `json:"retry_of_run_id,omitempty"`
-	CreatedAt        time.Time         `json:"created_at"`
+	ID                  string            `json:"id"`
+	WorkflowID          string            `json:"workflow_id"`
+	ProjectID           string            `json:"project_id"`
+	Status              WorkflowRunStatus `json:"status"`
+	TriggeredBy         string            `json:"triggered_by"`
+	WorkflowVersion     int               `json:"workflow_version"`
+	MaxParallelSteps    int               `json:"max_parallel_steps,omitempty"`
+	Payload             json.RawMessage   `json:"payload,omitempty"`
+	Error               string            `json:"error,omitempty"`
+	StartedAt           *time.Time        `json:"started_at,omitempty"`
+	FinishedAt          *time.Time        `json:"finished_at,omitempty"`
+	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
+	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
+	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
 }
 
 // WorkflowStepRun represents execution of a single step within a workflow run.

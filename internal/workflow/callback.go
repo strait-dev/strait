@@ -37,6 +37,7 @@ type CallbackStore interface {
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
 // NewStepCallback creates a new step callback handler for workflow progression.
@@ -270,11 +271,12 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 			if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{"error": stepRun.Error, "finished_at": now}); err != nil {
 				return fmt.Errorf("mark workflow failed: %w", err)
 			}
+			wfRun.Status = domain.WfStatusFailed
 		}
 		if err := s.cancelRemainingSteps(ctx, stepRun.WorkflowRunID); err != nil {
 			return fmt.Errorf("cancel remaining steps: %w", err)
 		}
-		return nil
+		return s.propagateToParent(ctx, wfRun, nil)
 	case domain.SkipDependents:
 		if err := s.skipDependentSteps(ctx, stepRun.WorkflowRunID, wfRun.WorkflowID, stepRun.StepRef); err != nil {
 			return fmt.Errorf("skip dependents: %w", err)
@@ -291,11 +293,12 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 			if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{"error": stepRun.Error, "finished_at": now}); err != nil {
 				return fmt.Errorf("mark workflow failed: %w", err)
 			}
+			wfRun.Status = domain.WfStatusFailed
 		}
 		if err := s.cancelRemainingSteps(ctx, stepRun.WorkflowRunID); err != nil {
 			return fmt.Errorf("cancel remaining steps: %w", err)
 		}
-		return nil
+		return s.propagateToParent(ctx, wfRun, nil)
 	}
 }
 
@@ -450,14 +453,132 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusFailed, map[string]any{"finished_at": now}); err != nil {
 			return fmt.Errorf("mark workflow run failed: %w", err)
 		}
-		return nil
+		wfRun.Status = domain.WfStatusFailed
+		return s.propagateToParent(ctx, wfRun, stepRuns)
 	}
 
 	if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusCompleted, map[string]any{"finished_at": now}); err != nil {
 		return fmt.Errorf("mark workflow run completed: %w", err)
 	}
+	wfRun.Status = domain.WfStatusCompleted
 
-	return nil
+	return s.propagateToParent(ctx, wfRun, stepRuns)
+}
+
+// propagateToParent propagates the terminal status of a child workflow run
+// back to the parent step run that spawned it via sub_workflow.
+func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.WorkflowRun, childStepRuns []domain.WorkflowStepRun) error {
+	if childRun.ParentWorkflowRunID == "" {
+		return nil
+	}
+	if !childRun.Status.IsTerminal() {
+		return nil
+	}
+
+	parentRun, err := s.store.GetWorkflowRun(ctx, childRun.ParentWorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get parent workflow run: %w", err)
+	}
+	if parentRun == nil {
+		s.logger.Warn("parent workflow run not found for sub-workflow propagation",
+			"child_run_id", childRun.ID, "parent_run_id", childRun.ParentWorkflowRunID)
+		return nil
+	}
+	if parentRun.Status.IsTerminal() {
+		return nil
+	}
+
+	// Get parent's step definitions to find which step is a sub_workflow that matches this child.
+	parentSteps, err := s.store.ListStepsByWorkflowVersion(ctx, parentRun.WorkflowID, parentRun.WorkflowVersion)
+	if err != nil {
+		return fmt.Errorf("list parent workflow steps: %w", err)
+	}
+
+	// Find the sub_workflow step whose SubWorkflowID matches the child's workflow ID.
+	var matchingStepRef string
+	for _, step := range parentSteps {
+		if step.StepType == domain.WorkflowStepTypeSubWorkflow && step.SubWorkflowID == childRun.WorkflowID {
+			matchingStepRef = step.StepRef
+			break
+		}
+	}
+	if matchingStepRef == "" {
+		s.logger.Warn("no matching sub_workflow step found in parent",
+			"child_run_id", childRun.ID, "child_workflow_id", childRun.WorkflowID,
+			"parent_run_id", parentRun.ID)
+		return nil
+	}
+
+	// Find the parent step run for this sub_workflow step.
+	parentStepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, parentRun.ID, matchingStepRef)
+	if err != nil {
+		return fmt.Errorf("get parent step run for sub-workflow: %w", err)
+	}
+	if parentStepRun == nil || parentStepRun.Status.IsTerminal() {
+		return nil
+	}
+
+	now := time.Now()
+	switch childRun.Status {
+	case domain.WfStatusCompleted:
+		// Aggregate child step outputs as the parent step's output.
+		var outputPayload json.RawMessage
+		if len(childStepRuns) > 0 {
+			outputs := make(map[string]json.RawMessage, len(childStepRuns))
+			for _, sr := range childStepRuns {
+				if len(sr.Output) > 0 {
+					outputs[sr.StepRef] = sr.Output
+				}
+			}
+			if len(outputs) > 0 {
+				if raw, marshalErr := json.Marshal(outputs); marshalErr == nil {
+					outputPayload = raw
+				}
+			}
+		}
+
+		fields := map[string]any{"finished_at": now}
+		if len(outputPayload) > 0 {
+			fields["output"] = outputPayload
+		}
+		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepCompleted, fields); err != nil {
+			return fmt.Errorf("complete parent step run for sub-workflow: %w", err)
+		}
+		parentStepRun.Status = domain.StepCompleted
+		if len(outputPayload) > 0 {
+			parentStepRun.Output = outputPayload
+		}
+
+		if err := s.fanInAndStartReadyChildren(ctx, parentStepRun); err != nil {
+			return fmt.Errorf("fan-in after sub-workflow completion for step %s: %w", matchingStepRef, err)
+		}
+		return s.checkWorkflowCompletion(ctx, parentRun.ID)
+
+	case domain.WfStatusFailed:
+		fields := map[string]any{"finished_at": now, "error": childRun.Error}
+		if childRun.Error == "" {
+			fields["error"] = fmt.Sprintf("sub-workflow %s failed", childRun.WorkflowID)
+		}
+		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepFailed, fields); err != nil {
+			return fmt.Errorf("fail parent step run for sub-workflow: %w", err)
+		}
+		parentStepRun.Status = domain.StepFailed
+		parentStepRun.Error = fields["error"].(string)
+
+		return s.handleFailedStep(ctx, parentStepRun)
+
+	default:
+		// Canceled or timed_out child workflows fail the parent step.
+		errMsg := fmt.Sprintf("sub-workflow %s ended with status %s", childRun.WorkflowID, childRun.Status)
+		fields := map[string]any{"finished_at": now, "error": errMsg}
+		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepFailed, fields); err != nil {
+			return fmt.Errorf("fail parent step run for sub-workflow: %w", err)
+		}
+		parentStepRun.Status = domain.StepFailed
+		parentStepRun.Error = errMsg
+
+		return s.handleFailedStep(ctx, parentStepRun)
+	}
 }
 
 func (s *StepCallback) cancelRemainingSteps(ctx context.Context, workflowRunID string) error {
