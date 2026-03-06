@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -978,5 +979,82 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 	}
 	if got := attempts.Load(); got != 2 {
 		t.Errorf("attempts = %d, want 2", got)
+	}
+}
+
+func TestExecutor_PanicRecovery(t *testing.T) {
+	pool := NewPool(1)
+	defer pool.Shutdown()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		panic("simulated crash in job lookup")
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			return []domain.JobRun{*testRun(1)}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	pool.Shutdown()
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
+	}
+	errMsg, ok := calls[0].fields["error"].(string)
+	if !ok {
+		t.Fatal("expected error field in status update")
+	}
+	if !strings.Contains(errMsg, "panic:") {
+		t.Fatalf("error = %q, want to contain 'panic:'", errMsg)
+	}
+}
+
+func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
+	pool := NewPool(1)
+	defer pool.Shutdown()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		panic(errors.New("runtime error: index out of range"))
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			return []domain.JobRun{*testRun(1)}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	pool.Shutdown()
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
 	}
 }

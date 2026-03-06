@@ -187,6 +187,12 @@ func (e *Executor) poll(ctx context.Context) {
 
 		execCtx := context.WithoutCancel(ctx)
 		e.pool.Submit(ctx, func() {
+			defer func() {
+				if r := recover(); r != nil {
+					e.logger.Error("panic in executor goroutine", "run_id", run.ID, "panic", r)
+					e.handleSystemFailure(execCtx, &run, fmt.Sprintf("panic: %v", r))
+				}
+			}()
 			e.execute(execCtx, &run)
 		})
 	}

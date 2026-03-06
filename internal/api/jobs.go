@@ -166,6 +166,10 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		job.PayloadSchema = *req.PayloadSchema
 	}
 	if req.EndpointURL != nil {
+		if err := validateURL(*req.EndpointURL); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
+			return
+		}
 		job.EndpointURL = *req.EndpointURL
 	}
 	if req.MaxAttempts != nil {
