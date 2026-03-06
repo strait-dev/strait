@@ -38,6 +38,7 @@ type CallbackStore interface {
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
+
 func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.Logger) *StepCallback {
 	if logger == nil {
 		logger = slog.Default()
@@ -101,13 +102,13 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	case domain.StepCompleted:
 		if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
 			s.logger.Error("failed to process completed step", "step_ref", stepRun.StepRef, "error", err)
-			return err
+			return fmt.Errorf("process completed step %s: %w", stepRun.StepRef, err)
 		}
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
 	case domain.StepFailed:
 		if err := s.handleFailedStep(ctx, stepRun); err != nil {
 			s.logger.Error("failed to process failed step", "step_ref", stepRun.StepRef, "error", err)
-			return err
+			return fmt.Errorf("process failed step %s: %w", stepRun.StepRef, err)
 		}
 		return nil
 	default:
@@ -207,7 +208,7 @@ func (s *StepCallback) scheduleStepRetry(ctx context.Context, jobRun *domain.Job
 	// Update job run to delayed status with next retry time
 	fields := map[string]any{
 		"next_retry_at": nextRetryAt,
-		"attempt":        newAttempt,
+		"attempt":       newAttempt,
 	}
 	if err := s.store.UpdateRunStatus(ctx, jobRun.ID, jobRun.Status, domain.StatusDelayed, fields); err != nil {
 		return fmt.Errorf("update job run status for retry: %w", err)
@@ -215,7 +216,6 @@ func (s *StepCallback) scheduleStepRetry(ctx context.Context, jobRun *domain.Job
 
 	return nil
 }
-
 
 func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.WorkflowStepRun) error {
 	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
@@ -265,7 +265,7 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
 	case domain.Continue:
 		if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
-			return err
+			return fmt.Errorf("fan-in for continue policy on step %s: %w", stepRun.StepRef, err)
 		}
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
 	default:
@@ -560,7 +560,7 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 
 	stepRun.Status = domain.StepCompleted
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
-		return err
+		return fmt.Errorf("fan-in after approval for step %s: %w", stepRef, err)
 	}
 
 	return s.checkWorkflowCompletion(ctx, workflowRunID)

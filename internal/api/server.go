@@ -283,10 +283,10 @@ func validateURL(rawURL string) error {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL must use http or https scheme")
+		return fmt.Errorf("url must use http or https scheme")
 	}
 	if u.Host == "" {
-		return fmt.Errorf("URL must have a host")
+		return fmt.Errorf("url must have a host")
 	}
 
 	// Block private/internal IPs (SSRF protection)
@@ -294,7 +294,7 @@ func validateURL(rawURL string) error {
 	ip := net.ParseIP(host)
 	if ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("URL must not point to private or loopback addresses")
+			return fmt.Errorf("url must not point to private or loopback addresses")
 		}
 	}
 

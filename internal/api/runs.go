@@ -117,10 +117,12 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		for _, child := range children {
 			if !child.Status.IsTerminal() {
-				_ = s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
+				if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
 					"finished_at": time.Now(),
 					"error":       "parent run canceled",
-				})
+				}); err != nil {
+					slog.Warn("failed to cancel child run", "child_run_id", child.ID, "error", err)
+				}
 			}
 		}
 	}

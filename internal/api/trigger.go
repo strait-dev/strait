@@ -44,6 +44,11 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Priority < 0 || req.Priority > 10 {
+		respondError(w, http.StatusBadRequest, "priority must be between 0 and 10")
+		return
+	}
+
 	idempotencyKey := r.Header.Get("X-Idempotency-Key")
 	if idempotencyKey == "" {
 		idempotencyKey = r.Header.Get("Idempotency-Key")

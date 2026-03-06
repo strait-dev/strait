@@ -118,7 +118,9 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 			"timestamp":  time.Now().UTC(),
 		})
 		channel := fmt.Sprintf("run:%s", runID)
-		_ = s.pubsub.Publish(r.Context(), channel, payload)
+		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
+			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+		}
 	}
 
 	respondJSON(w, http.StatusCreated, event)
@@ -194,10 +196,16 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 			"timestamp": now.UTC(),
 		})
 		channel := fmt.Sprintf("run:%s", runID)
-		_ = s.pubsub.Publish(r.Context(), channel, payload)
+		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
+			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+		}
 	}
 
-	updatedRun, _ := s.store.GetRun(r.Context(), runID)
+	updatedRun, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get updated run")
+		return
+	}
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
@@ -262,10 +270,16 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 			"timestamp": now.UTC(),
 		})
 		channel := fmt.Sprintf("run:%s", runID)
-		_ = s.pubsub.Publish(r.Context(), channel, payload)
+		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
+			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+		}
 	}
 
-	updatedRun, _ := s.store.GetRun(r.Context(), runID)
+	updatedRun, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get updated run")
+		return
+	}
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
