@@ -1,0 +1,78 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"time"
+
+	"orchestrator/internal/cli/styles"
+
+	"github.com/spf13/cobra"
+)
+
+func newListenCommand(state *appState) *cobra.Command {
+	var projectID string
+	var status string
+	var interval time.Duration
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "listen",
+		Short: "Watch for new runs in real time",
+		Long: `Continuously polls for new runs and prints them as they appear.
+
+Acts as a simple event stream for monitoring run creation and status changes.
+Deduplicates by run ID so each run appears only once (or when status changes).`,
+		Example: `  orchestrator listen --project proj_1
+  orchestrator listen --project proj_1 --status executing
+  orchestrator listen --interval 3s`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if projectID == "" {
+				projectID = state.opts.projectID
+			}
+			if projectID == "" {
+				return fmt.Errorf("project ID is required (use --project)")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			seen := make(map[string]string) // runID -> last seen status
+
+			for {
+				runs, err := cli.ListRuns(context.Background(), projectID, status, limit, nil)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[error] %v\n", err)
+					time.Sleep(interval)
+					continue
+				}
+
+				for i := len(runs) - 1; i >= 0; i-- {
+					run := runs[i]
+					lastStatus, known := seen[run.ID]
+					currentStatus := string(run.Status)
+
+					if !known || lastStatus != currentStatus {
+						seen[run.ID] = currentStatus
+						ts := run.CreatedAt.UTC().Format(time.RFC3339)
+						statusStr := styles.Status(currentStatus)
+						fmt.Fprintf(os.Stdout, "%s  %s  %s  attempt=%d  triggered_by=%s\n",
+							ts, run.ID, statusStr, run.Attempt, run.TriggeredBy)
+					}
+				}
+
+				time.Sleep(interval)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&projectID, "project", "", "project ID to watch")
+	cmd.Flags().StringVar(&status, "status", "", "filter by status")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval")
+	cmd.Flags().IntVar(&limit, "limit", 50, "max runs per poll")
+
+	return cmd
+}
