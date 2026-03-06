@@ -10,6 +10,7 @@ import (
 
 	"orchestrator/internal/domain"
 	storepkg "orchestrator/internal/store"
+	"orchestrator/internal/worker"
 
 	"go.opentelemetry.io/otel"
 )
@@ -24,6 +25,7 @@ type CallbackStore interface {
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]storepkg.StepDepResult, error)
+	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
@@ -34,8 +36,8 @@ type CallbackStore interface {
 	CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
-
 func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.Logger) *StepCallback {
 	if logger == nil {
 		logger = slog.Default()
@@ -78,6 +80,21 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	}
 	if stepErr, ok := fields["error"].(string); ok {
 		stepRun.Error = stepErr
+	}
+
+	// Check if step retry is needed before handling failure
+	if stepStatus == domain.StepFailed {
+		if shouldRetry, nextRetryAt, newAttempt, err := s.checkStepRetry(ctx, stepRun, run); err != nil {
+			s.logger.Error("failed to check step retry", "step_run_id", stepRun.ID, "error", err)
+			return fmt.Errorf("check step retry: %w", err)
+		} else if shouldRetry {
+			// Schedule retry for the job run
+			if err := s.scheduleStepRetry(ctx, run, stepRun, nextRetryAt, newAttempt); err != nil {
+				s.logger.Error("failed to schedule step retry", "step_run_id", stepRun.ID, "error", err)
+				return fmt.Errorf("schedule step retry: %w", err)
+			}
+			return nil
+		}
 	}
 
 	switch stepStatus {
@@ -125,6 +142,77 @@ func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[str
 		return domain.StepFailed, fields
 	}
 }
+
+func (s *StepCallback) checkStepRetry(ctx context.Context, stepRun *domain.WorkflowStepRun, jobRun *domain.JobRun) (bool, time.Time, int, error) {
+	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
+	if err != nil {
+		return false, time.Time{}, 0, fmt.Errorf("get workflow run: %w", err)
+	}
+
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return false, time.Time{}, 0, fmt.Errorf("list workflow steps: %w", err)
+	}
+
+	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
+	for _, st := range steps {
+		stepByRef[st.StepRef] = st
+	}
+
+	failedStep, ok := stepByRef[stepRun.StepRef]
+	if !ok {
+		return false, time.Time{}, 0, fmt.Errorf("step definition not found for %s", stepRun.StepRef)
+	}
+
+	// Check if retry is configured and attempts remain
+	retryMaxAttempts := failedStep.RetryMaxAttempts
+	if retryMaxAttempts <= 0 {
+		return false, time.Time{}, 0, nil
+	}
+
+	currentAttempt := stepRun.Attempt
+	if currentAttempt >= retryMaxAttempts {
+		s.logger.Debug("step retry exhausted", "step_ref", stepRun.StepRef, "attempt", currentAttempt, "max_attempts", retryMaxAttempts)
+		return false, time.Time{}, 0, nil
+	}
+
+	// Calculate next retry attempt and delay
+	newAttempt := currentAttempt + 1
+	retryBackoff := failedStep.RetryBackoff
+	retryInitialDelaySecs := failedStep.RetryInitialDelaySecs
+	retryMaxDelaySecs := failedStep.RetryMaxDelaySecs
+
+	nextRetryDelay := worker.NextRetryDelayWithPolicy(
+		newAttempt,
+		retryBackoff,
+		retryInitialDelaySecs,
+		retryMaxDelaySecs,
+	)
+	nextRetryAt := time.Now().Add(nextRetryDelay)
+
+	s.logger.Info("scheduling step retry", "step_ref", stepRun.StepRef, "attempt", currentAttempt, "next_attempt", newAttempt, "retry_at", nextRetryAt)
+
+	return true, nextRetryAt, newAttempt, nil
+}
+
+func (s *StepCallback) scheduleStepRetry(ctx context.Context, jobRun *domain.JobRun, stepRun *domain.WorkflowStepRun, nextRetryAt time.Time, newAttempt int) error {
+	// Increment step run attempt counter
+	if err := s.store.IncrementStepRunAttempt(ctx, stepRun.ID, newAttempt); err != nil {
+		return fmt.Errorf("increment step run attempt: %w", err)
+	}
+
+	// Update job run to delayed status with next retry time
+	fields := map[string]any{
+		"next_retry_at": nextRetryAt,
+		"attempt":        newAttempt,
+	}
+	if err := s.store.UpdateRunStatus(ctx, jobRun.ID, jobRun.Status, domain.StatusDelayed, fields); err != nil {
+		return fmt.Errorf("update job run status for retry: %w", err)
+	}
+
+	return nil
+}
+
 
 func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.WorkflowStepRun) error {
 	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)

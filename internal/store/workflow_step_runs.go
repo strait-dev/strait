@@ -27,13 +27,16 @@ func (q *Queries) CreateWorkflowStepRun(ctx context.Context, sr *domain.Workflow
 	if sr.Status == "" {
 		sr.Status = domain.StepPending
 	}
+	if sr.Attempt == 0 {
+		sr.Attempt = 1
+	}
 
 	query := `
 		INSERT INTO workflow_step_runs (
 			id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
-			deps_completed, deps_required, output, error, started_at, finished_at
+			deps_completed, deps_required, output, error, started_at, finished_at, attempt
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -51,6 +54,7 @@ func (q *Queries) CreateWorkflowStepRun(ctx context.Context, sr *domain.Workflow
 		dbscan.NilIfEmptyString(sr.Error),
 		sr.StartedAt,
 		sr.FinishedAt,
+		sr.Attempt,
 	).Scan(&sr.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step run: %w", err)
@@ -65,7 +69,7 @@ func (q *Queries) GetWorkflowStepRun(ctx context.Context, id string) (*domain.Wo
 
 	query := `
 		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
-		       deps_completed, deps_required, output, error, started_at, finished_at, created_at
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
 		FROM workflow_step_runs
 		WHERE id = $1`
 
@@ -86,7 +90,7 @@ func (q *Queries) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*d
 
 	query := `
 		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
-		       deps_completed, deps_required, output, error, started_at, finished_at, created_at
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
 		FROM workflow_step_runs
 		WHERE job_run_id = $1`
 
@@ -107,7 +111,7 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 
 	query := `
 		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
-		       deps_completed, deps_required, output, error, started_at, finished_at, created_at
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
 		FROM workflow_step_runs
 		WHERE workflow_run_id = $1
 		ORDER BY created_at ASC`
@@ -144,6 +148,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 		"error":       {},
 		"started_at":  {},
 		"finished_at": {},
+		"attempt":     {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -246,6 +251,26 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 	return results, nil
 }
 
+func (q *Queries) IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.IncrementStepRunAttempt")
+	defer span.End()
+
+	query := `
+		UPDATE workflow_step_runs
+		SET attempt = $1
+		WHERE id = $2
+		AND attempt = $3`
+
+	tag, err := q.db.Exec(ctx, query, newAttempt, id)
+	if err != nil {
+		return fmt.Errorf("increment step run attempt: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %s", ErrWorkflowStepRunNotFound, id)
+	}
+	return nil
+}
+
 func (q *Queries) GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetStepOutputs")
 	defer span.End()
@@ -287,6 +312,7 @@ func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 	var stepRunError *string
 	var startedAt *time.Time
 	var finishedAt *time.Time
+	var attempt int
 
 	err := scanner.Scan(
 		&sr.ID,
@@ -301,6 +327,7 @@ func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 		&stepRunError,
 		&startedAt,
 		&finishedAt,
+		&attempt,
 		&sr.CreatedAt,
 	)
 	if err != nil {
@@ -318,6 +345,7 @@ func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 	}
 	sr.StartedAt = startedAt
 	sr.FinishedAt = finishedAt
+	sr.Attempt = attempt
 
 	return &sr, nil
 }

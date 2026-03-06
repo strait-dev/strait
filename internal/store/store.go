@@ -138,6 +138,7 @@ type WorkflowStepRunStore interface {
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 }
 
 type Store interface {
