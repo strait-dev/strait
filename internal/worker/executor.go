@@ -595,7 +595,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 		req.Header.Set(key, value)
 	}
 
-	resp, err := e.httpClient.Do(req) //nolint:gosec // URL from validated job config
+	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		if e.metrics != nil {
 			e.metrics.DispatchErrors.Add(ctx, 1)

@@ -93,7 +93,7 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 			req.Header.Set(k, v)
 		}
 
-		resp, doErr := c.http.Do(req) //nolint:gosec // endpoint is configured by explicit CLI input and validated in constructor
+		resp, doErr := c.http.Do(req)
 		if doErr != nil {
 			return doErr
 		}

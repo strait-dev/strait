@@ -61,7 +61,7 @@ func ValidateAPIKey(ctx context.Context, serverURL, apiKey string, timeout time.
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := client.Do(req) //nolint:gosec // target host is explicit CLI input validated as http(s)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

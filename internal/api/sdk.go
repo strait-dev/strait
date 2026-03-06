@@ -172,7 +172,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.InsertEvent(r.Context(), event); err != nil {
-		slog.Error("failed to insert event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to insert event", "run_id", runID, "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to insert event")
 		return
 	}
@@ -237,7 +237,7 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.InsertEvent(r.Context(), event); err != nil {
-		slog.Error("failed to insert progress event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to insert progress event", "run_id", runID, "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to insert event")
 		return
 	}
@@ -325,7 +325,7 @@ func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	if err := s.store.UpdateHeartbeat(r.Context(), runID); err != nil {
-		slog.Error("failed to update heartbeat", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to update heartbeat", "run_id", runID, "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to update heartbeat")
 		return
 	}
@@ -533,7 +533,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 
 	err = s.store.UpdateRunStatus(r.Context(), runID, run.Status, domain.StatusCompleted, fields)
 	if err != nil {
-		slog.Error("failed to complete run", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to complete run", "run_id", runID, "error", err)
 		if errors.Is(err, store.ErrRunConflict) {
 			respondError(w, http.StatusConflict, "run status conflict")
 		} else {
@@ -546,11 +546,11 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		completedRun := *run
 		completedRun.Status = domain.StatusCompleted
 		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &completedRun); cbErr != nil {
-			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
+			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr)
 		}
 	}
 	if err := s.resumeWaitingParentIfReady(r.Context(), run); err != nil {
-		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err)
 	}
 
 	if s.pubsub != nil {
@@ -603,7 +603,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		"error":       req.Error,
 	})
 	if err != nil {
-		slog.Error("failed to fail run", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to fail run", "run_id", runID, "error", err)
 		if errors.Is(err, store.ErrRunConflict) {
 			respondError(w, http.StatusConflict, "run status conflict")
 		} else {
@@ -617,11 +617,11 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		failedRun.Status = domain.StatusFailed
 		failedRun.Error = req.Error
 		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &failedRun); cbErr != nil {
-			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
+			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr)
 		}
 	}
 	if err := s.resumeWaitingParentIfReady(r.Context(), run); err != nil {
-		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err)
 	}
 
 	if s.pubsub != nil {
@@ -681,7 +681,7 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	if parentRun.Status == domain.StatusExecuting {
 		if err := s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {
-			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err) //nolint:gosec // structured logging sanitizes values
+			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err)
 		}
 	}
 
