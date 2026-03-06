@@ -188,6 +188,8 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newExtensionCommand(state))
 	cmd.AddCommand(newListenCommand(state))
 	cmd.AddCommand(newDrainCommand(state))
+	cmd.AddCommand(newTraceCommand(state))
+	cmd.AddCommand(newUpgradeCommand())
 
 	rawArgs := os.Args[1:]
 	configPath := extractConfigPath(rawArgs)
@@ -271,6 +273,8 @@ func normalizeLegacyArgs(args []string) []string {
 		"extension":     {},
 		"listen":        {},
 		"drain":         {},
+		"trace":         {},
+		"upgrade":       {},
 	}
 
 	first := args[0]
@@ -328,6 +332,7 @@ func newVersionCommand(state *appState) *cobra.Command {
 	var short bool
 	var asJSON bool
 	var checkServer bool
+	var checkUpdate bool
 
 	cmd := &cobra.Command{
 		Use:   "version",
@@ -376,6 +381,25 @@ func newVersionCommand(state *appState) *cobra.Command {
 				fmt.Printf("server: %s\n", info["server"])
 			}
 
+			if checkUpdate {
+				latest, cached := getCachedUpdate()
+				if !cached {
+					latest = checkForUpdate()
+					if latest != "" {
+						setCachedUpdate(latest)
+					}
+				}
+				if latest != "" {
+					current := strings.TrimPrefix(version, "v")
+					if current == latest {
+						fmt.Println("update: up to date")
+					} else {
+						fmt.Printf("update: v%s available (current: v%s)\n", latest, current)
+					}
+				} else {
+					fmt.Println("update: check failed")
+				}
+			}
 			return nil
 		},
 	}
@@ -383,6 +407,7 @@ func newVersionCommand(state *appState) *cobra.Command {
 	cmd.Flags().BoolVar(&short, "short", false, "print only the version number")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print version information as JSON")
 	cmd.Flags().BoolVar(&checkServer, "check-server", false, "check configured server health endpoint")
+	cmd.Flags().BoolVar(&checkUpdate, "check-update", false, "check for newer CLI version")
 
 	return cmd
 }

@@ -20,6 +20,7 @@ func TestRootCommand_HasExpectedSubcommands(t *testing.T) {
 		"top", "tui", "validate", "apply", "diff", "export",
 		"db", "run", "send", "secrets", "fixtures",
 		"check", "cleanup", "extension", "listen", "drain",
+		"trace", "upgrade",
 	}
 
 	subs := make(map[string]bool)
@@ -161,7 +162,7 @@ func TestVersionCommand_Flags(t *testing.T) {
 	cmd := newRootCommand()
 	version := findSubcommand(t, cmd, "version")
 
-	for _, name := range []string{"short", "json", "check-server"} {
+	for _, name := range []string{"short", "json", "check-server", "check-update"} {
 		if version.Flags().Lookup(name) == nil {
 			t.Errorf("version missing --%s flag", name)
 		}
