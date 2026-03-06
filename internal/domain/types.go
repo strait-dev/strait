@@ -41,6 +41,7 @@ const (
 type Job struct {
 	ID                  string            `json:"id"`
 	ProjectID           string            `json:"project_id"`
+	GroupID             string            `json:"group_id,omitempty"`
 	Name                string            `json:"name"`
 	Slug                string            `json:"slug"`
 	Description         string            `json:"description,omitempty"`
@@ -64,6 +65,16 @@ type Job struct {
 	Version             int               `json:"version"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
+}
+
+type JobGroup struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type JobSecret struct {

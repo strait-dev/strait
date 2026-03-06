@@ -30,6 +30,12 @@ type APIStore interface {
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	ListJobs(ctx context.Context, projectID string) ([]domain.Job, error)
+	CreateJobGroup(ctx context.Context, group *domain.JobGroup) error
+	GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error)
+	ListJobGroups(ctx context.Context, projectID string) ([]domain.JobGroup, error)
+	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
+	DeleteJobGroup(ctx context.Context, id string) error
+	ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error)
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
 	UpdateJob(ctx context.Context, job *domain.Job) error
@@ -187,6 +193,17 @@ func (s *Server) routes() chi.Router {
 				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.Get("/versions", s.handleListJobVersions)
 				r.Post("/clone", s.handleCloneJob)
+			})
+		})
+
+		r.Route("/job-groups", func(r chi.Router) {
+			r.Post("/", s.handleCreateJobGroup)
+			r.Get("/", s.handleListJobGroups)
+			r.Route("/{groupID}", func(r chi.Router) {
+				r.Get("/", s.handleGetJobGroup)
+				r.Patch("/", s.handleUpdateJobGroup)
+				r.Delete("/", s.handleDeleteJobGroup)
+				r.Get("/jobs", s.handleListJobsByGroup)
 			})
 		})
 

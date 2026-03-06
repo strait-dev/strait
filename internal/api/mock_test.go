@@ -18,6 +18,12 @@ type mockAPIStore struct {
 	getJobFn                    func(ctx context.Context, id string) (*domain.Job, error)
 	getJobBySlugFn              func(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	listJobsFn                  func(ctx context.Context, projectID string) ([]domain.Job, error)
+	createJobGroupFn            func(ctx context.Context, group *domain.JobGroup) error
+	getJobGroupFn               func(ctx context.Context, id string) (*domain.JobGroup, error)
+	listJobGroupsFn             func(ctx context.Context, projectID string) ([]domain.JobGroup, error)
+	updateJobGroupFn            func(ctx context.Context, group *domain.JobGroup) error
+	deleteJobGroupFn            func(ctx context.Context, id string) error
+	listJobsByGroupFn           func(ctx context.Context, groupID string) ([]domain.Job, error)
 	listJobSecretsFn            func(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
 	listJobsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
 	updateJobFn                 func(ctx context.Context, job *domain.Job) error
@@ -102,6 +108,48 @@ func (m *mockAPIStore) GetJobBySlug(ctx context.Context, projectID, slug string)
 func (m *mockAPIStore) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateJobGroup(ctx context.Context, group *domain.JobGroup) error {
+	if m.createJobGroupFn != nil {
+		return m.createJobGroupFn(ctx, group)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error) {
+	if m.getJobGroupFn != nil {
+		return m.getJobGroupFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListJobGroups(ctx context.Context, projectID string) ([]domain.JobGroup, error) {
+	if m.listJobGroupsFn != nil {
+		return m.listJobGroupsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error {
+	if m.updateJobGroupFn != nil {
+		return m.updateJobGroupFn(ctx, group)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteJobGroup(ctx context.Context, id string) error {
+	if m.deleteJobGroupFn != nil {
+		return m.deleteJobGroupFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error) {
+	if m.listJobsByGroupFn != nil {
+		return m.listJobsByGroupFn(ctx, groupID)
 	}
 	return nil, nil
 }

@@ -294,6 +294,167 @@ func TestHandleListJobs_MissingProjectID(t *testing.T) {
 	}
 }
 
+func TestHandleCreateJobGroup_Success(t *testing.T) {
+	var created atomic.Bool
+	ms := &mockAPIStore{
+		createJobGroupFn: func(_ context.Context, group *domain.JobGroup) error {
+			created.Store(true)
+			group.ID = "group-123"
+			group.CreatedAt = time.Now()
+			group.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobGroups = true
+
+	body := `{
+		"project_id": "proj-1",
+		"name": "Core Jobs",
+		"slug": "core-jobs"
+	}`
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !created.Load() {
+		t.Fatal("CreateJobGroup was not called")
+	}
+}
+
+func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFJobGroups = true
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateJobGroup_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{"project_id":"proj-1","name":"Core","slug":"core"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetJobGroup_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobGroupFn: func(_ context.Context, id string) (*domain.JobGroup, error) {
+			return &domain.JobGroup{ID: id, ProjectID: "proj-1", Name: "Core", Slug: "core"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobGroups = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetJobGroup_NotFound(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobGroupFn: func(_ context.Context, _ string) (*domain.JobGroup, error) {
+			return nil, store.ErrJobGroupNotFound
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobGroups = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/missing", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleListJobGroups_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		listJobGroupsFn: func(_ context.Context, projectID string) ([]domain.JobGroup, error) {
+			return []domain.JobGroup{
+				{ID: "group-1", ProjectID: projectID, Name: "Core", Slug: "core"},
+				{ID: "group-2", ProjectID: projectID, Name: "Ops", Slug: "ops"},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobGroups = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/?project_id=proj-1", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(resp) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(resp))
+	}
+}
+
+func TestHandleDeleteJobGroup_Success(t *testing.T) {
+	var deletedID string
+	ms := &mockAPIStore{
+		deleteJobGroupFn: func(_ context.Context, id string) error {
+			deletedID = id
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobGroups = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/job-groups/group-123", ""))
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if deletedID != "group-123" {
+		t.Fatalf("expected group id group-123, got %q", deletedID)
+	}
+}
+
+func TestHandleListJobsByGroup_Success(t *testing.T) {
+	ms := &mockAPIStore{
+		listJobsByGroupFn: func(_ context.Context, groupID string) ([]domain.Job, error) {
+			return []domain.Job{{ID: "job-1", GroupID: groupID, ProjectID: "proj-1", Name: "Job 1"}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFJobGroups = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1/jobs", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp))
+	}
+}
+
 func TestHandleListJobs_FilterByTag(t *testing.T) {
 	ms := &mockAPIStore{
 		listJobsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {

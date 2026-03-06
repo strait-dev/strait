@@ -15,6 +15,7 @@ import (
 
 var (
 	ErrJobNotFound             = errors.New("job not found")
+	ErrJobGroupNotFound        = errors.New("job group not found")
 	ErrJobSecretNotFound       = errors.New("job secret not found")
 	ErrRunNotFound             = errors.New("run not found")
 	ErrRunConflict             = errors.New("run status update conflict")
@@ -41,6 +42,15 @@ type JobStore interface {
 	GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
+}
+
+type JobGroupStore interface {
+	CreateJobGroup(ctx context.Context, group *domain.JobGroup) error
+	GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error)
+	ListJobGroups(ctx context.Context, projectID string) ([]domain.JobGroup, error)
+	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
+	DeleteJobGroup(ctx context.Context, id string) error
+	ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error)
 }
 
 type JobSecretStore interface {
@@ -167,6 +177,7 @@ type WorkflowStepRunStore interface {
 
 type Store interface {
 	JobStore
+	JobGroupStore
 	JobSecretStore
 	RunStore
 	EventStore

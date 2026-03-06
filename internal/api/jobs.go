@@ -15,6 +15,7 @@ import (
 
 type CreateJobRequest struct {
 	ProjectID           string            `json:"project_id"`
+	GroupID             string            `json:"group_id,omitempty"`
 	Name                string            `json:"name"`
 	Slug                string            `json:"slug"`
 	Description         string            `json:"description,omitempty"`
@@ -37,6 +38,7 @@ type CreateJobRequest struct {
 type UpdateJobRequest struct {
 	Name                *string            `json:"name,omitempty"`
 	Slug                *string            `json:"slug,omitempty"`
+	GroupID             *string            `json:"group_id,omitempty"`
 	Description         *string            `json:"description,omitempty"`
 	Cron                *string            `json:"cron,omitempty"`
 	PayloadSchema       *json.RawMessage   `json:"payload_schema,omitempty"`
@@ -114,6 +116,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	job := &domain.Job{
 		ProjectID:           req.ProjectID,
+		GroupID:             req.GroupID,
 		Name:                req.Name,
 		Slug:                req.Slug,
 		Description:         req.Description,
@@ -232,6 +235,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Slug != nil {
 		job.Slug = *req.Slug
+	}
+	if req.GroupID != nil {
+		job.GroupID = *req.GroupID
 	}
 	if req.Description != nil {
 		job.Description = *req.Description
@@ -356,6 +362,7 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 
 	clone := &domain.Job{
 		ProjectID:           source.ProjectID,
+		GroupID:             source.GroupID,
 		Name:                req.Name,
 		Slug:                req.Slug,
 		Description:         source.Description,
@@ -483,6 +490,7 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 
 		job := &domain.Job{
 			ProjectID:           jobReq.ProjectID,
+			GroupID:             jobReq.GroupID,
 			Name:                jobReq.Name,
 			Slug:                jobReq.Slug,
 			Description:         jobReq.Description,
