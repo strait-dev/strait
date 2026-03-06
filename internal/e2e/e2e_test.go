@@ -66,6 +66,11 @@ func TestMain(m *testing.M) {
 		FFJobDependencies:        true,
 		FFJobHealthScoring:       true,
 		FFExecutionTracing:       true,
+		FFRunDLQ:                 true,
+		FFDebugBundle:            true,
+		FFRunContinuation:        true,
+		FFAdaptiveTimeout:        true,
+		FFCheckpoints:            true,
 	}, testStore, testQueue, nil, nil, nil, nil, nil)
 
 	code := m.Run()
