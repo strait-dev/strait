@@ -1513,7 +1513,7 @@ func TestAPIKey_CRUD(t *testing.T) {
 	mustClean(t, ctx)
 
 	projectID := "project-api-key-crud"
-	expiresAt := time.Now().UTC().Add(2 * time.Hour)
+	expiresAt := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Microsecond)
 	key1 := &domain.APIKey{
 		ProjectID: projectID,
 		Name:      "primary",
@@ -2434,9 +2434,6 @@ func TestGetJobHealthStats(t *testing.T) {
 
 	job := mustCreateJob(t, ctx, q, "project-health-stats")
 
-	if _, err := testDB.Pool.Exec(ctx, `ALTER TABLE job_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`); err != nil {
-		t.Fatalf("ALTER TABLE job_runs add completed_at error = %v", err)
-	}
 
 	now := time.Now().UTC()
 	since := now.Add(-time.Hour)
@@ -2463,21 +2460,19 @@ func TestGetJobHealthStats(t *testing.T) {
 	for i, fixture := range fixtures {
 		runID := newID()
 		var startedAt any
-		var completedAt any
 		var finishedAt any
 		if fixture.setTimes {
 			start := now.Add(fixture.startOffset)
 			end := now.Add(fixture.endOffset)
 			startedAt = start
-			completedAt = end
 			finishedAt = end
 		}
 
 		if _, err := testDB.Pool.Exec(ctx, `
 			INSERT INTO job_runs (
-				id, job_id, project_id, status, attempt, payload, triggered_by, created_at, started_at, completed_at, finished_at
-			) VALUES ($1, $2, $3, $4, 1, '{}'::jsonb, 'manual', $5, $6, $7, $8)
-		`, runID, job.ID, job.ProjectID, fixture.status, fixture.createdAt, startedAt, completedAt, finishedAt); err != nil {
+				id, job_id, project_id, status, attempt, payload, triggered_by, created_at, started_at, finished_at
+			) VALUES ($1, $2, $3, $4, 1, '{}'::jsonb, 'manual', $5, $6, $7)
+		`, runID, job.ID, job.ProjectID, fixture.status, fixture.createdAt, startedAt, finishedAt); err != nil {
 			t.Fatalf("insert job_runs fixture %d error = %v", i, err)
 		}
 	}

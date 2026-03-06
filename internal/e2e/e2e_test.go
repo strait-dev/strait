@@ -496,9 +496,9 @@ func TestE2E_PriorityOrdering(t *testing.T) {
 	job := createJob(t, projectID, "Priority", "priority-"+newID())
 	jobID := asString(t, job, "id")
 
-	run0 := triggerJob(t, jobID, `{"priority":0}`, "")
-	run10 := triggerJob(t, jobID, `{"priority":10}`, "")
-	run5 := triggerJob(t, jobID, `{"priority":5}`, "")
+	run0 := triggerJob(t, jobID, `{"payload":{},"priority":0}`, "")
+	run10 := triggerJob(t, jobID, `{"payload":{},"priority":10}`, "")
+	run5 := triggerJob(t, jobID, `{"payload":{},"priority":5}`, "")
 
 	_ = run0
 	_ = run5

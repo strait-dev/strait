@@ -130,7 +130,10 @@ func (q *Queries) DeleteJobGroup(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteJobGroup")
 	defer span.End()
 
-	query := `DELETE FROM job_groups WHERE id = $1`
+	query := `WITH nullify AS (
+		UPDATE jobs SET group_id = NULL WHERE group_id = $1
+	)
+	DELETE FROM job_groups WHERE id = $1`
 	tag, err := q.db.Exec(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("delete job group: %w", err)

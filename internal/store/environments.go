@@ -210,7 +210,7 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 	}
 
 	if rowCount == 0 {
-		return nil, fmt.Errorf("resolve environment variables: environment not found")
+		return nil, fmt.Errorf("resolve environment variables: %w", ErrEnvironmentNotFound)
 	}
 
 	if rowCount >= maxDepth && lastParentID != nil && *lastParentID != "" {

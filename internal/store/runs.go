@@ -192,11 +192,11 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 			COUNT(*) FILTER (WHERE status IN ('crashed', 'system_failed')) AS crashed_runs,
 			COUNT(*) FILTER (WHERE status = 'canceled') AS canceled_runs,
 			COALESCE(
-				AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL),
+				AVG(EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
 				0
 			) AS avg_duration_secs,
 			COALESCE(
-				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at))) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL),
+				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
 				0
 			) AS p95_duration_secs
 		FROM job_runs
