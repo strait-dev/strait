@@ -1814,3 +1814,157 @@ func TestHandleTriggerWorkflowWithStepOverrides(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleCloneWorkflow(t *testing.T) {
+	t.Run("success with defaults", func(t *testing.T) {
+		stepsCopied := 0
+		snapshotCreated := false
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{
+					ID:          id,
+					ProjectID:   "proj-1",
+					Name:        "Original",
+					Slug:        "original",
+					Enabled:     true,
+					TimeoutSecs: 300,
+				}, nil
+			},
+			listStepsByWorkflowFn: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
+				if workflowID != "wf-1" {
+					t.Fatalf("expected source wf-1, got %s", workflowID)
+				}
+				return []domain.WorkflowStep{
+					{ID: "step-a", WorkflowID: workflowID, JobID: "job-a", StepRef: "a"},
+					{ID: "step-b", WorkflowID: workflowID, JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+				}, nil
+			},
+			createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
+				wf.ID = "wf-clone"
+				if wf.Name != "Original (copy)" {
+					t.Fatalf("expected default name 'Original (copy)', got %q", wf.Name)
+				}
+				if wf.Slug != "original-copy" {
+					t.Fatalf("expected default slug 'original-copy', got %q", wf.Slug)
+				}
+				if wf.TimeoutSecs != 300 {
+					t.Fatalf("expected timeout 300, got %d", wf.TimeoutSecs)
+				}
+				return nil
+			},
+			createWorkflowStepFn: func(_ context.Context, step *domain.WorkflowStep) error {
+				if step.WorkflowID != "wf-clone" {
+					t.Fatalf("cloned step should belong to wf-clone, got %s", step.WorkflowID)
+				}
+				stepsCopied++
+				return nil
+			},
+			createWorkflowSnapshotFn: func(_ context.Context, workflowID string, _ int) error {
+				if workflowID != "wf-clone" {
+					t.Fatalf("snapshot for wrong workflow: %s", workflowID)
+				}
+				snapshotCreated = true
+				return nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", `{}`))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+		if stepsCopied != 2 {
+			t.Fatalf("expected 2 steps copied, got %d", stepsCopied)
+		}
+		if !snapshotCreated {
+			t.Fatal("expected version snapshot to be created")
+		}
+	})
+
+	t.Run("success with custom name and slug", func(t *testing.T) {
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Original", Slug: "original", Enabled: true}, nil
+			},
+			listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "s1", StepRef: "a", JobID: "j1"}}, nil
+			},
+			createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
+				wf.ID = "wf-new"
+				if wf.Name != "Custom Name" {
+					t.Fatalf("expected name 'Custom Name', got %q", wf.Name)
+				}
+				if wf.Slug != "custom-slug" {
+					t.Fatalf("expected slug 'custom-slug', got %q", wf.Slug)
+				}
+				if wf.ProjectID != "proj-2" {
+					t.Fatalf("expected project proj-2, got %s", wf.ProjectID)
+				}
+				return nil
+			},
+			createWorkflowStepFn: func(_ context.Context, _ *domain.WorkflowStep) error {
+				return nil
+			},
+			createWorkflowSnapshotFn: func(_ context.Context, _ string, _ int) error {
+				return nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		body := `{"name":"Custom Name","slug":"custom-slug","project_id":"proj-2"}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", body))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("source workflow not found", func(t *testing.T) {
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return nil, store.ErrWorkflowNotFound
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-missing/clone", `{}`))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("empty body uses defaults", func(t *testing.T) {
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Wf", Slug: "wf", Enabled: true}, nil
+			},
+			listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+				return nil, nil
+			},
+			createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
+				wf.ID = "wf-c"
+				if wf.Name != "Wf (copy)" {
+					t.Fatalf("expected 'Wf (copy)', got %q", wf.Name)
+				}
+				return nil
+			},
+			createWorkflowSnapshotFn: func(_ context.Context, _ string, _ int) error {
+				return nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		// Send without body — handler should handle gracefully.
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", ""))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}

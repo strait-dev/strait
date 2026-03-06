@@ -222,6 +222,7 @@ func (s *Server) routes() chi.Router {
 				r.Post("/dry-run", s.handleDryRunWorkflow)
 				r.Get("/graph", s.handleWorkflowGraph)
 				r.Post("/trigger", s.handleTriggerWorkflow)
+				r.Post("/clone", s.handleCloneWorkflow)
 				r.Get("/runs", s.handleListWorkflowRuns)
 			})
 		})

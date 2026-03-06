@@ -558,3 +558,102 @@ func validateWorkflowConfig(cronExpr, cronTimezone string, maxParallelSteps int)
 	}
 	return nil
 }
+
+type cloneWorkflowRequest struct {
+	Name      string `json:"name,omitempty"`
+	Slug      string `json:"slug,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
+	sourceID := chi.URLParam(r, "workflowID")
+
+	sourceWf, err := s.store.GetWorkflow(r.Context(), sourceID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			respondError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+
+	var req cloneWorkflowRequest
+	if err := decodeJSON(r, &req); err != nil {
+		// Body is optional for clone — use defaults.
+		req = cloneWorkflowRequest{}
+	}
+
+	newName := sourceWf.Name + " (copy)"
+	if req.Name != "" {
+		newName = req.Name
+	}
+	newSlug := sourceWf.Slug + "-copy"
+	if req.Slug != "" {
+		newSlug = req.Slug
+	}
+	projectID := sourceWf.ProjectID
+	if req.ProjectID != "" {
+		projectID = req.ProjectID
+	}
+
+	newWf := &domain.Workflow{
+		ProjectID:         projectID,
+		Name:              newName,
+		Slug:              newSlug,
+		Description:       sourceWf.Description,
+		Enabled:           sourceWf.Enabled,
+		TimeoutSecs:       sourceWf.TimeoutSecs,
+		MaxConcurrentRuns: sourceWf.MaxConcurrentRuns,
+		MaxParallelSteps:  sourceWf.MaxParallelSteps,
+		Cron:              sourceWf.Cron,
+		CronTimezone:      sourceWf.CronTimezone,
+		SkipIfRunning:     sourceWf.SkipIfRunning,
+	}
+	if err := s.store.CreateWorkflow(r.Context(), newWf); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create cloned workflow")
+		return
+	}
+
+	sourceSteps, err := s.store.ListStepsByWorkflow(r.Context(), sourceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list source workflow steps")
+		return
+	}
+
+	newSteps := make([]domain.WorkflowStep, 0, len(sourceSteps))
+	for _, src := range sourceSteps {
+		step := domain.WorkflowStep{
+			WorkflowID:            newWf.ID,
+			JobID:                 src.JobID,
+			StepRef:               src.StepRef,
+			DependsOn:             src.DependsOn,
+			Condition:             src.Condition,
+			OnFailure:             src.OnFailure,
+			Payload:               src.Payload,
+			StepType:              src.StepType,
+			ApprovalTimeoutSecs:   src.ApprovalTimeoutSecs,
+			ApprovalApprovers:     src.ApprovalApprovers,
+			RetryMaxAttempts:      src.RetryMaxAttempts,
+			RetryBackoff:          src.RetryBackoff,
+			RetryInitialDelaySecs: src.RetryInitialDelaySecs,
+			RetryMaxDelaySecs:     src.RetryMaxDelaySecs,
+			TimeoutSecsOverride:   src.TimeoutSecsOverride,
+			OutputTransform:       src.OutputTransform,
+			SubWorkflowID:         src.SubWorkflowID,
+			MaxNestingDepth:       src.MaxNestingDepth,
+		}
+		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to create cloned workflow step")
+			return
+		}
+		newSteps = append(newSteps, step)
+	}
+
+	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), newWf.ID, newWf.Version); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to snapshot cloned workflow version")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, workflowResponse{Workflow: newWf, Steps: newSteps})
+}
