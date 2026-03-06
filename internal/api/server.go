@@ -80,6 +80,7 @@ type APIStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	DeleteJobSecret(ctx context.Context, id string) error
+	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
 }
 
 // Pinger checks service health.
@@ -174,6 +175,9 @@ func (s *Server) routes() chi.Router {
 		r.Route("/jobs", func(r chi.Router) {
 			r.Post("/", s.handleCreateJob)
 			r.Get("/", s.handleListJobs)
+			r.Post("/batch", s.handleBatchCreateJobs)
+			r.Post("/batch-enable", s.handleBatchEnableJobs)
+			r.Post("/batch-disable", s.handleBatchDisableJobs)
 
 			r.Route("/{jobID}", func(r chi.Router) {
 				r.Get("/", s.handleGetJob)

@@ -68,6 +68,7 @@ type mockAPIStore struct {
 	updateWorkflowRunStatusFn   func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn       func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	deleteJobSecretFn           func(ctx context.Context, id string) error
+	batchUpdateJobsEnabledFn    func(ctx context.Context, ids []string, enabled bool) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -453,6 +454,13 @@ func (m *mockAPIStore) DeleteJobSecret(ctx context.Context, id string) error {
 		return m.deleteJobSecretFn(ctx, id)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error) {
+	if m.batchUpdateJobsEnabledFn != nil {
+		return m.batchUpdateJobsEnabledFn(ctx, ids, enabled)
+	}
+	return 0, nil
 }
 
 // mockQueue implements queue.Queue for testing.

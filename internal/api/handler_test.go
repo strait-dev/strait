@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -826,5 +827,269 @@ func TestHandleCloneJob_MissingFields(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// Batch Job Definition Ops (2.38).
+
+func TestHandleBatchCreateJobs_Success(t *testing.T) {
+	createdCount := 0
+	ms := &mockAPIStore{
+		createJobFn: func(_ context.Context, job *domain.Job) error {
+			createdCount++
+			job.ID = fmt.Sprintf("job-%d", createdCount)
+			job.CreatedAt = time.Now()
+			job.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	body := `{"jobs":[
+		{"project_id":"proj-1","name":"Job A","slug":"job-a","endpoint_url":"https://example.com/a"},
+		{"project_id":"proj-1","name":"Job B","slug":"job-b","endpoint_url":"https://example.com/b"}
+	]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+	if createdCount != 2 {
+		t.Fatalf("expected 2 jobs created, got %d", createdCount)
+	}
+
+	var resp BatchCreateJobsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Created) != 2 {
+		t.Fatalf("expected 2 created, got %d", len(resp.Created))
+	}
+	if len(resp.Errors) != 0 {
+		t.Fatalf("expected 0 errors, got %d", len(resp.Errors))
+	}
+}
+
+func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
+	ms := &mockAPIStore{
+		createJobFn: func(_ context.Context, job *domain.Job) error {
+			job.ID = "job-ok"
+			job.CreatedAt = time.Now()
+			job.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	// First job valid, second missing required fields
+	body := `{"jobs":[
+		{"project_id":"proj-1","name":"Job A","slug":"job-a","endpoint_url":"https://example.com/a"},
+		{"project_id":"","name":"","slug":"","endpoint_url":""}
+	]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp BatchCreateJobsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Created) != 1 {
+		t.Fatalf("expected 1 created, got %d", len(resp.Created))
+	}
+	if len(resp.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(resp.Errors))
+	}
+	if resp.Errors[0].Index != 1 {
+		t.Fatalf("expected error at index 1, got %d", resp.Errors[0].Index)
+	}
+}
+
+func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	body := `{"jobs":[
+		{"project_id":"","name":"","slug":"","endpoint_url":""},
+		{"project_id":"","name":"","slug":"","endpoint_url":""}
+	]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", `{"jobs":[]}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleBatchCreateJobs_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	// FFBatchJobOps defaults to false
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", `{"jobs":[{"project_id":"p","name":"n","slug":"s","endpoint_url":"https://example.com"}]}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "batch job operations feature is not enabled") {
+		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	jobs := make([]map[string]string, 51)
+	for i := range jobs {
+		jobs[i] = map[string]string{
+			"project_id":   "proj-1",
+			"name":         fmt.Sprintf("Job %d", i),
+			"slug":         fmt.Sprintf("job-%d", i),
+			"endpoint_url": "https://example.com/hook",
+		}
+	}
+	body, _ := json.Marshal(map[string]any{"jobs": jobs})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", string(body)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "too many jobs in batch") {
+		t.Fatalf("expected too-many error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleBatchEnableJobs_Success(t *testing.T) {
+	var capturedEnabled bool
+	var capturedIDs []string
+	ms := &mockAPIStore{
+		batchUpdateJobsEnabledFn: func(_ context.Context, ids []string, enabled bool) (int64, error) {
+			capturedIDs = ids
+			capturedEnabled = enabled
+			return int64(len(ids)), nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1","job-2","job-3"]}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !capturedEnabled {
+		t.Fatal("expected enabled=true")
+	}
+	if len(capturedIDs) != 3 {
+		t.Fatalf("expected 3 ids, got %d", len(capturedIDs))
+	}
+
+	var resp BatchUpdateResult
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Updated != 3 {
+		t.Fatalf("expected updated=3, got %d", resp.Updated)
+	}
+}
+
+func TestHandleBatchDisableJobs_Success(t *testing.T) {
+	var capturedEnabled bool
+	ms := &mockAPIStore{
+		batchUpdateJobsEnabledFn: func(_ context.Context, ids []string, enabled bool) (int64, error) {
+			capturedEnabled = enabled
+			return int64(len(ids)), nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-disable", `{"ids":["job-1","job-2"]}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if capturedEnabled {
+		t.Fatal("expected enabled=false")
+	}
+
+	var resp BatchUpdateResult
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Updated != 2 {
+		t.Fatalf("expected updated=2, got %d", resp.Updated)
+	}
+}
+
+func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":[]}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "ids array is required") {
+		t.Fatalf("expected empty-ids error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleBatchEnableJobs_FeatureDisabled(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1"]}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "batch job operations feature is not enabled") {
+		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	srv.config.FFBatchJobOps = true
+
+	ids := make([]string, 51)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("job-%d", i)
+	}
+	body, _ := json.Marshal(map[string]any{"ids": ids})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-disable", string(body)))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "too many ids in batch") {
+		t.Fatalf("expected too-many error, got %s", w.Body.String())
 	}
 }

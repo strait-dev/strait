@@ -253,6 +253,23 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 	return nil
 }
 
+func (q *Queries) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.BatchUpdateJobsEnabled")
+	defer span.End()
+
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	query := `UPDATE jobs SET enabled = $1, updated_at = NOW() WHERE id = ANY($2)`
+	tag, err := q.db.Exec(ctx, query, enabled, ids)
+	if err != nil {
+		return 0, fmt.Errorf("batch update jobs enabled: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
 func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListCronJobs")
 	defer span.End()

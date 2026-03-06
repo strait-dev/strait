@@ -403,3 +403,178 @@ func validateTags(tags map[string]string) error {
 	}
 	return nil
 }
+
+// Batch job definition operations (2.38).
+
+const maxBatchSize = 50
+
+type BatchCreateJobsRequest struct {
+	Jobs []CreateJobRequest `json:"jobs"`
+}
+
+type BatchCreateJobsResponse struct {
+	Created []domain.Job `json:"created"`
+	Errors  []BatchError `json:"errors,omitempty"`
+}
+
+type BatchError struct {
+	Index   int    `json:"index"`
+	Message string `json:"message"`
+}
+
+type BatchJobIDsRequest struct {
+	IDs []string `json:"ids"`
+}
+
+type BatchUpdateResult struct {
+	Updated int64 `json:"updated"`
+}
+
+func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFBatchJobOps {
+		respondError(w, http.StatusBadRequest, "batch job operations feature is not enabled")
+		return
+	}
+
+	var req BatchCreateJobsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Jobs) == 0 {
+		respondError(w, http.StatusBadRequest, "jobs array is required and must not be empty")
+		return
+	}
+	if len(req.Jobs) > maxBatchSize {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("too many jobs in batch (max %d)", maxBatchSize))
+		return
+	}
+
+	var resp BatchCreateJobsResponse
+	for i, jobReq := range req.Jobs {
+		if jobReq.ProjectID == "" || jobReq.Name == "" || jobReq.Slug == "" || jobReq.EndpointURL == "" {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "missing required fields"})
+			continue
+		}
+
+		if err := validateURL(jobReq.EndpointURL); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid endpoint_url: " + err.Error()})
+			continue
+		}
+
+		if jobReq.MaxAttempts == 0 {
+			jobReq.MaxAttempts = 3
+		}
+		if jobReq.TimeoutSecs == 0 {
+			jobReq.TimeoutSecs = 300
+		}
+
+		if len(jobReq.Tags) > 0 && !s.config.FFJobTags {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "job tags feature is not enabled"})
+			continue
+		}
+		if len(jobReq.Tags) > 0 {
+			if err := validateTags(jobReq.Tags); err != nil {
+				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+				continue
+			}
+		}
+
+		job := &domain.Job{
+			ProjectID:           jobReq.ProjectID,
+			Name:                jobReq.Name,
+			Slug:                jobReq.Slug,
+			Description:         jobReq.Description,
+			Cron:                jobReq.Cron,
+			PayloadSchema:       jobReq.PayloadSchema,
+			Tags:                jobReq.Tags,
+			EndpointURL:         jobReq.EndpointURL,
+			FallbackEndpointURL: jobReq.FallbackEndpointURL,
+			MaxAttempts:         jobReq.MaxAttempts,
+			TimeoutSecs:         jobReq.TimeoutSecs,
+			MaxConcurrency:      jobReq.MaxConcurrency,
+			ExecutionWindowCron: jobReq.ExecutionWindowCron,
+			Timezone:            jobReq.Timezone,
+			RateLimitMax:        jobReq.RateLimitMax,
+			RateLimitWindowSecs: jobReq.RateLimitWindowSecs,
+			DedupWindowSecs:     jobReq.DedupWindowSecs,
+			RunTTLSecs:          jobReq.RunTTLSecs,
+			Enabled:             true,
+		}
+
+		if err := s.store.CreateJob(r.Context(), job); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "failed to create job"})
+			continue
+		}
+
+		resp.Created = append(resp.Created, *job)
+	}
+
+	if len(resp.Created) == 0 && len(resp.Errors) > 0 {
+		respondJSON(w, http.StatusBadRequest, resp)
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, resp)
+}
+
+func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFBatchJobOps {
+		respondError(w, http.StatusBadRequest, "batch job operations feature is not enabled")
+		return
+	}
+
+	var req BatchJobIDsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		respondError(w, http.StatusBadRequest, "ids array is required and must not be empty")
+		return
+	}
+	if len(req.IDs) > maxBatchSize {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
+		return
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(r.Context(), req.IDs, true)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to enable jobs")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, BatchUpdateResult{Updated: updated})
+}
+
+func (s *Server) handleBatchDisableJobs(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFBatchJobOps {
+		respondError(w, http.StatusBadRequest, "batch job operations feature is not enabled")
+		return
+	}
+
+	var req BatchJobIDsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		respondError(w, http.StatusBadRequest, "ids array is required and must not be empty")
+		return
+	}
+	if len(req.IDs) > maxBatchSize {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
+		return
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(r.Context(), req.IDs, false)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to disable jobs")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, BatchUpdateResult{Updated: updated})
+}

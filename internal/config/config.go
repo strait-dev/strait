@@ -82,6 +82,7 @@ type Config struct {
 	FFRunRetention     bool `mapstructure:"FF_RUN_RETENTION"`
 	FFExecutionTracing bool `mapstructure:"FF_EXECUTION_TRACING"`
 	FFDebugBundle      bool `mapstructure:"FF_DEBUG_BUNDLE"`
+	FFBatchJobOps      bool `mapstructure:"FF_BATCH_JOB_OPS"`
 }
 
 func Load() (*Config, error) {
@@ -132,6 +133,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_RUN_RETENTION", false)
 	viper.SetDefault("FF_EXECUTION_TRACING", false)
 	viper.SetDefault("FF_DEBUG_BUNDLE", false)
+	viper.SetDefault("FF_BATCH_JOB_OPS", false)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 
 	viper.AutomaticEnv()
