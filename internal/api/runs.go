@@ -347,7 +347,7 @@ func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DebugMode bool `json:"debug_mode"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

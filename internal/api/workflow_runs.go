@@ -291,7 +291,7 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req approveWorkflowStepRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -344,7 +344,7 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req skipStepRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -385,7 +385,7 @@ func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.
 	}
 
 	var req forceCompleteStepRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

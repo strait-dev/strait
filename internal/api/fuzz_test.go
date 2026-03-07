@@ -27,7 +27,8 @@ func FuzzDecodeJSON(f *testing.F) {
 
 		var target map[string]any
 		// decodeJSON should never panic regardless of input
-		_ = decodeJSON(r, &target)
+		srv := &Server{maxRequestBodySize: 1048576}
+		_ = srv.decodeJSON(r, &target)
 	})
 }
 

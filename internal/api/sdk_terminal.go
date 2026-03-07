@@ -22,7 +22,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Result json.RawMessage `json:"result,omitempty"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -101,7 +101,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Error string `json:"error" validate:"required"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -180,7 +180,7 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		ProjectID string          `json:"project_id" validate:"required"`
 		Payload   json.RawMessage `json:"payload,omitempty"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -242,7 +242,7 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Payload json.RawMessage `json:"payload,omitempty"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

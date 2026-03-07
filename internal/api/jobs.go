@@ -66,7 +66,7 @@ type UpdateJobRequest struct {
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	var req CreateJobRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -237,7 +237,7 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req UpdateJobRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -408,7 +408,7 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CloneJobRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -523,7 +523,7 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req BatchCreateJobsRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -621,7 +621,7 @@ func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req BatchJobIDsRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -651,7 +651,7 @@ func (s *Server) handleBatchDisableJobs(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req BatchJobIDsRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

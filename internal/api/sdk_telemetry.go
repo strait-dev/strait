@@ -22,7 +22,7 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 		TotalTokens      int    `json:"total_tokens,omitempty"`
 		CostMicrousd     int64  `json:"cost_microusd,omitempty"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -76,7 +76,7 @@ func (s *Server) handleSDKToolCall(w http.ResponseWriter, r *http.Request) {
 		DurationMs int             `json:"duration_ms,omitempty"`
 		Status     string          `json:"status,omitempty"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -111,7 +111,7 @@ func (s *Server) handleSDKOutput(w http.ResponseWriter, r *http.Request) {
 		Schema    json.RawMessage `json:"schema,omitempty"`
 		Value     json.RawMessage `json:"value" validate:"required"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

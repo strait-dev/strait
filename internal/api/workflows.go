@@ -93,7 +93,7 @@ type workflowResponse struct {
 
 func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req createWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -231,7 +231,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -371,7 +371,7 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req triggerWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -459,7 +459,7 @@ func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowID")
 
 	var req dryRunWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -601,7 +601,7 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req cloneWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		// Body is optional for clone — use defaults.
 		req = cloneWorkflowRequest{}
 	}

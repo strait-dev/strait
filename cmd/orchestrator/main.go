@@ -316,9 +316,6 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 	if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
 		pinger = redisPub
 	}
-	if cfg.MaxRequestBodySize > 0 {
-		api.SetMaxRequestBodySize(cfg.MaxRequestBodySize)
-	}
 
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {

@@ -34,7 +34,7 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req CreateJobDependencyRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

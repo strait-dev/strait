@@ -38,7 +38,7 @@ func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req CreateEnvironmentRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -142,7 +142,7 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req UpdateEnvironmentRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

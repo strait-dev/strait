@@ -31,7 +31,7 @@ func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CreateJobGroupRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -121,7 +121,7 @@ func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req UpdateJobGroupRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

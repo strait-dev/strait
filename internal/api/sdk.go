@@ -139,7 +139,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 		Message string          `json:"message" validate:"required"`
 		Data    json.RawMessage `json:"data,omitempty"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -205,7 +205,7 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 		Step       string  `json:"step,omitempty"`
 		ETASeconds int     `json:"eta_seconds,omitempty"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -271,7 +271,7 @@ func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Annotations map[string]string `json:"annotations" validate:"required,min=1"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -342,7 +342,7 @@ func (s *Server) handleSDKCheckpoint(w http.ResponseWriter, r *http.Request) {
 		Source string          `json:"source,omitempty"`
 		State  json.RawMessage `json:"state" validate:"required"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}

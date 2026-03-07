@@ -159,17 +159,18 @@ type ErrorResponse struct {
 }
 
 type Server struct {
-	router           chi.Router
-	store            APIStore
-	queue            queue.Queue
-	pubsub           pubsub.Publisher
-	config           *config.Config
-	metricsHandler   http.Handler
-	pinger           Pinger
-	healthRegistry   *health.Registry
-	workflowCallback WorkflowCallback
-	workflowEngine   WorkflowTrigger
-	validate         *validator.Validate
+	router             chi.Router
+	store              APIStore
+	queue              queue.Queue
+	pubsub             pubsub.Publisher
+	config             *config.Config
+	metricsHandler     http.Handler
+	pinger             Pinger
+	healthRegistry     *health.Registry
+	workflowCallback   WorkflowCallback
+	workflowEngine     WorkflowTrigger
+	validate           *validator.Validate
+	maxRequestBodySize int64
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -187,17 +188,22 @@ type ServerDeps struct {
 
 // NewServer creates a new HTTP API server with the given dependencies.
 func NewServer(deps ServerDeps) *Server {
+	maxBody := deps.Config.MaxRequestBodySize
+	if maxBody <= 0 {
+		maxBody = 1 << 20 // 1MB default
+	}
 	srv := &Server{
-		store:            deps.Store,
-		queue:            deps.Queue,
-		pubsub:           deps.PubSub,
-		config:           deps.Config,
-		metricsHandler:   deps.MetricsHandler,
-		pinger:           deps.Pinger,
-		healthRegistry:   deps.HealthRegistry,
-		workflowCallback: deps.WorkflowCallback,
-		workflowEngine:   deps.WorkflowEngine,
-		validate:         validator.New(validator.WithRequiredStructEnabled()),
+		store:              deps.Store,
+		queue:              deps.Queue,
+		pubsub:             deps.PubSub,
+		config:             deps.Config,
+		metricsHandler:     deps.MetricsHandler,
+		pinger:             deps.Pinger,
+		healthRegistry:     deps.HealthRegistry,
+		workflowCallback:   deps.WorkflowCallback,
+		workflowEngine:     deps.WorkflowEngine,
+		validate:           validator.New(validator.WithRequiredStructEnabled()),
+		maxRequestBodySize: maxBody,
 	}
 	srv.router = srv.routes()
 	return srv
@@ -443,20 +449,9 @@ func respondError(w http.ResponseWriter, r *http.Request, status int, message st
 	})
 }
 
-// maxRequestBodySize is the maximum allowed request body size in bytes.
-// It can be overridden via SetMaxRequestBodySize.
-var maxRequestBodySize int64 = 1 << 20 // 1MB default
-
-// SetMaxRequestBodySize configures the maximum request body size for JSON decoding.
-func SetMaxRequestBodySize(size int64) {
-	if size > 0 {
-		maxRequestBodySize = size
-	}
-}
-
-func decodeJSON(r *http.Request, v any) error {
+func (s *Server) decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize))
+	dec := json.NewDecoder(io.LimitReader(r.Body, s.maxRequestBodySize))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }
