@@ -131,7 +131,7 @@ func (q *Queries) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRun
 
 	query := `
 		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
-		       deps_completed, deps_required, output, error, started_at, finished_at, created_at
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
 		FROM workflow_step_runs
 		WHERE workflow_run_id = $1 AND step_ref = $2`
 
