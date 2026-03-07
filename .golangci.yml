@@ -57,6 +57,8 @@ linters:
 
     gosec:
       excludes:
+        - G117  # Marshaled struct field matches secret pattern - config serialization is intentional
+        - G703  # Path traversal via taint analysis - paths from CLI flags and literals
         - G704  # SSRF via taint analysis - URLs from validated job config
         - G706  # Log injection via taint analysis - structured logging is safe
     godot:

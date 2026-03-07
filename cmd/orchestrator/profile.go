@@ -80,7 +80,7 @@ goroutine, allocs, block, mutex, and threadcreate profiles.`,
 				return fmt.Errorf("failed to write profile data: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "profile written to %s (%d bytes)\n", output, n) //nolint:gosec // output is a user-provided flag value, not attacker-controlled
+			fmt.Fprintf(os.Stderr, "profile written to %s (%d bytes)\n", output, n)
 
 			if kind == "cpu" {
 				fmt.Fprintf(os.Stderr, "analyze with: go tool pprof %s\n", output)
