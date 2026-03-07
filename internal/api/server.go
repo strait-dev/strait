@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,7 +27,12 @@ import (
 	"github.com/go-chi/httprate"
 	"github.com/go-playground/validator/v10"
 	"github.com/riandyrn/otelchi"
+
+	scalar "github.com/MarceloPetrucio/go-scalar-api-reference"
 )
+
+//go:embed openapi.yaml
+var openapiSpec []byte
 
 // APIStore is the subset of store operations needed by the API handlers.
 type APIStore interface {
@@ -371,6 +377,10 @@ func (s *Server) routes() chi.Router {
 		})
 	})
 
+	// API Reference
+	r.Get("/reference", s.handleAPIReference)
+	r.Get("/reference/openapi.yaml", s.handleOpenAPISpec)
+
 	return r
 }
 
@@ -514,4 +524,25 @@ func (s *Server) validateRequest(w http.ResponseWriter, r *http.Request, v any) 
 		return false
 	}
 	return true
+}
+
+func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
+	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{
+		SpecContent: string(openapiSpec),
+		CustomOptions: scalar.CustomOptions{
+			PageTitle: "Orchestrator API",
+		},
+		DarkMode: true,
+	})
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to generate API reference")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, htmlContent)
+}
+
+func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.Write(openapiSpec) //nolint:errcheck,gosec // best-effort response write
 }

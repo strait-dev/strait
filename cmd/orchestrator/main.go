@@ -172,6 +172,7 @@ func setupLogging(level string) {
 }
 
 // connectDatabase creates and verifies a Postgres connection pool.
+// It retries with exponential backoff up to 5 times on transient failures.
 func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
@@ -181,28 +182,52 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	poolConfig.MinConns = cfg.DBMinConns
 	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
 	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
-	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		return nil, fmt.Errorf("connect to postgres: %w", err)
+
+	const maxRetries = 5
+	var pool *pgxpool.Pool
+	for attempt := range maxRetries {
+		pool, err = pgxpool.NewWithConfig(ctx, poolConfig)
+		if err != nil {
+			slog.Warn("failed to connect to postgres, retrying",
+				"attempt", attempt+1,
+				"max_retries", maxRetries,
+				"error", err,
+			)
+			if err := retrySleep(ctx, attempt); err != nil {
+				return nil, fmt.Errorf("connect to postgres cancelled: %w", err)
+			}
+			continue
+		}
+
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			slog.Warn("failed to ping postgres, retrying",
+				"attempt", attempt+1,
+				"max_retries", maxRetries,
+				"error", err,
+			)
+			if err := retrySleep(ctx, attempt); err != nil {
+				return nil, fmt.Errorf("ping postgres cancelled: %w", err)
+			}
+			continue
+		}
+
+		slog.Info("connected to postgres",
+			"max_conns", cfg.DBMaxConns,
+			"min_conns", cfg.DBMinConns,
+			"max_conn_lifetime", cfg.DBMaxConnLifetime,
+			"max_conn_idle_time", cfg.DBMaxConnIdleTime,
+		)
+		return pool, nil
 	}
 
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("ping postgres: %w", err)
-	}
-	slog.Info("connected to postgres",
-		"max_conns", cfg.DBMaxConns,
-		"min_conns", cfg.DBMinConns,
-		"max_conn_lifetime", cfg.DBMaxConnLifetime,
-		"max_conn_idle_time", cfg.DBMaxConnIdleTime,
-	)
-	return pool, nil
+	return nil, fmt.Errorf("connect to postgres: failed after %d retries: %w", maxRetries, err)
 }
 
 // connectRedis creates and verifies a Redis client for pub/sub. Returns a nil
 // publisher and client when Redis is not configured.
+// It retries with exponential backoff up to 5 times on transient failures.
 func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, interface{ Close() error }, error) {
 	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs)
 	if err != nil {
@@ -212,16 +237,42 @@ func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, in
 		return nil, nil, nil
 	}
 
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, nil, fmt.Errorf("ping redis: %w", err)
+	const maxRetries = 5
+	for attempt := range maxRetries {
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			slog.Warn("failed to ping redis, retrying",
+				"attempt", attempt+1,
+				"max_retries", maxRetries,
+				"error", err,
+			)
+			if err := retrySleep(ctx, attempt); err != nil {
+				return nil, nil, fmt.Errorf("ping redis cancelled: %w", err)
+			}
+			continue
+		}
+
+		if cfg.RedisSentinelMaster != "" {
+			slog.Info("connected to redis via sentinel", "master", cfg.RedisSentinelMaster)
+		} else {
+			slog.Info("connected to redis")
+		}
+		pub := pubsub.NewRedisPublisher(rdb)
+		return pub, rdb, nil
 	}
-	if cfg.RedisSentinelMaster != "" {
-		slog.Info("connected to redis via sentinel", "master", cfg.RedisSentinelMaster)
-	} else {
-		slog.Info("connected to redis")
+
+	return nil, nil, fmt.Errorf("ping redis: failed after %d retries", maxRetries)
+}
+
+// retrySleep sleeps with exponential backoff: 1s, 2s, 4s, 8s, 16s.
+// Returns an error if the context is cancelled during the sleep.
+func retrySleep(ctx context.Context, attempt int) error {
+	delay := min(time.Second<<uint(max(attempt, 0)), 16*time.Second)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
 	}
-	pub := pubsub.NewRedisPublisher(rdb)
-	return pub, rdb, nil
 }
 
 // startCDCConsumer registers and starts the Sequin CDC consumer if configured.
