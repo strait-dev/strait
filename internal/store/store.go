@@ -127,6 +127,7 @@ type JobHealthStats struct {
 	SuccessRate     float64 `json:"success_rate"`
 	AvgDurationSecs float64 `json:"avg_duration_secs"`
 	P95DurationSecs float64 `json:"p95_duration_secs"`
+	HealthScore     float64 `json:"health_score"`
 }
 
 type EventStore interface {

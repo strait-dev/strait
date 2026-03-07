@@ -221,6 +221,19 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 
 	if stats.TotalRuns > 0 {
 		stats.SuccessRate = float64(stats.CompletedRuns) / float64(stats.TotalRuns) * 100
+
+		// Health score: 70% success rate + 30% duration stability (0-100).
+		successComponent := stats.SuccessRate * 0.7
+		stabilityComponent := 30.0
+		if stats.AvgDurationSecs > 0 && stats.P95DurationSecs > 2*stats.AvgDurationSecs {
+			// Penalize high variance: ratio > 2 means unstable.
+			ratio := stats.P95DurationSecs / stats.AvgDurationSecs
+			penalty := min((ratio-2)*15, 30) // max 30 point penalty
+			stabilityComponent = max(0, 30-penalty)
+		}
+		stats.HealthScore = min(100, successComponent+stabilityComponent)
+	} else {
+		stats.HealthScore = -1 // unknown
 	}
 
 	return stats, nil
