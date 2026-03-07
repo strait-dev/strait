@@ -84,6 +84,24 @@ func TestApplyOutputTransform(t *testing.T) {
 			transformPath:   "a.b.c.d",
 			wantTransformed: `"deep"`,
 		},
+		{
+			name:            "wildcard gjson path",
+			rawOutput:       json.RawMessage(`{"items": [{"id":1},{"id":2}]}`),
+			transformPath:   "items.#.id",
+			wantTransformed: `[1,2]`,
+		},
+		{
+			name:            "array root",
+			rawOutput:       json.RawMessage(`[1,2,3]`),
+			transformPath:   "0",
+			wantTransformed: `1`,
+		},
+		{
+			name:            "numeric string path in nested",
+			rawOutput:       json.RawMessage(`{"data":{"0":"zero"}}`),
+			transformPath:   "data.0",
+			wantTransformed: `"zero"`,
+		},
 	}
 
 	for _, tt := range tests {

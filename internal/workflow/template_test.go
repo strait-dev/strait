@@ -166,6 +166,36 @@ func TestRenderTemplateVars(t *testing.T) {
 		}
 	})
 
+	t.Run("deeply nested 5+ levels", func(t *testing.T) {
+		payload := json.RawMessage(`{"l1":{"l2":{"l3":{"l4":{"l5":"{{value}}"}}}}}`)
+		vars := json.RawMessage(`{"value":"deep-replaced"}`)
+
+		result := renderTemplateVars(payload, vars)
+		var got map[string]any
+		if err := json.Unmarshal(result, &got); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		l1, ok := got["l1"].(map[string]any)
+		if !ok {
+			t.Fatalf("l1 should be object, got %T", got["l1"])
+		}
+		l2, ok := l1["l2"].(map[string]any)
+		if !ok {
+			t.Fatalf("l2 should be object, got %T", l1["l2"])
+		}
+		l3, ok := l2["l3"].(map[string]any)
+		if !ok {
+			t.Fatalf("l3 should be object, got %T", l2["l3"])
+		}
+		l4, ok := l3["l4"].(map[string]any)
+		if !ok {
+			t.Fatalf("l4 should be object, got %T", l3["l4"])
+		}
+		if l4["l5"] != "deep-replaced" {
+			t.Fatalf("l4.l5 = %v, want deep-replaced", l4["l5"])
+		}
+	})
+
 	t.Run("array values", func(t *testing.T) {
 		payload := json.RawMessage(`{"items":["{{a}}","static","{{b}}"]}`)
 		vars := json.RawMessage(`{"a":"first","b":"third"}`)
@@ -184,6 +214,41 @@ func TestRenderTemplateVars(t *testing.T) {
 		}
 		if items[0] != "first" || items[1] != "static" || items[2] != "third" {
 			t.Fatalf("items = %v, want [first static third]", items)
+		}
+	})
+
+	t.Run("template in non-string context", func(t *testing.T) {
+		payload := json.RawMessage(`{"items":[1,"{{x}}",3]}`)
+		vars := json.RawMessage(`{"x":"replaced"}`)
+
+		result := renderTemplateVars(payload, vars)
+		var got map[string]any
+		if err := json.Unmarshal(result, &got); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		items, ok := got["items"].([]any)
+		if !ok {
+			t.Fatalf("items should be array, got %T", got["items"])
+		}
+		if len(items) != 3 {
+			t.Fatalf("len(items) = %d, want 3", len(items))
+		}
+		if items[0] != float64(1) || items[1] != "replaced" || items[2] != float64(3) {
+			t.Fatalf("items = %v, want [1 replaced 3]", items)
+		}
+	})
+
+	t.Run("empty template marker", func(t *testing.T) {
+		payload := json.RawMessage(`{"val":"{{}}"}`)
+		vars := json.RawMessage(`{"x":"ignored"}`)
+
+		result := renderTemplateVars(payload, vars)
+		var got map[string]any
+		if err := json.Unmarshal(result, &got); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		if got["val"] != "{{}}" {
+			t.Fatalf("val = %v, want {{}}", got["val"])
 		}
 	})
 

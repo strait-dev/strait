@@ -235,6 +235,61 @@ func TestTriggerWorkflow(t *testing.T) {
 			t.Fatalf("expected project mismatch error, got %v", err)
 		}
 	})
+
+	t.Run("GetWorkflow error", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return nil, errors.New("db get workflow failed")
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		if err == nil || !strings.Contains(err.Error(), "get workflow") {
+			t.Fatalf("expected get workflow error, got %v", err)
+		}
+	})
+
+	t.Run("ListStepsByWorkflowVersion error", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf", ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return nil, errors.New("db list steps failed")
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		if err == nil || !strings.Contains(err.Error(), "list workflow steps by version") {
+			t.Fatalf("expected list steps error, got %v", err)
+		}
+	})
+
+	t.Run("CreateWorkflowStepRun error", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf", ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "step-a", JobID: "job-a", StepRef: "a"}}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-1"
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			createWorkflowStepRunFn: func(_ context.Context, _ *domain.WorkflowStepRun) error {
+				return errors.New("db create step run failed")
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		if err == nil || !strings.Contains(err.Error(), "create step run") {
+			t.Fatalf("expected create step run error, got %v", err)
+		}
+	})
 }
 
 func TestMergePayloads(t *testing.T) {
@@ -645,6 +700,216 @@ func TestMapRunStatusToStepStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
+	t.Run("StatusCompleted includes output when result present", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{
+			Status: domain.StatusCompleted,
+			Result: json.RawMessage(`{"ok":true}`),
+		})
+		if status != domain.StepCompleted {
+			t.Fatalf("status = %s, want %s", status, domain.StepCompleted)
+		}
+		output, ok := fields["output"]
+		if !ok {
+			t.Fatalf("expected output field, got %+v", fields)
+		}
+		raw, ok := output.(json.RawMessage)
+		if !ok || string(raw) != `{"ok":true}` {
+			t.Fatalf("output = %T %v, want json.RawMessage", output, output)
+		}
+	})
+
+	t.Run("StatusCompleted with empty result has no output", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusCompleted})
+		if status != domain.StepCompleted {
+			t.Fatalf("status = %s, want %s", status, domain.StepCompleted)
+		}
+		if _, ok := fields["output"]; ok {
+			t.Fatalf("did not expect output field, got %+v", fields)
+		}
+	})
+
+	t.Run("StatusCanceled maps to StepCanceled", func(t *testing.T) {
+		status, _ := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusCanceled})
+		if status != domain.StepCanceled {
+			t.Fatalf("status = %s, want %s", status, domain.StepCanceled)
+		}
+	})
+
+	t.Run("StatusFailed maps to StepFailed and sets error", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusFailed})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+		errVal, ok := fields["error"].(string)
+		if !ok || !strings.Contains(errVal, "job run ended with status") {
+			t.Fatalf("error field = %v, want fallback status error", fields["error"])
+		}
+	})
+
+	t.Run("StatusTimedOut maps to StepFailed and sets error", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusTimedOut})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+		if _, ok := fields["error"]; !ok {
+			t.Fatalf("expected error field, got %+v", fields)
+		}
+	})
+
+	t.Run("StatusCrashed maps to StepFailed and sets error", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusCrashed})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+		if _, ok := fields["error"]; !ok {
+			t.Fatalf("expected error field, got %+v", fields)
+		}
+	})
+
+	t.Run("StatusSystemFailed maps to StepFailed and sets error", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusSystemFailed})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+		if _, ok := fields["error"]; !ok {
+			t.Fatalf("expected error field, got %+v", fields)
+		}
+	})
+
+	t.Run("StatusExpired maps to StepFailed and sets error", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusExpired})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+		if _, ok := fields["error"]; !ok {
+			t.Fatalf("expected error field, got %+v", fields)
+		}
+	})
+
+	t.Run("StatusFailed with explicit Error uses that string", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusFailed, Error: "boom"})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+		if fields["error"] != "boom" {
+			t.Fatalf("error = %v, want boom", fields["error"])
+		}
+	})
+
+	t.Run("StatusFailed with empty Error uses fallback message", func(t *testing.T) {
+		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusFailed})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+		errVal, ok := fields["error"].(string)
+		if !ok || !strings.Contains(errVal, "job run ended with status") {
+			t.Fatalf("error field = %v, want fallback status error", fields["error"])
+		}
+	})
+
+	t.Run("unknown status defaults to StepFailed", func(t *testing.T) {
+		status, _ := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.RunStatus("bogus")})
+		if status != domain.StepFailed {
+			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
+		}
+	})
+}
+
+func TestCancelRemainingSteps(t *testing.T) {
+	t.Run("cancels non-terminal steps", func(t *testing.T) {
+		updated := make(map[string]domain.StepRunStatus)
+		ms := &mockCallbackStore{
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "sr-completed", Status: domain.StepCompleted},
+					{ID: "sr-running", Status: domain.StepRunning},
+					{ID: "sr-pending", Status: domain.StepPending},
+				}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+				updated[id] = status
+				return nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
+		if err != nil {
+			t.Fatalf("cancelRemainingSteps() error = %v", err)
+		}
+		if len(updated) != 2 {
+			t.Fatalf("updated len = %d, want 2", len(updated))
+		}
+		if updated["sr-running"] != domain.StepCanceled {
+			t.Fatalf("running step status = %s, want %s", updated["sr-running"], domain.StepCanceled)
+		}
+		if updated["sr-pending"] != domain.StepCanceled {
+			t.Fatalf("pending step status = %s, want %s", updated["sr-pending"], domain.StepCanceled)
+		}
+		if _, ok := updated["sr-completed"]; ok {
+			t.Fatal("completed step should not be canceled")
+		}
+	})
+
+	t.Run("skips all terminal", func(t *testing.T) {
+		updateCalls := 0
+		ms := &mockCallbackStore{
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{
+					{ID: "sr-completed", Status: domain.StepCompleted},
+					{ID: "sr-failed", Status: domain.StepFailed},
+					{ID: "sr-skipped", Status: domain.StepSkipped},
+				}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				updateCalls++
+				return nil
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
+		if err != nil {
+			t.Fatalf("cancelRemainingSteps() error = %v", err)
+		}
+		if updateCalls != 0 {
+			t.Fatalf("update calls = %d, want 0", updateCalls)
+		}
+	})
+
+	t.Run("store list error", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return nil, errors.New("list failed")
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
+		if err == nil || !strings.Contains(err.Error(), "list step runs by workflow run") {
+			t.Fatalf("expected list error, got %v", err)
+		}
+	})
+
+	t.Run("store update error", func(t *testing.T) {
+		ms := &mockCallbackStore{
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{{ID: "sr-running", Status: domain.StepRunning}}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return errors.New("update failed")
+			},
+		}
+
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
+		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
+		if err == nil || !strings.Contains(err.Error(), "cancel step run") {
+			t.Fatalf("expected update error, got %v", err)
+		}
+	})
 }
 
 func TestStepCallback_OnJobRunTerminal_GetStepRunError(t *testing.T) {
@@ -3151,6 +3416,110 @@ func TestGetNestingDepth(t *testing.T) {
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "missing-parent")
 		if err != nil {
 			t.Fatalf("expected no error when parent not found, got %v", err)
+		}
+	})
+}
+
+func TestGetNestingDepth_Direct(t *testing.T) {
+	t.Run("no parent", func(t *testing.T) {
+		engine := NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default())
+		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "run-a"})
+		if err != nil {
+			t.Fatalf("getNestingDepth() error = %v", err)
+		}
+		if depth != 0 {
+			t.Fatalf("depth = %d, want 0", depth)
+		}
+	})
+
+	t.Run("single parent", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				if id == "parent" {
+					return &domain.WorkflowRun{ID: "parent"}, nil
+				}
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
+		if err != nil {
+			t.Fatalf("getNestingDepth() error = %v", err)
+		}
+		if depth != 1 {
+			t.Fatalf("depth = %d, want 1", depth)
+		}
+	})
+
+	t.Run("three levels deep", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				switch id {
+				case "parent":
+					return &domain.WorkflowRun{ID: "parent", ParentWorkflowRunID: "grandparent"}, nil
+				case "grandparent":
+					return &domain.WorkflowRun{ID: "grandparent"}, nil
+				default:
+					return nil, nil
+				}
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
+		if err != nil {
+			t.Fatalf("getNestingDepth() error = %v", err)
+		}
+		if depth != 2 {
+			t.Fatalf("depth = %d, want 2", depth)
+		}
+	})
+
+	t.Run("circular reference", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				switch id {
+				case "run-b":
+					return &domain.WorkflowRun{ID: "run-b", ParentWorkflowRunID: "run-a"}, nil
+				case "run-a":
+					return &domain.WorkflowRun{ID: "run-a", ParentWorkflowRunID: "run-b"}, nil
+				default:
+					return nil, nil
+				}
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "run-a", ParentWorkflowRunID: "run-b"})
+		if err == nil || !strings.Contains(err.Error(), "circular parent reference") {
+			t.Fatalf("expected circular parent reference error, got %v", err)
+		}
+	})
+
+	t.Run("parent not found", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "missing"})
+		if err != nil {
+			t.Fatalf("getNestingDepth() error = %v", err)
+		}
+		if depth != 1 {
+			t.Fatalf("depth = %d, want 1", depth)
+		}
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, errors.New("db error")
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
+		if err == nil {
+			t.Fatal("expected error")
 		}
 	})
 }
