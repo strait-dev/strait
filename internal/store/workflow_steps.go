@@ -30,6 +30,12 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 	if step.RetryBackoff == "" {
 		step.RetryBackoff = domain.RetryBackoffExponential
 	}
+	if step.DependsOn == nil {
+		step.DependsOn = []string{}
+	}
+	if step.ApprovalApprovers == nil {
+		step.ApprovalApprovers = []string{}
+	}
 
 	query := `
 		INSERT INTO workflow_steps (
