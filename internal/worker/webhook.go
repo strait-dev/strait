@@ -13,6 +13,10 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -22,14 +26,13 @@ const (
 	webhookIdleConnTimeout = 60 * time.Second
 )
 
-// webhookClient is a shared HTTP client for webhook delivery.
 var webhookClient = &http.Client{
 	Timeout: webhookTimeout,
-	Transport: &http.Transport{
+	Transport: otelhttp.NewTransport(&http.Transport{
 		MaxIdleConns:        webhookMaxIdleConns,
 		MaxIdleConnsPerHost: webhookMaxIdlePerHost,
 		IdleConnTimeout:     webhookIdleConnTimeout,
-	},
+	}),
 }
 
 // WebhookPayload is sent to the job's webhook URL on terminal states.
@@ -188,6 +191,13 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 }
 
 func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) WebhookResult {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "webhook.Deliver")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("webhook.run_id", run.ID),
+		attribute.String("webhook.job_id", run.JobID),
+		attribute.String("webhook.url", job.WebhookURL),
+	)
 	payload := WebhookPayload{
 		RunID:     run.ID,
 		JobID:     run.JobID,
@@ -234,6 +244,13 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 }
 
 func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun) WebhookResult {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "webhook.Deliver")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("webhook.run_id", run.ID),
+		attribute.String("webhook.job_id", run.JobID),
+		attribute.String("webhook.url", job.WebhookURL),
+	)
 	payload := WebhookPayload{
 		RunID:     run.ID,
 		JobID:     run.JobID,

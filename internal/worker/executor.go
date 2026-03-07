@@ -15,6 +15,8 @@ import (
 	"orchestrator/internal/queue"
 	"orchestrator/internal/store"
 	"orchestrator/internal/telemetry"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -140,11 +142,11 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 	whClient := &http.Client{
 		Timeout: whTimeout,
-		Transport: &http.Transport{
+		Transport: otelhttp.NewTransport(&http.Transport{
 			MaxIdleConns:        webhookMaxIdleConns,
 			MaxIdleConnsPerHost: webhookMaxIdlePerHost,
 			IdleConnTimeout:     whIdleTimeout,
-		},
+		}),
 	}
 	whMaxAttempts := cfg.WebhookMaxAttempts
 	if whMaxAttempts <= 0 {
