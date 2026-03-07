@@ -376,6 +376,7 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusNotFound, "workflow not found")
 			return
 		}
+		slog.Error("failed to trigger workflow", "error", err, "workflow_id", workflowID)
 		respondError(w, http.StatusInternalServerError, "failed to trigger workflow")
 		return
 	}
