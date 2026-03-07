@@ -368,7 +368,7 @@ func newWorkflowsTriggerCommand(state *appState) *cobra.Command {
 
 			req := client.TriggerWorkflowRequest{ProjectID: state.opts.projectID}
 			if payloadFile != "" {
-				raw, err := os.ReadFile(payloadFile) //nolint:gosec
+				raw, err := os.ReadFile(payloadFile) //nolint:gosec // payloadFile is from --payload-file CLI flag
 				if err != nil {
 					return err
 				}

@@ -294,7 +294,7 @@ func runInteractiveJobEdit(ctx context.Context, cli *client.Client, state *appSt
 		editor = "vi"
 	}
 
-	cmd := exec.Command(editor, tmpPath) //nolint:gosec
+	cmd := exec.Command(editor, tmpPath) //nolint:gosec // editor is from $EDITOR env var or default vi, tmpPath is a temp file
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -302,7 +302,7 @@ func runInteractiveJobEdit(ctx context.Context, cli *client.Client, state *appSt
 		return err
 	}
 
-	raw, err := os.ReadFile(tmpPath) //nolint:gosec
+	raw, err := os.ReadFile(tmpPath) //nolint:gosec // tmpPath is a temp file created by this function
 	if err != nil {
 		return err
 	}
@@ -461,7 +461,7 @@ func newJobsTriggerBulkCommand(state *appState) *cobra.Command {
 
 			raw := strings.TrimSpace(itemsJSON)
 			if strings.TrimSpace(itemsFile) != "" {
-				fileContent, err := os.ReadFile(itemsFile) //nolint:gosec
+				fileContent, err := os.ReadFile(itemsFile) //nolint:gosec // itemsFile is from --items-file CLI flag
 				if err != nil {
 					return err
 				}

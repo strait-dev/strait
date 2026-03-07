@@ -136,7 +136,8 @@ func runServe(modeOverride string) error {
 
 	// Error group for concurrent goroutines
 	g, gCtx := errgroup.WithContext(ctx)
-	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
+	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
+		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
 	startCDCConsumer(gCtx, g, cfg, pub)
@@ -318,23 +319,28 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
 	}
 	exec := worker.NewExecutor(worker.ExecutorConfig{
-		Pool:              p,
-		Queue:             q,
-		Store:             queries,
-		PollInterval:      cfg.PollerInterval,
-		HeartbeatInterval: cfg.HeartbeatInterval,
-		Publisher:         pub,
-		Metrics:           metrics,
-		WorkflowCallback:  stepCallback,
-		Partitions:        partitions,
-		PartitionWeights:  partitionWeights,
-		CircuitBreaker:    cfg.FFCircuitBreaker,
-		SmartRetry:        cfg.FFSmartRetry,
-		Bulkheads:         cfg.FFBulkheads,
-		SecretInjection:   cfg.FFSecretInjection,
-		ExecutionTracing:  cfg.FFExecutionTracing,
-		AdaptiveTimeout:   cfg.FFAdaptiveTimeout,
-		DLQEnabled:        cfg.FFRunDLQ,
+		Pool:                    p,
+		Queue:                   q,
+		Store:                   queries,
+		PollInterval:            cfg.PollerInterval,
+		HeartbeatInterval:       cfg.HeartbeatInterval,
+		Publisher:               pub,
+		Metrics:                 metrics,
+		WorkflowCallback:        stepCallback,
+		Partitions:              partitions,
+		PartitionWeights:        partitionWeights,
+		CircuitBreaker:          cfg.FFCircuitBreaker,
+		SmartRetry:              cfg.FFSmartRetry,
+		Bulkheads:               cfg.FFBulkheads,
+		SecretInjection:         cfg.FFSecretInjection,
+		ExecutionTracing:        cfg.FFExecutionTracing,
+		AdaptiveTimeout:         cfg.FFAdaptiveTimeout,
+		DLQEnabled:              cfg.FFRunDLQ,
+		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
+		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
+		WebhookTimeout:          cfg.WebhookTimeout,
+		WebhookIdleConnTimeout:  cfg.WebhookIdleConnTimeout,
+		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 	})
 
 	g.Go(func() error {

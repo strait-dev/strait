@@ -87,10 +87,16 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.MaxAttempts == 0 {
-		req.MaxAttempts = 3
+		req.MaxAttempts = s.config.DefaultJobMaxAttempts
+		if req.MaxAttempts == 0 {
+			req.MaxAttempts = 3
+		}
 	}
 	if req.TimeoutSecs == 0 {
-		req.TimeoutSecs = 300
+		req.TimeoutSecs = s.config.DefaultJobTimeoutSecs
+		if req.TimeoutSecs == 0 {
+			req.TimeoutSecs = 300
+		}
 	}
 
 	if req.Cron != "" {

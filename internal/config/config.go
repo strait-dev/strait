@@ -92,6 +92,27 @@ type Config struct {
 	FFJobDependencies  bool `mapstructure:"FF_JOB_DEPENDENCIES"`
 	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
+
+	// Worker/Executor timeouts
+	WebhookTimeout          time.Duration `mapstructure:"WEBHOOK_TIMEOUT"`
+	WebhookIdleConnTimeout  time.Duration `mapstructure:"WEBHOOK_IDLE_CONN_TIMEOUT"`
+	ExecutorHTTPTimeout     time.Duration `mapstructure:"EXECUTOR_HTTP_TIMEOUT"`
+	ExecutorIdleConnTimeout time.Duration `mapstructure:"EXECUTOR_IDLE_CONN_TIMEOUT"`
+
+	// Worker settings
+	WebhookMaxAttempts    int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
+	DefaultJobMaxAttempts int `mapstructure:"DEFAULT_JOB_MAX_ATTEMPTS"`
+	DefaultJobTimeoutSecs int `mapstructure:"DEFAULT_JOB_TIMEOUT_SECS"`
+
+	// Scheduler settings
+	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
+	ReaperDeleteBatchSize int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
+
+	// Workflow settings
+	MaxWorkflowNestingDepth int `mapstructure:"MAX_WORKFLOW_NESTING_DEPTH"`
+
+	// SSE settings
+	SSEKeepaliveInterval time.Duration `mapstructure:"SSE_KEEPALIVE_INTERVAL"`
 }
 
 // Load reads configuration from environment variables.
@@ -153,6 +174,17 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
 	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
+	viper.SetDefault("WEBHOOK_TIMEOUT", 10*time.Second)
+	viper.SetDefault("WEBHOOK_IDLE_CONN_TIMEOUT", 60*time.Second)
+	viper.SetDefault("EXECUTOR_HTTP_TIMEOUT", 5*time.Minute)
+	viper.SetDefault("EXECUTOR_IDLE_CONN_TIMEOUT", 90*time.Second)
+	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
+	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
+	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
+	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
+	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
+	viper.SetDefault("MAX_WORKFLOW_NESTING_DEPTH", 10)
+	viper.SetDefault("SSE_KEEPALIVE_INTERVAL", 15*time.Second)
 
 	viper.AutomaticEnv()
 
@@ -181,6 +213,12 @@ func Load() (*Config, error) {
 	cfg.WorkflowRunRetentionDays = viper.GetInt("WORKFLOW_RUN_RETENTION_DAYS")
 	cfg.WorkerPartitions = viper.GetStringSlice("WORKER_PARTITIONS")
 	cfg.WorkerPartitionWeights = viper.GetString("WORKER_PARTITION_WEIGHTS")
+	cfg.WebhookTimeout = viper.GetDuration("WEBHOOK_TIMEOUT")
+	cfg.WebhookIdleConnTimeout = viper.GetDuration("WEBHOOK_IDLE_CONN_TIMEOUT")
+	cfg.ExecutorHTTPTimeout = viper.GetDuration("EXECUTOR_HTTP_TIMEOUT")
+	cfg.ExecutorIdleConnTimeout = viper.GetDuration("EXECUTOR_IDLE_CONN_TIMEOUT")
+	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
+	cfg.SSEKeepaliveInterval = viper.GetDuration("SSE_KEEPALIVE_INTERVAL")
 
 	if cfg.DatabaseURL == "" {
 		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}

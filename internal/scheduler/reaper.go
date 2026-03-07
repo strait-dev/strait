@@ -81,6 +81,14 @@ func (r *Reaper) WithWorkflowRetention(d time.Duration) *Reaper {
 	return r
 }
 
+// WithDeleteBatchSize sets the number of workflow runs to delete per reaper cycle.
+func (r *Reaper) WithDeleteBatchSize(n int) *Reaper {
+	if n > 0 {
+		r.deleteBatchLimit = n
+	}
+	return r
+}
+
 func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
 	if r.workflowCallback == nil {
 		return

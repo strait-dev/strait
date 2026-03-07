@@ -36,13 +36,13 @@ func newDBShellCommand() *cobra.Command {
 			}
 
 			if query != "" {
-				c := exec.Command("psql", databaseURL, "-c", query) //nolint:gosec
+				c := exec.Command("psql", databaseURL, "-c", query) //nolint:gosec // databaseURL is from env var, query is from CLI flag
 				c.Stdout = os.Stdout
 				c.Stderr = os.Stderr
 				return c.Run()
 			}
 
-			c := exec.Command("psql", databaseURL) //nolint:gosec
+			c := exec.Command("psql", databaseURL) //nolint:gosec // databaseURL is from env var, interactive psql session
 			c.Stdin = os.Stdin
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr

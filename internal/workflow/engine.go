@@ -19,9 +19,10 @@ import (
 const DefaultMaxNestingDepth = 10
 
 type WorkflowEngine struct {
-	store  EngineStore
-	queue  EngineQueue
-	logger *slog.Logger
+	store           EngineStore
+	queue           EngineQueue
+	logger          *slog.Logger
+	maxNestingDepth int
 }
 
 type EngineStore interface {
@@ -50,10 +51,19 @@ func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger
 	}
 
 	return &WorkflowEngine{
-		store:  store,
-		queue:  queue,
-		logger: logger,
+		store:           store,
+		queue:           queue,
+		logger:          logger,
+		maxNestingDepth: DefaultMaxNestingDepth,
 	}
+}
+
+// WithMaxNestingDepth overrides the default sub-workflow nesting depth limit.
+func (e *WorkflowEngine) WithMaxNestingDepth(n int) *WorkflowEngine {
+	if n > 0 {
+		e.maxNestingDepth = n
+	}
+	return e
 }
 
 func (e *WorkflowEngine) TriggerWorkflow(
@@ -301,7 +311,7 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 ) error {
 	maxDepth := step.MaxNestingDepth
 	if maxDepth <= 0 {
-		maxDepth = DefaultMaxNestingDepth
+		maxDepth = e.maxNestingDepth
 	}
 	currentDepth, err := e.getNestingDepth(ctx, wfRun)
 	if err != nil {

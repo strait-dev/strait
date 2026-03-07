@@ -59,7 +59,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sub.Close()
 
-	ticker := time.NewTicker(15 * time.Second)
+	keepalive := s.config.SSEKeepaliveInterval
+	if keepalive <= 0 {
+		keepalive = 15 * time.Second
+	}
+	ticker := time.NewTicker(keepalive)
 	defer ticker.Stop()
 
 	for {

@@ -169,7 +169,7 @@ func resolveSecretValue(fromEnv, fromFile string) (string, error) {
 	}
 
 	if strings.TrimSpace(fromFile) != "" {
-		raw, err := os.ReadFile(fromFile) //nolint:gosec
+		raw, err := os.ReadFile(fromFile) //nolint:gosec // fromFile is from --from-file CLI flag
 		if err != nil {
 			return "", err
 		}

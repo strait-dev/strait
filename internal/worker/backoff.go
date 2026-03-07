@@ -137,10 +137,7 @@ func NextRetryDelayWithPolicy(attempt int, policy domain.RetryBackoffPolicy, ini
 		delay = maxDelay
 	}
 
-	jitterRange := float64(delay) * 0.2
-	jitter := time.Duration(rand.Float64()*2*jitterRange - jitterRange) //nolint:gosec // jitter doesn't need crypto rand
-
-	return delay + jitter
+	return addJitter(delay)
 }
 
 func NextRetryAtWithPolicy(attempt int, policy domain.RetryBackoffPolicy, initialDelaySecs, maxDelaySecs int) time.Time {

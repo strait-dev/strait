@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/queue"
@@ -31,9 +30,11 @@ func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback Workflo
 		cron:   NewCronScheduler(s, q, wfTrigger),
 		poller: NewDelayedPoller(s, cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
-			WithWorkflowRetention(time.Duration(cfg.WorkflowRunRetentionDays) * 24 * time.Hour),
+			WithWorkflowRetention(cfg.WorkflowRetention).
+			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize),
 	}
 }
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
