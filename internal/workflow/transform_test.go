@@ -7,6 +7,7 @@ import (
 )
 
 func TestApplyOutputTransform(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		rawOutput       json.RawMessage
@@ -104,8 +105,10 @@ func TestApplyOutputTransform(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i := range tests {
+		tt := tests[i]
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := ApplyOutputTransform(tt.rawOutput, tt.transformPath)
 
 			if tt.wantErr {

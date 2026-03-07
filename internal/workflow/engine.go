@@ -123,13 +123,17 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 
 	if wf.MaxConcurrentRuns > 0 {
-		for {
+		const maxConcurrencyRetries = 120
+		for i := range maxConcurrencyRetries {
 			running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
 			if countErr != nil {
 				return nil, fmt.Errorf("count running workflow runs: %w", countErr)
 			}
 			if running < wf.MaxConcurrentRuns {
 				break
+			}
+			if i == maxConcurrencyRetries-1 {
+				return nil, fmt.Errorf("workflow %s: max concurrent runs (%d) reached, timed out waiting for slot", workflowID, wf.MaxConcurrentRuns)
 			}
 
 			select {
@@ -419,6 +423,83 @@ func cloneRaw(in json.RawMessage) json.RawMessage {
 	return out
 }
 
+type retryReadyStep struct {
+	stepRun *domain.WorkflowStepRun
+	step    *domain.WorkflowStep
+}
+
+func (e *WorkflowEngine) buildRetryStepRuns(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	steps []domain.WorkflowStep,
+	origStepRunByRef map[string]domain.WorkflowStepRun,
+	completedRefs map[string]struct{},
+	now time.Time,
+) ([]retryReadyStep, error) {
+	roots := make([]retryReadyStep, 0)
+
+	for i := range steps {
+		step := &steps[i]
+		origSR, wasInOriginal := origStepRunByRef[step.StepRef]
+		_, wasCompleted := completedRefs[step.StepRef]
+
+		if wasInOriginal && wasCompleted {
+			// Pre-complete: copy output from original run.
+			finished := now
+			sr := &domain.WorkflowStepRun{
+				WorkflowRunID:  wfRun.ID,
+				WorkflowStepID: step.ID,
+				StepRef:        step.StepRef,
+				Status:         domain.StepCompleted,
+				DepsCompleted:  len(step.DependsOn),
+				DepsRequired:   len(step.DependsOn),
+				Output:         cloneRaw(origSR.Output),
+				StartedAt:      &finished,
+				FinishedAt:     &finished,
+			}
+			if err := e.store.CreateWorkflowStepRun(ctx, sr); err != nil {
+				return nil, fmt.Errorf("create pre-completed step run %s: %w", step.StepRef, err)
+			}
+			continue
+		}
+
+		// Fresh step run.
+		sr := &domain.WorkflowStepRun{
+			WorkflowRunID:  wfRun.ID,
+			WorkflowStepID: step.ID,
+			StepRef:        step.StepRef,
+			DepsCompleted:  0,
+			DepsRequired:   len(step.DependsOn),
+		}
+
+		// Check if all deps are in the completed set.
+		allDepsCompleted := true
+		for _, dep := range step.DependsOn {
+			if _, ok := completedRefs[dep]; !ok {
+				allDepsCompleted = false
+				break
+			}
+		}
+
+		if allDepsCompleted && len(step.DependsOn) == 0 {
+			sr.Status = domain.StepPending
+			roots = append(roots, retryReadyStep{stepRun: sr, step: step})
+		} else if allDepsCompleted {
+			sr.DepsCompleted = len(step.DependsOn)
+			sr.Status = domain.StepPending
+			roots = append(roots, retryReadyStep{stepRun: sr, step: step})
+		} else {
+			sr.Status = domain.StepWaiting
+		}
+
+		if err := e.store.CreateWorkflowStepRun(ctx, sr); err != nil {
+			return nil, fmt.Errorf("create step run %s: %w", step.StepRef, err)
+		}
+	}
+
+	return roots, nil
+}
+
 // RetryWorkflowRun creates a new workflow run that replays from the first failed step.
 // Steps that completed successfully in the original run are copied as-is (pre-completed),
 // while the failed step and all downstream steps are re-executed from scratch.
@@ -507,76 +588,9 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 	wfRun.StartedAt = &now
 
 	// 6. Create step runs. Completed steps are pre-populated; others start fresh.
-	stepByRef := make(map[string]*domain.WorkflowStep, len(steps))
-	for i := range steps {
-		stepByRef[steps[i].StepRef] = &steps[i]
-	}
-
-	type readyToStart struct {
-		stepRun *domain.WorkflowStepRun
-		step    *domain.WorkflowStep
-	}
-	roots := make([]readyToStart, 0)
-
-	for i := range steps {
-		step := &steps[i]
-		origSR, wasInOriginal := origStepRunByRef[step.StepRef]
-		_, wasCompleted := completedRefs[step.StepRef]
-
-		if wasInOriginal && wasCompleted {
-			// Pre-complete: copy output from original run.
-			finished := now
-			sr := &domain.WorkflowStepRun{
-				WorkflowRunID:  wfRun.ID,
-				WorkflowStepID: step.ID,
-				StepRef:        step.StepRef,
-				Status:         domain.StepCompleted,
-				DepsCompleted:  len(step.DependsOn),
-				DepsRequired:   len(step.DependsOn),
-				Output:         cloneRaw(origSR.Output),
-				StartedAt:      &finished,
-				FinishedAt:     &finished,
-			}
-			if err := e.store.CreateWorkflowStepRun(ctx, sr); err != nil {
-				return nil, fmt.Errorf("create pre-completed step run %s: %w", step.StepRef, err)
-			}
-			continue
-		}
-
-		// Fresh step run.
-		sr := &domain.WorkflowStepRun{
-			WorkflowRunID:  wfRun.ID,
-			WorkflowStepID: step.ID,
-			StepRef:        step.StepRef,
-			DepsCompleted:  0,
-			DepsRequired:   len(step.DependsOn),
-		}
-
-		// Check if all deps are in the completed set.
-		allDepsCompleted := true
-		for _, dep := range step.DependsOn {
-			if _, ok := completedRefs[dep]; !ok {
-				allDepsCompleted = false
-				break
-			}
-		}
-
-		if allDepsCompleted && len(step.DependsOn) == 0 {
-			// Root step with no deps — ready to start.
-			sr.Status = domain.StepPending
-			roots = append(roots, readyToStart{stepRun: sr, step: step})
-		} else if allDepsCompleted {
-			// All deps already completed from original run — mark deps as satisfied.
-			sr.DepsCompleted = len(step.DependsOn)
-			sr.Status = domain.StepPending
-			roots = append(roots, readyToStart{stepRun: sr, step: step})
-		} else {
-			sr.Status = domain.StepWaiting
-		}
-
-		if err := e.store.CreateWorkflowStepRun(ctx, sr); err != nil {
-			return nil, fmt.Errorf("create step run %s: %w", step.StepRef, err)
-		}
+	roots, err := e.buildRetryStepRuns(ctx, wfRun, steps, origStepRunByRef, completedRefs, now)
+	if err != nil {
+		return nil, err
 	}
 
 	// 7. Start ready steps (same logic as TriggerWorkflow).

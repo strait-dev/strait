@@ -7,7 +7,9 @@ import (
 )
 
 func TestRenderTemplateVars(t *testing.T) {
+	t.Parallel()
 	t.Run("simple string substitution", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"to":"{{user_email}}","subject":"Hello"}`)
 		vars := json.RawMessage(`{"user_email":"john@example.com"}`)
 
@@ -25,6 +27,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("preserves number type", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"count":"{{total}}"}`)
 		vars := json.RawMessage(`{"total":42}`)
 
@@ -43,6 +46,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("preserves boolean type", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"active":"{{is_active}}"}`)
 		vars := json.RawMessage(`{"is_active":true}`)
 
@@ -61,6 +65,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("preserves object type", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"config":"{{settings}}"}`)
 		vars := json.RawMessage(`{"settings":{"key":"value","n":1}}`)
 
@@ -79,6 +84,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("embedded variable in string", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"message":"Hello {{name}}, welcome!"}`)
 		vars := json.RawMessage(`{"name":"Alice"}`)
 
@@ -93,6 +99,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("embedded number in string", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"message":"You have {{count}} items"}`)
 		vars := json.RawMessage(`{"count":5}`)
 
@@ -107,6 +114,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("multiple variables in one string", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"greeting":"Hi {{first}} {{last}}!"}`)
 		vars := json.RawMessage(`{"first":"Jane","last":"Doe"}`)
 
@@ -121,6 +129,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("unresolved variables left as-is", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"to":"{{unknown_var}}"}`)
 		vars := json.RawMessage(`{"other":"value"}`)
 
@@ -135,6 +144,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("dot-path variable resolution", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"email":"{{user.email}}"}`)
 		vars := json.RawMessage(`{"user":{"email":"nested@example.com"}}`)
 
@@ -149,6 +159,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("nested payload objects", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"outer":{"inner":"{{val}}"}}`)
 		vars := json.RawMessage(`{"val":"deep"}`)
 
@@ -167,6 +178,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("deeply nested 5+ levels", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"l1":{"l2":{"l3":{"l4":{"l5":"{{value}}"}}}}}`)
 		vars := json.RawMessage(`{"value":"deep-replaced"}`)
 
@@ -197,6 +209,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("array values", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"items":["{{a}}","static","{{b}}"]}`)
 		vars := json.RawMessage(`{"a":"first","b":"third"}`)
 
@@ -218,6 +231,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("template in non-string context", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"items":[1,"{{x}}",3]}`)
 		vars := json.RawMessage(`{"x":"replaced"}`)
 
@@ -239,6 +253,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("empty template marker", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"val":"{{}}"}`)
 		vars := json.RawMessage(`{"x":"ignored"}`)
 
@@ -253,6 +268,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("nil payload returns as-is", func(t *testing.T) {
+		t.Parallel()
 		result := renderTemplateVars(nil, json.RawMessage(`{"a":"b"}`))
 		if result != nil {
 			t.Fatalf("expected nil, got %s", string(result))
@@ -260,6 +276,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("nil variables returns payload as-is", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"to":"{{x}}"}`)
 		result := renderTemplateVars(payload, nil)
 		if string(result) != string(payload) {
@@ -268,6 +285,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("non-object variables returns payload as-is", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"to":"{{x}}"}`)
 		result := renderTemplateVars(payload, json.RawMessage(`"not an object"`))
 		if string(result) != string(payload) {
@@ -276,6 +294,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("no templates in payload", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"to":"plain@example.com","count":42}`)
 		vars := json.RawMessage(`{"user_email":"john@example.com"}`)
 
@@ -290,6 +309,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("null variable value replaces with empty string in embedded", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"msg":"value is {{x}} here"}`)
 		vars := json.RawMessage(`{"x":null}`)
 
@@ -304,6 +324,7 @@ func TestRenderTemplateVars(t *testing.T) {
 	})
 
 	t.Run("null variable value preserved for full replacement", func(t *testing.T) {
+		t.Parallel()
 		payload := json.RawMessage(`{"val":"{{x}}"}`)
 		vars := json.RawMessage(`{"x":null}`)
 
@@ -319,6 +340,7 @@ func TestRenderTemplateVars(t *testing.T) {
 }
 
 func TestResolveVar(t *testing.T) {
+	t.Parallel()
 	vars := map[string]any{
 		"name": "Alice",
 		"user": map[string]any{
@@ -330,6 +352,7 @@ func TestResolveVar(t *testing.T) {
 	}
 
 	t.Run("simple key", func(t *testing.T) {
+		t.Parallel()
 		val, ok := resolveVar(vars, "name")
 		if !ok || val != "Alice" {
 			t.Fatalf("resolveVar(name) = %v, %v, want Alice, true", val, ok)
@@ -337,6 +360,7 @@ func TestResolveVar(t *testing.T) {
 	})
 
 	t.Run("nested path", func(t *testing.T) {
+		t.Parallel()
 		val, ok := resolveVar(vars, "user.email")
 		if !ok || val != "alice@example.com" {
 			t.Fatalf("resolveVar(user.email) = %v, %v, want alice@example.com, true", val, ok)
@@ -344,6 +368,7 @@ func TestResolveVar(t *testing.T) {
 	})
 
 	t.Run("deeply nested path", func(t *testing.T) {
+		t.Parallel()
 		val, ok := resolveVar(vars, "user.address.city")
 		if !ok || val != "SF" {
 			t.Fatalf("resolveVar(user.address.city) = %v, %v, want SF, true", val, ok)
@@ -351,6 +376,7 @@ func TestResolveVar(t *testing.T) {
 	})
 
 	t.Run("missing key", func(t *testing.T) {
+		t.Parallel()
 		_, ok := resolveVar(vars, "missing")
 		if ok {
 			t.Fatal("expected missing key to return false")
@@ -358,6 +384,7 @@ func TestResolveVar(t *testing.T) {
 	})
 
 	t.Run("missing nested key", func(t *testing.T) {
+		t.Parallel()
 		_, ok := resolveVar(vars, "user.phone")
 		if ok {
 			t.Fatal("expected missing nested key to return false")
@@ -365,6 +392,7 @@ func TestResolveVar(t *testing.T) {
 	})
 
 	t.Run("path through non-object", func(t *testing.T) {
+		t.Parallel()
 		_, ok := resolveVar(vars, "name.first")
 		if ok {
 			t.Fatal("expected path through string to return false")
@@ -373,19 +401,23 @@ func TestResolveVar(t *testing.T) {
 }
 
 func TestStringify(t *testing.T) {
+	t.Parallel()
 	t.Run("string", func(t *testing.T) {
+		t.Parallel()
 		if s := stringify("hello"); s != "hello" {
 			t.Fatalf("got %q, want hello", s)
 		}
 	})
 
 	t.Run("integer float", func(t *testing.T) {
+		t.Parallel()
 		if s := stringify(float64(42)); s != "42" {
 			t.Fatalf("got %q, want 42", s)
 		}
 	})
 
 	t.Run("fractional float", func(t *testing.T) {
+		t.Parallel()
 		s := stringify(3.14)
 		if !strings.Contains(s, "3.14") {
 			t.Fatalf("got %q, want contains 3.14", s)
@@ -393,24 +425,28 @@ func TestStringify(t *testing.T) {
 	})
 
 	t.Run("bool true", func(t *testing.T) {
+		t.Parallel()
 		if s := stringify(true); s != "true" {
 			t.Fatalf("got %q, want true", s)
 		}
 	})
 
 	t.Run("bool false", func(t *testing.T) {
+		t.Parallel()
 		if s := stringify(false); s != "false" {
 			t.Fatalf("got %q, want false", s)
 		}
 	})
 
 	t.Run("nil", func(t *testing.T) {
+		t.Parallel()
 		if s := stringify(nil); s != "" {
 			t.Fatalf("got %q, want empty", s)
 		}
 	})
 
 	t.Run("object", func(t *testing.T) {
+		t.Parallel()
 		s := stringify(map[string]any{"k": "v"})
 		if !strings.Contains(s, `"k"`) || !strings.Contains(s, `"v"`) {
 			t.Fatalf("got %q, want JSON object", s)
