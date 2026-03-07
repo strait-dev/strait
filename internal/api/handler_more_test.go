@@ -1577,3 +1577,138 @@ func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
 		t.Fatal("expected run to be enqueued when daily cost budget not exceeded")
 	}
 }
+
+func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", `{
+		"project_id": "proj-1",
+		"name": "Test Job",
+		"slug": "test-job",
+		"endpoint_url": "https://example.com/webhook",
+		"retry_strategy": "banana"
+	}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid retry_strategy, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid retry_strategy") {
+		t.Fatalf("expected error about retry_strategy, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", `{
+		"project_id": "proj-1",
+		"name": "Test Job",
+		"slug": "test-job",
+		"endpoint_url": "https://example.com/webhook",
+		"retry_strategy": "custom",
+		"retry_delays_secs": [-5, 10, 30]
+	}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for negative retry_delays_secs, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "retry_delays_secs values must be positive") {
+		t.Fatalf("expected error about positive values, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
+	strategies := []string{"exponential", "linear", "fixed", "custom"}
+	for _, strategy := range strategies {
+		t.Run(strategy, func(t *testing.T) {
+			ms := &mockAPIStore{
+				createJobFn: func(_ context.Context, _ *domain.Job) error { return nil },
+			}
+			srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+			body := fmt.Sprintf(`{
+				"project_id": "proj-1",
+				"name": "Test Job",
+				"slug": "test-job-%s",
+				"endpoint_url": "https://example.com/webhook",
+				"retry_strategy": "%s"
+			}`, strategy, strategy)
+
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", body))
+
+			if w.Code != http.StatusCreated {
+				t.Fatalf("expected 201 for valid strategy %q, got %d: %s", strategy, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandleUpdateJob_InvalidRetryStrategy(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"retry_strategy": "banana"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid retry_strategy on update, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"retry_delays_secs": [0, -1, 5]}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for negative retry_delays_secs on update, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKUsage_CostBudgetCheckBeforeRecord(t *testing.T) {
+	// Verify that when budget is exceeded, usage is NOT recorded.
+	usageRecorded := false
+	ms := &mockAPIStore{
+		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error {
+			usageRecorded = true
+			return nil
+		},
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 1000}, nil
+		},
+		sumRunCostMicrousdFn: func(_ context.Context, _ string) (int64, error) {
+			return 900, nil // 900 existing + 500 new = 1400 >= 1000 limit
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if usageRecorded {
+		t.Fatal("usage should NOT be recorded when budget check fails before recording")
+	}
+}

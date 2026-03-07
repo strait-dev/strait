@@ -191,6 +191,7 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 			COUNT(*) FILTER (WHERE status = 'timed_out') AS timed_out_runs,
 			COUNT(*) FILTER (WHERE status IN ('crashed', 'system_failed')) AS crashed_runs,
 			COUNT(*) FILTER (WHERE status = 'canceled') AS canceled_runs,
+			COUNT(*) FILTER (WHERE status = 'expired') AS expired_runs,
 			COALESCE(
 				AVG(EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
 				0
@@ -212,6 +213,7 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 		&stats.TimedOutRuns,
 		&stats.CrashedRuns,
 		&stats.CanceledRuns,
+		&stats.ExpiredRuns,
 		&stats.AvgDurationSecs,
 		&stats.P95DurationSecs,
 	)
@@ -224,12 +226,15 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 
 		// Health score: 70% success rate + 30% duration stability (0-100).
 		successComponent := stats.SuccessRate * 0.7
-		stabilityComponent := 30.0
-		if stats.AvgDurationSecs > 0 && stats.P95DurationSecs > 2*stats.AvgDurationSecs {
-			// Penalize high variance: ratio > 2 means unstable.
-			ratio := stats.P95DurationSecs / stats.AvgDurationSecs
-			penalty := min((ratio-2)*15, 30) // max 30 point penalty
-			stabilityComponent = max(0, 30-penalty)
+		stabilityComponent := 0.0 // default: no duration data = no stability credit
+		if stats.AvgDurationSecs > 0 {
+			stabilityComponent = 30.0 // full credit for stable durations
+			if stats.P95DurationSecs > 2*stats.AvgDurationSecs {
+				// Penalize high variance: ratio > 2 means unstable.
+				ratio := stats.P95DurationSecs / stats.AvgDurationSecs
+				penalty := min((ratio-2)*15, 30) // max 30 point penalty
+				stabilityComponent = max(0, 30-penalty)
+			}
 		}
 		stats.HealthScore = min(100, successComponent+stabilityComponent)
 	} else {

@@ -119,7 +119,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		dailyCost, costErr := s.store.SumProjectDailyCostMicrousd(r.Context(), job.ProjectID, tz)
 		if costErr != nil {
-			respondError(w, http.StatusInternalServerError, "failed to evaluate daily cost budget")
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
 			return
 		}
 		if dailyCost >= projectQuota.MaxDailyCostMicrousd {

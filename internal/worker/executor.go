@@ -362,11 +362,21 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		if envErr != nil {
 			e.logger.Warn("failed to resolve environment variables", "run_id", run.ID, "environment_id", job.EnvironmentID, "error", envErr)
 		} else if override, ok := envVars["ENDPOINT_URL"]; ok && override != "" {
-			e.logger.Info("overriding endpoint URL from environment", "run_id", run.ID, "environment_id", job.EnvironmentID, "original", job.EndpointURL, "override", override)
-			job.EndpointURL = override
+			if err := validateEndpointURL(override); err != nil {
+				e.logger.Warn("environment ENDPOINT_URL failed SSRF validation",
+					"run_id", run.ID,
+					"environment_id", job.EnvironmentID,
+					"error", err,
+				)
+			} else {
+				e.logger.Info("overriding endpoint URL from environment",
+					"run_id", run.ID,
+					"environment_id", job.EnvironmentID,
+				)
+				job.EndpointURL = override
+			}
 		}
 	}
-
 	if e.circuitBreaker {
 		allowed, retryAt, circuitErr := e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
 		if circuitErr != nil {

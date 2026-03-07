@@ -128,6 +128,7 @@ type JobHealthStats struct {
 	TimedOutRuns    int     `json:"timed_out_runs"`
 	CrashedRuns     int     `json:"crashed_runs"`
 	CanceledRuns    int     `json:"canceled_runs"`
+	ExpiredRuns     int     `json:"expired_runs"`
 	SuccessRate     float64 `json:"success_rate"`
 	AvgDurationSecs float64 `json:"avg_duration_secs"`
 	P95DurationSecs float64 `json:"p95_duration_secs"`

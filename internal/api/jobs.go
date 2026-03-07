@@ -110,6 +110,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := validateRetryConfig(req.RetryStrategy, req.RetryDelaysSecs); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	if len(req.Tags) > 0 {
 		if !s.config.FFJobTags {
 			respondError(w, http.StatusNotFound, "job tags feature is not enabled")
@@ -236,6 +241,19 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.ExecutionWindowCron); err != nil {
 			respondError(w, http.StatusBadRequest, "invalid execution_window_cron expression")
+			return
+		}
+	}
+
+	if req.RetryStrategy != nil {
+		if err := validateRetryConfig(*req.RetryStrategy, nil); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.RetryDelaysSecs != nil {
+		if err := validateRetryConfig("", *req.RetryDelaysSecs); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -433,6 +451,24 @@ func validateTags(tags map[string]string) error {
 	return nil
 }
 
+// validateRetryConfig validates retry_strategy and retry_delays_secs values.
+func validateRetryConfig(strategy string, delays []int) error {
+	if strategy != "" {
+		switch strategy {
+		case "exponential", "linear", "fixed", "custom":
+			// valid
+		default:
+			return fmt.Errorf("invalid retry_strategy: must be exponential, linear, fixed, or custom")
+		}
+	}
+	for _, d := range delays {
+		if d <= 0 {
+			return fmt.Errorf("retry_delays_secs values must be positive")
+		}
+	}
+	return nil
+}
+
 // Batch job definition operations (2.38).
 
 const maxBatchSize = 50
@@ -489,6 +525,11 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 
 		if err := validateURL(jobReq.EndpointURL); err != nil {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid endpoint_url: " + err.Error()})
+			continue
+		}
+
+		if err := validateRetryConfig(jobReq.RetryStrategy, jobReq.RetryDelaysSecs); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
 			continue
 		}
 

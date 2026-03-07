@@ -164,3 +164,21 @@ func TestNextRetryDelayWithStrategy_LinearCap(t *testing.T) {
 		t.Errorf("linear attempt 100000: delay %v exceeds max allowed %v", delay, maxAllowed)
 	}
 }
+
+func TestNextRetryDelayWithStrategy_NegativeCustomDelays(t *testing.T) {
+	// Negative custom delays should be floored to base (1s) +-20% jitter.
+	customDelays := []int{-5, -10, 30}
+	delay := NextRetryDelayWithStrategy(1, RetryCustom, customDelays)
+	if delay < 800*time.Millisecond || delay > 1200*time.Millisecond {
+		t.Errorf("negative custom delay: got %v, want ~1s (floored to base)", delay)
+	}
+}
+
+func TestNextRetryDelayWithStrategy_ZeroCustomDelay(t *testing.T) {
+	// Zero custom delays should be floored to base (1s) +-20% jitter.
+	customDelays := []int{0, 5, 30}
+	delay := NextRetryDelayWithStrategy(1, RetryCustom, customDelays)
+	if delay < 800*time.Millisecond || delay > 1200*time.Millisecond {
+		t.Errorf("zero custom delay: got %v, want ~1s (floored to base)", delay)
+	}
+}

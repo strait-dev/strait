@@ -414,23 +414,25 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 		TotalTokens:      req.TotalTokens,
 		CostMicrousd:     req.CostMicrousd,
 	}
-	if err := s.store.CreateRunUsage(r.Context(), usage); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create run usage")
-		return
-	}
-	// Cost budget check: warn if per-run budget exceeded (usage is still recorded).
-	if s.config.FFCostBudgets {
+
+	// Cost budget check BEFORE recording usage to prevent overspend.
+	if s.config.FFCostBudgets && req.CostMicrousd > 0 {
 		run, runErr := s.store.GetRun(r.Context(), runID)
 		if runErr == nil && run != nil {
 			quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
 			if qErr == nil && quota != nil && quota.MaxCostPerRunMicrousd > 0 {
 				totalCost, costErr := s.store.SumRunCostMicrousd(r.Context(), runID)
-				if costErr == nil && totalCost > quota.MaxCostPerRunMicrousd {
+				if costErr == nil && totalCost+req.CostMicrousd >= quota.MaxCostPerRunMicrousd {
 					respondError(w, http.StatusTooManyRequests, "per-run cost budget exceeded")
 					return
 				}
 			}
 		}
+	}
+
+	if err := s.store.CreateRunUsage(r.Context(), usage); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create run usage")
+		return
 	}
 
 	respondJSON(w, http.StatusCreated, usage)

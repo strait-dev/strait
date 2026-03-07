@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,18 +28,18 @@ type statusUpdateCall struct {
 }
 
 type mockExecutorStore struct {
-	getJobFn            func(ctx context.Context, id string) (*domain.Job, error)
-	listSecretsFn       func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
-	updateRunStatusFn   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	updateHeartbeatFn   func(ctx context.Context, id string) error
-	canDispatchFn       func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
-	recordFailureFn     func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
-	recordSuccessFn     func(ctx context.Context, endpointURL string) error
-	getJobHealthStatsFn func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
-
-	mu              sync.Mutex
-	statusCalls     []statusUpdateCall
-	heartbeatRunIDs []string
+	getJobFn             func(ctx context.Context, id string) (*domain.Job, error)
+	listSecretsFn        func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
+	updateRunStatusFn    func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateHeartbeatFn    func(ctx context.Context, id string) error
+	canDispatchFn        func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	recordFailureFn      func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	recordSuccessFn      func(ctx context.Context, endpointURL string) error
+	getJobHealthStatsFn  func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
+	getResolvedEnvVarsFn func(ctx context.Context, id string) (map[string]string, error)
+	mu                   sync.Mutex
+	statusCalls          []statusUpdateCall
+	heartbeatRunIDs      []string
 }
 
 func (m *mockExecutorStore) GetJob(ctx context.Context, id string) (*domain.Job, error) {
@@ -110,8 +111,11 @@ func (m *mockExecutorStore) GetJobHealthStats(ctx context.Context, jobID string,
 	return m.getJobHealthStatsFn(ctx, jobID, since)
 }
 
-func (m *mockExecutorStore) GetResolvedEnvironmentVariables(_ context.Context, _ string) (map[string]string, error) {
-	return nil, nil
+func (m *mockExecutorStore) GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error) {
+	if m.getResolvedEnvVarsFn == nil {
+		return nil, nil
+	}
+	return m.getResolvedEnvVarsFn(ctx, id)
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
@@ -1840,5 +1844,156 @@ func TestExecutor_AdaptiveTimeout_DisabledByDefault(t *testing.T) {
 	}
 	if healthStatsCalls.Load() != 0 {
 		t.Fatalf("GetJobHealthStats call count = %d, want 0", healthStatsCalls.Load())
+	}
+}
+
+func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
+	// The override server should receive the request, not the original.
+	overrideCalled := false
+	overrideServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		overrideCalled = true
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"from":"override"}`))
+	}))
+	defer overrideServer.Close()
+
+	originalServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("original server should not be called when override is active")
+	}))
+	defer originalServer.Close()
+
+	// Use localhost hostname instead of 127.0.0.1 to pass SSRF IP check.
+	// validateEndpointURL only blocks literal private IPs, not hostnames.
+	overrideURL := strings.Replace(overrideServer.URL, "127.0.0.1", "localhost", 1)
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		job := testJob(originalServer.URL, 1, 5)
+		job.EnvironmentID = "env-1"
+		return job, nil
+	}
+	store.getResolvedEnvVarsFn = func(_ context.Context, id string) (map[string]string, error) {
+		if id != "env-1" {
+			t.Fatalf("unexpected environment ID: %q", id)
+		}
+		return map[string]string{"ENDPOINT_URL": overrideURL}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, overrideServer.Client())
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+	if !overrideCalled {
+		t.Fatal("override server should have been called")
+	}
+}
+
+func TestExecutor_EnvironmentOverride_ErrorFallsBackToOriginal(t *testing.T) {
+	// When env resolution fails, the original endpoint should be used.
+	originalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"from":"original"}`))
+	}))
+	defer originalServer.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		job := testJob(originalServer.URL, 1, 5)
+		job.EnvironmentID = "env-1"
+		return job, nil
+	}
+	store.getResolvedEnvVarsFn = func(_ context.Context, _ string) (map[string]string, error) {
+		return nil, errors.New("env resolution failed")
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, originalServer.Client())
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecutor_EnvironmentOverride_SSRFBlocked(t *testing.T) {
+	// Override to a private IP should be rejected; original endpoint used.
+	originalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"from":"original"}`))
+	}))
+	defer originalServer.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		job := testJob(originalServer.URL, 1, 5)
+		job.EnvironmentID = "env-1"
+		return job, nil
+	}
+	store.getResolvedEnvVarsFn = func(_ context.Context, _ string) (map[string]string, error) {
+		// Try to override to AWS metadata endpoint (SSRF attack)
+		return map[string]string{"ENDPOINT_URL": "http://169.254.169.254/latest/meta-data/"}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, originalServer.Client())
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	// Should complete using original endpoint, not the blocked override.
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecutor_EnvironmentOverride_EmptyValueKeepsOriginal(t *testing.T) {
+	// Empty ENDPOINT_URL should not override.
+	originalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"from":"original"}`))
+	}))
+	defer originalServer.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		job := testJob(originalServer.URL, 1, 5)
+		job.EnvironmentID = "env-1"
+		return job, nil
+	}
+	store.getResolvedEnvVarsFn = func(_ context.Context, _ string) (map[string]string, error) {
+		return map[string]string{"ENDPOINT_URL": ""}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, originalServer.Client())
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
 	}
 }

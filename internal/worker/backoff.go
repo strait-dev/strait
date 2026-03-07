@@ -68,6 +68,11 @@ func NextRetryDelayWithStrategy(attempt int, strategy string, customDelays []int
 		delay = exponentialDelay(attempt, base, maxDelay)
 	}
 
+	// Floor: never allow delay below base (guards against negative or zero custom delays).
+	if delay < base {
+		delay = base
+	}
+
 	return addJitter(delay)
 }
 

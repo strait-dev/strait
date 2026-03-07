@@ -1419,7 +1419,7 @@ func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
 	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50}`)
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusTooManyRequests {
@@ -1444,7 +1444,7 @@ func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
 	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50}`)
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":100}`)
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusCreated {
