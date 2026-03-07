@@ -17,6 +17,7 @@ import (
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/domain"
+	"orchestrator/internal/health"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
 	"orchestrator/internal/store"
@@ -165,6 +166,7 @@ type Server struct {
 	config           *config.Config
 	metricsHandler   http.Handler
 	pinger           Pinger
+	healthRegistry   *health.Registry
 	workflowCallback WorkflowCallback
 	workflowEngine   WorkflowTrigger
 	validate         *validator.Validate
@@ -178,6 +180,7 @@ type ServerDeps struct {
 	PubSub           pubsub.Publisher
 	MetricsHandler   http.Handler
 	Pinger           Pinger
+	HealthRegistry   *health.Registry
 	WorkflowCallback WorkflowCallback
 	WorkflowEngine   WorkflowTrigger
 }
@@ -191,6 +194,7 @@ func NewServer(deps ServerDeps) *Server {
 		config:           deps.Config,
 		metricsHandler:   deps.MetricsHandler,
 		pinger:           deps.Pinger,
+		healthRegistry:   deps.HealthRegistry,
 		workflowCallback: deps.WorkflowCallback,
 		workflowEngine:   deps.WorkflowEngine,
 		validate:         validator.New(validator.WithRequiredStructEnabled()),
@@ -390,7 +394,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
-	// Verify database connectivity via a lightweight query
+	if s.healthRegistry != nil {
+		result := s.healthRegistry.CheckAll(r.Context())
+		if result.Status != health.StatusUp {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(result)
+			return
+		}
+		respondJSON(w, http.StatusOK, result)
+		return
+	}
+
 	_, err := s.store.QueueStats(r.Context())
 	if err != nil {
 		respondError(w, r, http.StatusServiceUnavailable, "database not ready")

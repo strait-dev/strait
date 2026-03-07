@@ -15,6 +15,7 @@ import (
 	"orchestrator/internal/api"
 	"orchestrator/internal/cdc"
 	"orchestrator/internal/config"
+	"orchestrator/internal/health"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
 	"orchestrator/internal/scheduler"
@@ -319,6 +320,17 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 		api.SetMaxRequestBodySize(cfg.MaxRequestBodySize)
 	}
 
+	healthReg := health.NewRegistry()
+	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
+		_, err := queries.QueueStats(ctx)
+		return err
+	}))
+	if pinger != nil {
+		healthReg.Register(health.NewChecker("redis", func(ctx context.Context) error {
+			return pinger.Ping(ctx)
+		}))
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:           cfg,
 		Store:            queries,
@@ -326,6 +338,7 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 		PubSub:           pub,
 		MetricsHandler:   metricsHandler,
 		Pinger:           pinger,
+		HealthRegistry:   healthReg,
 		WorkflowCallback: stepCallback,
 		WorkflowEngine:   workflowEngine,
 	})
