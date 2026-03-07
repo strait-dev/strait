@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -158,6 +159,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			MaxNestingDepth:       stepReq.MaxNestingDepth,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
+			slog.Error("failed to create workflow step", "error", err, "step_ref", step.StepRef, "workflow_id", wf.ID)
 			respondError(w, http.StatusInternalServerError, "failed to create workflow step")
 			return
 		}
