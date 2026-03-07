@@ -140,7 +140,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 	return runs, nil
 }
 
-func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error) {
+func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowRunsByProject")
 	defer span.End()
 
@@ -157,6 +157,12 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	if status != nil {
 		baseQuery += fmt.Sprintf(" AND status = $%d", param)
 		args = append(args, *status)
+		param++
+	}
+
+	if cursor != nil {
+		baseQuery += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
 		param++
 	}
 

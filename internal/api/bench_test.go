@@ -118,7 +118,7 @@ func BenchmarkHandleBulkCancel(b *testing.B) {
 		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -185,7 +185,7 @@ func BenchmarkHandleListJobs(b *testing.B) {
 	}
 
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, _ string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return jobs, nil
 		},
 	}
@@ -371,7 +371,7 @@ func TestConcurrentBulkCancel(t *testing.T) {
 			cancelAttempts[id]++
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -453,7 +453,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 			}
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, _, _ *string, limit int, _ *time.Time) ([]domain.JobRun, error) {

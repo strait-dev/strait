@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -70,17 +71,28 @@ func (q *Queries) GetEnvironment(ctx context.Context, id string) (*domain.Enviro
 	return env, nil
 }
 
-func (q *Queries) ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error) {
+func (q *Queries) ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEnvironments")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, name, slug, parent_id, variables, created_at, updated_at
 		FROM environments
-		WHERE project_id = $1
-		ORDER BY created_at DESC`
+		WHERE project_id = $1`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
 	}

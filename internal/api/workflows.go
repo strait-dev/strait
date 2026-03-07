@@ -201,13 +201,21 @@ func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workflows, err := s.store.ListWorkflows(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	workflows, err := s.store.ListWorkflows(r.Context(), projectID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflows")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, workflows)
+	respondJSON(w, http.StatusOK, paginatedResult(workflows, limit, func(wf domain.Workflow) string {
+		return wf.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {

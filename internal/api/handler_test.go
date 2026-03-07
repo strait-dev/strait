@@ -280,7 +280,7 @@ func TestHandleGetJob_NotFound(t *testing.T) {
 func TestHandleListJobs_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, projectID string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{
 				{ID: "job-1", ProjectID: projectID, Name: "Job 1"},
 				{ID: "job-2", ProjectID: projectID, Name: "Job 2"},
@@ -296,9 +296,15 @@ func TestHandleListJobs_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 jobs, got %d", len(resp))
@@ -410,7 +416,7 @@ func TestHandleGetJobGroup_NotFound(t *testing.T) {
 func TestHandleListJobGroups_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobGroupsFn: func(_ context.Context, projectID string) ([]domain.JobGroup, error) {
+		listJobGroupsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.JobGroup, error) {
 			return []domain.JobGroup{
 				{ID: "group-1", ProjectID: projectID, Name: "Core", Slug: "core"},
 				{ID: "group-2", ProjectID: projectID, Name: "Ops", Slug: "ops"},
@@ -427,9 +433,15 @@ func TestHandleListJobGroups_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 groups, got %d", len(resp))
@@ -462,7 +474,7 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 func TestHandleListJobsByGroup_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsByGroupFn: func(_ context.Context, groupID string) ([]domain.Job, error) {
+		listJobsByGroupFn: func(_ context.Context, groupID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{{ID: "job-1", GroupID: groupID, ProjectID: "proj-1", Name: "Job 1"}}, nil
 		},
 	}
@@ -476,9 +488,15 @@ func TestHandleListJobsByGroup_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
@@ -488,7 +506,7 @@ func TestHandleListJobsByGroup_Success(t *testing.T) {
 func TestHandleListJobs_FilterByTag(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {
+		listJobsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.Job, error) {
 			if projectID != "proj-1" || tagKey != "team" || tagValue != "core" {
 				t.Fatalf("unexpected list by tag args: %q %q %q", projectID, tagKey, tagValue)
 			}
@@ -505,9 +523,15 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
@@ -623,7 +647,7 @@ func TestHandleCreateJobDependency_FeatureDisabled(t *testing.T) {
 func TestHandleListJobDependencies_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{}
-	ms.listJobDependenciesFn = func(_ context.Context, jobID string) ([]domain.JobDependency, error) {
+	ms.listJobDependenciesFn = func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: time.Now()}}, nil
 	}
 
@@ -637,9 +661,15 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []domain.JobDependency
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []domain.JobDependency
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 dependency, got %d", len(resp))
@@ -792,7 +822,7 @@ func TestHandleCancelRun_Success(t *testing.T) {
 			}
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -1216,11 +1246,11 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listDeadLetterRunsFn: func(_ context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+		listDeadLetterRunsFn: func(_ context.Context, projectID string, limit int, _ *time.Time) ([]domain.JobRun, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("unexpected project_id: %s", projectID)
 			}
-			if limit != 25 {
+			if limit != 26 { // handler passes limit+1 for has_more detection
 				t.Fatalf("unexpected limit: %d", limit)
 			}
 			return []domain.JobRun{{ID: "run-dlq-1", ProjectID: "proj-1", Status: domain.StatusDeadLetter}}, nil
@@ -1237,9 +1267,15 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var runs []domain.JobRun
-	if err := json.Unmarshal(w.Body.Bytes(), &runs); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var runs []domain.JobRun
+	if err := json.Unmarshal(paginatedResp.Data, &runs); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(runs))
@@ -1252,7 +1288,7 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 func TestHandleListDeadLetterRuns_FeatureDisabled(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listDeadLetterRunsFn: func(_ context.Context, _ string, _ int) ([]domain.JobRun, error) {
+		listDeadLetterRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			t.Fatal("ListDeadLetterRuns should not be called when FFRunDLQ is disabled")
 			return nil, nil
 		},
@@ -1974,7 +2010,7 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 func TestHandleListEnvironments_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listEnvironmentsFn: func(_ context.Context, projectID string) ([]domain.Environment, error) {
+		listEnvironmentsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Environment, error) {
 			return []domain.Environment{
 				{ID: "env-1", ProjectID: projectID, Name: "Development", Slug: "dev"},
 				{ID: "env-2", ProjectID: projectID, Name: "Production", Slug: "production"},
@@ -1991,9 +2027,15 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 environments, got %d", len(resp))
@@ -2195,7 +2237,7 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
 		},
-		listRunCheckpointsFn: func(_ context.Context, runID string, _ int) ([]domain.RunCheckpoint, error) {
+		listRunCheckpointsFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
 			if runID != "run-1" {
 				t.Fatalf("unexpected runID: %s", runID)
 			}
@@ -2245,7 +2287,7 @@ func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
 		},
-		listRunCheckpointsFn: func(_ context.Context, _ string, _ int) ([]domain.RunCheckpoint, error) {
+		listRunCheckpointsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
 			return []domain.RunCheckpoint{
 				{ID: "cp-1", RunID: "run-1", Sequence: 1, State: json.RawMessage(`{"step":1}`)},
 			}, nil
@@ -2292,7 +2334,7 @@ func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
 func TestHandleListRunLineage_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listRunLineageFn: func(_ context.Context, runID string) ([]domain.JobRun, error) {
+		listRunLineageFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if runID != "run-1" {
 				t.Fatalf("expected run-1, got %s", runID)
 			}
@@ -2312,9 +2354,15 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
+		t.Fatalf("failed to decode paginated response: %v", err)
+	}
 	var runs []domain.JobRun
-	if err := json.NewDecoder(w.Body).Decode(&runs); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
+	if err := json.Unmarshal(paginatedResp.Data, &runs); err != nil {
+		t.Fatalf("failed to decode data: %v", err)
 	}
 	if len(runs) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(runs))
@@ -2340,7 +2388,7 @@ func TestHandleListRunLineage_FeatureDisabled(t *testing.T) {
 func TestHandleListRunLineage_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listRunLineageFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listRunLineageFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

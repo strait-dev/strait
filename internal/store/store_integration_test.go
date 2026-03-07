@@ -299,7 +299,7 @@ func TestListJobs(t *testing.T) {
 		}
 	}
 
-	jobs, err := q.ListJobs(ctx, projectID)
+	jobs, err := q.ListJobs(ctx, projectID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobs() error = %v", err)
 	}
@@ -330,7 +330,7 @@ func TestListJobs_FiltersByProject(t *testing.T) {
 		t.Fatalf("CreateJob() other error = %v", err)
 	}
 
-	jobs, err := q.ListJobs(ctx, targetProject)
+	jobs, err := q.ListJobs(ctx, targetProject, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobs() error = %v", err)
 	}
@@ -369,7 +369,7 @@ func TestListJobsByTag(t *testing.T) {
 		t.Fatalf("CreateJob(jobC) error = %v", err)
 	}
 
-	jobs, err := q.ListJobsByTag(ctx, projectID, "team", "core")
+	jobs, err := q.ListJobsByTag(ctx, projectID, "team", "core", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobsByTag() error = %v", err)
 	}
@@ -383,7 +383,7 @@ func TestListJobsByTag(t *testing.T) {
 		t.Fatalf("ListJobsByTag() service tag = %q, want %q", jobs[0].Tags["service"], "scheduler")
 	}
 
-	jobs, err = q.ListJobsByTag(ctx, projectID, "team", "")
+	jobs, err = q.ListJobsByTag(ctx, projectID, "team", "", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobsByTag(key-only) error = %v", err)
 	}
@@ -1004,7 +1004,7 @@ func TestListChildRuns(t *testing.T) {
 		t.Fatalf("CreateRun() child2 error = %v", err)
 	}
 
-	children, err := q.ListChildRuns(ctx, parent.ID)
+	children, err := q.ListChildRuns(ctx, parent.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListChildRuns() error = %v", err)
 	}
@@ -1105,7 +1105,7 @@ func TestInsertEvent(t *testing.T) {
 		t.Fatal("InsertEvent() did not set CreatedAt")
 	}
 
-	events, err := q.ListEvents(ctx, run.ID)
+	events, err := q.ListEvents(ctx, run.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListEvents() error = %v", err)
 	}
@@ -1144,7 +1144,7 @@ func TestListEvents(t *testing.T) {
 		}
 	}
 
-	events, err := q.ListEvents(ctx, run.ID)
+	events, err := q.ListEvents(ctx, run.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListEvents() error = %v", err)
 	}
@@ -1237,7 +1237,7 @@ func TestRunCheckpoints(t *testing.T) {
 		t.Fatalf("CreateRunCheckpoint() error = %v", err)
 	}
 
-	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, 10)
+	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunCheckpoints() error = %v", err)
 	}
@@ -1278,7 +1278,7 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 		t.Fatalf("CreateRunUsage() cost = %d, want 65", usage.CostMicrousd)
 	}
 
-	usages, err := q.ListRunUsage(ctx, run.ID, 10)
+	usages, err := q.ListRunUsage(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunUsage() error = %v", err)
 	}
@@ -1290,7 +1290,7 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	if err := q.CreateRunToolCall(ctx, call); err != nil {
 		t.Fatalf("CreateRunToolCall() error = %v", err)
 	}
-	calls, err := q.ListRunToolCalls(ctx, run.ID, 10)
+	calls, err := q.ListRunToolCalls(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunToolCalls() error = %v", err)
 	}
@@ -1306,7 +1306,7 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
 		t.Fatalf("UpsertRunOutput() second error = %v", err)
 	}
-	outputs, err := q.ListRunOutputs(ctx, run.ID)
+	outputs, err := q.ListRunOutputs(ctx, run.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListRunOutputs() error = %v", err)
 	}
@@ -1451,7 +1451,7 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatalf("GetJobSecret(not found) error = %v, want ErrJobSecretNotFound", err)
 	}
 
-	allProd, err := q.ListJobSecrets(ctx, projectID, "", "prod")
+	allProd, err := q.ListJobSecrets(ctx, projectID, "", "prod", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobSecrets(project+env) error = %v", err)
 	}
@@ -1459,7 +1459,7 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatalf("ListJobSecrets(project+env) len = %d, want 2", len(allProd))
 	}
 
-	jobOnly, err := q.ListJobSecrets(ctx, projectID, job.ID, "prod")
+	jobOnly, err := q.ListJobSecrets(ctx, projectID, job.ID, "prod", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobSecrets(project+job+env) error = %v", err)
 	}
@@ -1467,7 +1467,7 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatalf("ListJobSecrets(project+job+env) = %+v, want only %q", jobOnly, jobSecret.ID)
 	}
 
-	noneForEnv, err := q.ListJobSecrets(ctx, projectID, "", "staging")
+	noneForEnv, err := q.ListJobSecrets(ctx, projectID, "", "staging", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobSecrets(staging) error = %v", err)
 	}
@@ -1580,7 +1580,7 @@ func TestAPIKey_CRUD(t *testing.T) {
 		t.Fatal("GetAPIKeyByHash(missing) error = nil, want error")
 	}
 
-	keys, err := q.ListAPIKeysByProject(ctx, projectID)
+	keys, err := q.ListAPIKeysByProject(ctx, projectID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListAPIKeysByProject() error = %v", err)
 	}
@@ -1591,7 +1591,7 @@ func TestAPIKey_CRUD(t *testing.T) {
 		t.Fatalf("ListAPIKeysByProject() order mismatch: got IDs [%q, %q], want [%q, %q]", keys[0].ID, keys[1].ID, key2.ID, key1.ID)
 	}
 
-	none, err := q.ListAPIKeysByProject(ctx, "project-api-key-none")
+	none, err := q.ListAPIKeysByProject(ctx, "project-api-key-none", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListAPIKeysByProject(none) error = %v", err)
 	}
@@ -1610,7 +1610,7 @@ func TestAPIKey_CRUD(t *testing.T) {
 		t.Fatal("GetAPIKeyByHash(revoked) revoked_at = nil, want non-nil")
 	}
 
-	keys, err = q.ListAPIKeysByProject(ctx, projectID)
+	keys, err = q.ListAPIKeysByProject(ctx, projectID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListAPIKeysByProject(after revoke) error = %v", err)
 	}
@@ -1726,7 +1726,7 @@ func TestJobVersion_CRUD(t *testing.T) {
 		t.Fatal("CreateJobVersion(duplicate version) error = nil, want error")
 	}
 
-	versions, err := q.ListJobVersionsByJob(ctx, job.ID)
+	versions, err := q.ListJobVersionsByJob(ctx, job.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobVersionsByJob() error = %v", err)
 	}

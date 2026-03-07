@@ -53,8 +53,8 @@ func (m *mockSchedulerStore) ListTimedOutWorkflowRuns(ctx context.Context) ([]do
 	return m.reaper.ListTimedOutWorkflowRuns(ctx)
 }
 
-func (m *mockSchedulerStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
-	return m.reaper.ListStepRunsByWorkflowRun(ctx, workflowRunID)
+func (m *mockSchedulerStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
+	return m.reaper.ListStepRunsByWorkflowRun(ctx, workflowRunID, limit, cursor)
 }
 
 func (m *mockSchedulerStore) UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {

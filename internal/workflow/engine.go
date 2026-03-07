@@ -36,7 +36,7 @@ type EngineStore interface {
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
@@ -554,7 +554,7 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 	}
 
 	// 4. Get original step runs to determine which completed.
-	origStepRuns, err := e.store.ListStepRunsByWorkflowRun(ctx, originalRunID)
+	origStepRuns, err := e.store.ListStepRunsByWorkflowRun(ctx, originalRunID, 10000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list original step runs: %w", err)
 	}

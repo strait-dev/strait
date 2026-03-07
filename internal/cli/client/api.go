@@ -17,7 +17,7 @@ func (c *Client) ListJobs(ctx context.Context, projectID string) ([]domain.Job, 
 	query.Set("project_id", projectID)
 
 	var out []domain.Job
-	if err := c.doJSON(ctx, http.MethodGet, "/v1/jobs", query, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, "/v1/jobs", query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -74,7 +74,7 @@ func (c *Client) BulkTriggerJob(ctx context.Context, jobID string, req BulkTrigg
 
 func (c *Client) ListJobVersions(ctx context.Context, jobID string) ([]domain.JobVersion, error) {
 	var out []domain.JobVersion
-	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/jobs", jobID, "versions"), nil, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, path.Join("/v1/jobs", jobID, "versions"), nil, &out); err != nil {
 		return nil, err
 	}
 
@@ -91,11 +91,11 @@ func (c *Client) ListRuns(ctx context.Context, projectID, status string, limit i
 		query.Set("limit", fmt.Sprintf("%d", limit))
 	}
 	if cursor != nil {
-		query.Set("cursor", cursor.Format(time.RFC3339))
+		query.Set("cursor", cursor.Format(time.RFC3339Nano))
 	}
 
 	var out []domain.JobRun
-	if err := c.doJSON(ctx, http.MethodGet, "/v1/runs", query, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, "/v1/runs", query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -148,7 +148,7 @@ func (c *Client) ListRunEvents(ctx context.Context, runID, level, eventType stri
 	}
 
 	var out []domain.RunEvent
-	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/runs", runID, "events"), query, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, path.Join("/v1/runs", runID, "events"), query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -175,7 +175,7 @@ func (c *Client) ListWorkflows(ctx context.Context, projectID string) ([]domain.
 	query.Set("project_id", projectID)
 
 	var out []domain.Workflow
-	if err := c.doJSON(ctx, http.MethodGet, "/v1/workflows", query, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, "/v1/workflows", query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -227,7 +227,7 @@ func (c *Client) ListWorkflowRuns(ctx context.Context, workflowID string, limit,
 	}
 
 	var out []domain.WorkflowRun
-	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/workflows", workflowID, "runs"), query, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, path.Join("/v1/workflows", workflowID, "runs"), query, &out); err != nil {
 		return nil, err
 	}
 
@@ -245,7 +245,7 @@ func (c *Client) ListWorkflowRunsByProject(ctx context.Context, projectID, statu
 	}
 
 	var out []domain.WorkflowRun
-	if err := c.doJSON(ctx, http.MethodGet, "/v1/workflow-runs", query, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, "/v1/workflow-runs", query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -269,7 +269,7 @@ func (c *Client) CancelWorkflowRun(ctx context.Context, workflowRunID string) (*
 
 func (c *Client) ListWorkflowStepRuns(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
 	var out []domain.WorkflowStepRun
-	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/workflow-runs", workflowRunID, "steps"), nil, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, path.Join("/v1/workflow-runs", workflowRunID, "steps"), nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -288,7 +288,7 @@ func (c *Client) ListAPIKeys(ctx context.Context, projectID string) ([]domain.AP
 	query.Set("project_id", projectID)
 
 	var out []domain.APIKey
-	if err := c.doJSON(ctx, http.MethodGet, "/v1/api-keys", query, nil, &out); err != nil {
+	if err := c.doListJSON(ctx, "/v1/api-keys", query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

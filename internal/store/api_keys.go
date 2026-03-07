@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/domain"
 
@@ -57,15 +58,26 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.
 	return &key, nil
 }
 
-func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error) {
+func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListAPIKeysByProject")
 	defer span.End()
 
 	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
-			  FROM api_keys WHERE project_id = $1 AND revoked_at IS NULL
-			  ORDER BY created_at DESC`
+			  FROM api_keys WHERE project_id = $1 AND revoked_at IS NULL`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
 	}

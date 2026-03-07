@@ -303,7 +303,7 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 			updates++
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -344,7 +344,7 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -439,7 +439,7 @@ func TestHandleBulkCancel_AllTerminal(t *testing.T) {
 			}
 			return nil, fmt.Errorf("not found")
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -481,7 +481,7 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 			updatedIDs = append(updatedIDs, id)
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if parentRunID != "run-parent" {
 				t.Fatalf("unexpected parent run ID: %s", parentRunID)
 			}

@@ -105,13 +105,21 @@ func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys, err := s.store.ListAPIKeysByProject(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	keys, err := s.store.ListAPIKeysByProject(r.Context(), projectID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list api keys")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, keys)
+	respondJSON(w, http.StatusOK, paginatedResult(keys, limit, func(k domain.APIKey) string {
+		return k.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {

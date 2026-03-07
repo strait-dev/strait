@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -93,7 +94,7 @@ func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecre
 	return secret, nil
 }
 
-func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error) {
+func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobSecrets")
 	defer span.End()
 
@@ -118,9 +119,17 @@ func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environm
 	if environment != "" {
 		query += fmt.Sprintf(" AND environment = $%d", param)
 		args = append(args, environment)
+		param++
 	}
 
-	query += " ORDER BY created_at DESC"
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {

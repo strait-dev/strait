@@ -40,23 +40,23 @@ type APIStore interface {
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
-	ListJobs(ctx context.Context, projectID string) ([]domain.Job, error)
+	ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	CreateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error)
-	ListJobGroups(ctx context.Context, projectID string) ([]domain.JobGroup, error)
+	ListJobGroups(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error)
 	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	DeleteJobGroup(ctx context.Context, id string) error
-	ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error)
+	ListJobsByGroup(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	CreateEnvironment(ctx context.Context, env *domain.Environment) error
 	GetEnvironment(ctx context.Context, id string) (*domain.Environment, error)
-	ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error)
+	ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id string) error
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
-	ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
-	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
+	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
+	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
-	ListJobDependencies(ctx context.Context, jobID string) ([]domain.JobDependency, error)
+	ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	DeleteJobDependency(ctx context.Context, id string) error
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
@@ -64,30 +64,30 @@ type APIStore interface {
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
 	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
-	ListRunCheckpoints(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error)
+	ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
 	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
-	ListRunUsage(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error)
+	ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
 	CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error
-	ListRunToolCalls(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error)
+	ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
 	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
-	ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error)
+	ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	ListDeadLetterRuns(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error)
+	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
-	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
-	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
-	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
+	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
-	ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error)
+	ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id string) error
-	ListJobVersionsByJob(ctx context.Context, jobID string) ([]domain.JobVersion, error)
+	ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
@@ -95,7 +95,7 @@ type APIStore interface {
 	CreateWorkflow(ctx context.Context, w *domain.Workflow) error
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
-	ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error)
+	ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
 	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
 	DeleteWorkflow(ctx context.Context, id string) error
@@ -105,8 +105,8 @@ type APIStore interface {
 	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
-	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
-	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
+	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
 	ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
@@ -119,9 +119,9 @@ type APIStore interface {
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
-	ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error)
+	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
-	ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error)
+	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 }

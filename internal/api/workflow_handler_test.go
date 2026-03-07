@@ -198,7 +198,7 @@ func TestHandleGetWorkflow_NotFound(t *testing.T) {
 func TestHandleListWorkflows_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listWorkflowsFn: func(_ context.Context, projectID string) ([]domain.Workflow, error) {
+		listWorkflowsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Workflow, error) {
 			return []domain.Workflow{{ID: "wf-1", ProjectID: projectID}, {ID: "wf-2", ProjectID: projectID}}, nil
 		},
 	}
@@ -436,7 +436,7 @@ func TestHandleListWorkflowRuns(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
 			listWorkflowRunsFn: func(_ context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
-				if workflowID != "wf-1" || limit != 10 {
+				if workflowID != "wf-1" || limit != 11 { // handler passes limit+1
 					t.Fatalf("unexpected args: %s %d", workflowID, limit)
 				}
 				return []domain.WorkflowRun{{ID: "wr-1"}}, nil
@@ -468,8 +468,8 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 	t.Run("success with status filter", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
-			listWorkflowRunsByProjFn: func(_ context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error) {
-				if projectID != "proj-1" || limit != 20 {
+			listWorkflowRunsByProjFn: func(_ context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, _ *time.Time) ([]domain.WorkflowRun, error) {
+				if projectID != "proj-1" || limit != 21 { // handler passes limit+1
 					t.Fatalf("unexpected args: %s %d", projectID, limit)
 				}
 				if status == nil || *status != domain.WfStatusRunning {
@@ -503,7 +503,7 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 		t.Parallel()
 		called := false
 		ms := &mockAPIStore{
-			listWorkflowRunsByProjFn: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int) ([]domain.WorkflowRun, error) {
+			listWorkflowRunsByProjFn: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
 				called = true
 				return nil, nil
 			},
@@ -744,7 +744,7 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 				}
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-running", StepRef: "s1", Status: domain.StepRunning, JobRunID: "run-1"},
 					{ID: "sr-done", StepRef: "s2", Status: domain.StepCompleted, JobRunID: "run-2"},
@@ -1084,7 +1084,7 @@ func TestHandleListWorkflowStepRuns(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
-			listStepRunsByRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				if workflowRunID != "wr-1" {
 					t.Fatalf("workflow_run_id = %q, want wr-1", workflowRunID)
 				}
@@ -1104,7 +1104,7 @@ func TestHandleListWorkflowStepRuns(t *testing.T) {
 	t.Run("store error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
-			listStepRunsByRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return nil, errors.New("db down")
 			},
 		}
@@ -1381,7 +1381,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return nil, errors.New("db down")
 			},
 		}
@@ -1404,7 +1404,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -1436,7 +1436,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -1472,7 +1472,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -1557,7 +1557,7 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 		t.Parallel()
 		called := false
 		ms := &mockAPIStore{
-			listWorkflowRunsByProjFn: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int) ([]domain.WorkflowRun, error) {
+			listWorkflowRunsByProjFn: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
 				called = true
 				return nil, nil
 			},
@@ -1578,8 +1578,8 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 	t.Run("limit_clamped_to_100", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
-			listWorkflowRunsByProjFn: func(_ context.Context, projectID string, _ *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error) {
-				if projectID != "proj-1" || limit != 100 {
+			listWorkflowRunsByProjFn: func(_ context.Context, projectID string, _ *domain.WorkflowRunStatus, limit int, _ *time.Time) ([]domain.WorkflowRun, error) {
+				if projectID != "proj-1" || limit != 101 { // handler passes limit+1
 					t.Fatalf("unexpected args: %s %d", projectID, limit)
 				}
 				return []domain.WorkflowRun{{ID: "wr-1"}}, nil
@@ -1598,7 +1598,7 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 	t.Run("store_error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
-			listWorkflowRunsByProjFn: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int) ([]domain.WorkflowRun, error) {
+			listWorkflowRunsByProjFn: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
 				return nil, errors.New("db down")
 			},
 		}

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -86,15 +87,22 @@ func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := s.store.ListJobGroups(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	groups, err := s.store.ListJobGroups(r.Context(), projectID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list job groups")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, groups)
+	respondJSON(w, http.StatusOK, paginatedResult(groups, limit, func(g domain.JobGroup) string {
+		return g.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
-
 func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
 		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
@@ -166,11 +174,20 @@ func (s *Server) handleListJobsByGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	groupID := chi.URLParam(r, "groupID")
-	jobs, err := s.store.ListJobsByGroup(r.Context(), groupID)
+
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jobs, err := s.store.ListJobsByGroup(r.Context(), groupID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list jobs by group")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, jobs)
+	respondJSON(w, http.StatusOK, paginatedResult(jobs, limit, func(j domain.Job) string {
+		return j.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }

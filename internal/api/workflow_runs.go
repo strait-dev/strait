@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -29,38 +28,22 @@ type forceCompleteStepRequest struct {
 
 func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowID")
-	query := r.URL.Query()
 
-	limit := defaultPageLimit
-	if limitRaw := query.Get("limit"); limitRaw != "" {
-		parsedLimit, err := strconv.Atoi(limitRaw)
-		if err != nil || parsedLimit <= 0 {
-			respondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
-			return
-		}
-		if parsedLimit > maxPageLimit {
-			parsedLimit = maxPageLimit
-		}
-		limit = parsedLimit
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	var cursor *time.Time
-	if cursorRaw := query.Get("cursor"); cursorRaw != "" {
-		parsedCursor, err := time.Parse(time.RFC3339, cursorRaw)
-		if err != nil {
-			respondError(w, r, http.StatusBadRequest, "cursor must be an RFC3339 timestamp")
-			return
-		}
-		cursor = &parsedCursor
-	}
-
-	runs, err := s.store.ListWorkflowRuns(r.Context(), workflowID, limit, cursor)
+	runs, err := s.store.ListWorkflowRuns(r.Context(), workflowID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, runs)
+	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.WorkflowRun) string {
+		return run.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.Request) {
@@ -81,26 +64,21 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 		status = &parsed
 	}
 
-	limit := defaultPageLimit
-	if limitRaw := query.Get("limit"); limitRaw != "" {
-		parsedLimit, err := strconv.Atoi(limitRaw)
-		if err != nil || parsedLimit <= 0 {
-			respondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
-			return
-		}
-		if parsedLimit > maxPageLimit {
-			parsedLimit = maxPageLimit
-		}
-		limit = parsedLimit
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	runs, err := s.store.ListWorkflowRunsByProject(r.Context(), projectID, status, limit)
+	runs, err := s.store.ListWorkflowRunsByProject(r.Context(), projectID, status, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, runs)
+	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.WorkflowRun) string {
+		return run.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +121,7 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), run.ID)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), run.ID, 10000, nil)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
 		return
@@ -281,13 +259,22 @@ func (s *Server) handleGetWorkflowRunLabels(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Request) {
 	workflowRunID := chi.URLParam(r, "workflowRunID")
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID)
+
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, stepRuns)
+	respondJSON(w, http.StatusOK, paginatedResult(stepRuns, limit, func(sr domain.WorkflowStepRun) string {
+		return sr.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Request) {

@@ -17,23 +17,23 @@ type mockAPIStore struct {
 	createJobSecretFn             func(ctx context.Context, secret *domain.JobSecret) error
 	getJobFn                      func(ctx context.Context, id string) (*domain.Job, error)
 	getJobBySlugFn                func(ctx context.Context, projectID, slug string) (*domain.Job, error)
-	listJobsFn                    func(ctx context.Context, projectID string) ([]domain.Job, error)
+	listJobsFn                    func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	createJobGroupFn              func(ctx context.Context, group *domain.JobGroup) error
 	getJobGroupFn                 func(ctx context.Context, id string) (*domain.JobGroup, error)
-	listJobGroupsFn               func(ctx context.Context, projectID string) ([]domain.JobGroup, error)
+	listJobGroupsFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error)
 	updateJobGroupFn              func(ctx context.Context, group *domain.JobGroup) error
 	deleteJobGroupFn              func(ctx context.Context, id string) error
-	listJobsByGroupFn             func(ctx context.Context, groupID string) ([]domain.Job, error)
+	listJobsByGroupFn             func(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	createEnvironmentFn           func(ctx context.Context, env *domain.Environment) error
 	getEnvironmentFn              func(ctx context.Context, id string) (*domain.Environment, error)
-	listEnvironmentsFn            func(ctx context.Context, projectID string) ([]domain.Environment, error)
+	listEnvironmentsFn            func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
 	updateEnvironmentFn           func(ctx context.Context, env *domain.Environment) error
 	deleteEnvironmentFn           func(ctx context.Context, id string) error
 	getResolvedEnvVarsFn          func(ctx context.Context, id string) (map[string]string, error)
-	listJobSecretsFn              func(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
-	listJobsByTagFn               func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
+	listJobSecretsFn              func(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
+	listJobsByTagFn               func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
 	createJobDependencyFn         func(ctx context.Context, dep *domain.JobDependency) error
-	listJobDependenciesFn         func(ctx context.Context, jobID string) ([]domain.JobDependency, error)
+	listJobDependenciesFn         func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	deleteJobDependencyFn         func(ctx context.Context, id string) error
 	updateJobFn                   func(ctx context.Context, job *domain.Job) error
 	getRunFn                      func(ctx context.Context, id string) (*domain.JobRun, error)
@@ -41,30 +41,30 @@ type mockAPIStore struct {
 	findRecentRunByPayloadFn      func(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	countRunsForJobSinceFn        func(ctx context.Context, jobID string, since time.Time) (int, error)
 	createRunCheckpointFn         func(ctx context.Context, checkpoint *domain.RunCheckpoint) error
-	listRunCheckpointsFn          func(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error)
+	listRunCheckpointsFn          func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
 	createRunUsageFn              func(ctx context.Context, usage *domain.RunUsage) error
-	listRunUsageFn                func(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error)
+	listRunUsageFn                func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
 	createRunToolCallFn           func(ctx context.Context, call *domain.RunToolCall) error
-	listRunToolCallsFn            func(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error)
+	listRunToolCallsFn            func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
 	upsertRunOutputFn             func(ctx context.Context, output *domain.RunOutput) error
-	listRunOutputsFn              func(ctx context.Context, runID string) ([]domain.RunOutput, error)
+	listRunOutputsFn              func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
 	areAllDescendantsTerminalFn   func(ctx context.Context, parentRunID string) (bool, error)
 	getProjectQuotaFn             func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	countProjectQueuedRunsFn      func(ctx context.Context, projectID string) (int, error)
 	countProjectActiveRunsFn      func(ctx context.Context, projectID string) (int, error)
 	listRunsByProjectFn           func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	listDeadLetterRunsFn          func(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error)
+	listDeadLetterRunsFn          func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	updateRunStatusFn             func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	replayDeadLetterRunFn         func(ctx context.Context, runID string) (*domain.JobRun, error)
 	updateRunMetadataFn           func(ctx context.Context, id string, annotations map[string]string) error
-	listChildRunsFn               func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	listChildRunsFn               func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	insertEventFn                 func(ctx context.Context, event *domain.RunEvent) error
-	listEventsByRunFilteredFn     func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
-	listWebhookDeliveriesFn       func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
+	listEventsByRunFilteredFn     func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+	listWebhookDeliveriesFn       func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	createAPIKeyFn                func(ctx context.Context, key *domain.APIKey) error
-	listAPIKeysByProjectFn        func(ctx context.Context, projectID string) ([]domain.APIKey, error)
+	listAPIKeysByProjectFn        func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	revokeAPIKeyFn                func(ctx context.Context, id string) error
-	listJobVersionsByJobFn        func(ctx context.Context, jobID string) ([]domain.JobVersion, error)
+	listJobVersionsByJobFn        func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	getAPIKeyByHashFn             func(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	touchAPIKeyLastUsedFn         func(ctx context.Context, id string) error
 	updateHeartbeatFn             func(ctx context.Context, id string) error
@@ -72,7 +72,7 @@ type mockAPIStore struct {
 	createWorkflowFn              func(ctx context.Context, w *domain.Workflow) error
 	getWorkflowFn                 func(ctx context.Context, id string) (*domain.Workflow, error)
 	getWorkflowBySlugFn           func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
-	listWorkflowsFn               func(ctx context.Context, projectID string) ([]domain.Workflow, error)
+	listWorkflowsFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
 	updateWorkflowFn              func(ctx context.Context, w *domain.Workflow) error
 	createWorkflowSnapshotFn      func(ctx context.Context, workflowID string, version int) error
 	deleteWorkflowFn              func(ctx context.Context, id string) error
@@ -82,10 +82,10 @@ type mockAPIStore struct {
 	deleteStepsByWorkflowFn       func(ctx context.Context, workflowID string) error
 	getWorkflowRunFn              func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listWorkflowRunsFn            func(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
-	listWorkflowRunsByProjFn      func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
+	listWorkflowRunsByProjFn      func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	createWorkflowRunLabelsFn     func(ctx context.Context, workflowRunID string, labels map[string]string) error
 	listWorkflowRunLabelsFn       func(ctx context.Context, workflowRunID string) (map[string]string, error)
-	listStepRunsByRunFn           func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	listStepRunsByRunFn           func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	updateWorkflowRunStatusFn     func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn         func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getStepRunByRunAndRefFn       func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
@@ -96,9 +96,9 @@ type mockAPIStore struct {
 	getJobHealthStatsFn           func(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	getDebugBundleFn              func(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	updateRunDebugModeFn          func(ctx context.Context, runID string, debugMode bool) error
-	listEventsFn                  func(ctx context.Context, runID string) ([]domain.RunEvent, error)
+	listEventsFn                  func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	createRunFn                   func(ctx context.Context, run *domain.JobRun) error
-	listRunLineageFn              func(ctx context.Context, runID string) ([]domain.JobRun, error)
+	listRunLineageFn              func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	sumRunCostMicrousdFn          func(ctx context.Context, runID string) (int64, error)
 	sumProjectDailyCostMicrousdFn func(ctx context.Context, projectID string, timezone string) (int64, error)
 }
@@ -131,9 +131,9 @@ func (m *mockAPIStore) GetJobBySlug(ctx context.Context, projectID, slug string)
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {
+func (m *mockAPIStore) ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
-		return m.listJobsFn(ctx, projectID)
+		return m.listJobsFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -152,9 +152,9 @@ func (m *mockAPIStore) GetJobGroup(ctx context.Context, id string) (*domain.JobG
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListJobGroups(ctx context.Context, projectID string) ([]domain.JobGroup, error) {
+func (m *mockAPIStore) ListJobGroups(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error) {
 	if m.listJobGroupsFn != nil {
-		return m.listJobGroupsFn(ctx, projectID)
+		return m.listJobGroupsFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -173,9 +173,9 @@ func (m *mockAPIStore) DeleteJobGroup(ctx context.Context, id string) error {
 	return nil
 }
 
-func (m *mockAPIStore) ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error) {
+func (m *mockAPIStore) ListJobsByGroup(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error) {
 	if m.listJobsByGroupFn != nil {
-		return m.listJobsByGroupFn(ctx, groupID)
+		return m.listJobsByGroupFn(ctx, groupID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -194,9 +194,9 @@ func (m *mockAPIStore) GetEnvironment(ctx context.Context, id string) (*domain.E
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error) {
+func (m *mockAPIStore) ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error) {
 	if m.listEnvironmentsFn != nil {
-		return m.listEnvironmentsFn(ctx, projectID)
+		return m.listEnvironmentsFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -222,16 +222,16 @@ func (m *mockAPIStore) GetResolvedEnvironmentVariables(ctx context.Context, id s
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error) {
+func (m *mockAPIStore) ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error) {
 	if m.listJobSecretsFn != nil {
-		return m.listJobSecretsFn(ctx, projectID, jobID, environment)
+		return m.listJobSecretsFn(ctx, projectID, jobID, environment, limit, cursor)
 	}
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {
+func (m *mockAPIStore) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {
 	if m.listJobsByTagFn != nil {
-		return m.listJobsByTagFn(ctx, projectID, tagKey, tagValue)
+		return m.listJobsByTagFn(ctx, projectID, tagKey, tagValue, limit, cursor)
 	}
 	return nil, nil
 }
@@ -243,9 +243,9 @@ func (m *mockAPIStore) CreateJobDependency(ctx context.Context, dep *domain.JobD
 	return nil
 }
 
-func (m *mockAPIStore) ListJobDependencies(ctx context.Context, jobID string) ([]domain.JobDependency, error) {
+func (m *mockAPIStore) ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
 	if m.listJobDependenciesFn != nil {
-		return m.listJobDependenciesFn(ctx, jobID)
+		return m.listJobDependenciesFn(ctx, jobID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -299,9 +299,9 @@ func (m *mockAPIStore) CreateRunCheckpoint(ctx context.Context, checkpoint *doma
 	return nil
 }
 
-func (m *mockAPIStore) ListRunCheckpoints(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error) {
+func (m *mockAPIStore) ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
 	if m.listRunCheckpointsFn != nil {
-		return m.listRunCheckpointsFn(ctx, runID, limit)
+		return m.listRunCheckpointsFn(ctx, runID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -313,9 +313,9 @@ func (m *mockAPIStore) CreateRunUsage(ctx context.Context, usage *domain.RunUsag
 	return nil
 }
 
-func (m *mockAPIStore) ListRunUsage(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error) {
+func (m *mockAPIStore) ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error) {
 	if m.listRunUsageFn != nil {
-		return m.listRunUsageFn(ctx, runID, limit)
+		return m.listRunUsageFn(ctx, runID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -327,9 +327,9 @@ func (m *mockAPIStore) CreateRunToolCall(ctx context.Context, call *domain.RunTo
 	return nil
 }
 
-func (m *mockAPIStore) ListRunToolCalls(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error) {
+func (m *mockAPIStore) ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error) {
 	if m.listRunToolCallsFn != nil {
-		return m.listRunToolCallsFn(ctx, runID, limit)
+		return m.listRunToolCallsFn(ctx, runID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -341,9 +341,9 @@ func (m *mockAPIStore) UpsertRunOutput(ctx context.Context, output *domain.RunOu
 	return nil
 }
 
-func (m *mockAPIStore) ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error) {
+func (m *mockAPIStore) ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error) {
 	if m.listRunOutputsFn != nil {
-		return m.listRunOutputsFn(ctx, runID)
+		return m.listRunOutputsFn(ctx, runID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -383,9 +383,9 @@ func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, 
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListDeadLetterRuns(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listDeadLetterRunsFn != nil {
-		return m.listDeadLetterRunsFn(ctx, projectID, limit)
+		return m.listDeadLetterRunsFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -411,9 +411,9 @@ func (m *mockAPIStore) UpdateRunMetadata(ctx context.Context, id string, annotat
 	return nil
 }
 
-func (m *mockAPIStore) ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listChildRunsFn != nil {
-		return m.listChildRunsFn(ctx, parentRunID)
+		return m.listChildRunsFn(ctx, parentRunID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -425,16 +425,16 @@ func (m *mockAPIStore) InsertEvent(ctx context.Context, event *domain.RunEvent) 
 	return nil
 }
 
-func (m *mockAPIStore) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error) {
+func (m *mockAPIStore) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
 	if m.listEventsByRunFilteredFn != nil {
-		return m.listEventsByRunFilteredFn(ctx, runID, level, eventType)
+		return m.listEventsByRunFilteredFn(ctx, runID, level, eventType, limit, cursor)
 	}
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error) {
 	if m.listWebhookDeliveriesFn != nil {
-		return m.listWebhookDeliveriesFn(ctx, projectID, status, limit)
+		return m.listWebhookDeliveriesFn(ctx, projectID, status, limit, cursor)
 	}
 	return nil, nil
 }
@@ -446,9 +446,9 @@ func (m *mockAPIStore) CreateAPIKey(ctx context.Context, key *domain.APIKey) err
 	return nil
 }
 
-func (m *mockAPIStore) ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error) {
+func (m *mockAPIStore) ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
 	if m.listAPIKeysByProjectFn != nil {
-		return m.listAPIKeysByProjectFn(ctx, projectID)
+		return m.listAPIKeysByProjectFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -460,9 +460,9 @@ func (m *mockAPIStore) RevokeAPIKey(ctx context.Context, id string) error {
 	return nil
 }
 
-func (m *mockAPIStore) ListJobVersionsByJob(ctx context.Context, jobID string) ([]domain.JobVersion, error) {
+func (m *mockAPIStore) ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error) {
 	if m.listJobVersionsByJobFn != nil {
-		return m.listJobVersionsByJobFn(ctx, jobID)
+		return m.listJobVersionsByJobFn(ctx, jobID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -516,9 +516,9 @@ func (m *mockAPIStore) GetWorkflowBySlug(ctx context.Context, projectID, slug st
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error) {
+func (m *mockAPIStore) ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
 	if m.listWorkflowsFn != nil {
-		return m.listWorkflowsFn(ctx, projectID)
+		return m.listWorkflowsFn(ctx, projectID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -586,9 +586,9 @@ func (m *mockAPIStore) ListWorkflowRuns(ctx context.Context, workflowID string, 
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error) {
+func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	if m.listWorkflowRunsByProjFn != nil {
-		return m.listWorkflowRunsByProjFn(ctx, projectID, status, limit)
+		return m.listWorkflowRunsByProjFn(ctx, projectID, status, limit, cursor)
 	}
 	return nil, nil
 }
@@ -607,9 +607,9 @@ func (m *mockAPIStore) ListWorkflowRunLabels(ctx context.Context, workflowRunID 
 	return map[string]string{}, nil
 }
 
-func (m *mockAPIStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+func (m *mockAPIStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
 	if m.listStepRunsByRunFn != nil {
-		return m.listStepRunsByRunFn(ctx, workflowRunID)
+		return m.listStepRunsByRunFn(ctx, workflowRunID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -684,9 +684,9 @@ func (m *mockAPIStore) UpdateRunDebugMode(ctx context.Context, runID string, deb
 	return nil
 }
 
-func (m *mockAPIStore) ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error) {
+func (m *mockAPIStore) ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
 	if m.listEventsFn != nil {
-		return m.listEventsFn(ctx, runID)
+		return m.listEventsFn(ctx, runID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -698,9 +698,9 @@ func (m *mockAPIStore) CreateRun(ctx context.Context, run *domain.JobRun) error 
 	return nil
 }
 
-func (m *mockAPIStore) ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listRunLineageFn != nil {
-		return m.listRunLineageFn(ctx, runID)
+		return m.listRunLineageFn(ctx, runID, limit, cursor)
 	}
 	return nil, nil
 }

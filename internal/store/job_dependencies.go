@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/domain"
 
@@ -39,17 +40,28 @@ func (q *Queries) CreateJobDependency(ctx context.Context, dep *domain.JobDepend
 	return nil
 }
 
-func (q *Queries) ListJobDependencies(ctx context.Context, jobID string) ([]domain.JobDependency, error) {
+func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobDependencies")
 	defer span.End()
 
 	query := `
 		SELECT id, job_id, depends_on_job_id, condition, created_at
 		FROM job_dependencies
-		WHERE job_id = $1
-		ORDER BY created_at DESC`
+		WHERE job_id = $1`
 
-	rows, err := q.db.Query(ctx, query, jobID)
+	args := []any{jobID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list job dependencies: %w", err)
 	}

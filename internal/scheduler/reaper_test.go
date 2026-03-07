@@ -213,7 +213,7 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 			wfUpdates.Add(1)
 			return nil
 		},
-		listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			if workflowRunID != "wr-1" {
 				t.Fatalf("unexpected workflowRunID %q", workflowRunID)
 			}
@@ -856,7 +856,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 				wfUpdates.Add(1)
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				stepLists.Add(1)
 				return nil, nil
 			},
@@ -901,7 +901,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 				}
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				stepLists.Add(1)
 				if workflowRunID != "wr-2" {
 					t.Fatalf("expected step listing only for wr-2, got %s", workflowRunID)
@@ -935,7 +935,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				stepLists.Add(1)
 				if workflowRunID == "wr-1" {
 					return nil, errors.New("list steps failed")
@@ -966,7 +966,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepCompleted}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -995,7 +995,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: ""}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
@@ -1034,7 +1034,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"},
 					{ID: "sr-2", Status: domain.StepRunning, JobRunID: "run-2"},
@@ -1078,7 +1078,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -1112,7 +1112,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"},
 					{ID: "sr-2", Status: domain.StepRunning, JobRunID: "run-2"},

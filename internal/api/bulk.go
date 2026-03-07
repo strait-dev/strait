@@ -300,7 +300,7 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		children, err := s.store.ListChildRuns(r.Context(), run.ID)
+		children, err := s.store.ListChildRuns(r.Context(), run.ID, 10000, nil)
 		if err == nil {
 			for _, child := range children {
 				if !child.Status.IsTerminal() {

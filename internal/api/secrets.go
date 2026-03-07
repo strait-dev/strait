@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -69,15 +70,22 @@ func (s *Server) handleListSecrets(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("job_id")
 	environment := r.URL.Query().Get("environment")
 
-	secrets, err := s.store.ListJobSecrets(r.Context(), projectID, jobID, environment)
+	limit, cursor, pErr := parsePaginationParams(r)
+	if pErr != nil {
+		respondError(w, r, http.StatusBadRequest, pErr.Error())
+		return
+	}
+
+	secrets, err := s.store.ListJobSecrets(r.Context(), projectID, jobID, environment, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list secrets")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, secrets)
+	respondJSON(w, http.StatusOK, paginatedResult(secrets, limit, func(s domain.JobSecret) string {
+		return s.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
-
 func (s *Server) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFSecretInjection {
 		respondError(w, r, http.StatusNotFound, "secret injection is not enabled")

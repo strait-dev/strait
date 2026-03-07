@@ -166,7 +166,7 @@ func TestHandleCreateAPIKey_StoreError(t *testing.T) {
 func TestHandleListAPIKeys_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listAPIKeysByProjectFn: func(_ context.Context, projectID string) ([]domain.APIKey, error) {
+		listAPIKeysByProjectFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("expected project id proj-1, got %q", projectID)
 			}
@@ -187,9 +187,15 @@ func TestHandleListAPIKeys_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []domain.APIKey
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []domain.APIKey
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 keys, got %d", len(resp))
@@ -211,7 +217,7 @@ func TestHandleListAPIKeys_MissingProjectID(t *testing.T) {
 func TestHandleListAPIKeys_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listAPIKeysByProjectFn: func(_ context.Context, _ string) ([]domain.APIKey, error) {
+		listAPIKeysByProjectFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.APIKey, error) {
 			return nil, errors.New("boom")
 		},
 	}

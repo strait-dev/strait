@@ -68,7 +68,7 @@ func WaitForStatus(t testing.TB, ctx context.Context, s store.Store, runID strin
 func AssertEventExists(t testing.TB, ctx context.Context, s store.Store, runID string, eventType string) {
 	t.Helper()
 
-	events, err := s.ListEvents(ctx, runID)
+	events, err := s.ListEvents(ctx, runID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListEvents(%q) error = %v", runID, err)
 	}

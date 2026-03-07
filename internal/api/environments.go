@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -107,15 +108,22 @@ func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	envs, err := s.store.ListEnvironments(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	envs, err := s.store.ListEnvironments(r.Context(), projectID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list environments")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, envs)
+	respondJSON(w, http.StatusOK, paginatedResult(envs, limit, func(e domain.Environment) string {
+		return e.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
-
 func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
 		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")

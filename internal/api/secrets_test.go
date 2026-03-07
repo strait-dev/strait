@@ -76,7 +76,7 @@ func TestHandleCreateSecret_MissingFields(t *testing.T) {
 func TestHandleListSecrets_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobSecretsFn: func(_ context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error) {
+		listJobSecretsFn: func(_ context.Context, projectID, jobID, environment string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
 			if projectID != "proj-1" || jobID != "job-1" || environment != "production" {
 				t.Fatalf("unexpected params: %q %q %q", projectID, jobID, environment)
 			}

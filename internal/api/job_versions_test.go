@@ -257,7 +257,7 @@ func TestUpdateJob_IncrementsVersion(t *testing.T) {
 func TestListJobVersions_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, jobID string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},
 				{ID: "v2", JobID: jobID, Version: 2, Name: "name-v2", Slug: "slug-v2", EndpointURL: "https://example.com"},
@@ -274,9 +274,15 @@ func TestListJobVersions_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 3 {
 		t.Fatalf("expected 3 versions, got %d", len(resp))
@@ -291,7 +297,7 @@ func TestListJobVersions_Success(t *testing.T) {
 func TestListJobVersions_Empty(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, _ string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{}, nil
 		},
 	}
@@ -304,9 +310,15 @@ func TestListJobVersions_Empty(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 0 {
 		t.Fatalf("expected empty array, got %d items", len(resp))
@@ -316,7 +328,7 @@ func TestListJobVersions_Empty(t *testing.T) {
 func TestListJobVersions_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, _ string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return nil, errors.New("boom")
 		},
 	}
@@ -358,7 +370,7 @@ func TestGetJob_IncludesVersion(t *testing.T) {
 func TestListJobs_IncludesVersion(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, projectID string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{
 				*makeVersionedJob("job-1", 2),
 				*makeVersionedJob("job-2", 7),
@@ -374,9 +386,15 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 jobs, got %d", len(resp))
@@ -440,9 +458,15 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(resp))
@@ -457,7 +481,7 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, jobID string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},
 				{ID: "v2", JobID: jobID, Version: 2, Name: "name-v2", Slug: "slug-v2", EndpointURL: "https://example.com"},
@@ -473,9 +497,15 @@ func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 versions, got %d", len(resp))

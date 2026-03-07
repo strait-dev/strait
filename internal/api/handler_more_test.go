@@ -336,7 +336,7 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 			updates[id] = to
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{
 				{ID: "child-running", ParentRunID: parentRunID, Status: domain.StatusQueued},
 				{ID: "child-done", ParentRunID: parentRunID, Status: domain.StatusCompleted},
@@ -616,7 +616,7 @@ func TestHandleStats_StoreError(t *testing.T) {
 func TestHandleListChildRuns_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -633,7 +633,7 @@ func TestHandleListChildRuns_StoreError(t *testing.T) {
 func TestHandleListChildRuns_SuccessBody(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{{ID: "run-child-1"}, {ID: "run-child-2"}}, nil
 		},
 	}
@@ -670,7 +670,7 @@ func TestHandleGetJob_StoreError(t *testing.T) {
 func TestHandleListJobs_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, _ string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -828,7 +828,7 @@ func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
 		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -856,7 +856,7 @@ func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
 		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, errors.New("list failed")
 		},
 	}
@@ -1301,7 +1301,7 @@ func TestHandleListRunEvents_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID string, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			if runID != "run-123" {
 				t.Errorf("runID = %s, want run-123", runID)
 			}
@@ -1321,9 +1321,15 @@ func TestHandleListRunEvents_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 
-	var events []domain.RunEvent
-	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+	var events []domain.RunEvent
+	if err := json.Unmarshal(paginatedResp.Data, &events); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(events) != 2 {
 		t.Errorf("len(events) = %d, want 2", len(events))
@@ -1334,7 +1340,7 @@ func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
 	t.Parallel()
 	var gotLevel string
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			gotLevel = level
 			return []domain.RunEvent{}, nil
 		},
@@ -1357,7 +1363,7 @@ func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
 	t.Parallel()
 	var gotType string
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			gotType = eventType
 			return []domain.RunEvent{}, nil
 		},
@@ -1379,7 +1385,7 @@ func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
 func TestHandleListRunEvents_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -1397,7 +1403,7 @@ func TestHandleListRunEvents_StoreError(t *testing.T) {
 func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			return []domain.RunEvent{}, nil
 		},
 	}
@@ -1411,9 +1417,15 @@ func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 
-	var events []domain.RunEvent
-	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+	var events []domain.RunEvent
+	if err := json.Unmarshal(paginatedResp.Data, &events); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(events) != 0 {
 		t.Errorf("len(events) = %d, want 0", len(events))
@@ -1424,7 +1436,7 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			return []domain.WebhookDelivery{
 				{ID: "del-1", RunID: "run-1", JobID: "job-1", WebhookURL: "https://example.com/hook", Status: "delivered", Attempts: 1, MaxAttempts: 3, CreatedAt: now, UpdatedAt: now},
 			}, nil
@@ -1440,9 +1452,15 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 
-	var deliveries []domain.WebhookDelivery
-	if err := json.Unmarshal(w.Body.Bytes(), &deliveries); err != nil {
+	var paginatedResp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+	var deliveries []domain.WebhookDelivery
+	if err := json.Unmarshal(paginatedResp.Data, &deliveries); err != nil {
+		t.Fatalf("invalid data JSON: %v", err)
 	}
 	if len(deliveries) != 1 {
 		t.Errorf("len = %d, want 1", len(deliveries))
@@ -1453,7 +1471,7 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	t.Parallel()
 	var gotStatus string
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotStatus = status
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1476,7 +1494,7 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	t.Parallel()
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1490,8 +1508,8 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if gotLimit != 10 {
-		t.Errorf("limit = %d, want 10", gotLimit)
+	if gotLimit != 11 { // handler passes limit+1 for has_more detection
+		t.Errorf("limit = %d, want 11 (10+1)", gotLimit)
 	}
 }
 
@@ -1499,7 +1517,7 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	t.Parallel()
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1513,8 +1531,8 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if gotLimit != 50 {
-		t.Errorf("limit = %d, want 50 (default)", gotLimit)
+	if gotLimit != 51 { // handler passes limit+1 (default 50+1)
+		t.Errorf("limit = %d, want 51 (default+1)", gotLimit)
 	}
 }
 
@@ -1522,7 +1540,7 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	t.Parallel()
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1536,8 +1554,8 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if gotLimit != 100 {
-		t.Errorf("limit = %d, want 100 (capped)", gotLimit)
+	if gotLimit != 101 { // handler passes limit+1 (capped 100+1)
+		t.Errorf("limit = %d, want 101 (capped+1)", gotLimit)
 	}
 }
 
@@ -1570,7 +1588,7 @@ func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

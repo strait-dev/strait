@@ -36,7 +36,7 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		stepByRef[st.StepRef] = st
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
@@ -115,7 +115,7 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 }
 
 func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunID string) error {
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
@@ -419,7 +419,7 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 		stepByRef[step.StepRef] = step
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}

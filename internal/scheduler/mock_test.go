@@ -36,7 +36,7 @@ type mockReaperStore struct {
 	listExpiredRunsFn         func(ctx context.Context) ([]domain.JobRun, error)
 	listStaleDequeuedFn       func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	listTimedOutWfRunsFn      func(ctx context.Context) ([]domain.WorkflowRun, error)
-	listStepRunsByWfRunFn     func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	listStepRunsByWfRunFn     func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	updateWorkflowRunStatusFn func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
@@ -145,9 +145,9 @@ func (m *mockReaperStore) ListTimedOutWorkflowRuns(ctx context.Context) ([]domai
 	return nil, nil
 }
 
-func (m *mockReaperStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+func (m *mockReaperStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
 	if m.listStepRunsByWfRunFn != nil {
-		return m.listStepRunsByWfRunFn(ctx, workflowRunID)
+		return m.listStepRunsByWfRunFn(ctx, workflowRunID, limit, cursor)
 	}
 	return nil, nil
 }

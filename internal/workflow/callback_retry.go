@@ -141,7 +141,7 @@ func (s *StepCallback) failWorkflowAndCancel(ctx context.Context, wfRun *domain.
 }
 
 func (s *StepCallback) cancelRemainingSteps(ctx context.Context, workflowRunID string) error {
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
@@ -194,7 +194,7 @@ func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID, wo
 		return nil
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}

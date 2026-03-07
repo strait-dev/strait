@@ -25,7 +25,7 @@ type mockEngineStore struct {
 	updateStepRunStatusFn        func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 	getWorkflowRunFn             func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listStepRunsByWorkflowRunFn  func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	listStepRunsByWorkflowRunFn  func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	getWorkflowRunsByParentFn    func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
@@ -99,9 +99,9 @@ func (m *mockEngineStore) GetWorkflowRun(ctx context.Context, id string) (*domai
 	return nil, nil
 }
 
-func (m *mockEngineStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+func (m *mockEngineStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
 	if m.listStepRunsByWorkflowRunFn != nil {
-		return m.listStepRunsByWorkflowRunFn(ctx, workflowRunID)
+		return m.listStepRunsByWorkflowRunFn(ctx, workflowRunID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -361,7 +361,7 @@ type mockCallbackStore struct {
 	incrementStepRunAttemptFn    func(ctx context.Context, id string, newAttempt int) error
 	getWorkflowRunFn             func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	updateWorkflowRunStatusFn    func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	listStepRunsByWorkflowRun    func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	listStepRunsByWorkflowRun    func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 	listStepsByWorkflowVerFn     func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	getWorkflowFn                func(ctx context.Context, id string) (*domain.Workflow, error)
@@ -408,9 +408,9 @@ func (m *mockCallbackStore) UpdateWorkflowRunStatus(ctx context.Context, id stri
 	return nil
 }
 
-func (m *mockCallbackStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+func (m *mockCallbackStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
 	if m.listStepRunsByWorkflowRun != nil {
-		return m.listStepRunsByWorkflowRun(ctx, workflowRunID)
+		return m.listStepRunsByWorkflowRun(ctx, workflowRunID, limit, cursor)
 	}
 	return nil, nil
 }
@@ -546,7 +546,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
 				return nil, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", StepRef: "s1", Status: domain.StepCompleted}}, nil
 			},
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -607,7 +607,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 				workflowFailed = true
 				return nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-fail", StepRef: "s1", Status: domain.StepFailed},
 					{ID: "sr-other", StepRef: "s2", Status: domain.StepWaiting},
@@ -639,7 +639,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 				statusSeen = status
 				return nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", StepRef: "s1", Status: domain.StepCanceled}}, nil
 			},
 			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -686,7 +686,7 @@ func TestStepCallback_OnJobRunTerminal_PausedWorkflowDoesNotScheduleChildren(t *
 		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{{ID: "step-parent", StepRef: "parent"}, {ID: "step-child", StepRef: "child", JobID: "job-1", DependsOn: []string{"parent"}}}, nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-parent", StepRef: "parent", Status: domain.StepCompleted},
 				{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting},
@@ -871,7 +871,7 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 		t.Parallel()
 		updated := make(map[string]domain.StepRunStatus)
 		ms := &mockCallbackStore{
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-completed", Status: domain.StepCompleted},
 					{ID: "sr-running", Status: domain.StepRunning},
@@ -907,7 +907,7 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 		t.Parallel()
 		updateCalls := 0
 		ms := &mockCallbackStore{
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-completed", Status: domain.StepCompleted},
 					{ID: "sr-failed", Status: domain.StepFailed},
@@ -933,7 +933,7 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 	t.Run("store list error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockCallbackStore{
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return nil, errors.New("list failed")
 			},
 		}
@@ -948,7 +948,7 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 	t.Run("store update error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockCallbackStore{
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-running", Status: domain.StepRunning}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -1117,7 +1117,7 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{{ID: "step-a", StepRef: "a", JobID: "job-a"}, {ID: "step-b", StepRef: "b", JobID: "job-b", DependsOn: []string{"a"}}}, nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted}, {ID: "sr-b", StepRef: "b", Status: domain.StepWaiting, WorkflowStepID: "step-b"}}, nil
 		},
 		getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
@@ -1525,7 +1525,7 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				t.Fatal("UpdateWorkflowRunStatus should not be called when retry is scheduled")
 				return nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				t.Fatal("ListStepRunsByWorkflowRun should not be called when retry is scheduled")
 				return nil, nil
 			},
@@ -1593,7 +1593,7 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				workflowFailed++
 				return nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-fail", StepRef: "s1", Status: domain.StepFailed},
 					{ID: "sr-other", StepRef: "s2", Status: domain.StepWaiting},
@@ -1631,7 +1631,7 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 					{StepRef: "c", DependsOn: []string{"b"}},
 				}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
 					{ID: "sr-b", StepRef: "b", Status: domain.StepPending},
@@ -1673,7 +1673,7 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 					{StepRef: "d", DependsOn: []string{"b", "c"}},
 				}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
 					{ID: "sr-b", StepRef: "b", Status: domain.StepPending},
@@ -1713,7 +1713,7 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 					{StepRef: "leaf", DependsOn: []string{"a"}},
 				}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
 					{ID: "sr-leaf", StepRef: "leaf", Status: domain.StepPending},
@@ -1748,7 +1748,7 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 					{StepRef: "c", DependsOn: []string{"a"}},
 				}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
 					{ID: "sr-b", StepRef: "b", Status: domain.StepCompleted},
@@ -1815,7 +1815,7 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b", DependsOn: []string{"a"}}}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return nil, errors.New("db down")
 			},
 		}
@@ -1835,7 +1835,7 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b", DependsOn: []string{"a"}}}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
 					{ID: "sr-b", StepRef: "b", Status: domain.StepPending},
@@ -2004,7 +2004,7 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
 				return nil, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", StepRef: "s1", Status: domain.StepCompleted}}, nil
 			},
 			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -2059,7 +2059,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
 				return nil, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
 			},
 		}
@@ -2088,7 +2088,7 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
 				return nil, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
 			},
 		}
@@ -2156,7 +2156,7 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
 				return nil, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
 			},
 		}
@@ -2185,7 +2185,7 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
 				return nil, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "child", Status: domain.StepWaiting}}, nil
 			},
 		}
@@ -2318,7 +2318,7 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{ID: "step-root", StepRef: "root", JobID: "job-root"}}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-root", StepRef: "root", WorkflowStepID: "step-root", Status: domain.StepPending, DepsCompleted: 0, DepsRequired: 0}}, nil
 			},
 		}
@@ -2349,7 +2349,7 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{ID: "step-a", StepRef: "a", JobID: "job-a"}}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted, DepsCompleted: 0, DepsRequired: 0}}, nil
 			},
 		}
@@ -2380,7 +2380,7 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{ID: "step-b", StepRef: "b", JobID: "job-b", DependsOn: []string{"a"}}}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-b", StepRef: "b", Status: domain.StepPending, DepsCompleted: 0, DepsRequired: 1}}, nil
 			},
 		}
@@ -2414,7 +2414,7 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 					{ID: "step-b", StepRef: "b", JobID: "job-b"},
 				}, nil
 			},
-			listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-a", StepRef: "a", Status: domain.StepRunning, DepsCompleted: 0, DepsRequired: 0},
 					{ID: "sr-b", StepRef: "b", Status: domain.StepPending, DepsCompleted: 0, DepsRequired: 0},
@@ -2471,7 +2471,7 @@ func TestRetryWorkflowRun(t *testing.T) {
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return steps, nil
 			},
-			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"result":"ok"}`)},
 					{ID: "orig-sr-b", StepRef: "b", Status: domain.StepFailed, Error: "timeout"},
@@ -2632,7 +2632,7 @@ func TestRetryWorkflowRun(t *testing.T) {
 					{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
 				}, nil
 			},
-			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"x":1}`)},
 					{ID: "orig-sr-b", StepRef: "b", Status: domain.StepCompleted, Output: json.RawMessage(`{"y":2}`)},
@@ -2715,7 +2715,7 @@ func TestRetryWorkflowRun(t *testing.T) {
 					{ID: "step-y", JobID: "job-y", StepRef: "y"},
 				}, nil
 			},
-			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "orig-sr-x", StepRef: "x", Status: domain.StepFailed},
 					{ID: "orig-sr-y", StepRef: "y", Status: domain.StepCanceled},
@@ -2782,7 +2782,7 @@ func TestRetryWorkflowRun(t *testing.T) {
 					{ID: "step-a", JobID: "job-a", StepRef: "a"},
 				}, nil
 			},
-			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepFailed},
 				}, nil
@@ -2841,7 +2841,7 @@ func TestRetryWorkflowRun(t *testing.T) {
 					{ID: "step-a", JobID: "job-a", StepRef: "a"},
 				}, nil
 			},
-			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepFailed},
 				}, nil
@@ -2899,7 +2899,7 @@ func TestRetryWorkflowRun(t *testing.T) {
 					{ID: "step-a", JobID: "job-a", StepRef: "a"},
 				}, nil
 			},
-			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					// Canceled run but step completed before cancellation
 					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"v":1}`)},
@@ -2982,7 +2982,7 @@ func TestRetryWorkflowRun(t *testing.T) {
 					{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"a"}},
 				}, nil
 			},
-			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "orig-sr-a", StepRef: "a", Status: domain.StepCompleted, Output: json.RawMessage(`{"a":1}`)},
 					{ID: "orig-sr-b", StepRef: "b", Status: domain.StepCompleted, Output: json.RawMessage(`{"b":2}`)},
@@ -3733,7 +3733,7 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 			}
 			return nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			switch workflowRunID {
 			case "child-run-1":
 				return []domain.WorkflowStepRun{
@@ -3857,7 +3857,7 @@ func TestPropagateToParent_ChildFailed(t *testing.T) {
 			}
 			return nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			switch workflowRunID {
 			case "child-run-1":
 				// All step runs already terminal (the one step is failed)
@@ -3965,7 +3965,7 @@ func TestPropagateToParent_NoParent(t *testing.T) {
 		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 			return nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-1", WorkflowRunID: "child-run-1", StepRef: "root", Status: domain.StepCompleted},
 			}, nil
@@ -4042,7 +4042,7 @@ func TestPropagateToParent_ParentAlreadyTerminal(t *testing.T) {
 		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 			return nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-1", WorkflowRunID: "child-run-1", StepRef: "root", Status: domain.StepCompleted},
 			}, nil

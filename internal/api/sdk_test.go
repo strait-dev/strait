@@ -1102,7 +1102,7 @@ func TestHandleListRuns_Success(t *testing.T) {
 			if status == nil || *status != domain.StatusExecuting {
 				t.Fatalf("expected status executing, got %v", status)
 			}
-			if limit != 100 {
+			if limit != 101 { // handler passes limit+1 for has_more detection
 				t.Fatalf("expected limit to be clamped to 100, got %d", limit)
 			}
 			if cursor == nil {
@@ -1145,7 +1145,7 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 			if metadataValue == nil || *metadataValue != "prod" {
 				t.Fatalf("expected metadata_value prod, got %v", metadataValue)
 			}
-			if limit != 50 {
+			if limit != 51 { // handler passes limit+1 (default 50 + 1)
 				t.Fatalf("expected default limit 50, got %d", limit)
 			}
 			if cursor != nil {
@@ -1252,7 +1252,7 @@ func TestHandleListRuns_InvalidStatus(t *testing.T) {
 func TestHandleListChildRuns_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		listChildRunsFn: func(_ context.Context, parentRunID string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if parentRunID != "run-parent" {
 				t.Fatalf("expected parent run id run-parent, got %s", parentRunID)
 			}

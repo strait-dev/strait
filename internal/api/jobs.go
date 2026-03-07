@@ -194,25 +194,33 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	var (
-		jobs []domain.Job
-		err  error
+		jobs    []domain.Job
+		listErr error
 	)
 	if tagKey != "" {
 		if !s.config.FFJobTags {
 			respondError(w, r, http.StatusNotFound, "job tags feature is not enabled")
 			return
 		}
-		jobs, err = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue)
+		jobs, listErr = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
 	} else {
-		jobs, err = s.store.ListJobs(r.Context(), projectID)
+		jobs, listErr = s.store.ListJobs(r.Context(), projectID, limit+1, cursor)
 	}
-	if err != nil {
+	if listErr != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list jobs")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, jobs)
+	respondJSON(w, http.StatusOK, paginatedResult(jobs, limit, func(j domain.Job) string {
+		return j.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {

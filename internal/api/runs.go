@@ -64,36 +64,21 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		metadataValue = &metadataValueRaw
 	}
 
-	limit := defaultPageLimit
-	if limitRaw := query.Get("limit"); limitRaw != "" {
-		parsedLimit, err := strconv.Atoi(limitRaw)
-		if err != nil || parsedLimit <= 0 {
-			respondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
-			return
-		}
-		if parsedLimit > maxPageLimit {
-			parsedLimit = maxPageLimit
-		}
-		limit = parsedLimit
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	var cursor *time.Time
-	if cursorRaw := query.Get("cursor"); cursorRaw != "" {
-		parsedCursor, err := time.Parse(time.RFC3339, cursorRaw)
-		if err != nil {
-			respondError(w, r, http.StatusBadRequest, "cursor must be an RFC3339 timestamp")
-			return
-		}
-		cursor = &parsedCursor
-	}
-
-	runs, err := s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, limit, cursor)
+	runs, err := s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list runs")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, runs)
+	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
+		return run.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +116,7 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Propagate cancellation to child runs
-	children, err := s.store.ListChildRuns(r.Context(), run.ID)
+	children, err := s.store.ListChildRuns(r.Context(), run.ID, 10000, nil)
 	if err == nil {
 		for _, child := range children {
 			if !child.Status.IsTerminal() {
@@ -199,7 +184,7 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusBadRequest, "from_checkpoint must be a positive integer")
 			return
 		}
-		checkpoints, listErr := s.store.ListRunCheckpoints(r.Context(), runID, 1000)
+		checkpoints, listErr := s.store.ListRunCheckpoints(r.Context(), runID, 1000, nil)
 		if listErr != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to list checkpoints")
 			return
@@ -261,26 +246,21 @@ func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	limit := defaultPageLimit
-	if limitRaw := query.Get("limit"); limitRaw != "" {
-		parsedLimit, err := strconv.Atoi(limitRaw)
-		if err != nil || parsedLimit <= 0 {
-			respondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
-			return
-		}
-		if parsedLimit > 1000 {
-			parsedLimit = 1000
-		}
-		limit = parsedLimit
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	runs, err := s.store.ListDeadLetterRuns(r.Context(), projectID, limit)
+	runs, err := s.store.ListDeadLetterRuns(r.Context(), projectID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list dead letter runs")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, runs)
+	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
+		return run.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Request) {
@@ -318,12 +298,22 @@ func isReplayableRunStatus(status domain.RunStatus) bool {
 
 func (s *Server) handleListChildRuns(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
-	children, err := s.store.ListChildRuns(r.Context(), runID)
+
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	children, err := s.store.ListChildRuns(r.Context(), runID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list children")
 		return
 	}
-	respondJSON(w, http.StatusOK, children)
+
+	respondJSON(w, http.StatusOK, paginatedResult(children, limit, func(run domain.JobRun) string {
+		return run.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleGetDebugBundle(w http.ResponseWriter, r *http.Request) {
@@ -381,11 +371,20 @@ func (s *Server) handleListRunLineage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runID := chi.URLParam(r, "runID")
-	runs, err := s.store.ListRunLineage(r.Context(), runID)
+
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	runs, err := s.store.ListRunLineage(r.Context(), runID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list run lineage")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, runs)
+	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
+		return run.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }

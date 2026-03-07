@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -86,13 +87,22 @@ func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Reques
 	}
 
 	jobID := chi.URLParam(r, "jobID")
-	deps, err := s.store.ListJobDependencies(r.Context(), jobID)
+
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	deps, err := s.store.ListJobDependencies(r.Context(), jobID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list job dependencies")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, deps)
+	respondJSON(w, http.StatusOK, paginatedResult(deps, limit, func(d domain.JobDependency) string {
+		return d.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleDeleteJobDependency(w http.ResponseWriter, r *http.Request) {
