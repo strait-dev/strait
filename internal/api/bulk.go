@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -92,7 +93,85 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	results := make([]BulkTriggerResult, 0, len(req.Items))
 	created := 0
 
+	var projectQuota *store.ProjectQuota
+	if s.config.FFProjectQuotas || s.config.FFExecutionWindows {
+		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to load project quota")
+			return
+		}
+	}
+
 	for _, item := range req.Items {
+		if s.config.FFPayloadValidation {
+			if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
+				respondError(w, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", created, err))
+				return
+			}
+		}
+
+		payload, _, payloadErr := canonicalizePayload(item.Payload)
+		if payloadErr != nil {
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", created, payloadErr))
+			return
+		}
+
+		if s.config.FFProjectQuotas && projectQuota != nil {
+			if projectQuota.MaxQueuedRuns > 0 {
+				queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
+				if countErr != nil {
+					respondError(w, http.StatusInternalServerError, "failed to evaluate project queued quota")
+					return
+				}
+				if queuedRuns >= projectQuota.MaxQueuedRuns {
+					respondError(w, http.StatusTooManyRequests, "project queued quota exceeded")
+					return
+				}
+			}
+
+			if projectQuota.MaxExecutingRuns > 0 {
+				activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
+				if countErr != nil {
+					respondError(w, http.StatusInternalServerError, "failed to evaluate project active quota")
+					return
+				}
+				if activeRuns >= projectQuota.MaxExecutingRuns {
+					respondError(w, http.StatusTooManyRequests, "project executing quota exceeded")
+					return
+				}
+			}
+		}
+
+		if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+			since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+			runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
+			if countErr != nil {
+				respondError(w, http.StatusInternalServerError, "failed to evaluate job rate limit")
+				return
+			}
+			if runCount >= job.RateLimitMax {
+				respondError(w, http.StatusTooManyRequests, "job rate limit exceeded")
+				return
+			}
+		}
+
+		if job.DedupWindowSecs > 0 {
+			since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
+			existingRun, findErr := s.store.FindRecentRunByPayload(r.Context(), job.ID, payload, since)
+			if findErr != nil {
+				respondError(w, http.StatusInternalServerError, "failed to evaluate payload deduplication")
+				return
+			}
+			if existingRun != nil {
+				results = append(results, BulkTriggerResult{
+					ID:       existingRun.ID,
+					Status:   string(existingRun.Status),
+					RunToken: "",
+				})
+				continue
+			}
+		}
+
 		runID := uuid.Must(uuid.NewV7()).String()
 
 		var expiresAt time.Time
@@ -114,8 +193,22 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		scheduledAt := item.ScheduledAt
+		if s.config.FFExecutionWindows && job.ExecutionWindowCron != "" {
+			timezone := job.Timezone
+			if timezone == "" && projectQuota != nil {
+				timezone = projectQuota.Timezone
+			}
+			adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
+			if adjustErr != nil {
+				respondError(w, http.StatusBadRequest, "execution window validation failed: "+adjustErr.Error())
+				return
+			}
+			scheduledAt = adjustedScheduledAt
+		}
+
 		status := domain.StatusQueued
-		if item.ScheduledAt != nil && item.ScheduledAt.After(now) {
+		if scheduledAt != nil && scheduledAt.After(now) {
 			status = domain.StatusDelayed
 		}
 
@@ -125,9 +218,9 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			ProjectID:   job.ProjectID,
 			Status:      status,
 			Attempt:     1,
-			Payload:     item.Payload,
+			Payload:     payload,
 			TriggeredBy: domain.TriggerManual,
-			ScheduledAt: item.ScheduledAt,
+			ScheduledAt: scheduledAt,
 			Priority:    item.Priority,
 			JobVersion:  job.Version,
 			ExpiresAt:   &expiresAt,
@@ -213,10 +306,12 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			for _, child := range children {
 				if !child.Status.IsTerminal() {
-					_ = s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
+					if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
 						"finished_at": time.Now(),
 						"error":       "parent run canceled (bulk)",
-					})
+					}); err != nil {
+						slog.Error("failed to cancel child run in bulk", "child_run_id", child.ID, "error", err)
+					}
 				}
 			}
 		}

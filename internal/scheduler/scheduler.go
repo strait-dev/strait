@@ -28,7 +28,7 @@ func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback Workflo
 	return &Scheduler{
 		cron:   NewCronScheduler(s, q),
 		poller: NewDelayedPoller(s, cfg.PollerInterval),
-		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, wfCallback),
+		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback),
 	}
 }
 

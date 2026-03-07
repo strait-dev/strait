@@ -57,7 +57,7 @@ func newSendCommand(state *appState) *cobra.Command {
 				req.Header.Set("Authorization", "Bearer "+state.opts.apiKey)
 			}
 
-			resp, err := (&http.Client{Timeout: state.opts.timeout}).Do(req) //nolint:gosec
+			resp, err := (&http.Client{Timeout: state.opts.timeout}).Do(req)
 			if err != nil {
 				return err
 			}

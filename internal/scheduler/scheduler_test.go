@@ -41,6 +41,10 @@ func (m *mockSchedulerStore) UpdateRunStatus(ctx context.Context, id string, fro
 	return m.poller.UpdateRunStatus(ctx, id, from, to, fields)
 }
 
+func (m *mockSchedulerStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+	return m.reaper.DeleteTerminalRunsPastRetention(ctx, shortRetention, longRetention)
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval: 100 * time.Millisecond,

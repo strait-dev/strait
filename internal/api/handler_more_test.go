@@ -437,6 +437,72 @@ func TestHandleTriggerJob_DelayedSchedule(t *testing.T) {
 	}
 }
 
+func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:            id,
+				ProjectID:     "proj-1",
+				Enabled:       true,
+				TimeoutSecs:   120,
+				PayloadSchema: json.RawMessage(`{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`),
+			}, nil
+		},
+	}
+
+	enqueued := false
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFPayloadValidation = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"name":"leo"}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueued {
+		t.Fatal("expected run to be enqueued")
+	}
+}
+
+func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:            id,
+				ProjectID:     "proj-1",
+				Enabled:       true,
+				TimeoutSecs:   120,
+				PayloadSchema: json.RawMessage(`{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`),
+			}, nil
+		},
+	}
+
+	enqueued := false
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFPayloadValidation = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"age":12}}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run to not be enqueued")
+	}
+}
+
 func TestHandleTriggerJob_EnqueueError(t *testing.T) {
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -932,6 +998,136 @@ func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
 	}
 }
 
+func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("unexpected project id %q", projectID)
+			}
+			return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 1}, nil
+		},
+		countProjectQueuedRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 1, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFProjectQuotas = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run not to be enqueued when project quota exceeded")
+	}
+}
+
+func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, RateLimitMax: 2, RateLimitWindowSecs: 60}, nil
+		},
+		countRunsForJobSinceFn: func(_ context.Context, _ string, _ time.Time) (int, error) {
+			return 2, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run not to be enqueued when rate limit exceeded")
+	}
+}
+
+func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, DedupWindowSecs: 300}, nil
+		},
+		findRecentRunByPayloadFn: func(_ context.Context, jobID string, payload json.RawMessage, _ time.Time) (*domain.JobRun, error) {
+			if jobID != "job-123" {
+				t.Fatalf("unexpected job id %q", jobID)
+			}
+			if string(payload) != `{"a":1}` {
+				t.Fatalf("unexpected canonical payload %s", string(payload))
+			}
+			return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"a":1}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected enqueue to be skipped when dedup window hit")
+	}
+}
+
+func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, ExecutionWindowCron: "0 0 1 1 *", Timezone: "UTC"}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		capturedRun = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFExecutionWindows = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedRun == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if capturedRun.Status != domain.StatusDelayed {
+		t.Fatalf("expected delayed status, got %s", capturedRun.Status)
+	}
+	if capturedRun.ScheduledAt == nil {
+		t.Fatal("expected scheduled_at to be set by execution window")
+	}
+	if !capturedRun.ScheduledAt.After(time.Now().Add(24 * time.Hour)) {
+		t.Fatalf("expected execution window to push scheduled_at to future, got %v", capturedRun.ScheduledAt)
+	}
+}
+
 func TestHandleCreateJob_WithRunTTL(t *testing.T) {
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
@@ -1314,5 +1510,205 @@ func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		sumProjectDailyCostMicrousdFn: func(_ context.Context, _ string, _ string) (int64, error) {
+			return 5000, nil // at limit
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run not to be enqueued when daily cost budget exceeded")
+	}
+}
+
+func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		sumProjectDailyCostMicrousdFn: func(_ context.Context, _ string, _ string) (int64, error) {
+			return 3000, nil // under limit
+		},
+		createRunFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueued {
+		t.Fatal("expected run to be enqueued when daily cost budget not exceeded")
+	}
+}
+
+func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", `{
+		"project_id": "proj-1",
+		"name": "Test Job",
+		"slug": "test-job",
+		"endpoint_url": "https://example.com/webhook",
+		"retry_strategy": "banana"
+	}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid retry_strategy, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid retry_strategy") {
+		t.Fatalf("expected error about retry_strategy, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", `{
+		"project_id": "proj-1",
+		"name": "Test Job",
+		"slug": "test-job",
+		"endpoint_url": "https://example.com/webhook",
+		"retry_strategy": "custom",
+		"retry_delays_secs": [-5, 10, 30]
+	}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for negative retry_delays_secs, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "retry_delays_secs values must be positive") {
+		t.Fatalf("expected error about positive values, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
+	strategies := []string{"exponential", "linear", "fixed", "custom"}
+	for _, strategy := range strategies {
+		t.Run(strategy, func(t *testing.T) {
+			ms := &mockAPIStore{
+				createJobFn: func(_ context.Context, _ *domain.Job) error { return nil },
+			}
+			srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+			body := fmt.Sprintf(`{
+				"project_id": "proj-1",
+				"name": "Test Job",
+				"slug": "test-job-%s",
+				"endpoint_url": "https://example.com/webhook",
+				"retry_strategy": "%s"
+			}`, strategy, strategy)
+
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", body))
+
+			if w.Code != http.StatusCreated {
+				t.Fatalf("expected 201 for valid strategy %q, got %d: %s", strategy, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandleUpdateJob_InvalidRetryStrategy(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"retry_strategy": "banana"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid retry_strategy on update, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"retry_delays_secs": [0, -1, 5]}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for negative retry_delays_secs on update, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKUsage_CostBudgetCheckBeforeRecord(t *testing.T) {
+	// Verify that when budget is exceeded, usage is NOT recorded.
+	usageRecorded := false
+	ms := &mockAPIStore{
+		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error {
+			usageRecorded = true
+			return nil
+		},
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 1000}, nil
+		},
+		sumRunCostMicrousdFn: func(_ context.Context, _ string) (int64, error) {
+			return 900, nil // 900 existing + 500 new = 1400 >= 1000 limit
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if usageRecorded {
+		t.Fatal("usage should NOT be recorded when budget check fails before recording")
 	}
 }

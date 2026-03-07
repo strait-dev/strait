@@ -282,7 +282,7 @@ func runInteractiveJobEdit(ctx context.Context, cli *client.Client, state *appSt
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(tmpPath, encoded, 0o600); err != nil { //nolint:gosec
+	if err := os.WriteFile(tmpPath, encoded, 0o600); err != nil {
 		return err
 	}
 

@@ -42,16 +42,35 @@ func TestMain(m *testing.M) {
 	}
 
 	testStore = store.New(testEnv.DB.Pool)
+	testStore.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
 	testServer = api.NewServer(&config.Config{
 		InternalSecret:           "test-secret",
 		JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
+		SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
 		RateLimitRequests:        5000,
 		RateLimitWindow:          time.Minute,
 		TriggerRateLimitRequests: 5000,
 		TriggerRateLimitWindow:   time.Minute,
 		CORSAllowedOrigins:       []string{"*"},
 		CORSAllowCredentials:     false,
+		FFJobTags:                true,
+		FFPayloadValidation:      true,
+		FFRunAnnotations:         true,
+		FFSecretInjection:        true,
+		FFRunReplay:              true,
+		FFDryRun:                 true,
+		FFBatchJobOps:            true,
+		FFEnvironments:           true,
+		FFJobGroups:              true,
+		FFJobDependencies:        true,
+		FFJobHealthScoring:       true,
+		FFExecutionTracing:       true,
+		FFRunDLQ:                 true,
+		FFDebugBundle:            true,
+		FFRunContinuation:        true,
+		FFAdaptiveTimeout:        true,
+		FFCheckpoints:            true,
 	}, testStore, testQueue, nil, nil, nil, nil, nil)
 
 	code := m.Run()
@@ -244,6 +263,39 @@ func TestE2E_ListJobs(t *testing.T) {
 	resp := mustDecodeList(t, w)
 	if len(resp) != 3 {
 		t.Fatalf("expected 3 jobs, got %d", len(resp))
+	}
+}
+
+func TestE2E_ListJobsByTag(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-list-jobs-tag-" + newID()
+	teamCoreSlug := "job-core-" + newID()
+	teamOpsSlug := "job-ops-" + newID()
+
+	bodyCore := fmt.Sprintf(`{"project_id":"%s","name":"Job Core","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"tags":{"team":"core","service":"api"}}`, projectID, teamCoreSlug, teamCoreSlug)
+	bodyOps := fmt.Sprintf(`{"project_id":"%s","name":"Job Ops","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"tags":{"team":"ops"}}`, projectID, teamOpsSlug, teamOpsSlug)
+
+	w := doRequest(t, http.MethodPost, "/v1/jobs/", bodyCore)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create tagged core job status = %d, body = %s", w.Code, w.Body.String())
+	}
+	w = doRequest(t, http.MethodPost, "/v1/jobs/", bodyOps)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create tagged ops job status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/jobs/?project_id="+projectID+"&tag_key=team&tag_value=core", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list jobs by tag status = %d, body = %s", w.Code, w.Body.String())
+	}
+	resp := mustDecodeList(t, w)
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 tagged job, got %d", len(resp))
+	}
+	tags := asObject(t, resp[0], "tags")
+	if asString(t, tags, "team") != "core" {
+		t.Fatalf("expected team tag core, got %s", asString(t, tags, "team"))
 	}
 }
 
@@ -444,9 +496,9 @@ func TestE2E_PriorityOrdering(t *testing.T) {
 	job := createJob(t, projectID, "Priority", "priority-"+newID())
 	jobID := asString(t, job, "id")
 
-	run0 := triggerJob(t, jobID, `{"priority":0}`, "")
-	run10 := triggerJob(t, jobID, `{"priority":10}`, "")
-	run5 := triggerJob(t, jobID, `{"priority":5}`, "")
+	run0 := triggerJob(t, jobID, `{"payload":{},"priority":0}`, "")
+	run10 := triggerJob(t, jobID, `{"payload":{},"priority":10}`, "")
+	run5 := triggerJob(t, jobID, `{"payload":{},"priority":5}`, "")
 
 	_ = run0
 	_ = run5
@@ -517,6 +569,65 @@ func TestE2E_ListRunsFilterByStatus(t *testing.T) {
 	}
 }
 
+func TestE2E_ReplayRun(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-replay-" + newID()
+	job := createJob(t, projectID, "Replay", "replay-"+newID())
+	jobID := asString(t, job, "id")
+	idempotencyKey := "idem-" + newID()
+	original := triggerJob(t, jobID, `{"payload":{"replay":true}}`, idempotencyKey)
+	originalRunID := asString(t, original, "id")
+
+	err := testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
+		"started_at": time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("update run status to dequeued: %v", err)
+	}
+
+	err = testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		"started_at": time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("update run status to executing: %v", err)
+	}
+
+	err = testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
+		"finished_at": time.Now().UTC(),
+		"error":       "forced failure for replay",
+	})
+	if err != nil {
+		t.Fatalf("update run status to failed: %v", err)
+	}
+
+	w := doRequest(t, http.MethodPost, "/v1/runs/"+originalRunID+"/replay", "")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("replay status = %d, body = %s", w.Code, w.Body.String())
+	}
+	replay := mustDecodeObject(t, w)
+
+	replayRunID := asString(t, replay, "id")
+	if replayRunID == "" || replayRunID == originalRunID {
+		t.Fatalf("expected distinct replay run id, got %q", replayRunID)
+	}
+	if asString(t, replay, "status") != string(domain.StatusQueued) {
+		t.Fatalf("expected replay status queued, got %s", asString(t, replay, "status"))
+	}
+	if asString(t, replay, "idempotency_key") != idempotencyKey {
+		t.Fatalf("expected replay idempotency key %q, got %q", idempotencyKey, asString(t, replay, "idempotency_key"))
+	}
+
+	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if lw.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d, body = %s", lw.Code, lw.Body.String())
+	}
+	runs := mustDecodeList(t, lw)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs after replay, got %d", len(runs))
+	}
+}
+
 func TestE2E_ListRunsPagination(t *testing.T) {
 	mustClean(t)
 
@@ -576,6 +687,85 @@ func TestE2E_RunEvents(t *testing.T) {
 	}
 	if asString(t, events[0], "message") != "Processing started" {
 		t.Fatalf("expected event message, got %s", asString(t, events[0], "message"))
+	}
+}
+
+func TestE2E_RunAnnotations(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-annotations-" + newID()
+	job := createJob(t, projectID, "Annotations", "annotations-"+newID())
+	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"annotations":true}}`, "")
+	runID := asString(t, triggerResp, "id")
+	runToken := asString(t, triggerResp, "run_token")
+
+	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/annotate", runToken, `{"annotations":{"env":"prod","region":"eu"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sdk annotate status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
+	}
+	run := mustDecodeObject(t, w)
+	metadataRaw, ok := run["metadata"]
+	if !ok {
+		t.Fatal("expected metadata field in run response")
+	}
+	metadata, ok := metadataRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("metadata type = %T, want map[string]any", metadataRaw)
+	}
+	if asString(t, metadata, "env") != "prod" || asString(t, metadata, "region") != "eu" {
+		t.Fatalf("metadata = %+v, want env=prod region=eu", metadata)
+	}
+}
+
+func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-filter-metadata-" + newID()
+	job := createJob(t, projectID, "Filter Metadata", "filter-metadata-"+newID())
+	jobID := asString(t, job, "id")
+
+	prodRun := triggerJob(t, jobID, `{"payload":{"run":"prod"}}`, "")
+	prodRunID := asString(t, prodRun, "id")
+	prodRunToken := asString(t, prodRun, "run_token")
+
+	stageRun := triggerJob(t, jobID, `{"payload":{"run":"stage"}}`, "")
+	stageRunID := asString(t, stageRun, "id")
+	stageRunToken := asString(t, stageRun, "run_token")
+
+	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+prodRunID+"/annotate", prodRunToken, `{"annotations":{"env":"prod","region":"eu"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sdk annotate prod status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+stageRunID+"/annotate", stageRunToken, `{"annotations":{"env":"stage"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("sdk annotate stage status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&metadata_key=env&metadata_value=prod", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list filtered runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs := mustDecodeList(t, w)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 prod run, got %d", len(runs))
+	}
+	if asString(t, runs[0], "id") != prodRunID {
+		t.Fatalf("expected run id %s, got %s", prodRunID, asString(t, runs[0], "id"))
+	}
+
+	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&metadata_key=env", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list metadata key-only runs status = %d, body = %s", w.Code, w.Body.String())
+	}
+	runs = mustDecodeList(t, w)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs with env metadata key, got %d", len(runs))
 	}
 }
 

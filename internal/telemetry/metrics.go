@@ -16,10 +16,12 @@ import (
 )
 
 type Metrics struct {
-	RunTransitions   metric.Int64Counter
-	DequeueDuration  metric.Float64Histogram
-	DispatchDuration metric.Float64Histogram
-	DispatchErrors   metric.Int64Counter
+	RunTransitions          metric.Int64Counter
+	DequeueDuration         metric.Float64Histogram
+	DispatchDuration        metric.Float64Histogram
+	DispatchErrors          metric.Int64Counter
+	ExecutionTraceDispatch  metric.Float64Histogram
+	ExecutionTraceQueueWait metric.Float64Histogram
 }
 
 func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Context) error, error) {
@@ -83,11 +85,31 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create dispatch errors counter: %w", err)
 	}
 
+	executionTraceDispatch, err := meter.Float64Histogram(
+		"orchestrator.execution.trace.dispatch_duration",
+		metric.WithDescription("HTTP dispatch roundtrip duration from execution trace"),
+		metric.WithUnit("ms"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create execution trace dispatch histogram: %w", err)
+	}
+
+	executionTraceQueueWait, err := meter.Float64Histogram(
+		"orchestrator.execution.trace.queue_wait_duration",
+		metric.WithDescription("Queue wait duration from execution trace"),
+		metric.WithUnit("ms"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create execution trace queue wait histogram: %w", err)
+	}
+
 	m := &Metrics{
-		RunTransitions:   runTransitions,
-		DequeueDuration:  dequeueDuration,
-		DispatchDuration: dispatchDuration,
-		DispatchErrors:   dispatchErrors,
+		RunTransitions:          runTransitions,
+		DequeueDuration:         dequeueDuration,
+		DispatchDuration:        dispatchDuration,
+		DispatchErrors:          dispatchErrors,
+		ExecutionTraceDispatch:  executionTraceDispatch,
+		ExecutionTraceQueueWait: executionTraceQueueWait,
 	}
 
 	slog.Info("prometheus metrics enabled")

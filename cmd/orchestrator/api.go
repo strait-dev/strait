@@ -78,7 +78,7 @@ func newAPICommand(state *appState) *cobra.Command {
 				req.Header.Set(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 			}
 
-			resp, err := (&http.Client{Timeout: state.opts.timeout}).Do(req) //nolint:gosec
+			resp, err := (&http.Client{Timeout: state.opts.timeout}).Do(req)
 			if err != nil {
 				return err
 			}

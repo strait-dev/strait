@@ -51,7 +51,9 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		go func() {
 			ctx, cancel := context.WithTimeout(touchCtx, 2*time.Second)
 			defer cancel()
-			_ = s.store.TouchAPIKeyLastUsed(ctx, apiKey.ID)
+			if err := s.store.TouchAPIKeyLastUsed(ctx, apiKey.ID); err != nil {
+				slog.Error("failed to touch api key last used", "key_id", apiKey.ID, "error", err)
+			}
 		}()
 
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
@@ -87,7 +89,7 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		start := time.Now()
 		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
-		slog.Info("request", //nolint:gosec // structured logging sanitizes values
+		slog.Info("request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", ww.Status(),

@@ -57,7 +57,8 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		SELECT id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload, created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT 500`
 
 	rows, err := q.db.Query(ctx, query, workflowID)
 	if err != nil {

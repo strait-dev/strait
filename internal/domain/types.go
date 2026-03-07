@@ -20,6 +20,7 @@ const (
 	StatusSystemFailed RunStatus = "system_failed"
 	StatusCanceled     RunStatus = "canceled"
 	StatusExpired      RunStatus = "expired"
+	StatusDeadLetter   RunStatus = "dead_letter"
 )
 
 const (
@@ -39,47 +40,105 @@ const (
 )
 
 type Job struct {
-	ID            string          `json:"id"`
-	ProjectID     string          `json:"project_id"`
-	Name          string          `json:"name"`
-	Slug          string          `json:"slug"`
-	Description   string          `json:"description,omitempty"`
-	Cron          string          `json:"cron,omitempty"`
-	PayloadSchema json.RawMessage `json:"payload_schema,omitempty"`
-	EndpointURL   string          `json:"endpoint_url"`
-	MaxAttempts   int             `json:"max_attempts"`
-	TimeoutSecs   int             `json:"timeout_secs"`
-	Enabled       bool            `json:"enabled"`
-	WebhookURL    string          `json:"webhook_url,omitempty"`
-	WebhookSecret string          `json:"webhook_secret,omitempty"`
-	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
-	Version       int             `json:"version"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	ID                  string            `json:"id"`
+	ProjectID           string            `json:"project_id"`
+	GroupID             string            `json:"group_id,omitempty"`
+	Name                string            `json:"name"`
+	Slug                string            `json:"slug"`
+	Description         string            `json:"description,omitempty"`
+	Cron                string            `json:"cron,omitempty"`
+	PayloadSchema       json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	EndpointURL         string            `json:"endpoint_url"`
+	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts         int               `json:"max_attempts"`
+	TimeoutSecs         int               `json:"timeout_secs"`
+	MaxConcurrency      int               `json:"max_concurrency,omitempty"`
+	ExecutionWindowCron string            `json:"execution_window_cron,omitempty"`
+	Timezone            string            `json:"timezone,omitempty"`
+	RateLimitMax        int               `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty"`
+	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty"`
+	Enabled             bool              `json:"enabled"`
+	WebhookURL          string            `json:"webhook_url,omitempty"`
+	WebhookSecret       string            `json:"webhook_secret,omitempty"`
+	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
+	RetryStrategy       string            `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID       string            `json:"environment_id,omitempty"`
+	Version             int               `json:"version"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+}
+
+type JobGroup struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type Environment struct {
+	ID        string            `json:"id"`
+	ProjectID string            `json:"project_id"`
+	Name      string            `json:"name"`
+	Slug      string            `json:"slug"`
+	ParentID  string            `json:"parent_id,omitempty"`
+	Variables map[string]string `json:"variables,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+type JobDependency struct {
+	ID             string    `json:"id"`
+	JobID          string    `json:"job_id"`
+	DependsOnJobID string    `json:"depends_on_job_id"`
+	Condition      string    `json:"condition"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type JobSecret struct {
+	ID             string    `json:"id"`
+	ProjectID      string    `json:"project_id"`
+	JobID          string    `json:"job_id,omitempty"`
+	Environment    string    `json:"environment"`
+	SecretKey      string    `json:"secret_key"`
+	EncryptedValue string    `json:"-"`
+	KeyVersion     int       `json:"key_version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type JobRun struct {
-	ID                string          `json:"id"`
-	JobID             string          `json:"job_id"`
-	ProjectID         string          `json:"project_id"`
-	Status            RunStatus       `json:"status"`
-	Attempt           int             `json:"attempt"`
-	Payload           json.RawMessage `json:"payload,omitempty"`
-	Result            json.RawMessage `json:"result,omitempty"`
-	Error             string          `json:"error,omitempty"`
-	TriggeredBy       string          `json:"triggered_by"`
-	ScheduledAt       *time.Time      `json:"scheduled_at,omitempty"`
-	StartedAt         *time.Time      `json:"started_at,omitempty"`
-	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
-	HeartbeatAt       *time.Time      `json:"heartbeat_at,omitempty"`
-	NextRetryAt       *time.Time      `json:"next_retry_at,omitempty"`
-	ExpiresAt         *time.Time      `json:"expires_at,omitempty"`
-	ParentRunID       string          `json:"parent_run_id,omitempty"`
-	Priority          int             `json:"priority"`
-	IdempotencyKey    string          `json:"idempotency_key,omitempty"`
-	JobVersion        int             `json:"job_version"`
-	WorkflowStepRunID string          `json:"workflow_step_run_id,omitempty"`
-	CreatedAt         time.Time       `json:"created_at"`
+	ID                string            `json:"id"`
+	JobID             string            `json:"job_id"`
+	ProjectID         string            `json:"project_id"`
+	Status            RunStatus         `json:"status"`
+	Attempt           int               `json:"attempt"`
+	Payload           json.RawMessage   `json:"payload,omitempty"`
+	Result            json.RawMessage   `json:"result,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	Error             string            `json:"error,omitempty"`
+	TriggeredBy       string            `json:"triggered_by"`
+	ScheduledAt       *time.Time        `json:"scheduled_at,omitempty"`
+	StartedAt         *time.Time        `json:"started_at,omitempty"`
+	FinishedAt        *time.Time        `json:"finished_at,omitempty"`
+	HeartbeatAt       *time.Time        `json:"heartbeat_at,omitempty"`
+	NextRetryAt       *time.Time        `json:"next_retry_at,omitempty"`
+	ExpiresAt         *time.Time        `json:"expires_at,omitempty"`
+	ParentRunID       string            `json:"parent_run_id,omitempty"`
+	Priority          int               `json:"priority"`
+	IdempotencyKey    string            `json:"idempotency_key,omitempty"`
+	JobVersion        int               `json:"job_version"`
+	WorkflowStepRunID string            `json:"workflow_step_run_id,omitempty"`
+	ExecutionTrace    *ExecutionTrace   `json:"execution_trace,omitempty"`
+	DebugMode         bool              `json:"debug_mode"`
+	ContinuationOf    string            `json:"continuation_of,omitempty"`
+	LineageDepth      int               `json:"lineage_depth"`
+	CreatedAt         time.Time         `json:"created_at"`
 }
 
 type RunEvent struct {
@@ -90,6 +149,86 @@ type RunEvent struct {
 	Message   string          `json:"message"`
 	Data      json.RawMessage `json:"data,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+type RunCheckpoint struct {
+	ID        string          `json:"id"`
+	RunID     string          `json:"run_id"`
+	Sequence  int             `json:"sequence"`
+	Source    string          `json:"source"`
+	State     json.RawMessage `json:"state"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+type RunUsage struct {
+	ID               string    `json:"id"`
+	RunID            string    `json:"run_id"`
+	Provider         string    `json:"provider"`
+	Model            string    `json:"model"`
+	PromptTokens     int       `json:"prompt_tokens"`
+	CompletionTokens int       `json:"completion_tokens"`
+	TotalTokens      int       `json:"total_tokens"`
+	CostMicrousd     int64     `json:"cost_microusd"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type RunToolCall struct {
+	ID         string          `json:"id"`
+	RunID      string          `json:"run_id"`
+	ToolName   string          `json:"tool_name"`
+	Input      json.RawMessage `json:"input,omitempty"`
+	Output     json.RawMessage `json:"output,omitempty"`
+	DurationMs int             `json:"duration_ms,omitempty"`
+	Status     string          `json:"status"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+type RunOutput struct {
+	ID        string          `json:"id"`
+	RunID     string          `json:"run_id"`
+	OutputKey string          `json:"output_key"`
+	Schema    json.RawMessage `json:"schema,omitempty"`
+	Value     json.RawMessage `json:"value"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// ExecutionTrace captures timing breakdown for a job run execution.
+type ExecutionTrace struct {
+	QueueWaitMs int64 `json:"queue_wait_ms"` // time from created_at to dequeue
+	DequeueMs   int64 `json:"dequeue_ms"`    // time in dequeue operation
+	ConnectMs   int64 `json:"connect_ms"`    // TCP + TLS connection time
+	TtfbMs      int64 `json:"ttfb_ms"`       // time to first byte (after connect)
+	TransferMs  int64 `json:"transfer_ms"`   // response body transfer time
+	TotalMs     int64 `json:"total_ms"`      // total wall time from dequeue to terminal
+	DispatchMs  int64 `json:"dispatch_ms"`   // HTTP roundtrip time (connect + ttfb + transfer)
+}
+
+// DebugBundle aggregates all debug data for a run.
+type DebugBundle struct {
+	Run         *JobRun         `json:"run"`
+	Events      []RunEvent      `json:"events"`
+	Checkpoints []RunCheckpoint `json:"checkpoints"`
+	Usage       []RunUsage      `json:"usage"`
+	ToolCalls   []RunToolCall   `json:"tool_calls"`
+	Outputs     []RunOutput     `json:"outputs"`
+}
+
+type CircuitState string
+
+const (
+	CircuitStateClosed   CircuitState = "closed"
+	CircuitStateOpen     CircuitState = "open"
+	CircuitStateHalfOpen CircuitState = "half_open"
+)
+
+type EndpointCircuitState struct {
+	EndpointURL         string       `json:"endpoint_url"`
+	State               CircuitState `json:"state"`
+	ConsecutiveFailures int          `json:"consecutive_failures"`
+	OpenedAt            *time.Time   `json:"opened_at,omitempty"`
+	HalfOpenUntil       *time.Time   `json:"half_open_until,omitempty"`
+	UpdatedAt           time.Time    `json:"updated_at"`
+	CreatedAt           time.Time    `json:"created_at"`
 }
 
 type WebhookDelivery struct {
@@ -123,21 +262,23 @@ type APIKey struct {
 }
 
 type JobVersion struct {
-	ID            string          `json:"id"`
-	JobID         string          `json:"job_id"`
-	Version       int             `json:"version"`
-	Name          string          `json:"name"`
-	Slug          string          `json:"slug"`
-	Description   string          `json:"description,omitempty"`
-	Cron          string          `json:"cron,omitempty"`
-	PayloadSchema json.RawMessage `json:"payload_schema,omitempty"`
-	EndpointURL   string          `json:"endpoint_url"`
-	MaxAttempts   int             `json:"max_attempts"`
-	TimeoutSecs   int             `json:"timeout_secs"`
-	WebhookURL    string          `json:"webhook_url,omitempty"`
-	WebhookSecret string          `json:"webhook_secret,omitempty"`
-	RunTTLSecs    int             `json:"run_ttl_secs,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
+	ID                  string            `json:"id"`
+	JobID               string            `json:"job_id"`
+	Version             int               `json:"version"`
+	Name                string            `json:"name"`
+	Slug                string            `json:"slug"`
+	Description         string            `json:"description,omitempty"`
+	Cron                string            `json:"cron,omitempty"`
+	PayloadSchema       json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	EndpointURL         string            `json:"endpoint_url"`
+	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts         int               `json:"max_attempts"`
+	TimeoutSecs         int               `json:"timeout_secs"`
+	WebhookURL          string            `json:"webhook_url,omitempty"`
+	WebhookSecret       string            `json:"webhook_secret,omitempty"`
+	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
 }
 
 func (s RunStatus) IsTerminal() bool {

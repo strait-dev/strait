@@ -26,15 +26,50 @@ import (
 // APIStore is the subset of store operations needed by the API handlers.
 type APIStore interface {
 	CreateJob(ctx context.Context, job *domain.Job) error
+	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	ListJobs(ctx context.Context, projectID string) ([]domain.Job, error)
+	CreateJobGroup(ctx context.Context, group *domain.JobGroup) error
+	GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error)
+	ListJobGroups(ctx context.Context, projectID string) ([]domain.JobGroup, error)
+	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
+	DeleteJobGroup(ctx context.Context, id string) error
+	ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error)
+	CreateEnvironment(ctx context.Context, env *domain.Environment) error
+	GetEnvironment(ctx context.Context, id string) (*domain.Environment, error)
+	ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error)
+	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
+	DeleteEnvironment(ctx context.Context, id string) error
+	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	ListJobSecrets(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
+	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
+	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
+	ListJobDependencies(ctx context.Context, jobID string) ([]domain.JobDependency, error)
+	DeleteJobDependency(ctx context.Context, id string) error
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
+	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
+	ListRunCheckpoints(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error)
+	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
+	ListRunUsage(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error)
+	CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error
+	ListRunToolCalls(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error)
+	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
+	ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error)
+	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListDeadLetterRuns(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
+	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
 	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
@@ -61,6 +96,16 @@ type APIStore interface {
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	DeleteJobSecret(ctx context.Context, id string) error
+	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
+	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
+	ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error)
+	CreateRun(ctx context.Context, run *domain.JobRun) error
+	ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error)
+	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 }
 
 // Pinger checks service health.
@@ -146,9 +191,18 @@ func (s *Server) routes() chi.Router {
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 
+		r.Route("/secrets", func(r chi.Router) {
+			r.Post("/", s.handleCreateSecret)
+			r.Get("/", s.handleListSecrets)
+			r.Delete("/{secretID}", s.handleDeleteSecret)
+		})
+
 		r.Route("/jobs", func(r chi.Router) {
 			r.Post("/", s.handleCreateJob)
 			r.Get("/", s.handleListJobs)
+			r.Post("/batch", s.handleBatchCreateJobs)
+			r.Post("/batch-enable", s.handleBatchEnableJobs)
+			r.Post("/batch-disable", s.handleBatchDisableJobs)
 
 			r.Route("/{jobID}", func(r chi.Router) {
 				r.Get("/", s.handleGetJob)
@@ -156,19 +210,56 @@ func (s *Server) routes() chi.Router {
 				r.Delete("/", s.handleDeleteJob)
 				r.With(httprate.LimitByIP(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
 				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
+				r.Post("/dependencies", s.handleCreateJobDependency)
+				r.Get("/dependencies", s.handleListJobDependencies)
+				r.Delete("/dependencies/{depID}", s.handleDeleteJobDependency)
 				r.Get("/versions", s.handleListJobVersions)
+				r.Post("/clone", s.handleCloneJob)
+				r.Get("/health", s.handleGetJobHealth)
+			})
+		})
+
+		r.Route("/job-groups", func(r chi.Router) {
+			r.Post("/", s.handleCreateJobGroup)
+			r.Get("/", s.handleListJobGroups)
+			r.Route("/{groupID}", func(r chi.Router) {
+				r.Get("/", s.handleGetJobGroup)
+				r.Patch("/", s.handleUpdateJobGroup)
+				r.Delete("/", s.handleDeleteJobGroup)
+				r.Get("/jobs", s.handleListJobsByGroup)
+			})
+		})
+
+		r.Route("/environments", func(r chi.Router) {
+			r.Post("/", s.handleCreateEnvironment)
+			r.Get("/", s.handleListEnvironments)
+			r.Route("/{envID}", func(r chi.Router) {
+				r.Get("/", s.handleGetEnvironment)
+				r.Patch("/", s.handleUpdateEnvironment)
+				r.Delete("/", s.handleDeleteEnvironment)
+				r.Get("/variables", s.handleGetResolvedVariables)
 			})
 		})
 
 		r.Route("/runs", func(r chi.Router) {
 			r.Get("/", s.handleListRuns)
+			r.Get("/dlq", s.handleListDeadLetterRuns)
 			r.Post("/bulk-cancel", s.handleBulkCancelRuns)
 			r.Route("/{runID}", func(r chi.Router) {
 				r.Get("/", s.handleGetRun)
 				r.Delete("/", s.handleCancelRun)
+				r.Post("/replay", s.handleReplayRun)
+				r.Post("/dlq-replay", s.handleReplayDeadLetterRun)
 				r.Get("/stream", s.handleRunStream)
 				r.Get("/children", s.handleListChildRuns)
 				r.Get("/events", s.handleListRunEvents)
+				r.Get("/checkpoints", s.handleListRunCheckpoints)
+				r.Get("/usage", s.handleListRunUsage)
+				r.Get("/tool-calls", s.handleListRunToolCalls)
+				r.Get("/outputs", s.handleListRunOutputs)
+				r.Get("/debug-bundle", s.handleGetDebugBundle)
+				r.Post("/debug", s.handleSetDebugMode)
+				r.Get("/lineage", s.handleListRunLineage)
 			})
 		})
 
@@ -208,10 +299,17 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.runTokenAuth)
 		r.Route("/runs/{runID}", func(r chi.Router) {
 			r.Post("/log", s.handleSDKLog)
+			r.Post("/progress", s.handleSDKProgress)
+			r.Post("/annotate", s.handleSDKAnnotate)
 			r.Post("/heartbeat", s.handleSDKHeartbeat)
+			r.Post("/checkpoint", s.handleSDKCheckpoint)
+			r.Post("/usage", s.handleSDKUsage)
+			r.Post("/tool-call", s.handleSDKToolCall)
+			r.Post("/output", s.handleSDKOutput)
 			r.Post("/complete", s.handleSDKComplete)
 			r.Post("/fail", s.handleSDKFail)
 			r.Post("/spawn", s.handleSDKSpawn)
+			r.Post("/continue", s.handleSDKContinue)
 		})
 	})
 

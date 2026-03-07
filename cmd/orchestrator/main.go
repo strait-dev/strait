@@ -122,6 +122,7 @@ func runServe(modeOverride string) error {
 
 	// Create dependencies
 	queries := store.New(pool)
+	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
 	q := queue.NewPostgresQueue(pool)
 
 	pub, rdb, err := connectRedis(ctx, cfg)
@@ -265,6 +266,9 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      90 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	g.Go(func() error {
@@ -291,6 +295,13 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 	}
 
 	p := worker.NewPool(cfg.WorkerConcurrency)
+	partitions := []string(nil)
+	partitionWeights := ""
+	if cfg.FFQueuePartitioning && len(cfg.WorkerPartitions) > 0 {
+		partitions = cfg.WorkerPartitions
+		partitionWeights = cfg.WorkerPartitionWeights
+		slog.Info("worker queue partitioning enabled", "partitions", partitions)
+	}
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:              p,
 		Queue:             q,
@@ -300,6 +311,15 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 		Publisher:         pub,
 		Metrics:           metrics,
 		WorkflowCallback:  stepCallback,
+		Partitions:        partitions,
+		PartitionWeights:  partitionWeights,
+		CircuitBreaker:    cfg.FFCircuitBreaker,
+		SmartRetry:        cfg.FFSmartRetry,
+		Bulkheads:         cfg.FFBulkheads,
+		SecretInjection:   cfg.FFSecretInjection,
+		ExecutionTracing:  cfg.FFExecutionTracing,
+		AdaptiveTimeout:   cfg.FFAdaptiveTimeout,
+		DLQEnabled:        cfg.FFRunDLQ,
 	})
 
 	g.Go(func() error {

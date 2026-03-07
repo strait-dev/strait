@@ -35,6 +35,7 @@ type mockReaperStore struct {
 	listStaleRunsFn     func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	listExpiredRunsFn   func(ctx context.Context) ([]domain.JobRun, error)
 	listStaleDequeuedFn func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	deleteRetentionFn   func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 	updateRunStatusFn   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 }
 
@@ -50,9 +51,10 @@ func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) 
 }
 
 type mockQueue struct {
-	enqueueFn  func(ctx context.Context, run *domain.JobRun) error
-	dequeueFn  func(ctx context.Context) (*domain.JobRun, error)
-	dequeueNFn func(ctx context.Context, n int) ([]domain.JobRun, error)
+	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
+	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
+	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
 }
 
 func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -72,6 +74,13 @@ func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
 	if m.dequeueNFn != nil {
 		return m.dequeueNFn(ctx, n)
+	}
+	return nil, nil
+}
+
+func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
+	if m.dequeueNByProjectFn != nil {
+		return m.dequeueNByProjectFn(ctx, n, projectID)
 	}
 	return nil, nil
 }
@@ -102,4 +111,11 @@ func (m *mockReaperStore) UpdateRunStatus(ctx context.Context, id string, from, 
 		return m.updateRunStatusFn(ctx, id, from, to, fields)
 	}
 	return nil
+}
+
+func (m *mockReaperStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+	if m.deleteRetentionFn != nil {
+		return m.deleteRetentionFn(ctx, shortRetention, longRetention)
+	}
+	return 0, nil
 }

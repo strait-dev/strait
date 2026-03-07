@@ -432,7 +432,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
 			return nil, nil
 		},
-		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, limit int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, _, _ *string, limit int, _ *time.Time) ([]domain.JobRun, error) {
 			out := make([]domain.JobRun, 0, limit)
 			for i := range limit {
 				out = append(out, domain.JobRun{ID: fmt.Sprintf("list-%d", i), ProjectID: projectID, Status: domain.StatusQueued})
