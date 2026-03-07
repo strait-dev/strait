@@ -210,7 +210,7 @@ func TestDequeueN(t *testing.T) {
 	}
 
 	status := domain.StatusQueued
-	remaining, err := st.ListRunsByProject(ctx, job.ProjectID, &status, 20, nil)
+	remaining, err := st.ListRunsByProject(ctx, job.ProjectID, &status, nil, nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() error = %v", err)
 	}
@@ -299,6 +299,80 @@ func TestDequeueN_RespectsNextRetryAt(t *testing.T) {
 	}
 }
 
+func TestDequeueN_RespectsMaxConcurrency(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-n-max-concurrency")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max_concurrency error = %v", err)
+	}
+
+	active := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Status:    domain.StatusExecuting,
+		Attempt:   1,
+	}
+	if err := st.CreateRun(ctx, active); err != nil {
+		t.Fatalf("CreateRun() active error = %v", err)
+	}
+
+	candidate := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, candidate); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN() error = %v", err)
+	}
+	if len(dequeued) != 0 {
+		t.Fatalf("DequeueN() len = %d, want 0", len(dequeued))
+	}
+}
+
+func TestDequeueNByProject_FiltersPartition(t *testing.T) {
+	ctx := context.Background()
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	jobA := mustCreateJob(t, ctx, st, "project-queue-partition-a")
+	jobB := mustCreateJob(t, ctx, st, "project-queue-partition-b")
+
+	runA := &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID}
+	runB := &domain.JobRun{ID: newID(), JobID: jobB.ID, ProjectID: jobB.ProjectID}
+	if err := q.Enqueue(ctx, runA); err != nil {
+		t.Fatalf("Enqueue() runA error = %v", err)
+	}
+	if err := q.Enqueue(ctx, runB); err != nil {
+		t.Fatalf("Enqueue() runB error = %v", err)
+	}
+
+	dequeued, err := q.DequeueNByProject(ctx, 10, jobA.ProjectID)
+	if err != nil {
+		t.Fatalf("DequeueNByProject() error = %v", err)
+	}
+	if len(dequeued) != 1 {
+		t.Fatalf("DequeueNByProject() len = %d, want 1", len(dequeued))
+	}
+	if dequeued[0].ProjectID != jobA.ProjectID {
+		t.Fatalf("DequeueNByProject() project_id = %q, want %q", dequeued[0].ProjectID, jobA.ProjectID)
+	}
+
+	other, err := st.GetRun(ctx, runB.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if other.Status != domain.StatusQueued {
+		t.Fatalf("other run status = %q, want %q", other.Status, domain.StatusQueued)
+	}
+}
+
 func mustQueue(t *testing.T) *queue.PostgresQueue {
 	t.Helper()
 
@@ -350,4 +424,50 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
+}
+
+func BenchmarkPostgresQueueDequeueN(b *testing.B) {
+	ctx := context.Background()
+	q := queue.NewPostgresQueue(testDB.Pool)
+	st := store.New(testDB.Pool)
+
+	if err := testDB.CleanTables(ctx); err != nil {
+		b.Fatalf("CleanTables() error = %v", err)
+	}
+
+	job := &domain.Job{
+		ID:          newID(),
+		ProjectID:   "project-benchmark-dequeue",
+		Name:        "bench-job",
+		Slug:        "bench-job-" + newID(),
+		EndpointURL: "https://example.com/queue-job",
+		MaxAttempts: 3,
+		TimeoutSecs: 300,
+		Enabled:     true,
+	}
+	if err := st.CreateJob(ctx, job); err != nil {
+		b.Fatalf("CreateJob() error = %v", err)
+	}
+
+	const preload = 512
+	for i := 0; i < preload; i++ {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: i % 10}
+		if err := q.Enqueue(ctx, run); err != nil {
+			b.Fatalf("Enqueue() error = %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		runs, err := q.DequeueN(ctx, 32)
+		if err != nil {
+			b.Fatalf("DequeueN() error = %v", err)
+		}
+		if len(runs) == 0 {
+			run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: i % 10}
+			if err := q.Enqueue(ctx, run); err != nil {
+				b.Fatalf("Enqueue() error = %v", err)
+			}
+		}
+	}
 }

@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_jobs_group_id;
+ALTER TABLE jobs DROP COLUMN IF EXISTS group_id;
+DROP TABLE IF EXISTS job_groups;

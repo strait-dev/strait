@@ -1,0 +1,3 @@
+ALTER TABLE jobs DROP COLUMN IF EXISTS timezone;
+ALTER TABLE jobs DROP COLUMN IF EXISTS execution_window_cron;
+ALTER TABLE jobs DROP COLUMN IF EXISTS max_concurrency;

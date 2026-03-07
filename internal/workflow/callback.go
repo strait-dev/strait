@@ -150,7 +150,7 @@ func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[str
 		return domain.StepCompleted, fields
 	case domain.StatusCanceled:
 		return domain.StepCanceled, fields
-	case domain.StatusFailed, domain.StatusTimedOut, domain.StatusCrashed, domain.StatusSystemFailed, domain.StatusExpired:
+	case domain.StatusFailed, domain.StatusDeadLetter, domain.StatusTimedOut, domain.StatusCrashed, domain.StatusSystemFailed, domain.StatusExpired:
 		if run.Error != "" {
 			fields["error"] = run.Error
 		} else {

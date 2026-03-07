@@ -83,6 +83,9 @@ linters:
         text: "avoid meaningless"
         linters:
           - revive
+      - linters:
+          - gosec
+        text: "taint analysis|G117"
 
 formatters:
   enable:

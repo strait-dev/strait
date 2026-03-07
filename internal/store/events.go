@@ -50,7 +50,8 @@ func (q *Queries) ListEvents(ctx context.Context, runID string) ([]domain.RunEve
 		SELECT id, run_id, type, level, message, data, created_at
 		FROM run_events
 		WHERE run_id = $1
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT 10000`
 
 	rows, err := q.db.Query(ctx, query, runID)
 	if err != nil {
@@ -117,7 +118,7 @@ func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, lev
 		args = append(args, eventType)
 	}
 
-	baseQuery += " ORDER BY created_at ASC"
+	baseQuery += " ORDER BY created_at ASC LIMIT 10000"
 
 	rows, err := q.db.Query(ctx, baseQuery, args...)
 	if err != nil {

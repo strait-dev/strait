@@ -124,6 +124,18 @@ func (m *mockEngineQueue) Enqueue(ctx context.Context, run *domain.JobRun) error
 	return nil
 }
 
+func (m *mockEngineQueue) Dequeue(context.Context) (*domain.JobRun, error) {
+	return nil, nil
+}
+
+func (m *mockEngineQueue) DequeueN(context.Context, int) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
+func (m *mockEngineQueue) DequeueNByProject(context.Context, int, string) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
 func TestTriggerWorkflow(t *testing.T) {
 	t.Parallel()
 	t.Run("happy path starts root steps only", func(t *testing.T) {
@@ -853,7 +865,7 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 	})
 }
 
-func TestCancelRemainingSteps(t *testing.T) {
+func TestCancelRemainingSteps_Engine(t *testing.T) {
 	t.Parallel()
 	t.Run("cancels non-terminal steps", func(t *testing.T) {
 		t.Parallel()

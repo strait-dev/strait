@@ -17,10 +17,13 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var run domain.JobRun
 	var payload []byte
 	var result []byte
+	var metadata []byte
+	var executionTrace []byte
 	var runError *string
 	var parentRunID *string
 	var idempotencyKey *string
 	var workflowStepRunID *string
+	var continuationOf *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -30,6 +33,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.Attempt,
 		&payload,
 		&result,
+		&metadata,
 		&runError,
 		&run.TriggeredBy,
 		&run.ScheduledAt,
@@ -44,6 +48,10 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.JobVersion,
 		&run.CreatedAt,
 		&workflowStepRunID,
+		&executionTrace,
+		&run.DebugMode,
+		&continuationOf,
+		&run.LineageDepth,
 	)
 	if err != nil {
 		return nil, err
@@ -54,6 +62,18 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if result != nil {
 		run.Result = json.RawMessage(result)
+	}
+	if metadata != nil {
+		if err := json.Unmarshal(metadata, &run.Metadata); err != nil {
+			return nil, err
+		}
+	}
+	if executionTrace != nil {
+		var trace domain.ExecutionTrace
+		if err := json.Unmarshal(executionTrace, &trace); err != nil {
+			return nil, err
+		}
+		run.ExecutionTrace = &trace
 	}
 	if runError != nil {
 		run.Error = *runError
@@ -66,6 +86,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if workflowStepRunID != nil {
 		run.WorkflowStepRunID = *workflowStepRunID
+	}
+	if continuationOf != nil {
+		run.ContinuationOf = *continuationOf
 	}
 
 	return &run, nil
@@ -81,6 +104,21 @@ func NilIfEmptyString(value string) any {
 
 // NilIfEmptyRawMessage returns nil for empty JSON, preserving NULL in SQL inserts.
 func NilIfEmptyRawMessage(value json.RawMessage) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
+}
+
+func NilIfZeroInt(value int) any {
+	if value == 0 {
+		return nil
+	}
+	return value
+}
+
+// NilIfEmptyIntSlice returns nil for empty slices, preserving NULL in SQL inserts.
+func NilIfEmptyIntSlice(value []int) any {
 	if len(value) == 0 {
 		return nil
 	}

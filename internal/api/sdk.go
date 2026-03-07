@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,11 +16,75 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 type contextKey string
 
 const ctxRunIDKey contextKey = "run_id"
+const ctxSDKVersionKey contextKey = "sdk_version"
+const ctxSDKCapabilitiesKey contextKey = "sdk_capabilities"
+
+type SDKCapabilities struct {
+	Progress    bool
+	Checkpoint  bool
+	UsageReport bool
+}
+
+func sdkVersionFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ctxSDKVersionKey).(string)
+	return v
+}
+
+func sdkCapabilitiesFromContext(ctx context.Context) SDKCapabilities {
+	v, ok := ctx.Value(ctxSDKCapabilitiesKey).(SDKCapabilities)
+	if !ok {
+		return SDKCapabilities{}
+	}
+	return v
+}
+
+func sdkCapabilitiesHeader(c SDKCapabilities) string {
+	parts := make([]string, 0, 3)
+	if c.Progress {
+		parts = append(parts, "progress")
+	}
+	if c.Checkpoint {
+		parts = append(parts, "checkpoint")
+	}
+	if c.UsageReport {
+		parts = append(parts, "usage")
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
+}
+
+func resolveSDKCapabilities(version string) SDKCapabilities {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return SDKCapabilities{}
+	}
+	majorRaw := version
+	if idx := strings.Index(majorRaw, "."); idx >= 0 {
+		majorRaw = majorRaw[:idx]
+	}
+	major, err := strconv.Atoi(majorRaw)
+	if err != nil || major < 2 {
+		return SDKCapabilities{}
+	}
+	return SDKCapabilities{Progress: true, Checkpoint: true, UsageReport: true}
+}
+
+func applySDKResponseHeaders(ctx context.Context, w http.ResponseWriter) {
+	version := sdkVersionFromContext(ctx)
+	if version == "" {
+		version = "legacy"
+	}
+	w.Header().Set("X-SDK-Version-Accepted", version)
+	w.Header().Set("X-SDK-Capabilities", sdkCapabilitiesHeader(sdkCapabilitiesFromContext(ctx)))
+}
 
 func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,12 +120,17 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		sdkVersion := strings.TrimSpace(r.Header.Get("X-SDK-Version"))
+		sdkCaps := resolveSDKCapabilities(sdkVersion)
 		ctx := context.WithValue(r.Context(), ctxRunIDKey, subject)
+		ctx = context.WithValue(ctx, ctxSDKVersionKey, sdkVersion)
+		ctx = context.WithValue(ctx, ctxSDKCapabilitiesKey, sdkCaps)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -126,7 +196,134 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, event)
 }
 
+func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Percent    float64 `json:"percent"`
+		Message    string  `json:"message"`
+		Step       string  `json:"step,omitempty"`
+		ETASeconds int     `json:"eta_seconds,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Percent < 0 || req.Percent > 100 {
+		respondError(w, http.StatusBadRequest, "percent must be between 0 and 100")
+		return
+	}
+
+	dataMap := map[string]any{
+		"percent": req.Percent,
+	}
+	if req.Step != "" {
+		dataMap["step"] = req.Step
+	}
+	if req.ETASeconds > 0 {
+		dataMap["eta_seconds"] = req.ETASeconds
+	}
+	data, err := json.Marshal(dataMap)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to marshal progress payload")
+		return
+	}
+
+	event := &domain.RunEvent{
+		RunID:   runID,
+		Type:    domain.EventProgress,
+		Level:   "info",
+		Message: req.Message,
+		Data:    data,
+	}
+
+	if err := s.store.InsertEvent(r.Context(), event); err != nil {
+		slog.Error("failed to insert progress event", "run_id", runID, "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to insert event")
+		return
+	}
+
+	if s.pubsub != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"type":       "event",
+			"event_type": string(domain.EventProgress),
+			"run_id":     runID,
+			"level":      "info",
+			"message":    req.Message,
+			"data":       dataMap,
+			"timestamp":  time.Now().UTC(),
+		})
+		channel := fmt.Sprintf("run:%s", runID)
+		_ = s.pubsub.Publish(r.Context(), channel, payload)
+	}
+
+	respondJSON(w, http.StatusCreated, event)
+}
+
+func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	if !s.config.FFRunAnnotations {
+		respondError(w, http.StatusNotFound, "run annotations feature is not enabled")
+		return
+	}
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Annotations) == 0 {
+		respondError(w, http.StatusBadRequest, "annotations are required")
+		return
+	}
+	if len(req.Annotations) > 50 {
+		respondError(w, http.StatusBadRequest, "too many annotations (max 50)")
+		return
+	}
+
+	for key, value := range req.Annotations {
+		if strings.TrimSpace(key) == "" {
+			respondError(w, http.StatusBadRequest, "annotation keys must be non-empty")
+			return
+		}
+		if len(key) > 128 {
+			respondError(w, http.StatusBadRequest, "annotation key too long (max 128 characters)")
+			return
+		}
+		if len(value) > 1024 {
+			respondError(w, http.StatusBadRequest, "annotation value too long (max 1024 characters)")
+			return
+		}
+	}
+
+	if err := s.store.UpdateRunMetadata(r.Context(), runID, req.Annotations); err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to update run annotations")
+		return
+	}
+
+	updatedRun, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to fetch run")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
 func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	if err := s.store.UpdateHeartbeat(r.Context(), runID); err != nil {
@@ -138,7 +335,191 @@ func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (s *Server) handleSDKCheckpoint(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Source string          `json:"source,omitempty"`
+		State  json.RawMessage `json:"state"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.State) == 0 {
+		respondError(w, http.StatusBadRequest, "state is required")
+		return
+	}
+
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if run.Status != domain.StatusExecuting && run.Status != domain.StatusWaiting {
+		respondError(w, http.StatusConflict, "run must be executing or waiting to checkpoint")
+		return
+	}
+
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		source = "sdk"
+	}
+
+	checkpoint := &domain.RunCheckpoint{
+		ID:     uuid.Must(uuid.NewV7()).String(),
+		RunID:  runID,
+		Source: source,
+		State:  req.State,
+	}
+	if err := s.store.CreateRunCheckpoint(r.Context(), checkpoint); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create checkpoint")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, checkpoint)
+}
+
+func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		Provider         string `json:"provider"`
+		Model            string `json:"model"`
+		PromptTokens     int    `json:"prompt_tokens"`
+		CompletionTokens int    `json:"completion_tokens"`
+		TotalTokens      int    `json:"total_tokens,omitempty"`
+		CostMicrousd     int64  `json:"cost_microusd,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "" || req.Model == "" {
+		respondError(w, http.StatusBadRequest, "provider and model are required")
+		return
+	}
+
+	usage := &domain.RunUsage{
+		ID:               uuid.Must(uuid.NewV7()).String(),
+		RunID:            runID,
+		Provider:         req.Provider,
+		Model:            req.Model,
+		PromptTokens:     req.PromptTokens,
+		CompletionTokens: req.CompletionTokens,
+		TotalTokens:      req.TotalTokens,
+		CostMicrousd:     req.CostMicrousd,
+	}
+
+	// Cost budget check BEFORE recording usage to prevent overspend.
+	if s.config.FFCostBudgets && req.CostMicrousd > 0 {
+		run, runErr := s.store.GetRun(r.Context(), runID)
+		if runErr == nil && run != nil {
+			quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
+			if qErr == nil && quota != nil && quota.MaxCostPerRunMicrousd > 0 {
+				totalCost, costErr := s.store.SumRunCostMicrousd(r.Context(), runID)
+				if costErr == nil && totalCost+req.CostMicrousd >= quota.MaxCostPerRunMicrousd {
+					respondError(w, http.StatusTooManyRequests, "per-run cost budget exceeded")
+					return
+				}
+			}
+		}
+	}
+
+	if err := s.store.CreateRunUsage(r.Context(), usage); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create run usage")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, usage)
+}
+
+func (s *Server) handleSDKToolCall(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		ToolName   string          `json:"tool_name"`
+		Input      json.RawMessage `json:"input,omitempty"`
+		Output     json.RawMessage `json:"output,omitempty"`
+		DurationMs int             `json:"duration_ms,omitempty"`
+		Status     string          `json:"status,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ToolName == "" {
+		respondError(w, http.StatusBadRequest, "tool_name is required")
+		return
+	}
+
+	call := &domain.RunToolCall{
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		RunID:      runID,
+		ToolName:   req.ToolName,
+		Input:      req.Input,
+		Output:     req.Output,
+		DurationMs: req.DurationMs,
+		Status:     req.Status,
+	}
+	if err := s.store.CreateRunToolCall(r.Context(), call); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create run tool call")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, call)
+}
+
+func (s *Server) handleSDKOutput(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	runID := chi.URLParam(r, "runID")
+
+	var req struct {
+		OutputKey string          `json:"output_key"`
+		Schema    json.RawMessage `json:"schema,omitempty"`
+		Value     json.RawMessage `json:"value"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.OutputKey == "" {
+		respondError(w, http.StatusBadRequest, "output_key is required")
+		return
+	}
+	if len(req.Value) == 0 {
+		respondError(w, http.StatusBadRequest, "value is required")
+		return
+	}
+	if err := validatePayloadAgainstSchema(req.Value, req.Schema); err != nil {
+		respondError(w, http.StatusBadRequest, "output schema validation failed: "+err.Error())
+		return
+	}
+
+	output := &domain.RunOutput{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		RunID:     runID,
+		OutputKey: req.OutputKey,
+		Schema:    req.Schema,
+		Value:     req.Value,
+	}
+	if err := s.store.UpsertRunOutput(r.Context(), output); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to upsert run output")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, output)
+}
+
 func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -186,6 +567,9 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr)
 		}
 	}
+	if err := s.resumeWaitingParentIfReady(r.Context(), run); err != nil {
+		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err)
+	}
 
 	if s.pubsub != nil {
 		payload, _ := json.Marshal(map[string]any{
@@ -210,6 +594,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -259,6 +644,9 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr)
 		}
 	}
+	if err := s.resumeWaitingParentIfReady(r.Context(), run); err != nil {
+		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err)
+	}
 
 	if s.pubsub != nil {
 		payload, _ := json.Marshal(map[string]any{
@@ -284,6 +672,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
 	parentRunID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -307,6 +696,25 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	parentRun, err := s.store.GetRun(r.Context(), parentRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "parent run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get parent run")
+		return
+	}
+	if parentRun == nil {
+		respondError(w, http.StatusNotFound, "parent run not found")
+		return
+	}
+	if parentRun.Status == domain.StatusExecuting {
+		if err := s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {
+			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err)
+		}
+	}
+
 	run := &domain.JobRun{
 		JobID:       job.ID,
 		ProjectID:   job.ProjectID,
@@ -321,4 +729,102 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusCreated, run)
+}
+
+func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
+	applySDKResponseHeaders(r.Context(), w)
+	parentRunID := chi.URLParam(r, "runID")
+
+	if !s.config.FFRunContinuation {
+		respondError(w, http.StatusNotFound, "run continuation is not enabled")
+		return
+	}
+
+	var req struct {
+		Payload json.RawMessage `json:"payload,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	parentRun, err := s.store.GetRun(r.Context(), parentRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if parentRun.Status != domain.StatusExecuting && parentRun.Status != domain.StatusWaiting {
+		respondError(w, http.StatusConflict, "run must be executing or waiting to continue")
+		return
+	}
+
+	const maxLineageDepth = 10
+	if parentRun.LineageDepth >= maxLineageDepth {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("max lineage depth (%d) exceeded", maxLineageDepth))
+		return
+	}
+
+	job, err := s.store.GetJob(r.Context(), parentRun.JobID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get job")
+		return
+	}
+
+	payload := req.Payload
+	if len(payload) == 0 {
+		payload = parentRun.Payload
+	}
+
+	continuationRun := &domain.JobRun{
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		Payload:        payload,
+		TriggeredBy:    domain.TriggerManual,
+		ContinuationOf: parentRunID,
+		LineageDepth:   parentRun.LineageDepth + 1,
+		Priority:       parentRun.Priority,
+	}
+
+	if err := s.queue.Enqueue(r.Context(), continuationRun); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to enqueue continuation run")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, continuationRun)
+}
+
+func (s *Server) resumeWaitingParentIfReady(ctx context.Context, run *domain.JobRun) error {
+	if run == nil || run.ParentRunID == "" {
+		return nil
+	}
+
+	allTerminal, err := s.store.AreAllDescendantsTerminal(ctx, run.ParentRunID)
+	if err != nil {
+		return err
+	}
+	if !allTerminal {
+		return nil
+	}
+
+	parent, err := s.store.GetRun(ctx, run.ParentRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return nil
+		}
+		return err
+	}
+	if parent.Status != domain.StatusWaiting {
+		return nil
+	}
+
+	return s.store.UpdateRunStatus(ctx, parent.ID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
+		"started_at":    nil,
+		"finished_at":   nil,
+		"next_retry_at": nil,
+	})
 }

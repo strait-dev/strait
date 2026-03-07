@@ -28,6 +28,7 @@ type ReaperStore interface {
 	ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error)
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
@@ -42,18 +43,30 @@ type Reaper struct {
 	staleThreshold    time.Duration
 	workflowRetention time.Duration
 	deleteBatchLimit  int
+	shortRetention    time.Duration
+	longRetention     time.Duration
+	retentionEnabled  bool
 	workflowCallback  WorkflowCallback
 	logger            *slog.Logger
 }
 
 // NewReaper creates a new stale and expired run reaper.
-func NewReaper(s ReaperStore, interval, staleThreshold time.Duration, workflowCallback WorkflowCallback) *Reaper {
+func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRetention time.Duration, retentionEnabled bool, workflowCallback WorkflowCallback) *Reaper {
+	if shortRetention <= 0 {
+		shortRetention = 30 * 24 * time.Hour
+	}
+	if longRetention <= 0 {
+		longRetention = 90 * 24 * time.Hour
+	}
 	return &Reaper{
 		store:             s,
 		interval:          interval,
 		staleThreshold:    staleThreshold,
 		workflowRetention: defaultWorkflowRetention,
 		deleteBatchLimit:  defaultDeleteBatchLimit,
+		shortRetention:    shortRetention,
+		longRetention:     longRetention,
+		retentionEnabled:  retentionEnabled,
 		workflowCallback:  workflowCallback,
 		logger:            slog.Default(),
 	}
@@ -79,24 +92,19 @@ func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
-	slog.Info("reaper started", "interval", r.interval, "stale_threshold", r.staleThreshold)
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("reaper stopping")
-			return
-		case <-ticker.C:
-			r.reapStaleDequeued(ctx)
-			r.reapStale(ctx)
-			r.reapExpired(ctx)
-			r.reapTimedOutWorkflows(ctx)
-			r.reapExpiredApprovals(ctx)
-			r.reapOldWorkflowRuns(ctx)
+	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
+	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
+		r.reapStaleDequeued(loopCtx)
+		r.reapStale(loopCtx)
+		r.reapExpired(loopCtx)
+		r.reapTimedOutWorkflows(loopCtx)
+		r.reapExpiredApprovals(loopCtx)
+		r.reapOldWorkflowRuns(loopCtx)
+		if r.retentionEnabled {
+			r.reapTerminalRetention(loopCtx)
 		}
-	}
+	})
+	loop.Run(ctx)
 }
 
 func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
@@ -287,5 +295,19 @@ func (r *Reaper) reapStaleDequeued(ctx context.Context) {
 		}
 
 		slog.Warn("stale dequeued run re-queued", "run_id", run.ID, "job_id", run.JobID)
+	}
+}
+
+func (r *Reaper) reapTerminalRetention(ctx context.Context) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapTerminalRetention")
+	defer span.End()
+
+	deleted, err := r.store.DeleteTerminalRunsPastRetention(ctx, r.shortRetention, r.longRetention)
+	if err != nil {
+		slog.Error("failed to delete retained terminal runs", "error", err)
+		return
+	}
+	if deleted > 0 {
+		slog.Info("deleted terminal runs past retention", "count", deleted)
 	}
 }

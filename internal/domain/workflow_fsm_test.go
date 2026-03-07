@@ -24,12 +24,15 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 		to   WorkflowRunStatus
 	}{
 		{WfStatusCompleted, WfStatusRunning},
+		{WfStatusCompleted, WfStatusPending},
 		{WfStatusFailed, WfStatusRunning},
+		{WfStatusFailed, WfStatusCompleted},
 		{WfStatusTimedOut, WfStatusRunning},
 		{WfStatusPending, WfStatusCompleted},
 		{WfStatusRunning, WfStatusPending},
 		{WfStatusPaused, WfStatusPending},
 		{WfStatusCanceled, WfStatusRunning},
+		{WfStatusCanceled, WfStatusPending},
 		{WorkflowRunStatus("unknown"), WfStatusRunning},
 	}
 
@@ -39,6 +42,57 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 				t.Errorf("expected invalid transition %s -> %s to fail", tc.from, tc.to)
 			}
 		})
+	}
+}
+
+func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
+	err := ValidateWorkflowTransition(WorkflowRunStatus("unknown"), WfStatusRunning)
+	if err == nil {
+		t.Fatal("expected error for unknown status")
+	}
+
+	var unknownErr *UnknownStatusError
+	if !errors.As(err, &unknownErr) {
+		t.Fatalf("expected UnknownStatusError, got %T: %v", err, err)
+	}
+}
+
+func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
+	terminalStatuses := []WorkflowRunStatus{WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled}
+	for _, status := range terminalStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			transitions, ok := validWorkflowTransitions[status]
+			if !ok {
+				t.Errorf("terminal status %s not found in validWorkflowTransitions", status)
+			}
+			if len(transitions) != 0 {
+				t.Errorf("terminal status %s should not have transitions, got %v", status, transitions)
+			}
+		})
+	}
+}
+
+func TestAllWorkflowStatusesCovered(t *testing.T) {
+	allStatuses := []WorkflowRunStatus{
+		WfStatusPending,
+		WfStatusRunning,
+		WfStatusPaused,
+		WfStatusCompleted,
+		WfStatusFailed,
+		WfStatusTimedOut,
+		WfStatusCanceled,
+	}
+
+	for _, status := range allStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			if _, ok := validWorkflowTransitions[status]; !ok {
+				t.Errorf("status %s is missing from validWorkflowTransitions map", status)
+			}
+		})
+	}
+
+	if len(validWorkflowTransitions) != len(allStatuses) {
+		t.Fatalf("validWorkflowTransitions has %d statuses, expected %d", len(validWorkflowTransitions), len(allStatuses))
 	}
 }
 
@@ -124,21 +178,17 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 		from StepRunStatus
 		to   StepRunStatus
 	}{
-		// Terminal states cannot transition
 		{"completed_to_running", StepCompleted, StepRunning},
+		{"completed_to_pending", StepCompleted, StepPending},
 		{"failed_to_running", StepFailed, StepRunning},
+		{"failed_to_pending", StepFailed, StepPending},
 		{"skipped_to_running", StepSkipped, StepRunning},
+		{"skipped_to_pending", StepSkipped, StepPending},
 		{"canceled_to_running", StepCanceled, StepRunning},
-
+		{"canceled_to_pending", StepCanceled, StepPending},
 		{"pending_to_failed", StepPending, StepFailed},
 		{"waiting_to_failed", StepWaiting, StepFailed},
-
-		// Self-transitions
 		{"running_to_running", StepRunning, StepRunning},
-
-		// Backward transitions
-		{"completed_to_pending", StepCompleted, StepPending},
-		{"failed_to_pending", StepFailed, StepPending},
 		{"running_to_pending", StepRunning, StepPending},
 		{"running_to_waiting", StepRunning, StepWaiting},
 	}
@@ -150,6 +200,57 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 				t.Fatalf("expected error for %s -> %s, got nil", tc.from, tc.to)
 			}
 		})
+	}
+}
+
+func TestValidateStepTransition_UnknownStatus(t *testing.T) {
+	err := ValidateStepTransition(StepRunStatus("unknown"), StepRunning)
+	if err == nil {
+		t.Fatal("expected error for unknown status")
+	}
+
+	var unknownErr *UnknownStatusError
+	if !errors.As(err, &unknownErr) {
+		t.Fatalf("expected UnknownStatusError, got %T: %v", err, err)
+	}
+}
+
+func TestValidateStepTransition_TerminalHaveNoTransitions(t *testing.T) {
+	terminalStatuses := []StepRunStatus{StepCompleted, StepFailed, StepSkipped, StepCanceled}
+	for _, status := range terminalStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			transitions, ok := validStepTransitions[status]
+			if !ok {
+				t.Errorf("terminal status %s not found in validStepTransitions", status)
+			}
+			if len(transitions) != 0 {
+				t.Errorf("terminal status %s should not have transitions, got %v", status, transitions)
+			}
+		})
+	}
+}
+
+func TestAllStepStatusesCovered(t *testing.T) {
+	allStatuses := []StepRunStatus{
+		StepPending,
+		StepWaiting,
+		StepRunning,
+		StepCompleted,
+		StepFailed,
+		StepSkipped,
+		StepCanceled,
+	}
+
+	for _, status := range allStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			if _, ok := validStepTransitions[status]; !ok {
+				t.Errorf("status %s is missing from validStepTransitions map", status)
+			}
+		})
+	}
+
+	if len(validStepTransitions) != len(allStatuses) {
+		t.Fatalf("validStepTransitions has %d statuses, expected %d", len(validStepTransitions), len(allStatuses))
 	}
 }
 

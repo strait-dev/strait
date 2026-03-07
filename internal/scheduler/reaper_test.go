@@ -37,7 +37,7 @@ func TestReaper_ReapStale(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
 
 	if transitioned.Load() != 2 {
@@ -68,7 +68,7 @@ func TestReaper_ReapExpired(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpired(context.Background())
 
 	if transitioned.Load() != 1 {
@@ -102,7 +102,7 @@ func TestReaper_ReapStaleDequeued(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStaleDequeued(context.Background())
 
 	if transitioned.Load() != 1 {
@@ -128,7 +128,7 @@ func TestReaper_NoStaleRuns(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
 	r.reapExpired(context.Background())
 	r.reapStaleDequeued(context.Background())
@@ -153,7 +153,7 @@ func TestReaper_RunLoop(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, 50*time.Millisecond, 30*time.Second, nil)
+	r := NewReaper(ms, 50*time.Millisecond, 30*time.Second, 0, 0, false, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
@@ -179,7 +179,7 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapOldWorkflowRuns(context.Background())
 
 	if deleted.Load() != 3 {
@@ -234,7 +234,7 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapTimedOutWorkflows(context.Background())
 
 	if wfUpdates.Load() != 1 {
@@ -260,7 +260,7 @@ func TestReaper_ReapStale_ListError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
 
 	if transitioned.Load() != 0 {
@@ -288,7 +288,7 @@ func TestReaper_ReapStale_UpdateError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
 
 	if updateCalls.Load() != 2 {
@@ -311,7 +311,7 @@ func TestReaper_ReapExpired_ListError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpired(context.Background())
 
 	if transitioned.Load() != 0 {
@@ -339,7 +339,7 @@ func TestReaper_ReapExpired_UpdateError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpired(context.Background())
 
 	if updateCalls.Load() != 2 {
@@ -362,7 +362,7 @@ func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStaleDequeued(context.Background())
 
 	if transitioned.Load() != 0 {
@@ -390,7 +390,7 @@ func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStaleDequeued(context.Background())
 
 	if updateCalls.Load() != 2 {
@@ -438,7 +438,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if approvalUpdates.Load() != 1 {
@@ -475,7 +475,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if approvalUpdates.Load() != 0 {
@@ -522,7 +522,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if stepUpdates.Load() != 1 {
@@ -561,7 +561,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if stepUpdates.Load() != 1 {
@@ -594,7 +594,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if workflowUpdates.Load() != 1 {
@@ -627,7 +627,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if workflowUpdates.Load() != 2 {
@@ -675,7 +675,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if approvalUpdates.Load() != 2 {
@@ -722,7 +722,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
 
 		if approvalUpdates.Load() != 3 {
@@ -845,7 +845,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if wfUpdates.Load() != 0 || stepLists.Load() != 0 || stepUpdates.Load() != 0 || runGets.Load() != 0 || runUpdates.Load() != 0 {
@@ -880,7 +880,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if wfUpdates.Load() != 2 {
@@ -916,7 +916,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if stepLists.Load() != 2 {
@@ -943,7 +943,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if stepUpdates.Load() != 0 {
@@ -978,7 +978,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if stepUpdates.Load() != 1 {
@@ -1022,7 +1022,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if runGets.Load() != 2 {
@@ -1058,7 +1058,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if runUpdates.Load() != 0 {
@@ -1100,7 +1100,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			},
 		}
 
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
 		if runUpdates.Load() != 2 {
@@ -1112,7 +1112,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 func TestReaper_WithWorkflowRetention(t *testing.T) {
 	t.Run("sets_positive_retention", func(t *testing.T) {
 		ms := &mockReaperStore{}
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(7 * 24 * time.Hour)
 
 		if r.workflowRetention != 7*24*time.Hour {
@@ -1122,7 +1122,7 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 
 	t.Run("ignores_zero_retention", func(t *testing.T) {
 		ms := &mockReaperStore{}
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(0)
 
 		if r.workflowRetention != defaultWorkflowRetention {
@@ -1132,7 +1132,7 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 
 	t.Run("ignores_negative_retention", func(t *testing.T) {
 		ms := &mockReaperStore{}
-		r := NewReaper(ms, time.Second, 30*time.Second, nil)
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(-time.Hour)
 
 		if r.workflowRetention != defaultWorkflowRetention {
@@ -1156,7 +1156,7 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 		}
 
 		customRetention := 3 * 24 * time.Hour
-		r := NewReaper(ms, time.Second, 30*time.Second, nil).
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).
 			WithWorkflowRetention(customRetention)
 		r.reapOldWorkflowRuns(context.Background())
 
@@ -1171,4 +1171,133 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 			t.Fatalf("expected before time near %v, got %v (diff: %v)", expectedBefore, deletedBefore, diff)
 		}
 	})
+}
+
+func TestReaper_ReapTerminalRetention(t *testing.T) {
+	var called atomic.Int32
+	ms := &mockReaperStore{
+		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+			if shortRetention != 30*24*time.Hour {
+				t.Fatalf("short retention = %v, want %v", shortRetention, 30*24*time.Hour)
+			}
+			if longRetention != 90*24*time.Hour {
+				t.Fatalf("long retention = %v, want %v", longRetention, 90*24*time.Hour)
+			}
+			called.Add(1)
+			return 2, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, true, nil)
+	r.reapTerminalRetention(context.Background())
+
+	if called.Load() != 1 {
+		t.Fatalf("retention call count = %d, want 1", called.Load())
+	}
+}
+
+func TestReaper_RetentionDisabled_SkipsRetention(t *testing.T) {
+	var called atomic.Int32
+	ms := &mockReaperStore{
+		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		listExpiredRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		listStaleDequeuedFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		deleteRetentionFn: func(_ context.Context, _, _ time.Duration) (int64, error) {
+			called.Add(1)
+			return 0, nil
+		},
+	}
+
+	r := NewReaper(ms, 50*time.Millisecond, 30*time.Second, 0, 0, false, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	r.Run(ctx)
+
+	if called.Load() != 0 {
+		t.Fatalf("retention should not be called when disabled, got %d calls", called.Load())
+	}
+}
+
+func TestReaper_RetentionEnabled_CallsRetention(t *testing.T) {
+	var called atomic.Int32
+	ms := &mockReaperStore{
+		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		listExpiredRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		listStaleDequeuedFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		deleteRetentionFn: func(_ context.Context, _, _ time.Duration) (int64, error) {
+			called.Add(1)
+			return 0, nil
+		},
+	}
+
+	r := NewReaper(ms, 50*time.Millisecond, 30*time.Second, 0, 0, true, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	r.Run(ctx)
+
+	if called.Load() < 1 {
+		t.Fatalf("retention should be called when enabled, got %d calls", called.Load())
+	}
+}
+
+func TestReaper_CustomRetentionPeriods(t *testing.T) {
+	customShort := 7 * 24 * time.Hour
+	customLong := 14 * 24 * time.Hour
+	var called atomic.Int32
+	ms := &mockReaperStore{
+		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+			if shortRetention != customShort {
+				t.Fatalf("short retention = %v, want %v", shortRetention, customShort)
+			}
+			if longRetention != customLong {
+				t.Fatalf("long retention = %v, want %v", longRetention, customLong)
+			}
+			called.Add(1)
+			return 0, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, customShort, customLong, true, nil)
+	r.reapTerminalRetention(context.Background())
+
+	if called.Load() != 1 {
+		t.Fatalf("retention call count = %d, want 1", called.Load())
+	}
+}
+
+func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
+	var called atomic.Int32
+	ms := &mockReaperStore{
+		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+			if shortRetention != 30*24*time.Hour {
+				t.Fatalf("default short retention = %v, want %v", shortRetention, 30*24*time.Hour)
+			}
+			if longRetention != 90*24*time.Hour {
+				t.Fatalf("default long retention = %v, want %v", longRetention, 90*24*time.Hour)
+			}
+			called.Add(1)
+			return 0, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, true, nil)
+	r.reapTerminalRetention(context.Background())
+
+	if called.Load() != 1 {
+		t.Fatalf("retention call count = %d, want 1", called.Load())
+	}
 }

@@ -45,6 +45,7 @@ type mockReaperStore struct {
 	updateWorkflowApprovalFn  func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	deleteOldWorkflowRunsFn   func(ctx context.Context, before time.Time, limit int) (int64, error)
+	deleteRetentionFn         func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 }
 
 type mockCronStore struct {
@@ -75,9 +76,10 @@ func (m *mockCronStore) CountRunningWorkflowRuns(ctx context.Context, workflowID
 }
 
 type mockQueue struct {
-	enqueueFn  func(ctx context.Context, run *domain.JobRun) error
-	dequeueFn  func(ctx context.Context) (*domain.JobRun, error)
-	dequeueNFn func(ctx context.Context, n int) ([]domain.JobRun, error)
+	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
+	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
+	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
 }
 
 func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -97,6 +99,13 @@ func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
 	if m.dequeueNFn != nil {
 		return m.dequeueNFn(ctx, n)
+	}
+	return nil, nil
+}
+
+func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
+	if m.dequeueNByProjectFn != nil {
+		return m.dequeueNByProjectFn(ctx, n, projectID)
 	}
 	return nil, nil
 }
@@ -188,6 +197,13 @@ func (m *mockReaperStore) UpdateWorkflowStepApproval(ctx context.Context, id str
 func (m *mockReaperStore) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
 	if m.deleteOldWorkflowRunsFn != nil {
 		return m.deleteOldWorkflowRunsFn(ctx, before, limit)
+	}
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
+	if m.deleteRetentionFn != nil {
+		return m.deleteRetentionFn(ctx, shortRetention, longRetention)
 	}
 	return 0, nil
 }

@@ -76,6 +76,7 @@ func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		{StatusSystemFailed, true},
 		{StatusCanceled, true},
 		{StatusExpired, true},
+		{StatusDeadLetter, false},
 	}
 
 	for _, tc := range tests {
@@ -101,6 +102,7 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 		StatusSystemFailed,
 		StatusCanceled,
 		StatusExpired,
+		StatusDeadLetter,
 	}
 
 	for _, status := range allStatuses {
@@ -122,5 +124,30 @@ func TestRunStatusIsValid(t *testing.T) {
 	}
 	if RunStatus("not-valid").IsValid() {
 		t.Fatal("expected arbitrary status to be invalid")
+	}
+}
+
+func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
+	tests := []struct {
+		name    string
+		from    RunStatus
+		to      RunStatus
+		wantErr bool
+	}{
+		{name: "executing to dead_letter is valid", from: StatusExecuting, to: StatusDeadLetter},
+		{name: "dead_letter to queued is valid", from: StatusDeadLetter, to: StatusQueued},
+		{name: "dead_letter to completed is invalid", from: StatusDeadLetter, to: StatusCompleted, wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateTransition(tc.from, tc.to)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected transition %s -> %s to fail", tc.from, tc.to)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected transition %s -> %s to succeed, got %v", tc.from, tc.to, err)
+			}
+		})
 	}
 }

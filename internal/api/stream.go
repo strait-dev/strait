@@ -44,6 +44,8 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	if s.pubsub == nil {
 		slog.Error("pubsub not configured", "run_id", runID)
+		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n")
+		flusher.Flush()
 		return
 	}
 
@@ -51,6 +53,8 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	sub, err := s.pubsub.Subscribe(r.Context(), channel)
 	if err != nil {
 		slog.Error("failed to subscribe", "run_id", runID, "error", err)
+		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n")
+		flusher.Flush()
 		return
 	}
 	defer sub.Close()
