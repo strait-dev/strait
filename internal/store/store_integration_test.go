@@ -1882,7 +1882,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 		t.Fatal("UpdateWebhookDelivery(missing) error = nil, want error")
 	}
 
-	all, err := q.ListWebhookDeliveries(ctx, "", "", 10)
+	all, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "", 10)
 	if err != nil {
 		t.Fatalf("ListWebhookDeliveries(all) error = %v", err)
 	}
@@ -1893,7 +1893,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 		t.Fatalf("ListWebhookDeliveries(all) order mismatch: got IDs [%q, %q], want [%q, %q]", all[0].ID, all[1].ID, delivery2.ID, delivery1.ID)
 	}
 
-	delivered, err := q.ListWebhookDeliveries(ctx, "", "delivered", 10)
+	delivered, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "delivered", 10)
 	if err != nil {
 		t.Fatalf("ListWebhookDeliveries(delivered) error = %v", err)
 	}
@@ -1901,7 +1901,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 		t.Fatalf("ListWebhookDeliveries(delivered) = %+v, want only %q", delivered, delivery1.ID)
 	}
 
-	none, err := q.ListWebhookDeliveries(ctx, "", "pending", 0)
+	none, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "pending", 0)
 	if err != nil {
 		t.Fatalf("ListWebhookDeliveries(limit 0) error = %v", err)
 	}
