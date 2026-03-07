@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -405,7 +406,9 @@ func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
 		if result.Status != health.StatusUp {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(result)
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				slog.Warn("failed to encode health check response", "error", err)
+			}
 			return
 		}
 		respondJSON(w, http.StatusOK, result)

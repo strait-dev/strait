@@ -73,16 +73,20 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.pubsub != nil {
-		payload, _ := json.Marshal(map[string]any{
+		payload, err := json.Marshal(map[string]any{
 			"type":      "status_change",
 			"run_id":    runID,
 			"from":      string(run.Status),
 			"to":        "completed",
 			"timestamp": now.UTC(),
 		})
-		channel := fmt.Sprintf("run:%s", runID)
-		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+		if err != nil {
+			slog.Warn("failed to marshal status change payload", "run_id", runID, "error", err)
+		} else {
+			channel := fmt.Sprintf("run:%s", runID)
+			if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
+				slog.Warn("failed to publish event", "run_id", runID, "error", err)
+			}
 		}
 	}
 
@@ -149,7 +153,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.pubsub != nil {
-		payload, _ := json.Marshal(map[string]any{
+		payload, err := json.Marshal(map[string]any{
 			"type":      "status_change",
 			"run_id":    runID,
 			"from":      string(run.Status),
@@ -157,9 +161,13 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 			"error":     req.Error,
 			"timestamp": now.UTC(),
 		})
-		channel := fmt.Sprintf("run:%s", runID)
-		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+		if err != nil {
+			slog.Warn("failed to marshal status change payload", "run_id", runID, "error", err)
+		} else {
+			channel := fmt.Sprintf("run:%s", runID)
+			if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
+				slog.Warn("failed to publish event", "run_id", runID, "error", err)
+			}
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"orchestrator/internal/domain"
@@ -269,7 +270,9 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 		if committed {
 			return
 		}
-		_ = tx.Rollback(ctx)
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			slog.Warn("failed to rollback transaction", "error", rbErr)
+		}
 	}()
 
 	if err := fn(New(tx)); err != nil {

@@ -177,7 +177,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.pubsub != nil {
-		payload, _ := json.Marshal(map[string]any{
+		payload, err := json.Marshal(map[string]any{
 			"type":       "event",
 			"event_type": string(eventType),
 			"run_id":     runID,
@@ -186,9 +186,13 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 			"data":       data,
 			"timestamp":  time.Now().UTC(),
 		})
-		channel := fmt.Sprintf("run:%s", runID)
-		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err)
+		if err != nil {
+			slog.Warn("failed to marshal event payload", "run_id", runID, "error", err)
+		} else {
+			channel := fmt.Sprintf("run:%s", runID)
+			if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
+				slog.Warn("failed to publish event", "run_id", runID, "error", err)
+			}
 		}
 	}
 
@@ -244,7 +248,7 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.pubsub != nil {
-		payload, _ := json.Marshal(map[string]any{
+		payload, err := json.Marshal(map[string]any{
 			"type":       "event",
 			"event_type": string(domain.EventProgress),
 			"run_id":     runID,
@@ -253,8 +257,14 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 			"data":       dataMap,
 			"timestamp":  time.Now().UTC(),
 		})
-		channel := fmt.Sprintf("run:%s", runID)
-		_ = s.pubsub.Publish(r.Context(), channel, payload)
+		if err != nil {
+			slog.Warn("failed to marshal progress payload", "run_id", runID, "error", err)
+		} else {
+			channel := fmt.Sprintf("run:%s", runID)
+			if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
+				slog.Warn("failed to publish progress event", "run_id", runID, "error", err)
+			}
+		}
 	}
 
 	respondJSON(w, http.StatusCreated, event)

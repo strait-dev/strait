@@ -44,7 +44,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	if s.pubsub == nil {
 		slog.Error("pubsub not configured", "run_id", runID)
-		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n")
+		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n"); err != nil {
+			slog.Warn("failed to write SSE error", "run_id", runID, "error", err)
+		}
 		flusher.Flush()
 		return
 	}
@@ -53,7 +55,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	sub, err := s.pubsub.Subscribe(r.Context(), channel)
 	if err != nil {
 		slog.Error("failed to subscribe", "run_id", runID, "error", err)
-		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n")
+		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
+			slog.Warn("failed to write SSE subscribe error", "run_id", runID, "error", err)
+		}
 		flusher.Flush()
 		return
 	}
@@ -74,10 +78,16 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
+				slog.Warn("failed to write SSE data", "run_id", runID, "error", err)
+				return
+			}
 			flusher.Flush()
 		case <-ticker.C:
-			_, _ = fmt.Fprintf(w, ": keepalive\n\n")
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+				slog.Warn("failed to write SSE keepalive", "run_id", runID, "error", err)
+				return
+			}
 			flusher.Flush()
 		}
 	}

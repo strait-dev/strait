@@ -54,7 +54,9 @@ func (r *RedisPublisher) Publish(ctx context.Context, channel string, data []byt
 func (r *RedisPublisher) Subscribe(ctx context.Context, channel string) (*Subscription, error) {
 	sub := r.client.Subscribe(ctx, channel)
 	if _, err := sub.Receive(ctx); err != nil {
-		_ = sub.Close()
+		if closeErr := sub.Close(); closeErr != nil {
+			slog.Warn("failed to close subscription on error", "error", closeErr)
+		}
 		return nil, err
 	}
 
