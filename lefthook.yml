@@ -1,0 +1,10 @@
+# Lefthook git hooks configuration.
+# Mirrors the CI lint pipeline (.github/workflows/lint.yml).
+
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      run: golangci-lint run --timeout=5m ./...
+      glob: "*.go"
+      fail_text: "golangci-lint failed — fix lint errors before committing"
