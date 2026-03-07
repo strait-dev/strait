@@ -34,6 +34,8 @@ type CreateJobRequest struct {
 	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty"`
 	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
+	RetryStrategy       string            `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 }
 
 type UpdateJobRequest struct {
@@ -55,6 +57,8 @@ type UpdateJobRequest struct {
 	RateLimitWindowSecs *int               `json:"rate_limit_window_secs,omitempty"`
 	DedupWindowSecs     *int               `json:"dedup_window_secs,omitempty"`
 	RunTTLSecs          *int               `json:"run_ttl_secs,omitempty"`
+	RetryStrategy       *string            `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs     *[]int             `json:"retry_delays_secs,omitempty"`
 	Enabled             *bool              `json:"enabled,omitempty"`
 }
 
@@ -135,6 +139,8 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		RateLimitWindowSecs: req.RateLimitWindowSecs,
 		DedupWindowSecs:     req.DedupWindowSecs,
 		RunTTLSecs:          req.RunTTLSecs,
+		RetryStrategy:       req.RetryStrategy,
+		RetryDelaysSecs:     req.RetryDelaysSecs,
 		Enabled:             true,
 	}
 
@@ -293,6 +299,12 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.RunTTLSecs != nil {
 		job.RunTTLSecs = *req.RunTTLSecs
 	}
+	if req.RetryStrategy != nil {
+		job.RetryStrategy = *req.RetryStrategy
+	}
+	if req.RetryDelaysSecs != nil {
+		job.RetryDelaysSecs = *req.RetryDelaysSecs
+	}
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled
 	}
@@ -383,6 +395,8 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		WebhookURL:          source.WebhookURL,
 		WebhookSecret:       source.WebhookSecret,
 		RunTTLSecs:          source.RunTTLSecs,
+		RetryStrategy:       source.RetryStrategy,
+		RetryDelaysSecs:     source.RetryDelaysSecs,
 		Enabled:             true,
 	}
 
@@ -509,6 +523,8 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			RateLimitWindowSecs: jobReq.RateLimitWindowSecs,
 			DedupWindowSecs:     jobReq.DedupWindowSecs,
 			RunTTLSecs:          jobReq.RunTTLSecs,
+			RetryStrategy:       jobReq.RetryStrategy,
+			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
 			Enabled:             true,
 		}
 

@@ -741,7 +741,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	}
 
 	if shouldRetry {
-		retryAt := NextRetryAt(run.Attempt)
+		retryAt := NextRetryAtWithStrategy(run.Attempt, job.RetryStrategy, job.RetryDelaysSecs)
 		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,

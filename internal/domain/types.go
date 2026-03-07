@@ -63,6 +63,8 @@ type Job struct {
 	WebhookURL          string            `json:"webhook_url,omitempty"`
 	WebhookSecret       string            `json:"webhook_secret,omitempty"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
+	RetryStrategy       string            `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 	Version             int               `json:"version"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
