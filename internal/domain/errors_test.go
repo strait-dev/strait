@@ -7,6 +7,7 @@ import (
 )
 
 func TestTransitionError_Error(t *testing.T) {
+	t.Parallel()
 	err := &TransitionError{From: StatusQueued, To: StatusCompleted}
 	got := err.Error()
 
@@ -22,6 +23,7 @@ func TestTransitionError_Error(t *testing.T) {
 }
 
 func TestTransitionError_ImplementsError(t *testing.T) {
+	t.Parallel()
 	_, ok := any(&TransitionError{From: StatusQueued, To: StatusCompleted}).(error)
 	if !ok {
 		t.Fatal("TransitionError should implement error interface")
@@ -29,6 +31,7 @@ func TestTransitionError_ImplementsError(t *testing.T) {
 }
 
 func TestUnknownStatusError_Error(t *testing.T) {
+	t.Parallel()
 	err := &UnknownStatusError{Status: RunStatus("bogus")}
 	got := err.Error()
 
@@ -41,6 +44,7 @@ func TestUnknownStatusError_Error(t *testing.T) {
 }
 
 func TestEndpointError_Error(t *testing.T) {
+	t.Parallel()
 	err := &EndpointError{StatusCode: 503, Body: "service unavailable"}
 	got := err.Error()
 
@@ -53,6 +57,7 @@ func TestEndpointError_Error(t *testing.T) {
 }
 
 func TestEndpointError_EmptyBody(t *testing.T) {
+	t.Parallel()
 	err := &EndpointError{StatusCode: 500, Body: ""}
 	got := err.Error()
 	if !strings.Contains(got, "500") {
@@ -61,6 +66,7 @@ func TestEndpointError_EmptyBody(t *testing.T) {
 }
 
 func TestFieldError_Error(t *testing.T) {
+	t.Parallel()
 	err := &FieldError{Field: "nonexistent_field"}
 	got := err.Error()
 
@@ -73,6 +79,7 @@ func TestFieldError_Error(t *testing.T) {
 }
 
 func TestConfigError_Error(t *testing.T) {
+	t.Parallel()
 	err := &ConfigError{Field: "DATABASE_URL", Message: "is required"}
 	got := err.Error()
 
@@ -85,6 +92,7 @@ func TestConfigError_Error(t *testing.T) {
 }
 
 func TestErrJobDisabled(t *testing.T) {
+	t.Parallel()
 	if ErrJobDisabled == nil {
 		t.Fatal("ErrJobDisabled should not be nil")
 	}
@@ -94,6 +102,7 @@ func TestErrJobDisabled(t *testing.T) {
 }
 
 func TestErrJobDisabled_IsComparable(t *testing.T) {
+	t.Parallel()
 	wrapped := errors.New("outer: " + ErrJobDisabled.Error())
 	_ = wrapped // just verifying sentinel doesn't panic
 
@@ -103,6 +112,7 @@ func TestErrJobDisabled_IsComparable(t *testing.T) {
 }
 
 func TestValidateTransition_ReturnsTransitionError(t *testing.T) {
+	t.Parallel()
 	err := ValidateTransition(StatusQueued, StatusCompleted)
 	if err == nil {
 		t.Fatal("expected error for invalid transition")
@@ -121,6 +131,7 @@ func TestValidateTransition_ReturnsTransitionError(t *testing.T) {
 }
 
 func TestValidateTransition_ReturnsUnknownStatusError(t *testing.T) {
+	t.Parallel()
 	err := ValidateTransition(RunStatus("invalid"), StatusQueued)
 	if err == nil {
 		t.Fatal("expected error for unknown status")
@@ -136,12 +147,14 @@ func TestValidateTransition_ReturnsUnknownStatusError(t *testing.T) {
 }
 
 func TestTransition_ValidReturnsNil(t *testing.T) {
+	t.Parallel()
 	if err := Transition(StatusQueued, StatusDequeued); err != nil {
 		t.Fatalf("Transition returned error for valid transition: %v", err)
 	}
 }
 
 func TestTransition_InvalidReturnsError(t *testing.T) {
+	t.Parallel()
 	err := Transition(StatusCompleted, StatusExecuting)
 	if err == nil {
 		t.Fatal("Transition did not return error for invalid transition")
@@ -149,6 +162,7 @@ func TestTransition_InvalidReturnsError(t *testing.T) {
 }
 
 func TestTransition_ErrorContainsStatus(t *testing.T) {
+	t.Parallel()
 	err := Transition(StatusCompleted, StatusQueued)
 	if err == nil {
 		t.Fatal("expected error")

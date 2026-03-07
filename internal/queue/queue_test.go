@@ -57,6 +57,7 @@ func (m *mockRow) Scan(dest ...any) error {
 }
 
 func TestNewPostgresQueue(t *testing.T) {
+	t.Parallel()
 	q := NewPostgresQueue(nil)
 	if q == nil {
 		t.Fatal("NewPostgresQueue(nil) returned nil")
@@ -64,6 +65,7 @@ func TestNewPostgresQueue(t *testing.T) {
 }
 
 func TestEnqueue_SetsDefaults(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
 			return &mockRow{
@@ -105,6 +107,7 @@ func TestEnqueue_SetsDefaults(t *testing.T) {
 }
 
 func TestEnqueue_PreservesExistingValues(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -143,6 +146,7 @@ func TestEnqueue_PreservesExistingValues(t *testing.T) {
 }
 
 func TestEnqueue_DelayedStatus(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -174,6 +178,7 @@ func TestEnqueue_DelayedStatus(t *testing.T) {
 }
 
 func TestEnqueue_PastScheduleIsQueued(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -205,6 +210,7 @@ func TestEnqueue_PastScheduleIsQueued(t *testing.T) {
 }
 
 func TestEnqueue_DBError(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -226,6 +232,7 @@ func TestEnqueue_DBError(t *testing.T) {
 }
 
 func TestDequeue_NoRows(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -245,6 +252,7 @@ func TestDequeue_NoRows(t *testing.T) {
 }
 
 func TestDequeue_DBError(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -264,6 +272,7 @@ func TestDequeue_DBError(t *testing.T) {
 }
 
 func TestDequeueN_DBError(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
 			return nil, errors.New("connection timeout")

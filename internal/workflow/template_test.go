@@ -453,3 +453,24 @@ func TestStringify(t *testing.T) {
 		}
 	})
 }
+
+func BenchmarkRenderTemplateVars(b *testing.B) {
+	payload := json.RawMessage(`{
+		"to":"{{user_email}}",
+		"subject":"Hello {{user_name}}",
+		"count":"{{total}}",
+		"nested":{"config":"{{settings}}","msg":"Welcome {{user_name}}, you have {{total}} items"}
+	}`)
+	vars := json.RawMessage(`{
+		"user_email":"john@example.com",
+		"user_name":"John",
+		"total":42,
+		"settings":{"theme":"dark","lang":"en"}
+	}`)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = renderTemplateVars(payload, vars)
+	}
+}

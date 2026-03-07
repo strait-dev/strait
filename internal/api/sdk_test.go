@@ -63,6 +63,7 @@ func generateExpiredRunToken(t *testing.T, runID string) string {
 }
 
 func TestHandleSDKLog_Success(t *testing.T) {
+	t.Parallel()
 	var insertCalled atomic.Bool
 	ms := &mockAPIStore{
 		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
@@ -101,6 +102,7 @@ func TestHandleSDKLog_Success(t *testing.T) {
 }
 
 func TestHandleSDKLog_MissingMessage(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -114,6 +116,7 @@ func TestHandleSDKLog_MissingMessage(t *testing.T) {
 }
 
 func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
+	t.Parallel()
 	var insertCalled atomic.Bool
 	ms := &mockAPIStore{
 		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
@@ -143,6 +146,7 @@ func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
 }
 
 func TestHandleSDKLog_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		insertEventFn: func(_ context.Context, _ *domain.RunEvent) error {
 			return errors.New("boom")
@@ -161,6 +165,7 @@ func TestHandleSDKLog_StoreError(t *testing.T) {
 }
 
 func TestHandleSDKProgress_Success(t *testing.T) {
+	t.Parallel()
 	var insertCalled atomic.Bool
 	ms := &mockAPIStore{
 		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
@@ -187,6 +192,7 @@ func TestHandleSDKProgress_Success(t *testing.T) {
 }
 
 func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()
@@ -200,6 +206,7 @@ func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 }
 
 func TestHandleSDKAnnotate_Success(t *testing.T) {
+	t.Parallel()
 	updated := false
 	ms := &mockAPIStore{
 		updateRunMetadataFn: func(_ context.Context, id string, annotations map[string]string) error {
@@ -233,6 +240,7 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 }
 
 func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
 			return store.ErrRunNotFound
@@ -252,6 +260,7 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 }
 
 func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
 	srv.config.FFRunAnnotations = true
 
@@ -266,6 +275,7 @@ func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 }
 
 func TestHandleSDKAnnotate_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
 			t.Fatal("UpdateRunMetadata should not be called when annotations feature is disabled")
@@ -288,6 +298,7 @@ func TestHandleSDKAnnotate_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
+	t.Parallel()
 	annotations := make(map[string]string)
 	for i := range 51 {
 		annotations[strings.Repeat("k", i+1)] = "v"
@@ -321,6 +332,7 @@ func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
 }
 
 func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
+	t.Parallel()
 	payload, err := json.Marshal(map[string]any{
 		"annotations": map[string]string{
 			strings.Repeat("k", 129): "prod",
@@ -353,6 +365,7 @@ func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
 }
 
 func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
+	t.Parallel()
 	payload, err := json.Marshal(map[string]any{
 		"annotations": map[string]string{
 			"env": strings.Repeat("v", 1025),
@@ -385,6 +398,7 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 }
 
 func TestHandleSDKCheckpoint_Success(t *testing.T) {
+	t.Parallel()
 	created := false
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -416,6 +430,7 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 }
 
 func TestHandleSDKUsage_Success(t *testing.T) {
+	t.Parallel()
 	created := false
 	ms := &mockAPIStore{
 		createRunUsageFn: func(_ context.Context, usage *domain.RunUsage) error {
@@ -441,6 +456,7 @@ func TestHandleSDKUsage_Success(t *testing.T) {
 }
 
 func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 
@@ -454,6 +470,7 @@ func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
 }
 
 func TestHandleSDKHeartbeat_Success(t *testing.T) {
+	t.Parallel()
 	var updateCalled atomic.Bool
 	ms := &mockAPIStore{
 		updateHeartbeatFn: func(_ context.Context, id string) error {
@@ -480,6 +497,7 @@ func TestHandleSDKHeartbeat_Success(t *testing.T) {
 }
 
 func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		updateHeartbeatFn: func(_ context.Context, _ string) error {
 			return errors.New("boom")
@@ -498,6 +516,7 @@ func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
 }
 
 func TestHandleSDKComplete_Success(t *testing.T) {
+	t.Parallel()
 	getRunCalls := 0
 	var updateCalled atomic.Bool
 	ms := &mockAPIStore{
@@ -541,6 +560,7 @@ func TestHandleSDKComplete_Success(t *testing.T) {
 }
 
 func TestHandleSDKComplete_WithResult(t *testing.T) {
+	t.Parallel()
 	getRunCalls := 0
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -574,6 +594,7 @@ func TestHandleSDKComplete_WithResult(t *testing.T) {
 }
 
 func TestHandleSDKComplete_RunNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
@@ -592,6 +613,7 @@ func TestHandleSDKComplete_RunNotFound(t *testing.T) {
 }
 
 func TestHandleSDKComplete_Conflict(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
@@ -613,6 +635,7 @@ func TestHandleSDKComplete_Conflict(t *testing.T) {
 }
 
 func TestHandleSDKFail_Success(t *testing.T) {
+	t.Parallel()
 	getRunCalls := 0
 	var updateCalled atomic.Bool
 	ms := &mockAPIStore{
@@ -653,6 +676,7 @@ func TestHandleSDKFail_Success(t *testing.T) {
 }
 
 func TestHandleSDKFail_MissingError(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -666,6 +690,7 @@ func TestHandleSDKFail_MissingError(t *testing.T) {
 }
 
 func TestHandleSDKFail_RunNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
@@ -684,6 +709,7 @@ func TestHandleSDKFail_RunNotFound(t *testing.T) {
 }
 
 func TestHandleSDKFail_Conflict(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
@@ -705,6 +731,7 @@ func TestHandleSDKFail_Conflict(t *testing.T) {
 }
 
 func TestHandleSDKSpawn_Success(t *testing.T) {
+	t.Parallel()
 	var getJobCalled atomic.Bool
 	var enqueueCalled atomic.Bool
 	ms := &mockAPIStore{
@@ -756,6 +783,7 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 }
 
 func TestHandleSDKSpawn_MissingFields(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -769,6 +797,7 @@ func TestHandleSDKSpawn_MissingFields(t *testing.T) {
 }
 
 func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobBySlugFn: func(_ context.Context, _, _ string) (*domain.Job, error) {
 			return nil, nil
@@ -787,6 +816,7 @@ func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
 }
 
 func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
@@ -813,6 +843,7 @@ func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
 }
 
 func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
+	t.Parallel()
 	getRunCalls := 0
 	updatedParent := false
 	ms := &mockAPIStore{
@@ -864,6 +895,7 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 }
 
 func TestSDKAuth_MissingToken(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -878,6 +910,7 @@ func TestSDKAuth_MissingToken(t *testing.T) {
 }
 
 func TestSDKAuth_InvalidToken(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -893,6 +926,7 @@ func TestSDKAuth_InvalidToken(t *testing.T) {
 }
 
 func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -911,6 +945,7 @@ func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
 }
 
 func TestSDKAuth_ExpiredToken(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -926,6 +961,7 @@ func TestSDKAuth_ExpiredToken(t *testing.T) {
 }
 
 func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		updateHeartbeatFn: func(_ context.Context, _ string) error {
 			return nil
@@ -951,6 +987,7 @@ func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
 }
 
 func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		updateHeartbeatFn: func(_ context.Context, _ string) error {
 			return nil
@@ -975,6 +1012,7 @@ func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
 }
 
 func TestHandleHealthReady_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{}, nil
@@ -993,6 +1031,7 @@ func TestHandleHealthReady_Success(t *testing.T) {
 }
 
 func TestHandleHealthReady_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
 			return nil, errors.New("db unavailable")
@@ -1011,6 +1050,7 @@ func TestHandleHealthReady_StoreError(t *testing.T) {
 }
 
 func TestHandleGetRun_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
@@ -1029,6 +1069,7 @@ func TestHandleGetRun_Success(t *testing.T) {
 }
 
 func TestHandleGetRun_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
@@ -1047,6 +1088,7 @@ func TestHandleGetRun_NotFound(t *testing.T) {
 }
 
 func TestHandleListRuns_Success(t *testing.T) {
+	t.Parallel()
 	var listCalled atomic.Bool
 	ms := &mockAPIStore{
 		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
@@ -1086,6 +1128,7 @@ func TestHandleListRuns_Success(t *testing.T) {
 }
 
 func TestHandleListRuns_MetadataFilter(t *testing.T) {
+	t.Parallel()
 	var listCalled atomic.Bool
 	ms := &mockAPIStore{
 		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
@@ -1127,6 +1170,7 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 }
 
 func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -1140,6 +1184,7 @@ func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
 }
 
 func TestHandleListRuns_MissingProjectID(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -1153,6 +1198,7 @@ func TestHandleListRuns_MissingProjectID(t *testing.T) {
 }
 
 func TestHandleListRuns_InvalidLimit(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -1166,6 +1212,7 @@ func TestHandleListRuns_InvalidLimit(t *testing.T) {
 }
 
 func TestHandleListRuns_InvalidCursor(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -1179,6 +1226,7 @@ func TestHandleListRuns_InvalidCursor(t *testing.T) {
 }
 
 func TestHandleListRuns_InvalidStatus(t *testing.T) {
+	t.Parallel()
 	called := false
 	ms := &mockAPIStore{
 		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
@@ -1202,6 +1250,7 @@ func TestHandleListRuns_InvalidStatus(t *testing.T) {
 }
 
 func TestHandleListChildRuns_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listChildRunsFn: func(_ context.Context, parentRunID string) ([]domain.JobRun, error) {
 			if parentRunID != "run-parent" {
@@ -1223,6 +1272,7 @@ func TestHandleListChildRuns_Success(t *testing.T) {
 }
 
 func TestHandleSDKContinue_Success(t *testing.T) {
+	t.Parallel()
 	var enqueuedRun *domain.JobRun
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -1275,6 +1325,7 @@ func TestHandleSDKContinue_Success(t *testing.T) {
 }
 
 func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
+	t.Parallel()
 	var enqueuedRun *domain.JobRun
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -1313,6 +1364,7 @@ func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 }
 
 func TestHandleSDKContinue_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFRunContinuation = false
 
@@ -1327,6 +1379,7 @@ func TestHandleSDKContinue_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
@@ -1352,6 +1405,7 @@ func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
 }
 
 func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
@@ -1375,6 +1429,7 @@ func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
 }
 
 func TestHandleSDKContinue_RunNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
@@ -1394,6 +1449,7 @@ func TestHandleSDKContinue_RunNotFound(t *testing.T) {
 }
 
 func TestHandleSDKContinue_EnqueueError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
@@ -1426,6 +1482,7 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 }
 
 func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -1451,6 +1508,7 @@ func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
 }
 
 func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -1476,6 +1534,7 @@ func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
 }
 
 func TestHandleSDKUsage_CostBudgetDisabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
 	}

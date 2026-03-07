@@ -8,6 +8,7 @@ import (
 )
 
 func TestMaintenanceLoop_Run(t *testing.T) {
+	t.Parallel()
 	var ticks atomic.Int32
 	loop := NewMaintenanceLoop("test-loop", 20*time.Millisecond, nil, func(context.Context) {
 		ticks.Add(1)
@@ -24,6 +25,7 @@ func TestMaintenanceLoop_Run(t *testing.T) {
 }
 
 func TestMaintenanceLoop_DefaultInterval(t *testing.T) {
+	t.Parallel()
 	loop := NewMaintenanceLoop("default-interval", 0, nil, nil)
 	if loop.interval != time.Second {
 		t.Fatalf("interval = %v, want %v", loop.interval, time.Second)

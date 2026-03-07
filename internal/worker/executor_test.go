@@ -237,6 +237,7 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, msg string) {
 }
 
 func TestExecutor_Dispatch_Success(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Run-ID") != "run-1" {
 			t.Fatalf("X-Run-ID = %q, want %q", r.Header.Get("X-Run-ID"), "run-1")
@@ -281,6 +282,7 @@ func TestExecutor_Dispatch_Success(t *testing.T) {
 }
 
 func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Secret-API_KEY") != "super-secret" {
 			t.Fatalf("X-Secret-API_KEY = %q, want %q", r.Header.Get("X-Secret-API_KEY"), "super-secret")
@@ -309,6 +311,7 @@ func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 }
 
 func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
+	t.Parallel()
 	var called atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called.Add(1)
@@ -360,6 +363,7 @@ func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
 }
 
 func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("temporary failure"))
@@ -387,6 +391,7 @@ func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
 }
 
 func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -414,6 +419,7 @@ func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
 }
 
 func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
+	t.Parallel()
 	var called atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called.Add(1)
@@ -455,6 +461,7 @@ func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
 }
 
 func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -490,6 +497,7 @@ func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
 }
 
 func TestExecutor_Bulkheads_DisabledBypassesLimit(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -521,6 +529,7 @@ func TestExecutor_Bulkheads_DisabledBypassesLimit(t *testing.T) {
 }
 
 func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("upstream exploded"))
@@ -563,6 +572,7 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 }
 
 func TestExecutor_Dispatch_Timeout(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		attempt     int
@@ -581,6 +591,7 @@ func TestExecutor_Dispatch_Timeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			store := &mockExecutorStore{}
 			store.getJobFn = func(context.Context, string) (*domain.Job, error) {
 				return testJob("http://timeout.test", tt.maxAttempts, 1), nil
@@ -603,6 +614,7 @@ func TestExecutor_Dispatch_Timeout(t *testing.T) {
 }
 
 func TestExecutor_Dispatch_RetryOnFailure(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("temporary failure"))
@@ -635,6 +647,7 @@ func TestExecutor_Dispatch_RetryOnFailure(t *testing.T) {
 }
 
 func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("invalid payload"))
@@ -661,6 +674,7 @@ func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
 }
 
 func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("temporary"))
@@ -687,6 +701,7 @@ func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
 }
 
 func TestExecutor_SmartRetryDisabled_ClientErrorStillRetries(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("invalid payload"))
@@ -712,6 +727,7 @@ func TestExecutor_SmartRetryDisabled_ClientErrorStillRetries(t *testing.T) {
 }
 
 func TestExecutor_Fallback_TransientErrorUsesFallbackEndpoint(t *testing.T) {
+	t.Parallel()
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte("rate limited"))
@@ -751,6 +767,7 @@ func TestExecutor_Fallback_TransientErrorUsesFallbackEndpoint(t *testing.T) {
 }
 
 func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
+	t.Parallel()
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("bad request"))
@@ -790,6 +807,7 @@ func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
 }
 
 func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("hard failure"))
@@ -818,6 +836,7 @@ func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 }
 
 func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("hard failure"))
@@ -848,6 +867,7 @@ func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
 }
 
 func TestExecutor_DLQ_Disabled_TransitionsToFailed(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("hard failure"))
@@ -878,6 +898,7 @@ func TestExecutor_DLQ_Disabled_TransitionsToFailed(t *testing.T) {
 }
 
 func TestExecutor_HandleSystemFailure(t *testing.T) {
+	t.Parallel()
 	store := &mockExecutorStore{}
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, nil)
 	run := testRun(1)
@@ -895,6 +916,7 @@ func TestExecutor_HandleSystemFailure(t *testing.T) {
 }
 
 func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
+	t.Parallel()
 	pool := NewPool(1)
 	defer func() { _ = pool.Shutdown(context.Background()) }()
 
@@ -931,6 +953,7 @@ func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
 }
 
 func TestExecutor_Poll_EmptyQueue(t *testing.T) {
+	t.Parallel()
 	var dequeueCalls atomic.Int32
 	q := &mockExecQueue{
 		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
@@ -954,6 +977,7 @@ func TestExecutor_Poll_EmptyQueue(t *testing.T) {
 }
 
 func TestExecutor_GracefulShutdown(t *testing.T) {
+	t.Parallel()
 	jobStarted := make(chan struct{})
 	jobCanProceed := make(chan struct{})
 
@@ -1062,6 +1086,7 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 }
 
 func TestExecutor_Poll_DequeueError(t *testing.T) {
+	t.Parallel()
 	var dequeueCalls atomic.Int32
 	q := &mockExecQueue{
 		dequeueNFn: func(context.Context, int) ([]domain.JobRun, error) {
@@ -1079,6 +1104,7 @@ func TestExecutor_Poll_DequeueError(t *testing.T) {
 }
 
 func TestExecutor_Execute_JobLookupFails(t *testing.T) {
+	t.Parallel()
 	store := &mockExecutorStore{}
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
 		return nil, errors.New("job lookup failed")
@@ -1099,6 +1125,7 @@ func TestExecutor_Execute_JobLookupFails(t *testing.T) {
 }
 
 func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
+	t.Parallel()
 	hit := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		hit <- struct{}{}
@@ -1133,6 +1160,7 @@ func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
 }
 
 func TestHeartbeatSender_Run(t *testing.T) {
+	t.Parallel()
 	beats := make(chan struct{}, 10)
 	store := &mockExecutorStore{}
 	store.updateHeartbeatFn = func(context.Context, string) error {
@@ -1161,6 +1189,7 @@ func TestHeartbeatSender_Run(t *testing.T) {
 }
 
 func TestExecutor_Dispatch_EmptyResponse(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1194,6 +1223,7 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestExecutor_NilMetrics(t *testing.T) {
+	t.Parallel()
 	errTransport := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("network down")
 	})
@@ -1223,6 +1253,7 @@ func TestExecutor_NilMetrics(t *testing.T) {
 }
 
 func TestSendWebhookOnce_Success(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
@@ -1250,6 +1281,7 @@ func TestSendWebhookOnce_Success(t *testing.T) {
 }
 
 func TestSendWebhookOnce_ServerError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -1268,6 +1300,7 @@ func TestSendWebhookOnce_ServerError(t *testing.T) {
 }
 
 func TestSendWebhookOnce_ClientError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
@@ -1286,6 +1319,7 @@ func TestSendWebhookOnce_ClientError(t *testing.T) {
 }
 
 func TestSendWebhookOnce_WithSignature(t *testing.T) {
+	t.Parallel()
 	var gotSig string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSig = r.Header.Get("X-Webhook-Signature")
@@ -1309,6 +1343,7 @@ func TestSendWebhookOnce_WithSignature(t *testing.T) {
 }
 
 func TestSendWebhookOnce_PayloadContent(t *testing.T) {
+	t.Parallel()
 	var gotPayload WebhookPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -1348,6 +1383,7 @@ func TestSendWebhookOnce_PayloadContent(t *testing.T) {
 }
 
 func TestSendWebhookOnce_NetworkError(t *testing.T) {
+	t.Parallel()
 	job := &domain.Job{WebhookURL: "http://localhost:59999/webhook"}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
@@ -1361,6 +1397,7 @@ func TestSendWebhookOnce_NetworkError(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_EmptyURL(t *testing.T) {
+	t.Parallel()
 	job := &domain.Job{WebhookURL: ""}
 	run := &domain.JobRun{ID: "run-1"}
 
@@ -1371,6 +1408,7 @@ func TestSendWebhookWithRetry_EmptyURL(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_SuccessFirstAttempt(t *testing.T) {
+	t.Parallel()
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
@@ -1391,6 +1429,7 @@ func TestSendWebhookWithRetry_SuccessFirstAttempt(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_ClientErrorNoRetry(t *testing.T) {
+	t.Parallel()
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
@@ -1414,6 +1453,7 @@ func TestSendWebhookWithRetry_ClientErrorNoRetry(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
+	t.Parallel()
 	job := &domain.Job{WebhookURL: ""}
 	run := &domain.JobRun{ID: "run-1"}
 
@@ -1424,6 +1464,7 @@ func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
@@ -1451,6 +1492,7 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_SuccessOnSecondAttempt(t *testing.T) {
+	t.Parallel()
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := attempts.Add(1)
@@ -1475,6 +1517,7 @@ func TestSendWebhookWithRetry_SuccessOnSecondAttempt(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
+	t.Parallel()
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
@@ -1495,6 +1538,7 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 }
 
 func TestExecutor_PanicRecovery(t *testing.T) {
+	t.Parallel()
 	pool := NewPool(1)
 	defer func() { _ = pool.Shutdown(context.Background()) }()
 
@@ -1537,6 +1581,7 @@ func TestExecutor_PanicRecovery(t *testing.T) {
 }
 
 func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
+	t.Parallel()
 	pool := NewPool(1)
 	defer func() { _ = pool.Shutdown(context.Background()) }()
 
@@ -1572,6 +1617,7 @@ func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
 }
 
 func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
+	t.Parallel()
 	store := &mockExecutorStore{}
 
 	called := false
@@ -1611,6 +1657,7 @@ func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 }
 
 func TestBuildPartitionCycle_Weights(t *testing.T) {
+	t.Parallel()
 	cycle := buildPartitionCycle([]string{"proj-a", "proj-b"}, "proj-a:2,proj-b:1")
 	if len(cycle) != 3 {
 		t.Fatalf("cycle len = %d, want 3", len(cycle))
@@ -1659,6 +1706,7 @@ func BenchmarkExecutorPoll(b *testing.B) {
 }
 
 func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(5 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -1702,6 +1750,7 @@ func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
 }
 
 func TestExecutor_ExecutionTracing_Disabled_NoTrace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -1730,6 +1779,7 @@ func TestExecutor_ExecutionTracing_Disabled_NoTrace(t *testing.T) {
 }
 
 func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(5 * time.Millisecond)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -1776,6 +1826,7 @@ func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 }
 
 func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(1500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -1819,6 +1870,7 @@ func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
 }
 
 func TestExecutor_AdaptiveTimeout_UsesP95WhenHigherThanStatic(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(1500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -1853,6 +1905,7 @@ func TestExecutor_AdaptiveTimeout_UsesP95WhenHigherThanStatic(t *testing.T) {
 }
 
 func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(1 * time.Second)
 		w.WriteHeader(http.StatusOK)
@@ -1884,6 +1937,7 @@ func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
 }
 
 func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -1915,6 +1969,7 @@ func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
 }
 
 func TestExecutor_AdaptiveTimeout_DisabledByDefault(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -1950,6 +2005,7 @@ func TestExecutor_AdaptiveTimeout_DisabledByDefault(t *testing.T) {
 }
 
 func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
+	t.Parallel()
 	// The override server should receive the request, not the original.
 	overrideCalled := false
 	overrideServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -2000,6 +2056,7 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 }
 
 func TestExecutor_EnvironmentOverride_ErrorFallsBackToOriginal(t *testing.T) {
+	t.Parallel()
 	// When env resolution fails, the original endpoint should be used.
 	originalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -2033,6 +2090,7 @@ func TestExecutor_EnvironmentOverride_ErrorFallsBackToOriginal(t *testing.T) {
 }
 
 func TestExecutor_EnvironmentOverride_SSRFBlocked(t *testing.T) {
+	t.Parallel()
 	// Override to a private IP should be rejected; original endpoint used.
 	originalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -2068,6 +2126,7 @@ func TestExecutor_EnvironmentOverride_SSRFBlocked(t *testing.T) {
 }
 
 func TestExecutor_EnvironmentOverride_EmptyValueKeepsOriginal(t *testing.T) {
+	t.Parallel()
 	// Empty ENDPOINT_URL should not override.
 	originalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

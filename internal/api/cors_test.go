@@ -9,6 +9,7 @@ import (
 )
 
 func TestCORS_AllowedOrigin(t *testing.T) {
+	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:     "test-secret",
@@ -37,6 +38,7 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 }
 
 func TestCORS_Preflight(t *testing.T) {
+	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:     "test-secret",
@@ -72,6 +74,7 @@ func TestCORS_Preflight(t *testing.T) {
 }
 
 func TestCORS_WildcardOrigin(t *testing.T) {
+	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:     "test-secret",
@@ -96,6 +99,7 @@ func TestCORS_WildcardOrigin(t *testing.T) {
 }
 
 func TestCORS_Credentials(t *testing.T) {
+	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:       "test-secret",
@@ -121,6 +125,7 @@ func TestCORS_Credentials(t *testing.T) {
 }
 
 func TestCORS_NoOriginHeader(t *testing.T) {
+	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:     "test-secret",
@@ -144,6 +149,7 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 }
 
 func TestCORS_ExposedHeaders(t *testing.T) {
+	t.Parallel()
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:     "test-secret",

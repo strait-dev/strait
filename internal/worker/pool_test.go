@@ -9,6 +9,7 @@ import (
 )
 
 func TestNewPool_MinimumConcurrency(t *testing.T) {
+	t.Parallel()
 	p0 := NewPool(0)
 	if got := cap(p0.sem); got != 1 {
 		t.Fatalf("NewPool(0) semaphore capacity = %d, want %d", got, 1)
@@ -21,6 +22,7 @@ func TestNewPool_MinimumConcurrency(t *testing.T) {
 }
 
 func TestPool_Submit_ExecutesWork(t *testing.T) {
+	t.Parallel()
 	p := NewPool(1)
 	done := make(chan struct{})
 
@@ -38,6 +40,7 @@ func TestPool_Submit_ExecutesWork(t *testing.T) {
 }
 
 func TestPool_ConcurrencyLimit(t *testing.T) {
+	t.Parallel()
 	p := NewPool(2)
 	block := make(chan struct{})
 	started := make(chan struct{}, 3)
@@ -86,6 +89,7 @@ func TestPool_ConcurrencyLimit(t *testing.T) {
 }
 
 func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
+	t.Parallel()
 	p := NewPool(1)
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -123,6 +127,7 @@ func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
 }
 
 func TestPool_Submit_CanceledContext(t *testing.T) {
+	t.Parallel()
 	p := NewPool(1)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -140,6 +145,7 @@ func TestPool_Submit_CanceledContext(t *testing.T) {
 }
 
 func TestPool_ActiveCount(t *testing.T) {
+	t.Parallel()
 	p := NewPool(5)
 	release := make(chan struct{})
 	started := make(chan struct{}, 2)
@@ -169,6 +175,7 @@ func TestPool_ActiveCount(t *testing.T) {
 }
 
 func TestPool_Shutdown_RespectsContext(t *testing.T) {
+	t.Parallel()
 	p := NewPool(1)
 	started := make(chan struct{})
 
@@ -192,6 +199,7 @@ func TestPool_Shutdown_RespectsContext(t *testing.T) {
 }
 
 func TestPool_Shutdown_ReturnsNilOnSuccess(t *testing.T) {
+	t.Parallel()
 	p := NewPool(1)
 	p.Submit(context.Background(), func() {})
 

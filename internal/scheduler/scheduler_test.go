@@ -98,6 +98,7 @@ func testSchedulerConfig() *config.Config {
 }
 
 func TestScheduler_New(t *testing.T) {
+	t.Parallel()
 	store := &mockSchedulerStore{
 		cron:   &mockCronStore{},
 		poller: &mockPollerStore{},
@@ -111,6 +112,7 @@ func TestScheduler_New(t *testing.T) {
 }
 
 func TestScheduler_Start_Success(t *testing.T) {
+	t.Parallel()
 	store := &mockSchedulerStore{
 		cron: &mockCronStore{
 			listCronJobsFn: func(context.Context) ([]domain.Job, error) { return []domain.Job{}, nil },
@@ -130,6 +132,7 @@ func TestScheduler_Start_Success(t *testing.T) {
 }
 
 func TestScheduler_Start_LoadJobsError(t *testing.T) {
+	t.Parallel()
 	storeErr := errors.New("list failed")
 	store := &mockSchedulerStore{
 		cron: &mockCronStore{
@@ -150,6 +153,7 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 }
 
 func TestScheduler_Stop(t *testing.T) {
+	t.Parallel()
 	store := &mockSchedulerStore{
 		cron: &mockCronStore{
 			listCronJobsFn: func(context.Context) ([]domain.Job, error) { return []domain.Job{}, nil },

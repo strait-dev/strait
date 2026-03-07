@@ -15,6 +15,7 @@ func newTestCallback(ms *mockCallbackStore) *StepCallback {
 }
 
 func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
+	t.Parallel()
 	skippedIDs := make(map[string]bool)
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -59,6 +60,7 @@ func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 }
 
 func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
+	t.Parallel()
 	workflowChecked := false
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -94,6 +96,7 @@ func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
 }
 
 func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
+	t.Parallel()
 	workflowFailed := false
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -126,6 +129,7 @@ func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
 }
 
 func TestCancelRemainingSteps(t *testing.T) {
+	t.Parallel()
 	canceledIDs := make(map[string]bool)
 	ms := &mockCallbackStore{
 		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
@@ -157,6 +161,7 @@ func TestCancelRemainingSteps(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
+	t.Parallel()
 	wfStatus := domain.WfStatusRunning
 	ms := &mockCallbackStore{
 		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
@@ -190,6 +195,7 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
+	t.Parallel()
 	wfUpdated := false
 	ms := &mockCallbackStore{
 		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
@@ -214,6 +220,7 @@ func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
+	t.Parallel()
 	wfStatus := domain.WfStatusRunning
 	ms := &mockCallbackStore{
 		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
@@ -247,6 +254,7 @@ func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
+	t.Parallel()
 	wfStatus := domain.WfStatusRunning
 	ms := &mockCallbackStore{
 		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
@@ -280,6 +288,7 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 }
 
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
+	t.Parallel()
 	skippedIDs := make(map[string]bool)
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -325,6 +334,7 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 }
 
 func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
+	t.Parallel()
 	ms := &mockCallbackStore{
 		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
 			return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepRunning}, nil

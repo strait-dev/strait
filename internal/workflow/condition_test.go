@@ -9,6 +9,7 @@ import (
 )
 
 func TestEvaluateCondition(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		cond         json.RawMessage
@@ -178,6 +179,7 @@ func TestEvaluateCondition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := EvaluateCondition(tt.cond, tt.stepStatuses)
 
 			if tt.wantErr {

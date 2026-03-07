@@ -6,6 +6,7 @@ import (
 )
 
 func TestValidateTransition_AllValidTransitions(t *testing.T) {
+	t.Parallel()
 	for from, toStatuses := range validTransitions {
 		for _, to := range toStatuses {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
@@ -18,6 +19,7 @@ func TestValidateTransition_AllValidTransitions(t *testing.T) {
 }
 
 func TestValidateTransition_InvalidTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		from RunStatus
 		to   RunStatus
@@ -46,6 +48,7 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 }
 
 func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
+	t.Parallel()
 	for _, status := range TerminalStatuses() {
 		t.Run(string(status), func(t *testing.T) {
 			transitions, ok := validTransitions[status]
@@ -60,6 +63,7 @@ func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 }
 
 func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status   RunStatus
 		expected bool
@@ -89,6 +93,7 @@ func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
 }
 
 func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
+	t.Parallel()
 	allStatuses := []RunStatus{
 		StatusDelayed,
 		StatusQueued,
@@ -119,6 +124,7 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 }
 
 func TestRunStatusIsValid(t *testing.T) {
+	t.Parallel()
 	if !StatusQueued.IsValid() {
 		t.Fatal("expected queued to be valid")
 	}
@@ -128,6 +134,7 @@ func TestRunStatusIsValid(t *testing.T) {
 }
 
 func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		from    RunStatus
@@ -141,6 +148,7 @@ func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateTransition(tc.from, tc.to)
 			if tc.wantErr && err == nil {
 				t.Fatalf("expected transition %s -> %s to fail", tc.from, tc.to)
@@ -149,5 +157,23 @@ func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
 				t.Fatalf("expected transition %s -> %s to succeed, got %v", tc.from, tc.to, err)
 			}
 		})
+	}
+}
+
+func FuzzFSMTransition(f *testing.F) {
+	f.Add("queued", "dequeued")
+	f.Add("executing", "completed")
+	f.Add("executing", "failed")
+	f.Add("nonsense", "also_nonsense")
+	f.Add("", "")
+
+	f.Fuzz(func(t *testing.T, from, to string) {
+		_ = ValidateTransition(RunStatus(from), RunStatus(to))
+	})
+}
+
+func BenchmarkFSMTransition(b *testing.B) {
+	for b.Loop() {
+		_ = ValidateTransition(StatusExecuting, StatusCompleted)
 	}
 }

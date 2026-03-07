@@ -1,0 +1,24 @@
+# Simple linear workflow: A → B → C
+name: simple-workflow
+project_id: proj-test
+enabled: true
+version: 1
+steps:
+  - step_ref: fetch-data
+    job_id: job-fetch
+    step_type: job
+    payload: '{"source": "api"}'
+
+  - step_ref: process-data
+    job_id: job-process
+    step_type: job
+    depends_on:
+      - fetch-data
+    payload: '{"format": "json"}'
+
+  - step_ref: store-results
+    job_id: job-store
+    step_type: job
+    depends_on:
+      - process-data
+    payload: '{"destination": "postgres"}'

@@ -3,6 +3,7 @@ package domain
 import "testing"
 
 func TestWorkflowRunStatus_IsTerminal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status   WorkflowRunStatus
 		expected bool
@@ -24,6 +25,7 @@ func TestWorkflowRunStatus_IsTerminal(t *testing.T) {
 }
 
 func TestStepRunStatus_IsTerminal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status   StepRunStatus
 		expected bool

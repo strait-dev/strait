@@ -11,13 +11,16 @@ import (
 )
 
 func TestNilIfEmptyString(t *testing.T) {
+	t.Parallel()
 	t.Run("empty returns nil", func(t *testing.T) {
+		t.Parallel()
 		if got := NilIfEmptyString(""); got != nil {
 			t.Errorf("NilIfEmptyString(%q) = %v, want nil", "", got)
 		}
 	})
 
 	t.Run("non-empty returns value", func(t *testing.T) {
+		t.Parallel()
 		got := NilIfEmptyString("hello")
 		s, ok := got.(string)
 		if !ok {
@@ -29,6 +32,7 @@ func TestNilIfEmptyString(t *testing.T) {
 	})
 
 	t.Run("whitespace returns value", func(t *testing.T) {
+		t.Parallel()
 		got := NilIfEmptyString(" ")
 		if got == nil {
 			t.Fatal("got nil for whitespace, want non-nil")
@@ -39,6 +43,7 @@ func TestNilIfEmptyString(t *testing.T) {
 	})
 
 	t.Run("long string returns value", func(t *testing.T) {
+		t.Parallel()
 		input := "this is a longer string with multiple words"
 		got := NilIfEmptyString(input)
 		if got == nil {
@@ -51,6 +56,7 @@ func TestNilIfEmptyString(t *testing.T) {
 }
 
 func TestNilIfEmptyRawMessage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input json.RawMessage
@@ -68,6 +74,7 @@ func TestNilIfEmptyRawMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := NilIfEmptyRawMessage(tt.input)
 			if tt.isNil {
 				if got != nil {
@@ -87,13 +94,16 @@ func TestNilIfEmptyRawMessage(t *testing.T) {
 }
 
 func TestNilIfZeroInt(t *testing.T) {
+	t.Parallel()
 	t.Run("zero returns nil", func(t *testing.T) {
+		t.Parallel()
 		if got := NilIfZeroInt(0); got != nil {
 			t.Errorf("NilIfZeroInt(0) = %v, want nil", got)
 		}
 	})
 
 	t.Run("non-zero returns value", func(t *testing.T) {
+		t.Parallel()
 		got := NilIfZeroInt(12)
 		v, ok := got.(int)
 		if !ok {
@@ -131,6 +141,7 @@ func (m *mockScanner) Scan(dest ...any) error {
 }
 
 func TestScanRun_Error(t *testing.T) {
+	t.Parallel()
 	scanErr := errors.New("connection reset")
 	s := &mockScanner{err: scanErr}
 
@@ -144,6 +155,7 @@ func TestScanRun_Error(t *testing.T) {
 }
 
 func TestScanRun_AllFields(t *testing.T) {
+	t.Parallel()
 	now := time.Now().Truncate(time.Microsecond)
 	started := now.Add(-time.Minute)
 	errMsg := "partial failure"
@@ -241,6 +253,7 @@ func TestScanRun_AllFields(t *testing.T) {
 }
 
 func TestScanRun_NilOptionals(t *testing.T) {
+	t.Parallel()
 	now := time.Now().Truncate(time.Microsecond)
 
 	s := &mockScanner{

@@ -11,6 +11,7 @@ import (
 )
 
 func TestInitMetrics(t *testing.T) {
+	t.Parallel()
 	metrics, handler, shutdown, err := InitMetrics("test-service")
 	if err != nil {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
@@ -43,6 +44,7 @@ func TestInitMetrics(t *testing.T) {
 }
 
 func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
+	t.Parallel()
 	_, _, shutdown, err := InitMetrics("test-service")
 	if err != nil {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
@@ -62,6 +64,7 @@ func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
 // TestCounterRecording verifies Int64Counter records values correctly.
 // Uses ManualReader to avoid global OTel state and schema URL conflicts.
 func TestCounterRecording(t *testing.T) {
+	t.Parallel()
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer func() { _ = provider.Shutdown(context.Background()) }()
@@ -111,6 +114,7 @@ func TestCounterRecording(t *testing.T) {
 
 // TestHistogramRecording verifies Float64Histogram records values correctly.
 func TestHistogramRecording(t *testing.T) {
+	t.Parallel()
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer func() { _ = provider.Shutdown(context.Background()) }()
@@ -167,6 +171,7 @@ func TestHistogramRecording(t *testing.T) {
 // TestOrchestratorMetricInstruments verifies all production metric instruments
 // can be created and record values without error.
 func TestOrchestratorMetricInstruments(t *testing.T) {
+	t.Parallel()
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer func() { _ = provider.Shutdown(context.Background()) }()

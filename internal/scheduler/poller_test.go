@@ -11,6 +11,7 @@ import (
 )
 
 func TestDelayedPoller_TransitionsDueRuns(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockPollerStore{
 		listDueRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
@@ -43,6 +44,7 @@ func TestDelayedPoller_TransitionsDueRuns(t *testing.T) {
 }
 
 func TestDelayedPoller_NoDueRuns(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockPollerStore{
 		listDueRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
@@ -66,6 +68,7 @@ func TestDelayedPoller_NoDueRuns(t *testing.T) {
 }
 
 func TestDelayedPoller_ListDueRunsError(t *testing.T) {
+	t.Parallel()
 	var listCalls atomic.Int32
 	ms := &mockPollerStore{
 		listDueRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
@@ -86,6 +89,7 @@ func TestDelayedPoller_ListDueRunsError(t *testing.T) {
 }
 
 func TestDelayedPoller_UpdateRunStatusError(t *testing.T) {
+	t.Parallel()
 	var updateCalls atomic.Int32
 	ms := &mockPollerStore{
 		listDueRunsFn: func(_ context.Context) ([]domain.JobRun, error) {

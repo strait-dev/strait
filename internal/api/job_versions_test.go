@@ -27,6 +27,7 @@ func makeVersionedJob(id string, version int) *domain.Job {
 }
 
 func TestTriggerJob_StampsJobVersion(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 
 	ms := &mockAPIStore{
@@ -57,6 +58,7 @@ func TestTriggerJob_StampsJobVersion(t *testing.T) {
 }
 
 func TestTriggerJob_StampsVersionOne(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 
 	ms := &mockAPIStore{
@@ -87,6 +89,7 @@ func TestTriggerJob_StampsVersionOne(t *testing.T) {
 }
 
 func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 
 	ms := &mockAPIStore{
@@ -117,6 +120,7 @@ func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
 }
 
 func TestBulkTrigger_StampsJobVersion(t *testing.T) {
+	t.Parallel()
 	var capturedRuns []*domain.JobRun
 
 	ms := &mockAPIStore{
@@ -150,6 +154,7 @@ func TestBulkTrigger_StampsJobVersion(t *testing.T) {
 }
 
 func TestBulkTrigger_VersionConsistency(t *testing.T) {
+	t.Parallel()
 	var capturedRuns []*domain.JobRun
 
 	ms := &mockAPIStore{
@@ -184,6 +189,7 @@ func TestBulkTrigger_VersionConsistency(t *testing.T) {
 }
 
 func TestCreateJob_ReturnsVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-123"
@@ -218,6 +224,7 @@ func TestCreateJob_ReturnsVersion(t *testing.T) {
 }
 
 func TestUpdateJob_IncrementsVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 2), nil
@@ -248,6 +255,7 @@ func TestUpdateJob_IncrementsVersion(t *testing.T) {
 }
 
 func TestListJobVersions_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listJobVersionsByJobFn: func(_ context.Context, jobID string) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
@@ -281,6 +289,7 @@ func TestListJobVersions_Success(t *testing.T) {
 }
 
 func TestListJobVersions_Empty(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listJobVersionsByJobFn: func(_ context.Context, _ string) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{}, nil
@@ -305,6 +314,7 @@ func TestListJobVersions_Empty(t *testing.T) {
 }
 
 func TestListJobVersions_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listJobVersionsByJobFn: func(_ context.Context, _ string) ([]domain.JobVersion, error) {
 			return nil, errors.New("boom")
@@ -321,6 +331,7 @@ func TestListJobVersions_StoreError(t *testing.T) {
 }
 
 func TestGetJob_IncludesVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 5), nil
@@ -345,6 +356,7 @@ func TestGetJob_IncludesVersion(t *testing.T) {
 }
 
 func TestListJobs_IncludesVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listJobsFn: func(_ context.Context, projectID string) ([]domain.Job, error) {
 			return []domain.Job{
@@ -377,6 +389,7 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 }
 
 func TestGetRun_IncludesJobVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
@@ -409,6 +422,7 @@ func TestGetRun_IncludesJobVersion(t *testing.T) {
 }
 
 func TestListRuns_IncludesJobVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{
@@ -441,6 +455,7 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 }
 
 func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listJobVersionsByJobFn: func(_ context.Context, jobID string) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{

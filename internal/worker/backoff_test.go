@@ -7,6 +7,7 @@ import (
 )
 
 func TestNextRetryDelay(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		attempt     int
 		expectedMin time.Duration
@@ -30,6 +31,7 @@ func TestNextRetryDelay(t *testing.T) {
 }
 
 func TestNextRetryDelay_Cap(t *testing.T) {
+	t.Parallel()
 	delay := NextRetryDelay(100)
 	maxAllowed := time.Hour + time.Hour/5
 	if delay > maxAllowed {
@@ -38,6 +40,7 @@ func TestNextRetryDelay_Cap(t *testing.T) {
 }
 
 func TestNextRetryDelay_ZeroAttempt(t *testing.T) {
+	t.Parallel()
 	delay := NextRetryDelay(0)
 	if delay < 800*time.Millisecond || delay > 1200*time.Millisecond {
 		t.Errorf("attempt 0: delay %v not in expected range", delay)
@@ -45,6 +48,7 @@ func TestNextRetryDelay_ZeroAttempt(t *testing.T) {
 }
 
 func TestNextRetryDelay_Jitter(t *testing.T) {
+	t.Parallel()
 	seen := make(map[time.Duration]bool)
 	for range 100 {
 		delay := NextRetryDelay(1)
@@ -56,6 +60,7 @@ func TestNextRetryDelay_Jitter(t *testing.T) {
 }
 
 func TestNextRetryAt(t *testing.T) {
+	t.Parallel()
 	before := time.Now()
 	retryAt := NextRetryAt(1)
 	after := time.Now()
@@ -69,6 +74,7 @@ func TestNextRetryAt(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_Linear(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		attempt     int
 		expectedMin time.Duration
@@ -91,6 +97,7 @@ func TestNextRetryDelayWithStrategy_Linear(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_Fixed(t *testing.T) {
+	t.Parallel()
 	for range 20 {
 		delay := NextRetryDelayWithStrategy(5, RetryFixed, nil)
 		if delay < 800*time.Millisecond || delay > 1200*time.Millisecond {
@@ -100,6 +107,7 @@ func TestNextRetryDelayWithStrategy_Fixed(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_Custom(t *testing.T) {
+	t.Parallel()
 	customDelays := []int{5, 30, 120}
 
 	// Attempt 1 -> 5s +- jitter
@@ -128,6 +136,7 @@ func TestNextRetryDelayWithStrategy_Custom(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_CustomEmpty(t *testing.T) {
+	t.Parallel()
 	// Empty custom delays should fallback to exponential
 	delay := NextRetryDelayWithStrategy(1, RetryCustom, nil)
 	if delay < 800*time.Millisecond || delay > 1200*time.Millisecond {
@@ -136,6 +145,7 @@ func TestNextRetryDelayWithStrategy_CustomEmpty(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_DefaultIsExponential(t *testing.T) {
+	t.Parallel()
 	// Empty strategy string should use exponential
 	delay := NextRetryDelayWithStrategy(3, "", nil)
 	if delay < 3200*time.Millisecond || delay > 4800*time.Millisecond {
@@ -144,6 +154,7 @@ func TestNextRetryDelayWithStrategy_DefaultIsExponential(t *testing.T) {
 }
 
 func TestNextRetryAtWithStrategy(t *testing.T) {
+	t.Parallel()
 	before := time.Now()
 	retryAt := NextRetryAtWithStrategy(1, RetryFixed, nil)
 	after := time.Now()
@@ -157,6 +168,7 @@ func TestNextRetryAtWithStrategy(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_LinearCap(t *testing.T) {
+	t.Parallel()
 	// Very high attempt should be capped at maxDelay (1 hour)
 	delay := NextRetryDelayWithStrategy(100000, RetryLinear, nil)
 	maxAllowed := time.Hour + time.Hour/5 // 1h + 20% jitter
@@ -166,6 +178,7 @@ func TestNextRetryDelayWithStrategy_LinearCap(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_NegativeCustomDelays(t *testing.T) {
+	t.Parallel()
 	// Negative custom delays should be floored to base (1s) +-20% jitter.
 	customDelays := []int{-5, -10, 30}
 	delay := NextRetryDelayWithStrategy(1, RetryCustom, customDelays)
@@ -175,6 +188,7 @@ func TestNextRetryDelayWithStrategy_NegativeCustomDelays(t *testing.T) {
 }
 
 func TestNextRetryDelayWithStrategy_ZeroCustomDelay(t *testing.T) {
+	t.Parallel()
 	// Zero custom delays should be floored to base (1s) +-20% jitter.
 	customDelays := []int{0, 5, 30}
 	delay := NextRetryDelayWithStrategy(1, RetryCustom, customDelays)

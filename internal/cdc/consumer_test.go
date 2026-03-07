@@ -16,6 +16,7 @@ import (
 )
 
 func TestConsumerRegisterHandler(t *testing.T) {
+	t.Parallel()
 	consumer := NewConsumer(NewClient("http://example.com", "consumer", ""), ConsumerConfig{ConsumerName: "consumer"}, slog.Default())
 	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return nil }})
 
@@ -29,6 +30,7 @@ func TestConsumerRegisterHandler(t *testing.T) {
 }
 
 func TestConsumerRegisterMultipleHandlers(t *testing.T) {
+	t.Parallel()
 	consumer := NewConsumer(NewClient("http://example.com", "consumer", ""), ConsumerConfig{ConsumerName: "consumer"}, slog.Default())
 	consumer.RegisterHandler(HandlerFunc{TableName: "jobs", Fn: func(context.Context, Message) error { return nil }})
 	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return nil }})
@@ -39,6 +41,7 @@ func TestConsumerRegisterMultipleHandlers(t *testing.T) {
 }
 
 func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
+	t.Parallel()
 	var handled atomic.Int32
 	var mu sync.Mutex
 	var ackIDs [][]string
@@ -91,6 +94,7 @@ func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
 }
 
 func TestConsumerPollHandlerFailureNacks(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var ackCalls int
 	var nackIDs [][]string
@@ -133,6 +137,7 @@ func TestConsumerPollHandlerFailureNacks(t *testing.T) {
 }
 
 func TestConsumerPollUnknownTableAcks(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var ackIDs [][]string
 	var nackCalls int
@@ -170,6 +175,7 @@ func TestConsumerPollUnknownTableAcks(t *testing.T) {
 }
 
 func TestConsumerPollMixedBatchAckNackSplit(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var ackIDs []string
 	var nackIDs []string
@@ -223,6 +229,7 @@ func TestConsumerPollMixedBatchAckNackSplit(t *testing.T) {
 }
 
 func TestConsumerPollEmptyBatchNoAckNack(t *testing.T) {
+	t.Parallel()
 	var ackCalls atomic.Int32
 	var nackCalls atomic.Int32
 
@@ -254,6 +261,7 @@ func TestConsumerPollEmptyBatchNoAckNack(t *testing.T) {
 }
 
 func TestConsumerRunStopsOnContextCancel(t *testing.T) {
+	t.Parallel()
 	var receiveCalls atomic.Int32
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +298,7 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 }
 
 func TestConsumerRunContinuesAfterRecoverableError(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -319,6 +328,7 @@ func TestConsumerRunContinuesAfterRecoverableError(t *testing.T) {
 }
 
 func TestConsumer_ProcessMessages_AckError(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/http_pull_consumers/c-ack/receive":
@@ -347,6 +357,7 @@ func TestConsumer_ProcessMessages_AckError(t *testing.T) {
 }
 
 func TestConsumerPoll_ReceiveErrorWrapped(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/http_pull_consumers/c-receive/receive":
@@ -370,6 +381,7 @@ func TestConsumerPoll_ReceiveErrorWrapped(t *testing.T) {
 }
 
 func TestConsumerPoll_NackErrorWrapped(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/http_pull_consumers/c-nack/receive":

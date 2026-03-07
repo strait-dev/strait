@@ -3,6 +3,7 @@ package pubsub
 import "testing"
 
 func TestNewRedisClient_StandardURL(t *testing.T) {
+	t.Parallel()
 	client, err := NewRedisClient("redis://localhost:6379", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -14,6 +15,7 @@ func TestNewRedisClient_StandardURL(t *testing.T) {
 }
 
 func TestNewRedisClient_EmptyURL(t *testing.T) {
+	t.Parallel()
 	client, err := NewRedisClient("", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -24,6 +26,7 @@ func TestNewRedisClient_EmptyURL(t *testing.T) {
 }
 
 func TestNewRedisClient_SentinelConfig(t *testing.T) {
+	t.Parallel()
 	client, err := NewRedisClient("", "mymaster", []string{"localhost:26379", "localhost:26380"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -35,6 +38,7 @@ func TestNewRedisClient_SentinelConfig(t *testing.T) {
 }
 
 func TestNewRedisClient_SentinelWithPassword(t *testing.T) {
+	t.Parallel()
 	client, err := NewRedisClient("redis://:mypassword@localhost:6379/2", "mymaster", []string{"localhost:26379"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -46,6 +50,7 @@ func TestNewRedisClient_SentinelWithPassword(t *testing.T) {
 }
 
 func TestNewRedisClient_InvalidURL(t *testing.T) {
+	t.Parallel()
 	_, err := NewRedisClient("not-a-valid-url", "", nil)
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
@@ -53,6 +58,7 @@ func TestNewRedisClient_InvalidURL(t *testing.T) {
 }
 
 func TestNewRedisClient_SentinelMasterWithoutAddrs(t *testing.T) {
+	t.Parallel()
 	client, err := NewRedisClient("redis://localhost:6379", "mymaster", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -64,6 +70,7 @@ func TestNewRedisClient_SentinelMasterWithoutAddrs(t *testing.T) {
 }
 
 func TestRedisPublisher_Ping(t *testing.T) {
+	t.Parallel()
 	client, err := NewRedisClient("redis://localhost:59999", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

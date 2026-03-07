@@ -13,6 +13,7 @@ import (
 )
 
 func TestClientReceiveSuccess(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-1/receive" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-1/receive")
@@ -60,6 +61,7 @@ func TestClientReceiveSuccess(t *testing.T) {
 }
 
 func TestClientReceiveEmptyBatch(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-2/receive" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-2/receive")
@@ -101,6 +103,7 @@ func TestClientReceiveEmptyBatch(t *testing.T) {
 }
 
 func TestClientReceiveServerError(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-err/receive" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-err/receive")
@@ -135,6 +138,7 @@ func TestClientReceiveServerError(t *testing.T) {
 }
 
 func TestClientReceiveInvalidJSON(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-json/receive" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-json/receive")
@@ -168,6 +172,7 @@ func TestClientReceiveInvalidJSON(t *testing.T) {
 }
 
 func TestClientReceiveContextCancellation(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-cancel/receive" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-cancel/receive")
@@ -209,6 +214,7 @@ func TestClientReceiveContextCancellation(t *testing.T) {
 }
 
 func TestClientReceiveAuthHeaderSent(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer auth-token" {
 			t.Fatalf("Authorization = %q, want %q", got, "Bearer auth-token")
@@ -224,6 +230,7 @@ func TestClientReceiveAuthHeaderSent(t *testing.T) {
 }
 
 func TestClientAckSuccess(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-ack/ack" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-ack/ack")
@@ -257,6 +264,7 @@ func TestClientAckSuccess(t *testing.T) {
 }
 
 func TestClientAckEmptyIDsNoop(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -274,6 +282,7 @@ func TestClientAckEmptyIDsNoop(t *testing.T) {
 }
 
 func TestClientAckServerError(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-ack-err/ack" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-ack-err/ack")
@@ -309,6 +318,7 @@ func TestClientAckServerError(t *testing.T) {
 }
 
 func TestClientAckAuthHeaderSent(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer ack-auth-token" {
 			t.Fatalf("Authorization = %q, want %q", got, "Bearer ack-auth-token")
@@ -324,6 +334,7 @@ func TestClientAckAuthHeaderSent(t *testing.T) {
 }
 
 func TestClientNackSuccess(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-nack/nack" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-nack/nack")
@@ -357,6 +368,7 @@ func TestClientNackSuccess(t *testing.T) {
 }
 
 func TestClientNackEmptyIDsNoop(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -374,6 +386,7 @@ func TestClientNackEmptyIDsNoop(t *testing.T) {
 }
 
 func TestClientNackServerError(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-nack-err/nack" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-nack-err/nack")
