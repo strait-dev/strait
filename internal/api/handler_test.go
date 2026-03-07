@@ -23,7 +23,7 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "01234567890123456789012345678901",
 	}
-	var p *mockPublisher
+	var p pubsub.Publisher
 	if pub != nil {
 		p = pub
 	}
