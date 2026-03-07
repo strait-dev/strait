@@ -266,17 +266,7 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 
 	switch policy {
 	case domain.FailWorkflow:
-		if wfRun.Status == domain.WfStatusRunning {
-			now := time.Now()
-			if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{"error": stepRun.Error, "finished_at": now}); err != nil {
-				return fmt.Errorf("mark workflow failed: %w", err)
-			}
-			wfRun.Status = domain.WfStatusFailed
-		}
-		if err := s.cancelRemainingSteps(ctx, stepRun.WorkflowRunID); err != nil {
-			return fmt.Errorf("cancel remaining steps: %w", err)
-		}
-		return s.propagateToParent(ctx, wfRun, nil)
+		return s.failWorkflowAndCancel(ctx, wfRun, stepRun)
 	case domain.SkipDependents:
 		if err := s.skipDependentSteps(ctx, stepRun.WorkflowRunID, wfRun.WorkflowID, stepRun.StepRef); err != nil {
 			return fmt.Errorf("skip dependents: %w", err)
@@ -288,18 +278,23 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 		}
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
 	default:
-		if wfRun.Status == domain.WfStatusRunning {
-			now := time.Now()
-			if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{"error": stepRun.Error, "finished_at": now}); err != nil {
-				return fmt.Errorf("mark workflow failed: %w", err)
-			}
-			wfRun.Status = domain.WfStatusFailed
-		}
-		if err := s.cancelRemainingSteps(ctx, stepRun.WorkflowRunID); err != nil {
-			return fmt.Errorf("cancel remaining steps: %w", err)
-		}
-		return s.propagateToParent(ctx, wfRun, nil)
+		return s.failWorkflowAndCancel(ctx, wfRun, stepRun)
 	}
+}
+
+// failWorkflowAndCancel marks the workflow as failed, cancels remaining steps, and propagates to parent.
+func (s *StepCallback) failWorkflowAndCancel(ctx context.Context, wfRun *domain.WorkflowRun, stepRun *domain.WorkflowStepRun) error {
+	if wfRun.Status == domain.WfStatusRunning {
+		now := time.Now()
+		if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{"error": stepRun.Error, "finished_at": now}); err != nil {
+			return fmt.Errorf("mark workflow failed: %w", err)
+		}
+		wfRun.Status = domain.WfStatusFailed
+	}
+	if err := s.cancelRemainingSteps(ctx, stepRun.WorkflowRunID); err != nil {
+		return fmt.Errorf("cancel remaining steps: %w", err)
+	}
+	return s.propagateToParent(ctx, wfRun, nil)
 }
 
 func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun) error {
@@ -680,7 +675,7 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	if approval == nil {
 		return fmt.Errorf("approval not found for step %s", stepRef)
 	}
-	if approval.Status != "pending" {
+	if approval.Status != domain.ApprovalStatusPending {
 		return fmt.Errorf("approval for step %s is already %s", stepRef, approval.Status)
 	}
 
@@ -689,7 +684,7 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	}
 
 	now := time.Now()
-	if err := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, "approved", approver, &now, ""); err != nil {
+	if err := s.store.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusApproved, approver, &now, ""); err != nil {
 		return fmt.Errorf("update approval: %w", err)
 	}
 	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCompleted, map[string]any{"finished_at": now}); err != nil {

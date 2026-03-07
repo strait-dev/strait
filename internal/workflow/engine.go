@@ -239,7 +239,7 @@ func (e *WorkflowEngine) startStep(
 			WorkflowRunID:     wfRun.ID,
 			WorkflowStepRunID: stepRun.ID,
 			Approvers:         slices.Clone(step.ApprovalApprovers),
-			Status:            "pending",
+			Status:            domain.ApprovalStatusPending,
 			RequestedAt:       now,
 		}
 		if step.ApprovalTimeoutSecs > 0 {
@@ -384,6 +384,7 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 
 	out, err := json.Marshal(merged)
 	if err != nil {
+		slog.Warn("mergePayloads: failed to marshal merged payload, falling back", "error", err)
 		if len(bytes.TrimSpace(stepPayload)) > 0 {
 			return cloneRaw(stepPayload)
 		}

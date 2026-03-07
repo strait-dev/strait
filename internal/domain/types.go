@@ -248,6 +248,13 @@ const (
 	WorkflowStepTypeSubWorkflow WorkflowStepType = "sub_workflow"
 )
 
+// ApprovalStatus constants for workflow step approvals.
+const (
+	ApprovalStatusPending  = "pending"
+	ApprovalStatusApproved = "approved"
+	ApprovalStatusRejected = "rejected"
+)
+
 type RetryBackoffPolicy string
 
 const (
