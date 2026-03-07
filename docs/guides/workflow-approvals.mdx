@@ -1,0 +1,193 @@
+---
+title: "Workflow Approvals"
+description: "Add human approval gates to workflow steps for review, compliance, and controlled deployments."
+---
+
+Workflow approvals let you pause a workflow at a specific step and wait for a human to approve it before continuing. This is useful for deployment gates, compliance reviews, content approval, and any process that requires human judgment.
+
+## How Approvals Work
+
+1. **Step Configuration**: A workflow step is configured with `type: "approval"` and a list of authorized approvers.
+2. **Approval Request**: When the workflow engine reaches that step, it creates a `WorkflowStepApproval` record and pauses the step in `waiting_for_approval` status.
+3. **Timeout**: If `approval_timeout_secs` is configured, the approval automatically expires if no action is taken within the window.
+4. **Human Action**: An authorized approver calls the approve API endpoint.
+5. **Resumption**: Once approved, the step completes and the workflow engine triggers downstream dependent steps.
+
+```
+[extract] → [transform] → [review (approval)] ⏸ → [deploy] → [notify]
+                                    ↑
+                            Human approves here
+```
+
+## Defining an Approval Step
+
+When creating a workflow, add a step with `type: "approval"`:
+
+```bash
+orchestrator workflows create \
+  --name "Deploy Pipeline" \
+  --slug deploy-pipeline \
+  --project proj_1 \
+  --steps-json '[
+    {"job_id": "job_build", "step_ref": "build"},
+    {"job_id": "job_test", "step_ref": "test", "depends_on": ["build"]},
+    {
+      "step_ref": "review",
+      "type": "approval",
+      "approval_approvers": ["alice", "bob", "charlie"],
+      "approval_timeout_secs": 3600,
+      "depends_on": ["test"]
+    },
+    {"job_id": "job_deploy", "step_ref": "deploy", "depends_on": ["review"]}
+  ]'
+```
+
+### Approval Step Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `step_ref` | string | Yes | Unique reference name for the step |
+| `type` | string | Yes | Must be `"approval"` |
+| `approval_approvers` | string[] | Yes | List of authorized approver identifiers |
+| `approval_timeout_secs` | int | No | Timeout in seconds (0 = no timeout) |
+| `depends_on` | string[] | No | Steps that must complete before this step |
+
+<Warning>
+Approval steps **require** at least one approver in the `approval_approvers` list. The API rejects workflow creation if this field is empty.
+</Warning>
+
+## Approving a Step
+
+When a workflow reaches an approval step, call the approve endpoint:
+
+```bash
+# Via API
+curl -X POST http://localhost:8080/v1/workflow-runs/{workflow_run_id}/steps/{step_ref}/approve \
+  -H "Authorization: Bearer orc_..." \
+  -H "Content-Type: application/json" \
+  -d '{"approver": "alice"}'
+```
+
+### Request Body
+
+```json
+{
+  "approver": "alice"
+}
+```
+
+The `approver` field is required and must identify the person or system approving the step.
+
+### Response
+
+```json
+{
+  "workflow_run": { "id": "wfr_def456", "status": "running", "..." : "..." },
+  "step_run": { "id": "sr_ghi789", "step_ref": "review", "status": "completed", "..." : "..." },
+  "approval": {
+    "id": "ap_abc123",
+    "workflow_run_id": "wfr_def456",
+    "workflow_step_run_id": "sr_ghi789",
+    "approvers": ["alice", "bob", "charlie"],
+    "status": "approved",
+    "approved_by": "alice",
+    "requested_at": "2025-01-15T10:00:00Z",
+    "approved_at": "2025-01-15T10:30:00Z"
+  }
+}
+```
+
+## Approval Data Model
+
+The `WorkflowStepApproval` record tracks the full approval lifecycle:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique approval ID |
+| `workflow_run_id` | string | Parent workflow run |
+| `workflow_step_run_id` | string | The step run waiting for approval |
+| `approvers` | string[] | Authorized approver list (from step config) |
+| `status` | string | `pending`, `approved`, or `rejected` |
+| `approved_by` | string | Who approved (empty until approved) |
+| `requested_at` | timestamp | When the approval was requested |
+| `approved_at` | timestamp | When it was approved (null until acted on) |
+| `expires_at` | timestamp | When the approval times out (null if no timeout) |
+| `error` | string | Error message if rejected or timed out |
+
+## Approval Timeouts
+
+If `approval_timeout_secs` is set, the approval automatically expires after the specified duration:
+
+```json
+{
+  "step_ref": "security-review",
+  "type": "approval",
+  "approval_approvers": ["security-team"],
+  "approval_timeout_secs": 86400
+}
+```
+
+<Tip>
+Set `approval_timeout_secs` to `0` or omit it for no timeout. The step will wait indefinitely until someone approves it.
+</Tip>
+
+When an approval times out:
+- The approval status is set to `rejected` with a timeout error message
+- The step run transitions to `failed`
+- The workflow follows its normal failure handling (which may include step retry logic)
+
+## Multiple Approval Gates
+
+You can have multiple approval steps in a single workflow:
+
+```json
+[
+  {"job_id": "job_build", "step_ref": "build"},
+  {
+    "step_ref": "qa-review",
+    "type": "approval",
+    "approval_approvers": ["qa-lead", "qa-engineer"],
+    "approval_timeout_secs": 7200,
+    "depends_on": ["build"]
+  },
+  {"job_id": "job_staging_deploy", "step_ref": "staging", "depends_on": ["qa-review"]},
+  {
+    "step_ref": "prod-review",
+    "type": "approval",
+    "approval_approvers": ["eng-manager", "cto"],
+    "approval_timeout_secs": 86400,
+    "depends_on": ["staging"]
+  },
+  {"job_id": "job_prod_deploy", "step_ref": "production", "depends_on": ["prod-review"]}
+]
+```
+
+## Monitoring Approvals
+
+### Check Pending Approvals
+
+List workflow runs with steps waiting for approval:
+
+```bash
+# List running workflow runs
+orchestrator workflow-runs list --status running
+
+# Check step statuses for a specific run
+orchestrator workflow-runs steps wfr_abc123
+```
+
+### Webhook Notifications
+
+When a step enters the `waiting_for_approval` state, a workflow run webhook event is published. Configure your notification system (Slack, email, PagerDuty) to listen for these events and alert the appropriate approvers.
+
+<Note>
+Approval steps do not require a `job_id` since they don't execute any job. They exist purely as workflow control flow gates.
+</Note>
+
+## Best Practices
+
+1. **Use descriptive step refs**: Name approval steps clearly (e.g., `security-review`, `prod-deploy-gate`) so approvers understand what they are approving
+2. **Set reasonable timeouts**: Avoid indefinite waits in production workflows. Set timeouts and handle the failure case
+3. **Limit approver lists**: Keep the approver list small and specific. Anyone in the list can approve
+4. **Combine with conditions**: Use step conditions to skip approval gates in low-risk scenarios (e.g., skip prod approval for hotfixes)
+5. **Monitor pending approvals**: Set up alerts for approvals that have been pending beyond a reasonable threshold

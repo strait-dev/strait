@@ -1,0 +1,196 @@
+---
+title: "Architecture"
+description: "Deep dive into the orchestrator internals, design decisions, and component interactions."
+---
+
+The orchestrator is designed as a distributed job orchestrator that uses PostgreSQL as its primary state store and message queue.
+
+## System Overview
+
+```text
+                    ┌──────────────────────────────────┐
+                    │           API Server              │
+                    │  (Chi router + middleware)         │
+                    │                                    │
+                    │  /v1/jobs/* ── Job CRUD + Health   │
+                    │  /v1/workflows/* ── DAG CRUD       │
+                    │  /v1/workflow-runs/* ── Run mgmt   │
+                    │  /v1/jobs/{id}/trigger ── Enqueue  │
+                    │  /v1/runs/* ── Run mgmt + DLQ     │
+                    │  /sdk/v1/* ── SDK (JWT auth)      │
+                    │  /metrics ── Prometheus            │
+                    └──────────┬───────────────────────┘
+                               │ Enqueue (budget check)
+                               v
+                    ┌──────────────────────────────────┐
+                    │         PostgreSQL                 │
+                    │                                    │
+                    │  jobs ── job definitions           │
+                    │  job_runs ── run state + queue     │
+                    │  workflows ── DAG definitions      │
+                    │  workflow_runs ── workflow state   │
+                    │  run_events ── log entries         │
+                    │  run_usage ── AI cost tracking     │
+                    │  environments ── endpoint config   │
+                    │  project_quotas ── budget limits   │
+                    │                                    │
+                    │  Queue: SELECT FOR UPDATE          │
+                    │         SKIP LOCKED                │
+                    └──────────┬───────────────────────┘
+                               │ Dequeue
+                               v
+                    ┌──────────────────────────────────┐
+                    │         Worker Executor            │
+                    │                                    │
+                    │  Poll ─> DequeueN(available)       │
+                    │  Workflow Engine:                  │
+                    │  - DAG Validation (Kahn's)         │
+                    │  - Atomic Fan-in (UPDATE...RET)    │
+                    │  - Condition Evaluation            │
+                    │  - Template Rendering              │
+                    │  - Sub-workflow Nesting            │
+                    │                                    │
+                    │  Job Execution:                    │
+                    │  - Resolve ─> Env override + SSRF  │
+                    │  - Execute ─> HTTP POST to endpt   │
+                    │  - Retry ─> Smart strategy select  │
+                    │  - Trace ─> Execution timing       │
+                    │  - DLQ ─> Dead letter on exhaust   │
+                    └──────────┬───────────────────────┘
+                               │ Webhook / PubSub
+                               v
+                    ┌──────────────────────────────────┐
+                    │  Scheduler         │  Redis       │
+                    │  - Cron ticker     │  - PubSub    │
+                    │  - Delayed poller  │  - SSE       │
+                    │  - Stale reaper    │  streaming   │
+                    │  - Retention       │              │
+                    └──────────────────────────────────┘
+```
+
+## Component Architecture
+
+The core logic resides in the `internal/` directory, organized into specialized packages.
+
+<CardGroup cols={2}>
+  <Card title="api" icon="server">
+    Implements the Chi HTTP router, middleware chain, and authentication (Internal Secret + Run Token).
+  </Card>
+  <Card title="worker" icon="gears">
+    Handles the executor pool, HTTP dispatch, smart retries, and state transitions.
+  </Card>
+  <Card title="workflow" icon="diagram-sankey">
+    Manages DAG execution, Kahn's algorithm validation, and atomic fan-in logic.
+  </Card>
+  <Card title="queue" icon="list-check">
+    Implements the Postgres-backed queue using `SKIP LOCKED` for atomic job claiming.
+  </Card>
+  <Card title="store" icon="database">
+    Provides raw SQL access via `pgx/v5` with instrumented OTel spans.
+  </Card>
+  <Card title="scheduler" icon="clock">
+    Background components for Cron, delayed polling, and stale run reaping.
+  </Card>
+</CardGroup>
+
+## Queue Mechanics
+
+The orchestrator uses PostgreSQL as a message queue to minimize operational complexity and ensure transactional consistency.
+
+- **SELECT FOR UPDATE SKIP LOCKED**: Allows multiple workers to poll the same table simultaneously without blocking.
+- **Atomic Dequeue**: Uses a subquery to select a row and an outer `UPDATE` to transition status atomically.
+- **Batch Dequeue**: Uses a CTE pattern to claim up to N rows in a single database round-trip.
+- **Priority and Ordering**: Respects job priority (`priority DESC`) and FIFO (`created_at ASC`).
+
+## Finite State Machine (FSM)
+
+The lifecycle of a job run is managed by an FSM with 13 possible states.
+
+```text
+                    ┌─────────┐
+                    │ delayed │
+                    └────┬────┘
+                         │ scheduled_at <= NOW
+                         v
+   ┌────────────────┬─────────┬────────────────────┐
+   │                │ queued  │                     │
+   │                └────┬────┘                     │
+   │                     │ dequeue                  │
+   │                     v                          │
+   │              ┌──────────┐                      │
+   │              │ dequeued │──────────┐            │
+   │              └────┬─────┘          │            │
+   │                   │ start          │ system     │
+   │                   v                │ failure    │
+   │    retry    ┌───────────┐          │            │
+   │  ┌─────────>│ executing │          │            │
+   │  │          └─────┬─────┘          │            │
+   │  │  ┌─────────┬───┴───┬─────────┐ │            │
+   │  │  │         │       │         │ │            │
+   │  │  v         v       v         v v            │
+   │  │ completed failed timed_out system_failed    │
+   │  │                │                             │
+   │  │                v (max attempts reached       │
+   │  │          ┌─────────────┐  + FF_RUN_DLQ)     │
+   │  │          │ dead_letter │                     │
+   │  │          └─────────────┘                     │
+   │  │                                              │
+   │  └── (attempt < max_attempts) ──────────────────┘
+   │                                                 │
+   │  canceled <── (any non-terminal) ──────────────┘
+   │  expired  <── (delayed, queued with expires_at) ┘
+```
+
+## Authentication
+
+The system implements two distinct authentication schemes:
+
+<Tabs>
+  <Tab title="Internal Secret">
+    Used for the management API (`/v1/*`). Requires `Authorization: Bearer <INTERNAL_SECRET>`.
+  </Tab>
+  <Tab title="Run Token">
+    Used for the SDK API (`/sdk/v1/*`). Uses JWT HS256 signed with `JWT_SIGNING_KEY`.
+  </Tab>
+</Tabs>
+
+## Execution Lifecycle
+
+<Steps>
+  <Step title="Trigger">
+    API receives a trigger request and checks cost budgets.
+  </Step>
+  <Step title="Enqueue">
+    A `job_run` is created with `status=queued` and a JWT is generated.
+  </Step>
+  <Step title="Dequeue">
+    A worker claims the run via `SKIP LOCKED` and updates status to `dequeued`.
+  </Step>
+  <Step title="Execute">
+    The execution is submitted to the worker pool using `context.WithoutCancel`.
+  </Step>
+  <Step title="Dispatch">
+    The executor sends an HTTP POST to the resolved endpoint URL.
+  </Step>
+  <Step title="Result Handling">
+    Based on the response, the run becomes `completed`, `failed`, or is scheduled for `retry`.
+  </Step>
+</Steps>
+
+## Workflow Engine
+
+The workflow engine manages the execution of Directed Acyclic Graphs (DAGs).
+
+- **Atomic Fan-In**: Uses a dependency counter on the step run to handle concurrent parent completions.
+- **Payload Merging**: Merges trigger payload, static step payload, and parent outputs.
+- **Template Rendering**: Supports `{{var}}` placeholders with dot-notation.
+- **Output Transform**: Applies JSONPath extraction to step results before persisting.
+
+## Design Decisions
+
+1. **Postgres as Queue**: Chosen to avoid the operational overhead of an external broker.
+2. **Optimistic Locking**: Prevents race conditions during state transitions.
+3. **Raw SQL over ORM**: `pgx/v5` provides full control over performance-critical queries.
+4. **Single Binary, Three Modes**: Simplifies deployment while allowing independent scaling.
+5. **Micro-USD Cost Tracking**: Uses integer micro-USD to avoid floating-point precision issues.
+6. **Dead Letter as FSM State**: DLQ is modeled as a first-class FSM state.

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Orchestrator",
+  "theme": "quill",
+  "colors": {
+    "primary": "#2563EB",
+    "light": "#60A5FA",
+    "dark": "#1E40AF"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/jobs",
+              "concepts/runs",
+              "concepts/workflows",
+              "concepts/scheduling",
+              "concepts/retry-strategies",
+              "concepts/webhooks",
+              "concepts/environments",
+              "concepts/cost-budgets",
+              "concepts/cdc"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/authentication",
+              "guides/security",
+              "guides/deployment",
+              "guides/job-dependencies",
+              "guides/debug-bundles",
+              "guides/job-groups",
+              "guides/idempotency",
+              "guides/sdk-integration",
+              "guides/workflow-approvals"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/database"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/contributing",
+              "development/testing",
+              "development/database-schema"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/overview"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "openapi.yaml"
+          }
+        ]
+      },
+      {
+        "tab": "CLI",
+        "groups": [
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/overview",
+              "cli/jobs",
+              "cli/runs",
+              "cli/workflows",
+              "cli/workflow-runs",
+              "cli/trigger",
+              "cli/api-keys",
+              "cli/secrets",
+              "cli/environments",
+              "cli/stats",
+              "cli/backup",
+              "cli/server",
+              "cli/dev",
+              "cli/utilities"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "openapi": "openapi.yaml"
+  },
+  "search": {
+    "enabled": true
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "feedback": {
+    "thumbsRating": true
+  }
+}

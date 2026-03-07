@@ -1,0 +1,143 @@
+---
+title: "Quickstart"
+description: "Get the orchestrator up and running in minutes."
+---
+
+Follow these steps to set up the orchestrator locally and run your first job.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+- **Go 1.26+**
+- **Docker and Docker Compose**
+- **curl** (for API interaction)
+
+<Steps>
+  <Step title="Clone and Start Infrastructure">
+    Clone the repository and start the required services (Postgres, Redis, Sequin) using Docker Compose.
+
+    ```bash
+    git clone https://github.com/leonardomso/orchestrator.git
+    cd orchestrator
+    docker compose up -d
+    ```
+  </Step>
+
+  <Step title="Set Environment Variables">
+    Configure the necessary environment variables for the orchestrator to connect to the infrastructure.
+
+    ```bash
+    export DATABASE_URL=postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+    export REDIS_URL=redis://localhost:6379
+    export INTERNAL_SECRET=your-secret-here
+    export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
+    ```
+  </Step>
+
+  <Step title="Run the Orchestrator">
+    Start the orchestrator in `all` mode, which runs both the API and the worker in a single process.
+
+    ```bash
+    go run ./cmd/orchestrator --mode all
+    ```
+
+    <Tip>
+      Migrations run automatically on startup. You can also run `--mode api` or `--mode worker` for separate scaling.
+    </Tip>
+  </Step>
+
+  <Step title="Create a Job">
+    Create a new job definition via the REST API.
+
+    <CodeGroup>
+      ```bash curl
+      curl -X POST http://localhost:8080/v1/jobs \
+        -H "Authorization: Bearer your-secret-here" \
+        -H "Content-Type: application/json" \
+        -d '{
+          "project_id": "proj_123",
+          "name": "Hello World",
+          "slug": "hello-world",
+          "endpoint_url": "https://httpbin.org/post",
+          "max_attempts": 3
+        }'
+      ```
+
+      ```bash CLI
+      ./orchestrator job create --name "Hello World" --slug "hello-world" --endpoint "https://httpbin.org/post"
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Trigger a Job">
+    Trigger a run for the job you just created.
+
+    <CodeGroup>
+      ```bash curl
+      curl -X POST http://localhost:8080/v1/jobs/hello-world/trigger \
+        -H "Authorization: Bearer your-secret-here" \
+        -H "Content-Type: application/json" \
+        -d '{
+          "payload": { "greeting": "Hello from Orchestrator!" }
+        }'
+      ```
+
+      ```bash CLI
+      ./orchestrator job trigger hello-world --payload '{"greeting": "Hello"}'
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Watch the Run">
+    Monitor the status of your job run.
+
+    <CodeGroup>
+      ```bash curl
+      # Replace {run_id} with the ID returned from the trigger command
+      curl http://localhost:8080/v1/runs/{run_id} \
+        -H "Authorization: Bearer your-secret-here"
+      ```
+
+      ```bash CLI
+      ./orchestrator run get {run_id}
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Create a Simple Workflow">
+    Workflows allow you to chain multiple jobs together in a DAG.
+
+    ```bash
+    curl -X POST http://localhost:8080/v1/workflows \
+      -H "Authorization: Bearer your-secret-here" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "project_id": "proj_123",
+        "name": "Simple Workflow",
+        "slug": "simple-workflow",
+        "steps": [
+          {
+            "step_ref": "step1",
+            "job_id": "hello-world",
+            "payload": { "step": 1 }
+          },
+          {
+            "step_ref": "step2",
+            "job_id": "hello-world",
+            "depends_on": ["step1"],
+            "payload": { "step": 2 }
+          }
+        ]
+      }'
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The orchestrator uses `SELECT FOR UPDATE SKIP LOCKED` in Postgres for its queue, so no external message broker like RabbitMQ or SQS is required.
+</Note>
+
+## Next Steps
+
+- Explore the [Architecture](/docs/architecture) to understand how the FSM and Queue work.
+- Check the [API Reference](https://github.com/leonardomso/orchestrator) for all available endpoints.

@@ -93,14 +93,43 @@ go build ./...                                                       # Build
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Configuration](docs/configuration.md) | Environment variables, feature flags, connection pool settings |
-| [API Reference](docs/api-reference.md) | All REST and SDK endpoints with curl examples |
-| [Workflows](docs/workflows.md) | DAG concepts, step types, conditions, payload flow |
-| [CDC](docs/cdc.md) | Sequin CDC setup, monitored tables, architecture |
-| [Authentication](docs/authentication.md) | Internal secret, API keys, run tokens |
-| [Deployment](docs/deployment.md) | Docker, Fly.io, scaling, test commands |
-| [Database Schema](docs/database-schema.md) | All tables, key columns, migration info |
-| [Architecture](ARCHITECTURE.md) | System architecture and design decisions |
+Full documentation is available in the `docs/` directory, powered by [Mintlify](https://mintlify.com).
+
+| Section | Description |
+|---------|-------------|
+| [Introduction](docs/introduction.mdx) | Overview, key features, and getting started |
+| [Quick Start](docs/quickstart.mdx) | Step-by-step setup guide |
+| [Architecture](docs/architecture.mdx) | System design, component interactions, data flow |
+| **Concepts** | |
+| [Jobs](docs/concepts/jobs.mdx) | Job definitions, versioning, health scoring |
+| [Runs](docs/concepts/runs.mdx) | 13-state FSM, lifecycle, events |
+| [Workflows](docs/concepts/workflows.mdx) | DAG orchestration, step types, conditions |
+| [Scheduling](docs/concepts/scheduling.mdx) | Cron, delayed execution, retention |
+| [Retry Strategies](docs/concepts/retry-strategies.mdx) | Exponential, linear, fixed, custom |
+| [Webhooks](docs/concepts/webhooks.mdx) | HMAC signing, delivery, dead letter queue |
+| [Environments](docs/concepts/environments.mdx) | Endpoint routing per environment |
+| [Cost Budgets](docs/concepts/cost-budgets.mdx) | Per-run and daily cost limits |
+| [CDC](docs/concepts/cdc.mdx) | Sequin CDC, WAL streaming, table handlers |
+| **Guides** | |
+| [Authentication](docs/guides/authentication.mdx) | Internal secret, API keys, JWT run tokens |
+| [Deployment](docs/guides/deployment.mdx) | Docker, Fly.io, scaling strategies |
+| [Security](docs/guides/security.mdx) | SSRF protection, rate limiting, encryption |
+| [Workflow Approvals](docs/guides/workflow-approvals.mdx) | Human-in-the-loop approval gates |
+| [Job Dependencies](docs/guides/job-dependencies.mdx) | Inter-job dependency management |
+| [Job Groups](docs/guides/job-groups.mdx) | Logical job grouping |
+| [Idempotency](docs/guides/idempotency.mdx) | Deduplication and idempotency keys |
+| [Debug Bundles](docs/guides/debug-bundles.mdx) | AI-powered run diagnostics |
+| [SDK Integration](docs/guides/sdk-integration.mdx) | SDK endpoints for job executors |
+| **Configuration** | |
+| [Environment Variables](docs/configuration/environment-variables.mdx) | All config fields, defaults, feature flags |
+| [Database](docs/configuration/database.mdx) | Connection pooling, migrations, indexes |
+| **Development** | |
+| [Contributing](docs/development/contributing.mdx) | Setup, code style, PR guidelines |
+| [Testing](docs/development/testing.mdx) | Unit, integration, E2E, fuzz, benchmarks |
+| [Database Schema](docs/development/database-schema.mdx) | Tables, columns, relationships |
+| **API Reference** | |
+| [API Overview](docs/api-reference/overview.mdx) | Authentication, pagination, rate limits |
+| [OpenAPI Spec](docs/openapi.yaml) | Machine-readable API specification |
+| **CLI Reference** | |
+| [CLI Overview](docs/cli/overview.mdx) | Installation, configuration, output formats |
 | [CLI Reference](CLI.md) | Complete CLI reference (48+ commands) |

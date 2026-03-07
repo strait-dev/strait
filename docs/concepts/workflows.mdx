@@ -1,0 +1,123 @@
+---
+title: "Workflows"
+description: "Coordinating complex tasks with Directed Acyclic Graphs (DAGs)."
+---
+
+Workflows allow you to orchestrate multiple jobs, approvals, and sub-workflows in a structured DAG. They handle dependencies, data flow, and conditional execution.
+
+## DAG Concepts
+
+A workflow is defined as a Directed Acyclic Graph (DAG) where:
+- **Steps**: The nodes of the graph.
+- **Dependencies**: The edges of the graph, defined by the `depends_on` field.
+- **Fan-in/Fan-out**: Multiple steps can depend on one (fan-out), or one step can depend on many (fan-in).
+
+## Step Types
+
+| Type | Description |
+| :--- | :--- |
+| `job` | Executes a standard [Job](/concepts/jobs). |
+| `approval` | A human-in-the-loop gate that waits for manual approval or rejection. |
+| `sub_workflow` | Triggers another workflow as a nested step. |
+
+## Workflow Versioning
+
+Workflows use a snapshotting mechanism. Every time a workflow's steps are updated, the `version` increments. The entire DAG definition is copied to a versioned table, ensuring that running workflows are not disrupted by changes to the definition.
+
+## Step Conditions
+
+Steps can define a `condition` (JSON) that must evaluate to true before the step starts.
+- **step_status**: Check the status of a dependency (e.g., `completed`, `failed`).
+- **Composite Logic**: Use `all_of` or `any_of` for complex boolean logic.
+
+If a condition is false, the step is marked as `skipped`.
+
+## Data Flow and Templates
+
+Workflows support dynamic data flow between steps using template variables.
+
+### Template Variable Rendering
+Use `{{var}}` syntax with dot notation to access data:
+- `{{payload.key}}`: Access the initial workflow trigger payload.
+- `{{parent_outputs.step_ref.key}}`: Access the output of a specific parent step.
+
+### Output Transforms
+Steps can define an `output_transform` using **JSONPath** (via `gjson`). This allows a step to export only a specific subset of its result to downstream steps.
+
+### Payload Merging
+The payload for a step is constructed by merging three layers:
+1. **Trigger Payload**: The data provided when the workflow was started.
+2. **Step Payload**: Static data defined in the workflow step configuration.
+3. **Parent Outputs**: The results (optionally transformed) of all direct dependencies.
+
+## Failure Policies
+
+The `on_failure` field determines the workflow's behavior when a step fails:
+- `fail_workflow` (default): The entire workflow run transitions to `failed`.
+- `skip_dependents`: The failed step's dependents are marked as `skipped`, but other branches continue.
+- `continue`: The failure is ignored, and dependents proceed as if it succeeded.
+
+## Concurrency Control
+
+- `max_concurrent_runs`: Limits how many instances of the workflow can run simultaneously.
+- `max_parallel_steps`: Limits the number of steps that can execute in parallel within a single workflow run.
+
+## Sub-workflow Nesting
+
+Workflows can trigger other workflows using the `sub_workflow` step type.
+- **Depth Limit**: The engine enforces a default maximum nesting depth of 10 to prevent infinite recursion.
+- **Propagation**: When a sub-workflow completes, its outputs are aggregated and returned to the parent step.
+
+## Step Overrides
+
+At trigger time, you can provide `step_overrides` to selectively enable or disable specific steps for that specific run.
+
+## Workflow FSMs
+
+### Workflow Run FSM
+```text
+                    ┌─────────┐
+                    │ pending │
+                    └────┬────┘
+                         │ start
+                         v
+   ┌────────────────┬─────────┬────────────────────┐
+   │                │ running │                     │
+   │                └────┬────┘                     │
+   │          pause │    │    ^ resume              │
+   │                v    │    │                     │
+   │              ┌──────┴────┴┐                    │
+   │              │   paused   │                    │
+   │              └──────┬─────┘                    │
+   │                     │                          │
+   │    ┌──────────┬─────┴─────┬──────────┐         │
+   │    v          v           v          v         │
+   │ completed   failed    timed_out   canceled     │
+   └────────────────────────────────────────────────┘
+```
+
+### Step Run FSM
+```text
+                    ┌─────────┐
+                    │ pending │
+                    └────┬────┘
+                         │
+          ┌──────────────┼──────────────┐
+          v              v              v
+     ┌─────────┐    ┌─────────┐    ┌─────────┐
+     │ waiting │    │ skipped │    │ canceled│
+     └────┬────┘    └─────────┘    └─────────┘
+          │ start
+          v
+     ┌─────────┐
+     │ running │
+     └────┬────┘
+          │
+    ┌─────┴─────┐
+    v           v
+ completed    failed
+```
+
+## Step-Level Retries
+
+Each step can have its own retry configuration (`retry_max_attempts`, `retry_backoff`), allowing transient failures in one part of the DAG to be resolved without restarting the entire workflow.

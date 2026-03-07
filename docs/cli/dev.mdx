@@ -1,0 +1,185 @@
+---
+title: "Development & Manifests"
+description: "Commands for local development, project initialization, and declarative manifest management."
+---
+
+## dev
+
+Start the local development environment with Docker dependencies.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --no-docker | bool | false | Do not start Docker dependencies |
+| --port | int | 8080 | Server port |
+| --seed | bool | false | Seed the database with initial data |
+
+```bash
+orchestrator dev --seed
+```
+
+<Note>
+The `dev` command automatically sets the following environment variables:
+- `DATABASE_URL`
+- `REDIS_URL`
+- `INTERNAL_SECRET`
+- `JWT_SIGNING_KEY`
+- `LOG_LEVEL=debug`
+</Note>
+
+## dev status
+
+Run local development readiness checks to ensure all dependencies are available.
+
+```bash
+orchestrator dev status
+```
+
+## init
+
+Initialize project files and directory structure.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --yes | bool | false | Skip confirmation prompt |
+| --name | string | demo-project | Project name |
+| --template | string | minimal | Project template (minimal, full) |
+
+```bash
+orchestrator init --name my-project --template full
+```
+
+<Note>
+This command creates the following files:
+- `.orchestrator.yaml`
+- `.env`
+- `docker-compose.yml`
+- `definitions/jobs.yaml`
+- `definitions/workflows.yaml` (full template only)
+</Note>
+
+## fixtures create
+
+Create fixture data for testing.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --template | string | minimal | Fixture template (minimal, full) |
+
+```bash
+orchestrator fixtures create --template full
+```
+
+## fixtures clean
+
+Clean up fixture data from the database.
+
+```bash
+orchestrator fixtures clean
+```
+
+## check
+
+Validate manifests with deep checks, including endpoint connectivity.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --file, -f | string[] | | Manifest files to check |
+| --check-endpoints | bool | false | Verify endpoint connectivity |
+| --endpoint-timeout | duration | 3s | Timeout for endpoint checks |
+
+```bash
+orchestrator check -f definitions/jobs.yaml --check-endpoints
+```
+
+## validate
+
+Validate manifest files for syntax and schema correctness without applying changes.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --file, -f | string[] | | Manifest files to validate |
+
+```bash
+orchestrator validate -f definitions/workflows.yaml
+```
+
+## apply
+
+Apply declarative definitions to the server.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --file, -f | string[] | | Manifest files to apply |
+| --dry-run | bool | false | Show changes without applying them |
+
+```bash
+orchestrator apply -f definitions/
+```
+
+<Tip>
+You can pipe manifests via stdin using `-f -`:
+`cat manifest.yaml | orchestrator apply -f -`
+</Tip>
+
+## diff
+
+Show differences between local manifests and the current server state.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --file, -f | string[] | | Manifest files to diff |
+
+```bash
+orchestrator diff -f definitions/jobs.yaml
+```
+
+## export
+
+Export server state as YAML manifests.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --project | string | | Filter by project |
+| --output-dir | string | | Directory to save exported files |
+| --name-contains | string | | Filter resources by name |
+| --dry-run | bool | false | Show what would be exported |
+| --force-overwrite | bool | false | Overwrite existing files |
+
+```bash
+orchestrator export --output-dir ./backup --project my-project
+```
+
+<Note>
+Supported resources for export: `jobs`, `workflows`, `api-keys`, `all`.
+</Note>
+
+## Manifest Format Examples
+
+### Job Manifest
+
+```yaml
+kind: Job
+metadata:
+  name: process-data
+  project: default
+spec:
+  image: node:18
+  command: ["npm", "start"]
+  schedule: "0 * * * *"
+```
+
+### Workflow Manifest
+
+```yaml
+kind: Workflow
+metadata:
+  name: data-pipeline
+  project: default
+spec:
+  steps:
+    - name: fetch
+      job: fetch-data
+    - name: process
+      job: process-data
+      dependsOn: [fetch]
+```

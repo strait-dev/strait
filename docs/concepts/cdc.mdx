@@ -1,0 +1,57 @@
+---
+title: "CDC (Change Data Capture)"
+description: "Real-time database event streaming."
+---
+
+Change Data Capture (CDC) allows the orchestrator to react to database changes in real-time by streaming the Postgres Write-Ahead Log (WAL).
+
+## What is CDC?
+
+CDC is a design pattern that captures every change (insert, update, delete) made to a database and streams those changes to downstream consumers. In the orchestrator, CDC is used to power real-time updates, audit trails, and reactive system behaviors.
+
+## Sequin Integration
+
+The orchestrator integrates with [Sequin Stream](https://sequinstream.com) to implement CDC.
+
+1. **WAL Streaming**: Sequin connects to the Postgres database and monitors the WAL via logical replication.
+2. **Buffering**: Sequin buffers these changes and exposes them via a high-performance HTTP API.
+3. **Polling**: The orchestrator's CDC consumer (defined in `internal/cdc/`) polls Sequin for batches of change events.
+
+## Monitored Tables
+
+The system is typically configured to monitor the following core tables:
+
+| Table | Event Types | Use Case |
+| :--- | :--- | :--- |
+| `job_runs` | `insert`, `update` | Real-time status updates for UI/SDK. |
+| `workflow_runs` | `insert`, `update` | Tracking workflow progression. |
+| `workflow_step_runs` | `insert`, `update` | Monitoring individual step transitions. |
+
+## CDC Consumer Configuration
+
+The consumer is configured via environment variables:
+
+- `SEQUIN_BASE_URL`: The URL of the Sequin instance.
+- `SEQUIN_CONSUMER_NAME`: The name of the consumer defined in Sequin.
+- `SEQUIN_API_TOKEN`: Authentication token for the Sequin API.
+
+### Message Structure
+
+Each CDC message (defined in `internal/cdc/types.go`) contains:
+- **Action**: The type of change (`insert`, `update`, `delete`).
+- **Record**: The full state of the row after the change.
+- **Changes**: (For updates) A map of only the fields that were modified.
+- **Metadata**: Context including the table name, schema, and commit timestamp.
+
+## Event Publishing
+
+Once a CDC message is received and processed by a table-specific handler, it is published to **Redis pub/sub**.
+
+- **Channel Pattern**: `cdc:project:{project_id}:{table_name}`
+- **Real-time Updates**: These Redis events are consumed by the API layer to provide real-time Server-Sent Events (SSE) to connected clients.
+
+## Use Cases
+
+- **Real-time Dashboards**: Update the UI immediately when a run status changes without polling the database.
+- **Audit Trail**: Maintain a granular history of every state transition for compliance and debugging.
+- **Reactive Workflows**: Trigger external systems or internal logic based on specific database changes (e.g., notifying a user when a long-running job completes).

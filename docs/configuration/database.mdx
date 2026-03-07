@@ -1,0 +1,77 @@
+---
+title: "Database"
+description: "Configuration and management of the PostgreSQL and Redis data stores."
+---
+
+The orchestrator relies on PostgreSQL for persistent storage and job queuing, and Redis for real-time pub/sub and CDC event streaming.
+
+## PostgreSQL
+
+PostgreSQL 18 is the primary data store. It handles job definitions, run states, workflow DAGs, and the job queue itself using `SELECT FOR UPDATE SKIP LOCKED`.
+
+### Connection String
+
+The `DATABASE_URL` environment variable follows the standard PostgreSQL URI format:
+
+```bash
+DATABASE_URL=postgres://username:password@localhost:5432/database_name?sslmode=disable
+```
+
+### Connection Pool Tuning
+
+The orchestrator uses `pgx/v5` for high-performance connection pooling. You can tune the pool using the following variables:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DB_MAX_CONNS` | `25` | Maximum number of open connections. |
+| `DB_MIN_CONNS` | `5` | Minimum number of idle connections. |
+| `DB_MAX_CONN_LIFETIME` | `30m` | Maximum connection age. |
+| `DB_MAX_CONN_IDLE_TIME` | `5m` | Maximum idle time before closing. |
+
+### Migration System
+
+Database migrations are managed using `golang-migrate/v4`. 
+
+- **Count**: There are currently 48 SQL migrations (000001-000048).
+- **Embedding**: Migrations are embedded into the Go binary using `go:embed`.
+- **Execution**: Migrations run automatically on application startup.
+
+### Key Indexes
+
+Key indexes are implemented to support high-throughput operations:
+
+- **Job Queue**: Partial indexes on `job_runs(status, scheduled_at)` where `status = 'queued'` to support fast `SKIP LOCKED` dequeuing.
+- **Idempotency**: Unique indexes on `job_runs(idempotency_key)` to prevent duplicate executions.
+- **Workflow DAG**: Indexes on `workflow_step_runs(workflow_run_id, status)` for efficient dependency resolution.
+- **Retention**: Brin indexes on `created_at` columns for fast range-based cleanup.
+
+### Connection Retries
+
+The orchestrator implements an exponential backoff strategy for database connection failures:
+
+- **Strategy**: Exponential backoff.
+- **Delays**: 1s, 2s, 4s, 8s, 16s.
+- **Max Retries**: 5 attempts.
+
+## Redis
+
+Redis 8 is used for real-time features and as a bridge for CDC events.
+
+### Configuration
+
+| Variable | Description |
+| :--- | :--- |
+| `REDIS_URL` | Standard Redis connection string (e.g., `redis://localhost:6379`). |
+| `REDIS_SENTINEL_MASTER` | Master name for Sentinel configurations. |
+| `REDIS_SENTINEL_ADDRS` | Comma-separated list of Sentinel addresses. |
+
+### Redis Retry Strategy
+
+Redis connections use the same exponential backoff strategy as PostgreSQL:
+
+- **Backoff**: 1s, 2s, 4s, 8s, 16s.
+- **Attempts**: 5 retries before failing.
+
+<Tip>
+  For high availability, it is recommended to use Redis Sentinel or a managed Redis service that supports the Sentinel protocol.
+</Tip>

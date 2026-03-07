@@ -1,0 +1,75 @@
+---
+title: "Webhooks"
+description: "Real-time notifications for job run terminal states."
+---
+
+Webhooks allow your external services to be notified automatically when a [Job Run](/concepts/runs) reaches a terminal state (e.g., `completed`, `failed`, `timed_out`).
+
+## Delivery Lifecycle
+
+1. **Terminal State Reached**: When a run finishes, the executor checks if the parent Job has a `webhook_url` configured.
+2. **Payload Construction**: A `WebhookPayload` is assembled containing the run's final state, result, and error (if any).
+3. **Signing**: If a `webhook_secret` is configured, the payload is signed using HMAC-SHA256.
+4. **Dispatch**: An HTTP POST request is sent to the `webhook_url`.
+5. **Retry Logic**: If delivery fails, the orchestrator retries based on the response status code.
+
+## Webhook Payload
+
+The payload sent to your endpoint (defined in `internal/worker/webhook.go`) includes:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `run_id` | `string` | The unique ID of the job run. |
+| `job_id` | `string` | The ID of the job definition. |
+| `project_id` | `string` | The project ID. |
+| `status` | `string` | The terminal status (e.g., `completed`, `failed`). |
+| `attempt` | `int` | The final attempt number. |
+| `result` | `json` | The output data from the run (if successful). |
+| `error` | `string` | The error message (if failed). |
+| `timestamp` | `time.Time` | When the webhook was generated. |
+
+## HMAC-SHA256 Signing
+
+To ensure the webhook was sent by the orchestrator, every request includes an `X-Webhook-Signature` header if a `webhook_secret` is set for the job.
+
+- **Header Format**: `sha256=<signature>`
+- **Algorithm**: HMAC-SHA256 using the `webhook_secret` as the key and the raw JSON request body as the message.
+
+### Verifying Signatures (Go Example)
+
+```go
+func verifySignature(payload []byte, signatureHeader string, secret string) bool {
+    if !strings.HasPrefix(signatureHeader, "sha256=") {
+        return false
+    }
+    actualSig := signatureHeader[7:]
+    
+    mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write(payload)
+    expectedSig := hex.EncodeToString(mac.Sum(nil))
+    
+    return hmac.Equal([]byte(actualSig), []byte(expectedSig))
+}
+```
+
+## Retry Strategy
+
+The orchestrator attempts to deliver the webhook up to **3 times** with an exponential backoff:
+- **Attempt 1**: Immediate
+- **Attempt 2**: 1 second delay
+- **Attempt 3**: 5 seconds delay
+
+### Retry Rules
+- **Client Errors (4xx)**: Delivery is considered a permanent failure; **no retries** are attempted.
+- **Server Errors (5xx) / Timeouts**: Delivery is retried up to the maximum attempt limit.
+- **Context Cancellation**: If the system is shutting down, delivery may be aborted with a "context canceled" error.
+
+## Configuration
+
+Webhooks are configured per job:
+- `webhook_url`: The destination for the POST request.
+- `webhook_secret`: (Optional) The key used for HMAC signing.
+
+<Warning>
+Always use HTTPS for your webhook URLs to protect the payload and signature in transit.
+</Warning>

@@ -1,0 +1,90 @@
+---
+title: "Contributing"
+description: "Guidelines for contributing to the orchestrator project."
+---
+
+We welcome contributions to the orchestrator! This document provides instructions on how to set up your development environment and the standards we follow.
+
+## Getting Started
+
+### Prerequisites
+
+To build and run the orchestrator locally, you need:
+
+- **Go 1.26+**
+- **Docker** (for running PostgreSQL, Redis, and Sequin)
+- **golangci-lint** (for linting)
+- **lefthook** (for pre-commit hooks)
+
+### Setup Instructions
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/leonardomso/orchestrator.git
+   cd orchestrator
+   ```
+
+2. **Start infrastructure**:
+   Use Docker Compose to start the required services:
+   ```bash
+   docker compose up -d
+   ```
+
+3. **Install pre-commit hooks**:
+   ```bash
+   lefthook install
+   ```
+
+4. **Run the application**:
+   ```bash
+   export DATABASE_URL=postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+   export REDIS_URL=redis://localhost:6379
+   export INTERNAL_SECRET=your-secret
+   export JWT_SIGNING_KEY=your-jwt-key-at-least-32-chars-long
+   go run ./cmd/orchestrator --mode all
+   ```
+
+## Code Style
+
+We follow idiomatic Go patterns and specific project conventions:
+
+- **Raw SQL**: We use `pgx/v5` and raw SQL for all database operations. Do not use an ORM.
+- **Interface Segregation**: Define small, focused interfaces at the consumer side.
+- **Error Handling**: Wrap errors using `%w` to provide context while preserving the original error type.
+- **No Emojis**: Avoid using emojis in code, comments, or documentation.
+
+## Linting
+
+We use `golangci-lint` with a strict set of 18+ linters configured in `.golangci.yml`.
+
+To run the linter manually:
+```bash
+golangci-lint run ./...
+```
+
+The linter checks for code duplication, unhandled errors, security vulnerabilities, and style consistency.
+
+## Pre-commit Hooks
+
+We use `lefthook` to run linters automatically before every commit. This ensures that all code entering the repository meets our quality standards.
+
+If `lefthook` fails, you must fix the linting errors before you can commit your changes.
+
+## Pull Request Guidelines
+
+- **One Logical Change**: Each PR should focus on a single feature, bug fix, or refactoring.
+- **Tests Required**: All new features and bug fixes must include corresponding tests (unit, integration, or E2E).
+- **Documentation**: Update relevant documentation if your changes affect the public API or configuration.
+- **Clean History**: Ensure your commit history is clean and messages are descriptive.
+
+## Project Structure
+
+- `cmd/orchestrator/`: Entry point for the CLI and server. Contains command definitions.
+- `internal/`: Private application code.
+  - `api/`: HTTP handlers and routing.
+  - `domain/`: Core business logic and FSM definitions.
+  - `store/`: Database access layer (raw SQL).
+  - `worker/`: Job execution and worker pool logic.
+  - `scheduler/`: Background tasks and polling.
+  - `testutil/`: Shared testing helpers and factories.
+- `migrations/`: SQL migration files embedded into the binary.

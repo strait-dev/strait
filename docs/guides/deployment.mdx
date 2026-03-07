@@ -1,0 +1,94 @@
+---
+title: "Deployment"
+description: "Guide for deploying and scaling the orchestrator in production."
+---
+
+The orchestrator is designed as a single Go binary that can be deployed in various environments, from local development with Docker Compose to production on Fly.io or Kubernetes.
+
+## Operation Modes
+
+The orchestrator can run in three different modes, controlled by the `--mode` flag or the `MODE` environment variable:
+
+- **`api`**: Runs only the HTTP API server. Stateless and can be scaled horizontally.
+- **`worker`**: Runs only the job execution engine. Scales based on queue depth.
+- **`all`** (Default): Runs both the API and the worker in a single process. Ideal for small deployments or development.
+
+## Docker Deployment
+
+The project includes a multi-stage `Dockerfile` that produces a minimal Alpine-based image.
+
+### Build the Image
+```bash
+docker build -t orchestrator .
+```
+
+### Run the Container
+```bash
+docker run -p 8080:8080 \
+  -e DATABASE_URL=postgres://user:pass@host:5432/db \
+  -e REDIS_URL=redis://host:6379 \
+  -e INTERNAL_SECRET=your-secret \
+  -e JWT_SIGNING_KEY=your-jwt-key \
+  orchestrator
+```
+
+## Infrastructure Requirements
+
+The orchestrator requires the following backing services:
+
+- **PostgreSQL 18**: Primary data store and job queue (uses `SKIP LOCKED`).
+- **Redis 8**: Used for pub/sub, SSE streaming, and CDC event publishing.
+- **Sequin**: Required for Change Data Capture (CDC) from the Postgres WAL.
+
+### Docker Compose (Development)
+For local development, use the provided `docker-compose.yml`:
+```bash
+docker compose up -d
+```
+
+## Fly.io Deployment
+
+The repository includes a `fly.toml` configuration for quick deployment to Fly.io.
+
+### Deployment Steps
+1. Set the required secrets:
+```bash
+fly secrets set \
+  DATABASE_URL=... \
+  REDIS_URL=... \
+  INTERNAL_SECRET=... \
+  JWT_SIGNING_KEY=...
+```
+2. Deploy the application:
+```bash
+fly deploy
+```
+
+## Production Configuration
+
+### Environment Variables
+| Variable | Description |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection string |
+| `REDIS_URL` | Redis connection string |
+| `INTERNAL_SECRET` | Secret for internal API auth |
+| `JWT_SIGNING_KEY` | Key for signing SDK run tokens |
+| `DB_MAX_OPEN_CONNS` | Max database connection pool size |
+| `DB_MAX_IDLE_CONNS` | Max idle database connections |
+| `WORKER_CONCURRENCY` | Number of concurrent jobs per worker |
+
+### Scaling Strategy
+For high-traffic production environments, it is recommended to separate the API and worker processes:
+
+1. **Scale API**: Increase the number of instances running in `api` mode to handle more concurrent HTTP requests.
+2. **Scale Workers**: Increase the number of instances running in `worker` mode to process more jobs from the queue. Since workers use `SKIP LOCKED`, they can safely compete for jobs without double-processing.
+
+## Graceful Shutdown
+
+The orchestrator implements graceful shutdown for both the API and the worker:
+- **API**: Stops accepting new requests and waits for active requests to finish (up to the configured timeout).
+- **Worker**: Stops dequeuing new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
+
+<Tip>
+  Always use a process manager or orchestrator (like Kubernetes or Fly.io) that respects SIGTERM signals to ensure no jobs are abruptly interrupted.
+</Tip>

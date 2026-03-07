@@ -1,0 +1,87 @@
+---
+title: "SDK Integration"
+description: "Integrating your job code with the orchestrator using the SDK endpoints."
+---
+
+The orchestrator provides a set of SDK endpoints that allow your job code to communicate its progress, logs, and state back to the system.
+
+## SDK Authentication
+
+All SDK endpoints are located under `/sdk/v1/runs/{runID}/` and require a **JWT Run Token** for authentication.
+
+- **Header**: `Authorization: Bearer <run_token>`
+- **Token Source**: The `run_token` is provided in the response when a job is triggered.
+
+## Available Endpoints
+
+### Logging
+`POST /log`
+Send structured logs from your job.
+- **Fields**: `message` (required), `level` (info, warn, error), `type`, `data` (JSON).
+
+### Progress Updates
+`POST /progress`
+Report the completion percentage of a job.
+- **Fields**: `percent` (0-100), `message` (required), `step`, `eta_seconds`.
+
+### Annotations
+`POST /annotate`
+Add or update metadata annotations on the run.
+- **Feature Flag**: `FF_RUN_ANNOTATIONS`
+- **Limit**: Max 50 annotations per run.
+
+### Heartbeat
+`POST /heartbeat`
+Signal that the job is still alive and executing. This prevents the orchestrator from marking the run as timed out or crashed.
+
+### Checkpoints
+`POST /checkpoint`
+Save the current state of a resumable job.
+- **Fields**: `state` (required JSON), `source`.
+
+### Usage Tracking
+`POST /usage`
+Report AI model usage and costs.
+- **Fields**: `provider`, `model`, `prompt_tokens`, `completion_tokens`, `cost_microusd`.
+
+### Tool Calls
+`POST /tool-call`
+Record the invocation of an external tool or API.
+- **Fields**: `tool_name`, `input`, `output`, `duration_ms`, `status`.
+
+### Structured Outputs
+`POST /output`
+Store structured results or artifacts produced by the job.
+- **Fields**: `output_key`, `value`, `schema` (optional JSON schema).
+
+### Terminal States
+- `POST /complete`: Mark the run as successfully completed. Optionally include a `result`.
+- `POST /fail`: Mark the run as failed. Requires an `error` message.
+
+### Control Flow
+- `POST /spawn`: Create a child job run.
+- `POST /continue`: Create a continuation run (for long-running jobs that need to restart with fresh timeouts).
+
+## Feature Flags
+
+Some endpoints are gated by feature flags in the orchestrator configuration:
+- `FF_RUN_ANNOTATIONS`: Gates `/annotate`.
+- `FF_RUN_CONTINUATION`: Gates `/continue`.
+- `FF_DEBUG_BUNDLE`: Required for some advanced telemetry features.
+
+## Example: Reporting Progress
+
+```bash
+curl -X POST https://api.orchestrator.com/sdk/v1/runs/{runID}/progress \
+  -H "Authorization: Bearer $RUN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "percent": 45,
+    "message": "Processing images...",
+    "step": "image_optimization"
+  }'
+```
+
+<Tip>
+  Use the `heartbeat` endpoint regularly (e.g., every 30 seconds) in long-running jobs to ensure the orchestrator knows the job is still active.
+</Tip>

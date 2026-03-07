@@ -1,0 +1,95 @@
+---
+title: "CLI Overview"
+description: "Installation, configuration, and global usage of the Orchestrator CLI."
+---
+
+The Orchestrator CLI is a powerful tool for managing jobs, runs, workflows, and server operations from your terminal.
+
+## Installation
+
+Build from source or install to your GOPATH:
+
+```bash
+# Build from source
+go build -o orchestrator ./cmd/orchestrator
+
+# Or install to GOPATH/bin
+go install ./cmd/orchestrator
+```
+
+## Configuration
+
+The CLI reads configuration from a YAML file, searching in this order:
+1. `.orchestrator.yaml` in the current directory.
+2. `~/.config/orchestrator/config.yaml`.
+3. Explicit path via the `--config` flag.
+
+### Contexts
+Contexts allow you to switch between different environments (e.g., development, production).
+
+```bash
+# Create a context
+orchestrator context create prod --server https://api.prod.com --project prod-app
+
+# Switch context
+orchestrator context use prod
+
+# List contexts
+orchestrator context list
+```
+
+## Authentication
+
+Authenticate using your API key. Keys are stored securely in the system keychain.
+
+```bash
+# Interactive login
+orchestrator login
+
+# Provide key directly
+orchestrator login --api-key orc_live_abc123
+```
+
+## Output Formats
+
+The CLI supports multiple output formats using the `--format` (or `-o`) flag:
+- `table`: Human-readable table (default for TTY).
+- `json`: Indented JSON (default for pipes).
+- `yaml`: YAML format.
+- `csv`: Comma-separated values.
+- `wide`: Table with all available columns.
+- `go-template`: Custom rendering via Go templates.
+- `jsonpath`: Extract specific fields using JSONPath.
+
+## Global Flags
+
+These flags are available on all commands:
+
+| Flag | Short | Type | Description |
+| :--- | :--- | :--- | :--- |
+| `--server` | | string | Server URL |
+| `--api-key` | | string | API key |
+| `--project` | | string | Default project ID |
+| `--format` | `-o` | string | Output format (table, json, yaml, csv, wide, go-template, jsonpath) |
+| `--no-headers` | | bool | Omit table headers |
+| `--quiet` | `-q` | bool | Minimal output (IDs only) |
+| `--verbose` | `-v` | bool | Verbose output |
+| `--context` | | string | Context name override |
+| `--config` | | string | Config file path |
+| `--timeout` | | duration | API request timeout (default: 30s) |
+| `--ci` | | bool | CI mode (no color, no prompts) |
+
+## Shell Completion
+
+Generate completion scripts for your shell:
+
+```bash
+# Bash
+orchestrator completion bash > /etc/bash_completion.d/orchestrator
+
+# Zsh
+orchestrator completion zsh > "${fpath[1]}/_orchestrator"
+
+# Fish
+orchestrator completion fish > ~/.config/fish/completions/orchestrator.fish
+```

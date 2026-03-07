@@ -1,0 +1,95 @@
+---
+title: "Jobs"
+description: "The fundamental unit of work in the orchestrator."
+---
+
+Jobs define the configuration for a specific task that can be executed. They act as templates for **Runs**.
+
+## Job Model
+
+The `Job` struct (defined in `internal/domain/types.go`) contains the following fields:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique identifier (UUIDv7). |
+| `project_id` | `string` | The project this job belongs to. |
+| `group_id` | `string` | Optional ID of the `JobGroup` for logical organization. |
+| `name` | `string` | Human-readable name of the job. |
+| `slug` | `string` | URL-friendly identifier, unique within a project. |
+| `description` | `string` | Optional detailed description. |
+| `cron` | `string` | 5-field cron expression for automatic scheduling. |
+| `payload_schema` | `json` | JSON Schema to validate incoming trigger payloads. |
+| `tags` | `map[string]string` | Key-value pairs for filtering and metadata. |
+| `endpoint_url` | `string` | The primary HTTP URL where the job payload is sent. |
+| `fallback_endpoint_url` | `string` | Optional URL used if the primary endpoint fails. |
+| `max_attempts` | `int` | Maximum number of retry attempts (default: 3). |
+| `timeout_secs` | `int` | Maximum execution time in seconds (default: 300). |
+| `max_concurrency` | `int` | Per-job limit on simultaneous executing runs. |
+| `execution_window_cron` | `string` | Cron-like expression defining when the job is allowed to run. |
+| `timezone` | `string` | Timezone for cron scheduling (e.g., "UTC", "America/New_York"). |
+| `rate_limit_max` | `int` | Maximum number of runs allowed in the rate limit window. |
+| `rate_limit_window_secs` | `int` | The window size for rate limiting in seconds. |
+| `dedup_window_secs` | `int` | Window for deduplicating identical trigger requests. |
+| `enabled` | `bool` | Whether the job is active and can be triggered. |
+| `webhook_url` | `string` | URL to notify when a run reaches a terminal state. |
+| `webhook_secret` | `string` | Secret used to sign webhook payloads (HMAC-SHA256). |
+| `run_ttl_secs` | `int` | Time-to-live for runs before they are considered expired. |
+| `retry_strategy` | `string` | Strategy: `exponential`, `linear`, `fixed`, or `custom`. |
+| `retry_delays_secs` | `[]int` | Array of delays for the `custom` retry strategy. |
+| `environment_id` | `string` | The environment (e.g., Staging, Production) this job is bound to. |
+| `version` | `int` | Auto-incrementing version number (starts at 1). |
+| `created_at` | `time.Time` | Timestamp when the job was created. |
+| `updated_at` | `time.Time` | Timestamp of the last update. |
+
+## Slugs and Project Scoping
+
+Jobs are scoped to a `project_id`. The `slug` must be unique within that project. This allows for clean URLs and API access patterns like `/v1/projects/{project_id}/jobs/{slug}`.
+
+## Scheduling and Execution
+
+<CodeGroup>
+```json Cron Scheduling
+{
+  "cron": "0 * * * *",
+  "timezone": "UTC"
+}
+```
+```json Execution Window
+{
+  "execution_window_cron": "0 9-17 * * 1-5"
+}
+```
+</CodeGroup>
+
+- **Cron**: Standard 5-field syntax supported via `robfig/cron/v3`.
+- **Execution Windows**: Restricts job execution to specific times (e.g., business hours).
+
+## Concurrency and Rate Limiting
+
+- **Max Concurrency**: Limits the number of parallel executions for a single job definition.
+- **Rate Limiting**: Prevents thundering herds by capping the number of runs over a sliding window.
+- **Deduplication**: Uses `dedup_window_secs` and an idempotency key to ignore duplicate trigger requests within a short timeframe.
+
+## Job Versioning
+
+Every time a job's configuration is updated, the `version` field is automatically incremented. This ensures that:
+1. In-flight runs continue using the configuration they were triggered with.
+2. Historical data remains accurate to the job's state at the time of execution.
+
+## Webhook Configuration
+
+Jobs can be configured with a `webhook_url` and `webhook_secret`. When a run completes, fails, or times out, a signed POST request is sent to this URL.
+
+<Tip>
+Always use the `webhook_secret` to verify the `X-Webhook-Signature` header in your receiving service.
+</Tip>
+
+## Environment Binding
+
+Jobs can be linked to an `environment_id`. This allows the orchestrator to apply environment-specific overrides, such as changing the `endpoint_url` when running in a "Staging" vs "Production" environment.
+
+## Related Concepts
+
+- [Runs](/concepts/runs): The execution instances of a job.
+- [Workflows](/concepts/workflows): DAGs that coordinate multiple jobs.
+- **Job Groups**: Logical containers for related jobs within a project.
