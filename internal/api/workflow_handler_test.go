@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/domain"
@@ -413,18 +414,18 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 }
 
 func TestHandleListWorkflowRuns(t *testing.T) {
-	t.Run("success with pagination", func(t *testing.T) {
+	t.Run("success with cursor pagination", func(t *testing.T) {
 		ms := &mockAPIStore{
-			listWorkflowRunsFn: func(_ context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error) {
-				if workflowID != "wf-1" || limit != 10 || offset != 5 {
-					t.Fatalf("unexpected args: %s %d %d", workflowID, limit, offset)
+			listWorkflowRunsFn: func(_ context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
+				if workflowID != "wf-1" || limit != 10 {
+					t.Fatalf("unexpected args: %s %d", workflowID, limit)
 				}
 				return []domain.WorkflowRun{{ID: "wr-1"}}, nil
 			},
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/runs?limit=10&offset=5", ""))
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/runs?limit=10", ""))
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", w.Code)

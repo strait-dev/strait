@@ -2878,7 +2878,7 @@ func TestWorkflowRun_CRUD(t *testing.T) {
 		t.Fatalf("CreateWorkflowRun(run3) error = %v", err)
 	}
 
-	listed, err := q.ListWorkflowRuns(ctx, workflow.ID, 10, 0)
+	listed, err := q.ListWorkflowRuns(ctx, workflow.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListWorkflowRuns() error = %v", err)
 	}
@@ -2888,8 +2888,10 @@ func TestWorkflowRun_CRUD(t *testing.T) {
 	if listed[0].ID != run3.ID || listed[1].ID != run2.ID || listed[2].ID != run1.ID {
 		t.Fatalf("ListWorkflowRuns() ids = [%q, %q, %q], want [%q, %q, %q]", listed[0].ID, listed[1].ID, listed[2].ID, run3.ID, run2.ID, run1.ID)
 	}
-
-	paged, err := q.ListWorkflowRuns(ctx, workflow.ID, 1, 1)
+	
+	// Cursor-based pagination: use created_at of the first result as cursor to get the next page
+	cursor := listed[0].CreatedAt
+	paged, err := q.ListWorkflowRuns(ctx, workflow.ID, 1, &cursor)
 	if err != nil {
 		t.Fatalf("ListWorkflowRuns() paged error = %v", err)
 	}

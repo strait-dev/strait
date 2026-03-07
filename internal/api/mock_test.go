@@ -81,7 +81,7 @@ type mockAPIStore struct {
 	listStepsByWorkflowVerFn      func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	deleteStepsByWorkflowFn       func(ctx context.Context, workflowID string) error
 	getWorkflowRunFn              func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listWorkflowRunsFn            func(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
+	listWorkflowRunsFn            func(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	listWorkflowRunsByProjFn      func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
 	createWorkflowRunLabelsFn     func(ctx context.Context, workflowRunID string, labels map[string]string) error
 	listWorkflowRunLabelsFn       func(ctx context.Context, workflowRunID string) (map[string]string, error)
@@ -579,9 +579,9 @@ func (m *mockAPIStore) GetWorkflowRun(ctx context.Context, id string) (*domain.W
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error) {
+func (m *mockAPIStore) ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	if m.listWorkflowRunsFn != nil {
-		return m.listWorkflowRunsFn(ctx, workflowID, limit, offset)
+		return m.listWorkflowRunsFn(ctx, workflowID, limit, cursor)
 	}
 	return nil, nil
 }

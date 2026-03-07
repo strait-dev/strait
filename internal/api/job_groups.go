@@ -11,9 +11,9 @@ import (
 )
 
 type CreateJobGroupRequest struct {
-	ProjectID   string `json:"project_id"`
-	Name        string `json:"name"`
-	Slug        string `json:"slug"`
+	ProjectID   string `json:"project_id" validate:"required"`
+	Name        string `json:"name" validate:"required"`
+	Slug        string `json:"slug" validate:"required"`
 	Description string `json:"description,omitempty"`
 }
 
@@ -25,18 +25,17 @@ type UpdateJobGroupRequest struct {
 
 func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
 	var req CreateJobGroupRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.ProjectID == "" || req.Name == "" || req.Slug == "" {
-		respondError(w, http.StatusBadRequest, "missing required fields")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -48,7 +47,7 @@ func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateJobGroup(r.Context(), group); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create job group")
+		respondError(w, r, http.StatusInternalServerError, "failed to create job group")
 		return
 	}
 
@@ -57,7 +56,7 @@ func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
@@ -65,10 +64,10 @@ func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
 	group, err := s.store.GetJobGroup(r.Context(), groupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, http.StatusNotFound, "job group not found")
+			respondError(w, r, http.StatusNotFound, "job group not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job group")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job group")
 		return
 	}
 
@@ -77,19 +76,19 @@ func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
-		respondError(w, http.StatusBadRequest, "project_id is required")
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
 	}
 
 	groups, err := s.store.ListJobGroups(r.Context(), projectID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list job groups")
+		respondError(w, r, http.StatusInternalServerError, "failed to list job groups")
 		return
 	}
 
@@ -98,7 +97,7 @@ func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
@@ -106,16 +105,16 @@ func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 	group, err := s.store.GetJobGroup(r.Context(), groupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, http.StatusNotFound, "job group not found")
+			respondError(w, r, http.StatusNotFound, "job group not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job group")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job group")
 		return
 	}
 
 	var req UpdateJobGroupRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -131,10 +130,10 @@ func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.UpdateJobGroup(r.Context(), group); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, http.StatusNotFound, "job group not found")
+			respondError(w, r, http.StatusNotFound, "job group not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to update job group")
+		respondError(w, r, http.StatusInternalServerError, "failed to update job group")
 		return
 	}
 
@@ -143,17 +142,17 @@ func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteJobGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
 	groupID := chi.URLParam(r, "groupID")
 	if err := s.store.DeleteJobGroup(r.Context(), groupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
-			respondError(w, http.StatusNotFound, "job group not found")
+			respondError(w, r, http.StatusNotFound, "job group not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to delete job group")
+		respondError(w, r, http.StatusInternalServerError, "failed to delete job group")
 		return
 	}
 
@@ -162,14 +161,14 @@ func (s *Server) handleDeleteJobGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListJobsByGroup(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobGroups {
-		respondError(w, http.StatusNotFound, "job groups feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
 		return
 	}
 
 	groupID := chi.URLParam(r, "groupID")
 	jobs, err := s.store.ListJobsByGroup(r.Context(), groupID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list jobs by group")
+		respondError(w, r, http.StatusInternalServerError, "failed to list jobs by group")
 		return
 	}
 

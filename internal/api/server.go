@@ -3,11 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"orchestrator/internal/config"
@@ -20,6 +24,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
+	"github.com/go-playground/validator/v10"
 	"github.com/riandyrn/otelchi"
 )
 
@@ -93,7 +98,7 @@ type APIStore interface {
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
+	ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
@@ -139,6 +144,13 @@ const (
 	maxPageLimit     = 100
 )
 
+// ErrorResponse is the standard error response returned by all API endpoints.
+type ErrorResponse struct {
+	Error     string `json:"error"`
+	Code      string `json:"code,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
 type Server struct {
 	router           chi.Router
 	store            APIStore
@@ -149,6 +161,7 @@ type Server struct {
 	pinger           Pinger
 	workflowCallback WorkflowCallback
 	workflowEngine   WorkflowTrigger
+	validate         *validator.Validate
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -174,6 +187,7 @@ func NewServer(deps ServerDeps) *Server {
 		pinger:           deps.Pinger,
 		workflowCallback: deps.WorkflowCallback,
 		workflowEngine:   deps.WorkflowEngine,
+		validate:         validator.New(validator.WithRequiredStructEnabled()),
 	}
 	srv.router = srv.routes()
 	return srv
@@ -199,6 +213,10 @@ func (s *Server) routes() chi.Router {
 	r.Use(otelchi.Middleware("orchestrator", otelchi.WithChiRoutes(r)))
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
+	requestTimeout := s.config.RequestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = 30 * time.Second
+	}
 	if s.config.RateLimitRequests > 0 {
 		r.Use(httprate.LimitByIP(s.config.RateLimitRequests, s.config.RateLimitWindow))
 	}
@@ -220,17 +238,17 @@ func (s *Server) routes() chi.Router {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
-
+		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
-			r.Post("/", s.handleCreateSecret)
+			r.With(httprate.LimitByIP(20, time.Minute)).Post("/", s.handleCreateSecret)
 			r.Get("/", s.handleListSecrets)
 			r.Delete("/{secretID}", s.handleDeleteSecret)
 		})
 
 		r.Route("/jobs", func(r chi.Router) {
-			r.Post("/", s.handleCreateJob)
+			r.With(httprate.LimitByIP(30, time.Minute)).Post("/", s.handleCreateJob)
 			r.Get("/", s.handleListJobs)
-			r.Post("/batch", s.handleBatchCreateJobs)
+			r.With(httprate.LimitByIP(10, time.Minute)).Post("/batch", s.handleBatchCreateJobs)
 			r.Post("/batch-enable", s.handleBatchEnableJobs)
 			r.Post("/batch-disable", s.handleBatchDisableJobs)
 
@@ -239,7 +257,7 @@ func (s *Server) routes() chi.Router {
 				r.Patch("/", s.handleUpdateJob)
 				r.Delete("/", s.handleDeleteJob)
 				r.With(httprate.LimitByIP(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
-				r.Post("/trigger/bulk", s.handleBulkTriggerJob)
+				r.With(httprate.LimitByIP(30, time.Minute)).Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.Post("/dependencies", s.handleCreateJobDependency)
 				r.Get("/dependencies", s.handleListJobDependencies)
 				r.Delete("/dependencies/{depID}", s.handleDeleteJobDependency)
@@ -296,7 +314,7 @@ func (s *Server) routes() chi.Router {
 		r.Get("/webhook-deliveries", s.handleListWebhookDeliveries)
 
 		r.Route("/api-keys", func(r chi.Router) {
-			r.Post("/", s.handleCreateAPIKey)
+			r.With(httprate.LimitByIP(10, time.Minute)).Post("/", s.handleCreateAPIKey)
 			r.Get("/", s.handleListAPIKeys)
 			r.Delete("/{keyID}", s.handleRevokeAPIKey)
 		})
@@ -364,13 +382,13 @@ func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
 	// Verify database connectivity via a lightweight query
 	_, err := s.store.QueueStats(r.Context())
 	if err != nil {
-		respondError(w, http.StatusServiceUnavailable, "database not ready")
+		respondError(w, r, http.StatusServiceUnavailable, "database not ready")
 		return
 	}
 
 	if s.pinger != nil {
 		if err := s.pinger.Ping(r.Context()); err != nil {
-			respondError(w, http.StatusServiceUnavailable, "redis not ready")
+			respondError(w, r, http.StatusServiceUnavailable, "redis not ready")
 			return
 		}
 	}
@@ -388,18 +406,38 @@ func respondJSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
-func respondError(w http.ResponseWriter, status int, message string) {
-	respondJSON(w, status, map[string]string{"error": message})
+func respondError(w http.ResponseWriter, r *http.Request, status int, message string) {
+	var requestID string
+	if r != nil {
+		requestID = chimw.GetReqID(r.Context())
+	}
+	respondJSON(w, status, ErrorResponse{
+		Error:     message,
+		RequestID: requestID,
+	})
+}
+
+// maxRequestBodySize is the maximum allowed request body size in bytes.
+// It can be overridden via SetMaxRequestBodySize.
+var maxRequestBodySize int64 = 1 << 20 // 1MB default
+
+// SetMaxRequestBodySize configures the maximum request body size for JSON decoding.
+func SetMaxRequestBodySize(size int64) {
+	if size > 0 {
+		maxRequestBodySize = size
+	}
 }
 
 func decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20)) // 1MB limit
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }
 
 // validateURL checks that a URL is valid and doesn't target private networks.
+// It performs DNS resolution to prevent DNS rebinding attacks and blocks
+// known dangerous hostnames and non-standard ports.
 func validateURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -412,14 +450,68 @@ func validateURL(rawURL string) error {
 		return fmt.Errorf("url must have a host")
 	}
 
-	// Block private/internal IPs (SSRF protection)
 	host := u.Hostname()
+
+	// Block known dangerous hostnames
+	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
+	for _, blocked := range blockedHosts {
+		if strings.EqualFold(host, blocked) {
+			return fmt.Errorf("url must not point to internal services")
+		}
+	}
+
+	// Check IP directly or resolve hostname to verify all resolved IPs
 	ip := net.ParseIP(host)
 	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		if isPrivateIP(ip) {
 			return fmt.Errorf("url must not point to private or loopback addresses")
+		}
+	} else {
+		ips, err := net.LookupIP(host)
+		if err == nil {
+			if slices.ContainsFunc(ips, isPrivateIP) {
+				return fmt.Errorf("url must not point to private or loopback addresses")
+			}
+		}
+		// DNS resolution failure is not an error — the hostname may not be resolvable yet
+		// (e.g., user is setting up their webhook endpoint). Only block confirmed private IPs.
+	}
+
+	// Block non-standard ports that might bypass firewalls
+	if port := u.Port(); port != "" && port != "80" && port != "443" {
+		portNum, err := strconv.Atoi(port)
+		if err != nil || portNum < 1 || portNum > 65535 {
+			return fmt.Errorf("invalid port number")
+		}
+		allowedPorts := map[int]bool{80: true, 443: true, 8080: true, 8443: true, 3000: true, 4000: true, 5000: true, 9000: true}
+		if !allowedPorts[portNum] {
+			return fmt.Errorf("port %d is not allowed for webhooks", portNum)
 		}
 	}
 
 	return nil
+}
+
+// isPrivateIP returns true if the IP is loopback, private, link-local, or unspecified.
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// validateRequest validates a struct using the validator and writes an error response if invalid.
+// Returns true if the struct is valid.
+func (s *Server) validateRequest(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := s.validate.Struct(v); err != nil {
+		var ve validator.ValidationErrors
+		if errors.As(err, &ve) {
+			messages := make([]string, 0, len(ve))
+			for _, fe := range ve {
+				messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
+			}
+			respondError(w, r, http.StatusBadRequest, "validation failed: "+strings.Join(messages, ", "))
+			return false
+		}
+		respondError(w, r, http.StatusBadRequest, "invalid request")
+		return false
+	}
+	return true
 }

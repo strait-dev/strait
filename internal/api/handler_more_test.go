@@ -1572,7 +1572,7 @@ func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "priority must be between 0 and 10") {
+	if !strings.Contains(w.Body.String(), "Priority") || !strings.Contains(w.Body.String(), "max") {
 		t.Errorf("body = %s, want priority error message", w.Body.String())
 	}
 }
@@ -1795,7 +1795,7 @@ func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid retry_strategy, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "invalid retry_strategy") {
+	if !strings.Contains(w.Body.String(), "RetryStrategy") || !strings.Contains(w.Body.String(), "oneof") {
 		t.Fatalf("expected error about retry_strategy, got: %s", w.Body.String())
 	}
 }

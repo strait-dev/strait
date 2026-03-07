@@ -17,7 +17,7 @@ import (
 )
 
 type BulkTriggerRequest struct {
-	Items []BulkTriggerItem `json:"items"`
+	Items []BulkTriggerItem `json:"items" validate:"required,min=1"`
 }
 
 type BulkTriggerItem struct {
@@ -39,7 +39,7 @@ type BulkTriggerResponse struct {
 }
 
 type BulkCancelRequest struct {
-	RunIDs []string `json:"run_ids"`
+	RunIDs []string `json:"run_ids" validate:"required,min=1"`
 }
 
 type BulkCancelResult struct {
@@ -61,31 +61,30 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
 	if !job.Enabled {
-		respondError(w, http.StatusBadRequest, "job is disabled")
+		respondError(w, r, http.StatusBadRequest, "job is disabled")
 		return
 	}
 
 	var req BulkTriggerRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if len(req.Items) == 0 {
-		respondError(w, http.StatusBadRequest, "items array is required and must not be empty")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if len(req.Items) > 100 {
-		respondError(w, http.StatusBadRequest, "maximum 100 items per bulk trigger request")
+		respondError(w, r, http.StatusBadRequest, "maximum 100 items per bulk trigger request")
 		return
 	}
 
@@ -97,7 +96,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	if s.config.FFProjectQuotas || s.config.FFExecutionWindows {
 		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to load project quota")
+			respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
 			return
 		}
 	}
@@ -105,14 +104,14 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	for _, item := range req.Items {
 		if s.config.FFPayloadValidation {
 			if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
-				respondError(w, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", created, err))
+				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", created, err))
 				return
 			}
 		}
 
 		payload, _, payloadErr := canonicalizePayload(item.Payload)
 		if payloadErr != nil {
-			respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", created, payloadErr))
+			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", created, payloadErr))
 			return
 		}
 
@@ -120,11 +119,11 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			if projectQuota.MaxQueuedRuns > 0 {
 				queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
 				if countErr != nil {
-					respondError(w, http.StatusInternalServerError, "failed to evaluate project queued quota")
+					respondError(w, r, http.StatusInternalServerError, "failed to evaluate project queued quota")
 					return
 				}
 				if queuedRuns >= projectQuota.MaxQueuedRuns {
-					respondError(w, http.StatusTooManyRequests, "project queued quota exceeded")
+					respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
 					return
 				}
 			}
@@ -132,11 +131,11 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			if projectQuota.MaxExecutingRuns > 0 {
 				activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
 				if countErr != nil {
-					respondError(w, http.StatusInternalServerError, "failed to evaluate project active quota")
+					respondError(w, r, http.StatusInternalServerError, "failed to evaluate project active quota")
 					return
 				}
 				if activeRuns >= projectQuota.MaxExecutingRuns {
-					respondError(w, http.StatusTooManyRequests, "project executing quota exceeded")
+					respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
 					return
 				}
 			}
@@ -146,11 +145,11 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
 			runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
 			if countErr != nil {
-				respondError(w, http.StatusInternalServerError, "failed to evaluate job rate limit")
+				respondError(w, r, http.StatusInternalServerError, "failed to evaluate job rate limit")
 				return
 			}
 			if runCount >= job.RateLimitMax {
-				respondError(w, http.StatusTooManyRequests, "job rate limit exceeded")
+				respondError(w, r, http.StatusTooManyRequests, "job rate limit exceeded")
 				return
 			}
 		}
@@ -159,7 +158,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
 			existingRun, findErr := s.store.FindRecentRunByPayload(r.Context(), job.ID, payload, since)
 			if findErr != nil {
-				respondError(w, http.StatusInternalServerError, "failed to evaluate payload deduplication")
+				respondError(w, r, http.StatusInternalServerError, "failed to evaluate payload deduplication")
 				return
 			}
 			if existingRun != nil {
@@ -189,7 +188,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to sign run token for item %d", created))
+			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to sign run token for item %d", created))
 			return
 		}
 
@@ -201,7 +200,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			}
 			adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
 			if adjustErr != nil {
-				respondError(w, http.StatusBadRequest, "execution window validation failed: "+adjustErr.Error())
+				respondError(w, r, http.StatusBadRequest, "execution window validation failed: "+adjustErr.Error())
 				return
 			}
 			scheduledAt = adjustedScheduledAt
@@ -227,7 +226,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := s.queue.Enqueue(r.Context(), run); err != nil {
-			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", created))
+			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", created))
 			return
 		}
 
@@ -249,17 +248,16 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 	var req BulkCancelRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if len(req.RunIDs) == 0 {
-		respondError(w, http.StatusBadRequest, "run_ids array is required and must not be empty")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if len(req.RunIDs) > 100 {
-		respondError(w, http.StatusBadRequest, "maximum 100 run IDs per bulk cancel request")
+		respondError(w, r, http.StatusBadRequest, "maximum 100 run IDs per bulk cancel request")
 		return
 	}
 

@@ -16,7 +16,7 @@ import (
 )
 
 type approveWorkflowStepRequest struct {
-	Approver string `json:"approver"`
+	Approver string `json:"approver" validate:"required"`
 }
 
 type skipStepRequest struct {
@@ -35,7 +35,7 @@ func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) 
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
-			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			respondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
 		if parsedLimit > maxPageLimit {
@@ -44,19 +44,19 @@ func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) 
 		limit = parsedLimit
 	}
 
-	offset := 0
-	if offsetRaw := query.Get("offset"); offsetRaw != "" {
-		parsedOffset, err := strconv.Atoi(offsetRaw)
-		if err != nil || parsedOffset < 0 {
-			respondError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+	var cursor *time.Time
+	if cursorRaw := query.Get("cursor"); cursorRaw != "" {
+		parsedCursor, err := time.Parse(time.RFC3339, cursorRaw)
+		if err != nil {
+			respondError(w, r, http.StatusBadRequest, "cursor must be an RFC3339 timestamp")
 			return
 		}
-		offset = parsedOffset
+		cursor = &parsedCursor
 	}
 
-	runs, err := s.store.ListWorkflowRuns(r.Context(), workflowID, limit, offset)
+	runs, err := s.store.ListWorkflowRuns(r.Context(), workflowID, limit, cursor)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
 		return
 	}
 
@@ -67,7 +67,7 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 	query := r.URL.Query()
 	projectID := query.Get("project_id")
 	if projectID == "" {
-		respondError(w, http.StatusBadRequest, "project_id is required")
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
 	}
 
@@ -75,7 +75,7 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 	if statusRaw := query.Get("status"); statusRaw != "" {
 		parsed := domain.WorkflowRunStatus(statusRaw)
 		if !parsed.IsValid() {
-			respondError(w, http.StatusBadRequest, "status is invalid")
+			respondError(w, r, http.StatusBadRequest, "status is invalid")
 			return
 		}
 		status = &parsed
@@ -85,7 +85,7 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
-			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			respondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
 		if parsedLimit > maxPageLimit {
@@ -96,7 +96,7 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 
 	runs, err := s.store.ListWorkflowRunsByProject(r.Context(), projectID, status, limit)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
 		return
 	}
 
@@ -108,10 +108,10 @@ func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, http.StatusNotFound, "workflow run not found")
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
 		return
 	}
 
@@ -123,15 +123,15 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, http.StatusNotFound, "workflow run not found")
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
 		return
 	}
 
 	if run.Status.IsTerminal() {
-		respondError(w, http.StatusBadRequest, "workflow run already in terminal state")
+		respondError(w, r, http.StatusBadRequest, "workflow run already in terminal state")
 		return
 	}
 
@@ -139,13 +139,13 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		"finished_at": time.Now(),
 		"error":       "canceled by user",
 	}); err != nil {
-		respondError(w, http.StatusConflict, "failed to cancel workflow run")
+		respondError(w, r, http.StatusConflict, "failed to cancel workflow run")
 		return
 	}
 
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), run.ID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow step runs")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
 		return
 	}
 
@@ -156,7 +156,7 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 				"finished_at": now,
 				"error":       "workflow canceled by user",
 			}); err != nil {
-				respondError(w, http.StatusConflict, "failed to cancel workflow step run")
+				respondError(w, r, http.StatusConflict, "failed to cancel workflow step run")
 				return
 			}
 		}
@@ -170,7 +170,7 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 			if errors.Is(err, store.ErrRunNotFound) {
 				continue
 			}
-			respondError(w, http.StatusInternalServerError, "failed to get step job run")
+			respondError(w, r, http.StatusInternalServerError, "failed to get step job run")
 			return
 		}
 		if jobRun.Status.IsTerminal() {
@@ -181,14 +181,14 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 			"finished_at": now,
 			"error":       "workflow canceled by user",
 		}); err != nil {
-			respondError(w, http.StatusConflict, "failed to cancel step job run")
+			respondError(w, r, http.StatusConflict, "failed to cancel step job run")
 			return
 		}
 	}
 
 	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
 		return
 	}
 	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusCanceled, "cancel")
@@ -201,14 +201,14 @@ func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) 
 	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, http.StatusNotFound, "workflow run not found")
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
 		return
 	}
 	if run.Status.IsTerminal() {
-		respondError(w, http.StatusBadRequest, "workflow run already in terminal state")
+		respondError(w, r, http.StatusBadRequest, "workflow run already in terminal state")
 		return
 	}
 	if run.Status == domain.WfStatusPaused {
@@ -216,18 +216,18 @@ func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if run.Status != domain.WfStatusRunning {
-		respondError(w, http.StatusBadRequest, "workflow run can only be paused from running state")
+		respondError(w, r, http.StatusBadRequest, "workflow run can only be paused from running state")
 		return
 	}
 
 	if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
-		respondError(w, http.StatusConflict, "failed to pause workflow run")
+		respondError(w, r, http.StatusConflict, "failed to pause workflow run")
 		return
 	}
 
 	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
 		return
 	}
 	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusPaused, "pause")
@@ -236,7 +236,7 @@ func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleResumeWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if s.workflowCallback == nil {
-		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
 		return
 	}
 
@@ -244,25 +244,25 @@ func (s *Server) handleResumeWorkflowRun(w http.ResponseWriter, r *http.Request)
 	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, http.StatusNotFound, "workflow run not found")
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
 		return
 	}
 	if run.Status != domain.WfStatusPaused {
-		respondError(w, http.StatusBadRequest, "workflow run is not paused")
+		respondError(w, r, http.StatusBadRequest, "workflow run is not paused")
 		return
 	}
 
 	if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
-		respondError(w, http.StatusConflict, err.Error())
+		respondError(w, r, http.StatusConflict, err.Error())
 		return
 	}
 
 	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to get updated workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
 		return
 	}
 	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusRunning, "resume")
@@ -273,7 +273,7 @@ func (s *Server) handleGetWorkflowRunLabels(w http.ResponseWriter, r *http.Reque
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	labels, err := s.store.ListWorkflowRunLabels(r.Context(), workflowRunID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow run labels")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow run labels")
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"labels": labels})
@@ -283,7 +283,7 @@ func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Reque
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow step runs")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
 		return
 	}
 
@@ -292,7 +292,7 @@ func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Request) {
 	if s.workflowCallback == nil {
-		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
 		return
 	}
 
@@ -305,27 +305,27 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 
 	var req approveWorkflowStepRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Approver == "" {
-		respondError(w, http.StatusBadRequest, "approver is required")
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if err := s.workflowCallback.ApproveStep(r.Context(), workflowRunID, stepRef, req.Approver); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step run")
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step run")
 		return
 	}
 	approval, err := s.store.GetWorkflowStepApprovalByStepRunID(r.Context(), stepRun.ID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step approval")
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step approval")
 		return
 	}
 
@@ -345,7 +345,7 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) {
 	if s.workflowCallback == nil {
-		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
 		return
 	}
 
@@ -358,18 +358,18 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 
 	var req skipStepRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if err := s.workflowCallback.SkipStep(r.Context(), workflowRunID, stepRef, req.Reason); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step run")
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step run")
 		return
 	}
 
@@ -386,7 +386,7 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.Request) {
 	if s.workflowCallback == nil {
-		respondError(w, http.StatusServiceUnavailable, "workflow callback unavailable")
+		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
 		return
 	}
 
@@ -399,18 +399,18 @@ func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.
 
 	var req forceCompleteStepRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if err := s.workflowCallback.ForceCompleteStep(r.Context(), workflowRunID, stepRef, req.Result); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to fetch workflow step run")
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch workflow step run")
 		return
 	}
 
@@ -427,7 +427,7 @@ func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.
 
 func (s *Server) handleRetryWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if s.workflowEngine == nil {
-		respondError(w, http.StatusServiceUnavailable, "workflow engine unavailable")
+		respondError(w, r, http.StatusServiceUnavailable, "workflow engine unavailable")
 		return
 	}
 
@@ -435,21 +435,21 @@ func (s *Server) handleRetryWorkflowRun(w http.ResponseWriter, r *http.Request) 
 	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
-			respondError(w, http.StatusNotFound, "workflow run not found")
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
 		return
 	}
 
 	if !run.Status.IsTerminal() {
-		respondError(w, http.StatusBadRequest, "can only retry a workflow run in terminal state")
+		respondError(w, r, http.StatusBadRequest, "can only retry a workflow run in terminal state")
 		return
 	}
 
 	newRun, err := s.workflowEngine.RetryWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to retry workflow run: %v", err))
+		respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to retry workflow run: %v", err))
 		return
 	}
 

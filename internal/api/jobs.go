@@ -15,26 +15,26 @@ import (
 )
 
 type CreateJobRequest struct {
-	ProjectID           string            `json:"project_id"`
+	ProjectID           string            `json:"project_id" validate:"required"`
 	GroupID             string            `json:"group_id,omitempty"`
-	Name                string            `json:"name"`
-	Slug                string            `json:"slug"`
+	Name                string            `json:"name" validate:"required"`
+	Slug                string            `json:"slug" validate:"required"`
 	Description         string            `json:"description,omitempty"`
 	Cron                string            `json:"cron,omitempty"`
 	PayloadSchema       json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                map[string]string `json:"tags,omitempty"`
-	EndpointURL         string            `json:"endpoint_url"`
-	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts         int               `json:"max_attempts"`
-	TimeoutSecs         int               `json:"timeout_secs"`
-	MaxConcurrency      int               `json:"max_concurrency,omitempty"`
+	EndpointURL         string            `json:"endpoint_url" validate:"required,url"`
+	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts         int               `json:"max_attempts" validate:"omitempty,min=1"`
+	TimeoutSecs         int               `json:"timeout_secs" validate:"omitempty,min=1"`
+	MaxConcurrency      int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
 	ExecutionWindowCron string            `json:"execution_window_cron,omitempty"`
 	Timezone            string            `json:"timezone,omitempty"`
-	RateLimitMax        int               `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty"`
-	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty"`
-	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
-	RetryStrategy       string            `json:"retry_strategy,omitempty"`
+	RateLimitMax        int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs          int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy       string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       string            `json:"environment_id,omitempty"`
 }
@@ -47,18 +47,18 @@ type UpdateJobRequest struct {
 	Cron                *string            `json:"cron,omitempty"`
 	PayloadSchema       *json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                *map[string]string `json:"tags,omitempty"`
-	EndpointURL         *string            `json:"endpoint_url,omitempty"`
-	FallbackEndpointURL *string            `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts         *int               `json:"max_attempts,omitempty"`
-	TimeoutSecs         *int               `json:"timeout_secs,omitempty"`
-	MaxConcurrency      *int               `json:"max_concurrency,omitempty"`
+	EndpointURL         *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
+	FallbackEndpointURL *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts         *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
+	TimeoutSecs         *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
+	MaxConcurrency      *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
 	ExecutionWindowCron *string            `json:"execution_window_cron,omitempty"`
 	Timezone            *string            `json:"timezone,omitempty"`
-	RateLimitMax        *int               `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs *int               `json:"rate_limit_window_secs,omitempty"`
-	DedupWindowSecs     *int               `json:"dedup_window_secs,omitempty"`
-	RunTTLSecs          *int               `json:"run_ttl_secs,omitempty"`
-	RetryStrategy       *string            `json:"retry_strategy,omitempty"`
+	RateLimitMax        *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs     *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs          *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy       *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
 	RetryDelaysSecs     *[]int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       *string            `json:"environment_id,omitempty"`
 	Enabled             *bool              `json:"enabled,omitempty"`
@@ -67,22 +67,21 @@ type UpdateJobRequest struct {
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	var req CreateJobRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.ProjectID == "" || req.Name == "" || req.Slug == "" || req.EndpointURL == "" {
-		respondError(w, http.StatusBadRequest, "missing required fields")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if err := validateURL(req.EndpointURL); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
+		respondError(w, r, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
 		return
 	}
 	if req.FallbackEndpointURL != "" {
 		if err := validateURL(req.FallbackEndpointURL); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
+			respondError(w, r, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
 			return
 		}
 	}
@@ -97,7 +96,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Cron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.Cron); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid cron expression")
+			respondError(w, r, http.StatusBadRequest, "invalid cron expression")
 			return
 		}
 	}
@@ -105,23 +104,23 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.ExecutionWindowCron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid execution_window_cron expression")
+			respondError(w, r, http.StatusBadRequest, "invalid execution_window_cron expression")
 			return
 		}
 	}
 
 	if err := validateRetryConfig(req.RetryStrategy, req.RetryDelaysSecs); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if len(req.Tags) > 0 {
 		if !s.config.FFJobTags {
-			respondError(w, http.StatusNotFound, "job tags feature is not enabled")
+			respondError(w, r, http.StatusNotFound, "job tags feature is not enabled")
 			return
 		}
 		if err := validateTags(req.Tags); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -153,7 +152,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateJob(r.Context(), job); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create job")
+		respondError(w, r, http.StatusInternalServerError, "failed to create job")
 		return
 	}
 
@@ -165,10 +164,10 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
@@ -179,13 +178,13 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	projectID := query.Get("project_id")
 	if projectID == "" {
-		respondError(w, http.StatusBadRequest, "project_id is required")
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
 	}
 	tagKey := query.Get("tag_key")
 	tagValue := query.Get("tag_value")
 	if tagValue != "" && tagKey == "" {
-		respondError(w, http.StatusBadRequest, "tag_key is required when tag_value is provided")
+		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
 		return
 	}
 
@@ -195,7 +194,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	)
 	if tagKey != "" {
 		if !s.config.FFJobTags {
-			respondError(w, http.StatusNotFound, "job tags feature is not enabled")
+			respondError(w, r, http.StatusNotFound, "job tags feature is not enabled")
 			return
 		}
 		jobs, err = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue)
@@ -203,7 +202,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		jobs, err = s.store.ListJobs(r.Context(), projectID)
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list jobs")
+		respondError(w, r, http.StatusInternalServerError, "failed to list jobs")
 		return
 	}
 
@@ -216,23 +215,27 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
 	var req UpdateJobRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if req.Cron != nil && *req.Cron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.Cron); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid cron expression")
+			respondError(w, r, http.StatusBadRequest, "invalid cron expression")
 			return
 		}
 	}
@@ -240,20 +243,20 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.ExecutionWindowCron != nil && *req.ExecutionWindowCron != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		if _, err := parser.Parse(*req.ExecutionWindowCron); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid execution_window_cron expression")
+			respondError(w, r, http.StatusBadRequest, "invalid execution_window_cron expression")
 			return
 		}
 	}
 
 	if req.RetryStrategy != nil {
 		if err := validateRetryConfig(*req.RetryStrategy, nil); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if req.RetryDelaysSecs != nil {
 		if err := validateRetryConfig("", *req.RetryDelaysSecs); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -278,18 +281,18 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Tags != nil {
 		if !s.config.FFJobTags {
-			respondError(w, http.StatusNotFound, "job tags feature is not enabled")
+			respondError(w, r, http.StatusNotFound, "job tags feature is not enabled")
 			return
 		}
 		if err := validateTags(*req.Tags); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 		job.Tags = *req.Tags
 	}
 	if req.EndpointURL != nil {
 		if err := validateURL(*req.EndpointURL); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
+			respondError(w, r, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
 			return
 		}
 		job.EndpointURL = *req.EndpointURL
@@ -339,13 +342,13 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 	if job.FallbackEndpointURL != "" {
 		if err := validateURL(job.FallbackEndpointURL); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
+			respondError(w, r, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
 			return
 		}
 	}
 
 	if err := s.store.UpdateJob(r.Context(), job); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to update job")
+		respondError(w, r, http.StatusInternalServerError, "failed to update job")
 		return
 	}
 
@@ -357,16 +360,16 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
 	job.Enabled = false
 	if err := s.store.UpdateJob(r.Context(), job); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to delete job")
+		respondError(w, r, http.StatusInternalServerError, "failed to delete job")
 		return
 	}
 
@@ -383,21 +386,21 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 	source, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
 	var req CloneJobRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.Name == "" || req.Slug == "" {
-		respondError(w, http.StatusBadRequest, "name and slug are required")
+		respondError(w, r, http.StatusBadRequest, "name and slug are required")
 		return
 	}
 
@@ -430,7 +433,7 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateJob(r.Context(), clone); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to clone job")
+		respondError(w, r, http.StatusInternalServerError, "failed to clone job")
 		return
 	}
 
@@ -501,22 +504,22 @@ type BatchUpdateResult struct {
 
 func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFBatchJobOps {
-		respondError(w, http.StatusNotFound, "batch job operations feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "batch job operations feature is not enabled")
 		return
 	}
 
 	var req BatchCreateJobsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if len(req.Jobs) == 0 {
-		respondError(w, http.StatusBadRequest, "jobs array is required and must not be empty")
+		respondError(w, r, http.StatusBadRequest, "jobs array is required and must not be empty")
 		return
 	}
 	if len(req.Jobs) > maxBatchSize {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("too many jobs in batch (max %d)", maxBatchSize))
+		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many jobs in batch (max %d)", maxBatchSize))
 		return
 	}
 
@@ -599,28 +602,28 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFBatchJobOps {
-		respondError(w, http.StatusNotFound, "batch job operations feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "batch job operations feature is not enabled")
 		return
 	}
 
 	var req BatchJobIDsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if len(req.IDs) == 0 {
-		respondError(w, http.StatusBadRequest, "ids array is required and must not be empty")
+		respondError(w, r, http.StatusBadRequest, "ids array is required and must not be empty")
 		return
 	}
 	if len(req.IDs) > maxBatchSize {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
+		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
 		return
 	}
 
 	updated, err := s.store.BatchUpdateJobsEnabled(r.Context(), req.IDs, true)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to enable jobs")
+		respondError(w, r, http.StatusInternalServerError, "failed to enable jobs")
 		return
 	}
 
@@ -629,28 +632,28 @@ func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBatchDisableJobs(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFBatchJobOps {
-		respondError(w, http.StatusNotFound, "batch job operations feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "batch job operations feature is not enabled")
 		return
 	}
 
 	var req BatchJobIDsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if len(req.IDs) == 0 {
-		respondError(w, http.StatusBadRequest, "ids array is required and must not be empty")
+		respondError(w, r, http.StatusBadRequest, "ids array is required and must not be empty")
 		return
 	}
 	if len(req.IDs) > maxBatchSize {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
+		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
 		return
 	}
 
 	updated, err := s.store.BatchUpdateJobsEnabled(r.Context(), req.IDs, false)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to disable jobs")
+		respondError(w, r, http.StatusInternalServerError, "failed to disable jobs")
 		return
 	}
 
@@ -667,7 +670,7 @@ type JobHealthResponse struct {
 
 func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobHealthScoring {
-		respondError(w, http.StatusNotFound, "job health scoring feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job health scoring feature is not enabled")
 		return
 	}
 
@@ -676,10 +679,10 @@ func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
 	_, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
@@ -696,13 +699,13 @@ func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
 		window = "7d"
 		since = time.Now().Add(-7 * 24 * time.Hour)
 	default:
-		respondError(w, http.StatusBadRequest, "invalid window: must be 1h, 1d, 7d, or 30d")
+		respondError(w, r, http.StatusBadRequest, "invalid window: must be 1h, 1d, 7d, or 30d")
 		return
 	}
 
 	stats, err := s.store.GetJobHealthStats(r.Context(), jobID, since)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to compute health stats")
+		respondError(w, r, http.StatusInternalServerError, "failed to compute health stats")
 		return
 	}
 

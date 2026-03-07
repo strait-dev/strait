@@ -11,13 +11,13 @@ import (
 )
 
 type CreateJobDependencyRequest struct {
-	DependsOnJobID string `json:"depends_on_job_id"`
+	DependsOnJobID string `json:"depends_on_job_id" validate:"required"`
 	Condition      string `json:"condition,omitempty"`
 }
 
 func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobDependencies {
-		respondError(w, http.StatusNotFound, "job dependencies feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job dependencies feature is not enabled")
 		return
 	}
 
@@ -25,35 +25,34 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 
 	if _, err := s.store.GetJob(r.Context(), jobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
 	var req CreateJobDependencyRequest
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.DependsOnJobID == "" {
-		respondError(w, http.StatusBadRequest, "depends_on_job_id is required")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if req.DependsOnJobID == jobID {
-		respondError(w, http.StatusBadRequest, "job cannot depend on itself")
+		respondError(w, r, http.StatusBadRequest, "job cannot depend on itself")
 		return
 	}
 
 	if _, err := s.store.GetJob(r.Context(), req.DependsOnJobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusBadRequest, "depends_on_job_id does not exist")
+			respondError(w, r, http.StatusBadRequest, "depends_on_job_id does not exist")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get dependency job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get dependency job")
 		return
 	}
 
@@ -62,7 +61,7 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 		condition = "completed"
 	}
 	if !isValidDependencyCondition(condition) {
-		respondError(w, http.StatusBadRequest, "condition must be one of: completed, failed, any")
+		respondError(w, r, http.StatusBadRequest, "condition must be one of: completed, failed, any")
 		return
 	}
 
@@ -73,7 +72,7 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.store.CreateJobDependency(r.Context(), dep); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create job dependency")
+		respondError(w, r, http.StatusInternalServerError, "failed to create job dependency")
 		return
 	}
 
@@ -82,14 +81,14 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobDependencies {
-		respondError(w, http.StatusNotFound, "job dependencies feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job dependencies feature is not enabled")
 		return
 	}
 
 	jobID := chi.URLParam(r, "jobID")
 	deps, err := s.store.ListJobDependencies(r.Context(), jobID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list job dependencies")
+		respondError(w, r, http.StatusInternalServerError, "failed to list job dependencies")
 		return
 	}
 
@@ -98,23 +97,23 @@ func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleDeleteJobDependency(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFJobDependencies {
-		respondError(w, http.StatusNotFound, "job dependencies feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "job dependencies feature is not enabled")
 		return
 	}
 
 	jobID := chi.URLParam(r, "jobID")
 	if _, err := s.store.GetJob(r.Context(), jobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
 	depID := chi.URLParam(r, "depID")
 	if err := s.store.DeleteJobDependency(r.Context(), depID); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to delete job dependency")
+		respondError(w, r, http.StatusInternalServerError, "failed to delete job dependency")
 		return
 	}
 

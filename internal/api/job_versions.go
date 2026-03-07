@@ -11,7 +11,7 @@ func (s *Server) handleListJobVersions(w http.ResponseWriter, r *http.Request) {
 
 	versions, err := s.store.ListJobVersionsByJob(r.Context(), jobID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list job versions")
+		respondError(w, r, http.StatusInternalServerError, "failed to list job versions")
 		return
 	}
 

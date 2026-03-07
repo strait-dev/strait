@@ -24,7 +24,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer orc_") {
-			respondError(w, http.StatusUnauthorized, "invalid or missing api key")
+			respondError(w, r, http.StatusUnauthorized, "invalid or missing api key")
 			return
 		}
 
@@ -33,17 +33,17 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
 		if err != nil {
-			respondError(w, http.StatusUnauthorized, "invalid api key")
+			respondError(w, r, http.StatusUnauthorized, "invalid api key")
 			return
 		}
 
 		if apiKey.RevokedAt != nil {
-			respondError(w, http.StatusUnauthorized, "api key has been revoked")
+			respondError(w, r, http.StatusUnauthorized, "api key has been revoked")
 			return
 		}
 
 		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-			respondError(w, http.StatusUnauthorized, "api key has expired")
+			respondError(w, r, http.StatusUnauthorized, "api key has expired")
 			return
 		}
 
@@ -77,7 +77,7 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Internal-Secret")
 		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
-			respondError(w, http.StatusUnauthorized, "invalid or missing internal secret")
+			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
 		next.ServeHTTP(w, r)

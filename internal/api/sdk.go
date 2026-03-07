@@ -90,7 +90,7 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
-			respondError(w, http.StatusUnauthorized, "missing or invalid authorization header")
+			respondError(w, r, http.StatusUnauthorized, "missing or invalid authorization header")
 			return
 		}
 
@@ -104,19 +104,19 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return []byte(s.config.JWTSigningKey), nil
 		})
 		if err != nil || !token.Valid {
-			respondError(w, http.StatusUnauthorized, "invalid run token")
+			respondError(w, r, http.StatusUnauthorized, "invalid run token")
 			return
 		}
 
 		subject := claims.Subject
 		if subject == "" {
-			respondError(w, http.StatusUnauthorized, "missing run ID in token")
+			respondError(w, r, http.StatusUnauthorized, "missing run ID in token")
 			return
 		}
 
 		urlRunID := chi.URLParam(r, "runID")
 		if urlRunID != "" && subject != urlRunID {
-			respondError(w, http.StatusForbidden, "token does not match run ID")
+			respondError(w, r, http.StatusForbidden, "token does not match run ID")
 			return
 		}
 
@@ -134,18 +134,17 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
-		Type    string          `json:"type"`
+		Type    string          `json:"type,omitempty"`
 		Level   string          `json:"level,omitempty"`
-		Message string          `json:"message"`
+		Message string          `json:"message" validate:"required"`
 		Data    json.RawMessage `json:"data,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Message == "" {
-		respondError(w, http.StatusBadRequest, "message is required")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -173,7 +172,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.InsertEvent(r.Context(), event); err != nil {
 		slog.Error("failed to insert event", "run_id", runID, "error", err)
-		respondError(w, http.StatusInternalServerError, "failed to insert event")
+		respondError(w, r, http.StatusInternalServerError, "failed to insert event")
 		return
 	}
 
@@ -201,17 +200,17 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
-		Percent    float64 `json:"percent"`
-		Message    string  `json:"message"`
+		Percent    float64 `json:"percent" validate:"min=0,max=100"`
+		Message    string  `json:"message" validate:"required"`
 		Step       string  `json:"step,omitempty"`
 		ETASeconds int     `json:"eta_seconds,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Percent < 0 || req.Percent > 100 {
-		respondError(w, http.StatusBadRequest, "percent must be between 0 and 100")
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -226,7 +225,7 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := json.Marshal(dataMap)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to marshal progress payload")
+		respondError(w, r, http.StatusInternalServerError, "failed to marshal progress payload")
 		return
 	}
 
@@ -240,7 +239,7 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.InsertEvent(r.Context(), event); err != nil {
 		slog.Error("failed to insert progress event", "run_id", runID, "error", err)
-		respondError(w, http.StatusInternalServerError, "failed to insert event")
+		respondError(w, r, http.StatusInternalServerError, "failed to insert event")
 		return
 	}
 
@@ -264,58 +263,58 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 	if !s.config.FFRunAnnotations {
-		respondError(w, http.StatusNotFound, "run annotations feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "run annotations feature is not enabled")
 		return
 	}
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
-		Annotations map[string]string `json:"annotations"`
+		Annotations map[string]string `json:"annotations" validate:"required,min=1"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if len(req.Annotations) == 0 {
-		respondError(w, http.StatusBadRequest, "annotations are required")
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 	if len(req.Annotations) > 50 {
-		respondError(w, http.StatusBadRequest, "too many annotations (max 50)")
+		respondError(w, r, http.StatusBadRequest, "too many annotations (max 50)")
 		return
 	}
 
 	for key, value := range req.Annotations {
 		if strings.TrimSpace(key) == "" {
-			respondError(w, http.StatusBadRequest, "annotation keys must be non-empty")
+			respondError(w, r, http.StatusBadRequest, "annotation keys must be non-empty")
 			return
 		}
 		if len(key) > 128 {
-			respondError(w, http.StatusBadRequest, "annotation key too long (max 128 characters)")
+			respondError(w, r, http.StatusBadRequest, "annotation key too long (max 128 characters)")
 			return
 		}
 		if len(value) > 1024 {
-			respondError(w, http.StatusBadRequest, "annotation value too long (max 1024 characters)")
+			respondError(w, r, http.StatusBadRequest, "annotation value too long (max 1024 characters)")
 			return
 		}
 	}
 
 	if err := s.store.UpdateRunMetadata(r.Context(), runID, req.Annotations); err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to update run annotations")
+		respondError(w, r, http.StatusInternalServerError, "failed to update run annotations")
 		return
 	}
 
 	updatedRun, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to fetch run")
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch run")
 		return
 	}
 
@@ -328,7 +327,7 @@ func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.UpdateHeartbeat(r.Context(), runID); err != nil {
 		slog.Error("failed to update heartbeat", "run_id", runID, "error", err)
-		respondError(w, http.StatusInternalServerError, "failed to update heartbeat")
+		respondError(w, r, http.StatusInternalServerError, "failed to update heartbeat")
 		return
 	}
 
@@ -341,28 +340,28 @@ func (s *Server) handleSDKCheckpoint(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Source string          `json:"source,omitempty"`
-		State  json.RawMessage `json:"state"`
+		State  json.RawMessage `json:"state" validate:"required"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if len(req.State) == 0 {
-		respondError(w, http.StatusBadRequest, "state is required")
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
 		return
 	}
 	if run.Status != domain.StatusExecuting && run.Status != domain.StatusWaiting {
-		respondError(w, http.StatusConflict, "run must be executing or waiting to checkpoint")
+		respondError(w, r, http.StatusConflict, "run must be executing or waiting to checkpoint")
 		return
 	}
 
@@ -378,7 +377,7 @@ func (s *Server) handleSDKCheckpoint(w http.ResponseWriter, r *http.Request) {
 		State:  req.State,
 	}
 	if err := s.store.CreateRunCheckpoint(r.Context(), checkpoint); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create checkpoint")
+		respondError(w, r, http.StatusInternalServerError, "failed to create checkpoint")
 		return
 	}
 
@@ -390,19 +389,19 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
-		Provider         string `json:"provider"`
-		Model            string `json:"model"`
+		Provider         string `json:"provider" validate:"required"`
+		Model            string `json:"model" validate:"required"`
 		PromptTokens     int    `json:"prompt_tokens"`
 		CompletionTokens int    `json:"completion_tokens"`
 		TotalTokens      int    `json:"total_tokens,omitempty"`
 		CostMicrousd     int64  `json:"cost_microusd,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Provider == "" || req.Model == "" {
-		respondError(w, http.StatusBadRequest, "provider and model are required")
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -425,7 +424,7 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 			if qErr == nil && quota != nil && quota.MaxCostPerRunMicrousd > 0 {
 				totalCost, costErr := s.store.SumRunCostMicrousd(r.Context(), runID)
 				if costErr == nil && totalCost+req.CostMicrousd >= quota.MaxCostPerRunMicrousd {
-					respondError(w, http.StatusTooManyRequests, "per-run cost budget exceeded")
+					respondError(w, r, http.StatusTooManyRequests, "per-run cost budget exceeded")
 					return
 				}
 			}
@@ -433,7 +432,7 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateRunUsage(r.Context(), usage); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create run usage")
+		respondError(w, r, http.StatusInternalServerError, "failed to create run usage")
 		return
 	}
 
@@ -445,18 +444,18 @@ func (s *Server) handleSDKToolCall(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
-		ToolName   string          `json:"tool_name"`
+		ToolName   string          `json:"tool_name" validate:"required"`
 		Input      json.RawMessage `json:"input,omitempty"`
 		Output     json.RawMessage `json:"output,omitempty"`
 		DurationMs int             `json:"duration_ms,omitempty"`
 		Status     string          `json:"status,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.ToolName == "" {
-		respondError(w, http.StatusBadRequest, "tool_name is required")
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -470,7 +469,7 @@ func (s *Server) handleSDKToolCall(w http.ResponseWriter, r *http.Request) {
 		Status:     req.Status,
 	}
 	if err := s.store.CreateRunToolCall(r.Context(), call); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create run tool call")
+		respondError(w, r, http.StatusInternalServerError, "failed to create run tool call")
 		return
 	}
 
@@ -482,24 +481,20 @@ func (s *Server) handleSDKOutput(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
-		OutputKey string          `json:"output_key"`
+		OutputKey string          `json:"output_key" validate:"required"`
 		Schema    json.RawMessage `json:"schema,omitempty"`
-		Value     json.RawMessage `json:"value"`
+		Value     json.RawMessage `json:"value" validate:"required"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.OutputKey == "" {
-		respondError(w, http.StatusBadRequest, "output_key is required")
-		return
-	}
-	if len(req.Value) == 0 {
-		respondError(w, http.StatusBadRequest, "value is required")
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 	if err := validatePayloadAgainstSchema(req.Value, req.Schema); err != nil {
-		respondError(w, http.StatusBadRequest, "output schema validation failed: "+err.Error())
+		respondError(w, r, http.StatusBadRequest, "output schema validation failed: "+err.Error())
 		return
 	}
 
@@ -511,7 +506,7 @@ func (s *Server) handleSDKOutput(w http.ResponseWriter, r *http.Request) {
 		Value:     req.Value,
 	}
 	if err := s.store.UpsertRunOutput(r.Context(), output); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to upsert run output")
+		respondError(w, r, http.StatusInternalServerError, "failed to upsert run output")
 		return
 	}
 
@@ -526,7 +521,11 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		Result json.RawMessage `json:"result,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -534,10 +533,10 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
 		return
 	}
 
@@ -553,9 +552,9 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to complete run", "run_id", runID, "error", err)
 		if errors.Is(err, store.ErrRunConflict) {
-			respondError(w, http.StatusConflict, "run status conflict")
+			respondError(w, r, http.StatusConflict, "run status conflict")
 		} else {
-			respondError(w, http.StatusInternalServerError, "failed to update run")
+			respondError(w, r, http.StatusInternalServerError, "failed to update run")
 		}
 		return
 	}
@@ -587,7 +586,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 
 	updatedRun, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to get updated run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
 		return
 	}
 	respondJSON(w, http.StatusOK, updatedRun)
@@ -598,15 +597,14 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
-		Error string `json:"error"`
+		Error string `json:"error" validate:"required"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Error == "" {
-		respondError(w, http.StatusBadRequest, "error message is required")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -614,10 +612,10 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
 		return
 	}
 
@@ -629,9 +627,9 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("failed to fail run", "run_id", runID, "error", err)
 		if errors.Is(err, store.ErrRunConflict) {
-			respondError(w, http.StatusConflict, "run status conflict")
+			respondError(w, r, http.StatusConflict, "run status conflict")
 		} else {
-			respondError(w, http.StatusInternalServerError, "failed to update run")
+			respondError(w, r, http.StatusInternalServerError, "failed to update run")
 		}
 		return
 	}
@@ -665,7 +663,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 
 	updatedRun, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to get updated run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
 		return
 	}
 	respondJSON(w, http.StatusOK, updatedRun)
@@ -676,37 +674,36 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	parentRunID := chi.URLParam(r, "runID")
 
 	var req struct {
-		JobSlug   string          `json:"job_slug"`
-		ProjectID string          `json:"project_id"`
+		JobSlug   string          `json:"job_slug" validate:"required"`
+		ProjectID string          `json:"project_id" validate:"required"`
 		Payload   json.RawMessage `json:"payload,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.JobSlug == "" || req.ProjectID == "" {
-		respondError(w, http.StatusBadRequest, "job_slug and project_id are required")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	job, err := s.store.GetJobBySlug(r.Context(), req.ProjectID, req.JobSlug)
 	if err != nil || job == nil {
-		respondError(w, http.StatusNotFound, "job not found")
+		respondError(w, r, http.StatusNotFound, "job not found")
 		return
 	}
 
 	parentRun, err := s.store.GetRun(r.Context(), parentRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, http.StatusNotFound, "parent run not found")
+			respondError(w, r, http.StatusNotFound, "parent run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get parent run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get parent run")
 		return
 	}
 	if parentRun == nil {
-		respondError(w, http.StatusNotFound, "parent run not found")
+		respondError(w, r, http.StatusNotFound, "parent run not found")
 		return
 	}
 	if parentRun.Status == domain.StatusExecuting {
@@ -724,7 +721,7 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to enqueue child run")
+		respondError(w, r, http.StatusInternalServerError, "failed to enqueue child run")
 		return
 	}
 
@@ -736,7 +733,7 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 	parentRunID := chi.URLParam(r, "runID")
 
 	if !s.config.FFRunContinuation {
-		respondError(w, http.StatusNotFound, "run continuation is not enabled")
+		respondError(w, r, http.StatusNotFound, "run continuation is not enabled")
 		return
 	}
 
@@ -744,34 +741,38 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 		Payload json.RawMessage `json:"payload,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	parentRun, err := s.store.GetRun(r.Context(), parentRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
 		return
 	}
 
 	if parentRun.Status != domain.StatusExecuting && parentRun.Status != domain.StatusWaiting {
-		respondError(w, http.StatusConflict, "run must be executing or waiting to continue")
+		respondError(w, r, http.StatusConflict, "run must be executing or waiting to continue")
 		return
 	}
 
 	const maxLineageDepth = 10
 	if parentRun.LineageDepth >= maxLineageDepth {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("max lineage depth (%d) exceeded", maxLineageDepth))
+		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("max lineage depth (%d) exceeded", maxLineageDepth))
 		return
 	}
 
 	job, err := s.store.GetJob(r.Context(), parentRun.JobID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
@@ -791,7 +792,7 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(r.Context(), continuationRun); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to enqueue continuation run")
+		respondError(w, r, http.StatusInternalServerError, "failed to enqueue continuation run")
 		return
 	}
 

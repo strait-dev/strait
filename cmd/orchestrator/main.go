@@ -263,6 +263,10 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 	if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
 		pinger = redisPub
 	}
+	if cfg.MaxRequestBodySize > 0 {
+		api.SetMaxRequestBodySize(cfg.MaxRequestBodySize)
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:           cfg,
 		Store:            queries,

@@ -17,21 +17,21 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
 		return
 	}
 
 	if run.Status.IsTerminal() {
-		respondError(w, http.StatusGone, "run already in terminal state")
+		respondError(w, r, http.StatusGone, "run already in terminal state")
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		respondError(w, http.StatusInternalServerError, "streaming not supported")
+		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
 

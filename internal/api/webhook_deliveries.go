@@ -8,7 +8,7 @@ import (
 func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
-		respondError(w, http.StatusBadRequest, "project_id is required")
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
 	}
 
@@ -17,7 +17,7 @@ func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Requ
 	if limitRaw := r.URL.Query().Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
-			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			respondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
 		if parsedLimit > maxPageLimit {
@@ -28,7 +28,7 @@ func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Requ
 
 	deliveries, err := s.store.ListWebhookDeliveries(r.Context(), projectID, status, limit)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list webhook deliveries")
+		respondError(w, r, http.StatusInternalServerError, "failed to list webhook deliveries")
 		return
 	}
 

@@ -13,7 +13,7 @@ func (s *Server) handleListRunEvents(w http.ResponseWriter, r *http.Request) {
 
 	events, err := s.store.ListEventsByRunFiltered(r.Context(), runID, level, eventType)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list events")
+		respondError(w, r, http.StatusInternalServerError, "failed to list events")
 		return
 	}
 

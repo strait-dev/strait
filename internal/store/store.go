@@ -198,7 +198,7 @@ type StepDepResult struct {
 type WorkflowRunStore interface {
 	CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
+	ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
 	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
 	ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error)
