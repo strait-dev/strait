@@ -574,6 +574,43 @@ func (q *Queries) lookupPricing(ctx context.Context, provider, model string) (in
 	return inputCost, outputCost, nil
 }
 
+// SumRunCostMicrousd returns the total cost of all usage records for a single run.
+func (q *Queries) SumRunCostMicrousd(ctx context.Context, runID string) (int64, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.SumRunCostMicrousd")
+	defer span.End()
+
+	query := `SELECT COALESCE(SUM(cost_microusd), 0) FROM run_usage WHERE run_id = $1`
+	var total int64
+	if err := q.db.QueryRow(ctx, query, runID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("sum run cost: %w", err)
+	}
+	return total, nil
+}
+
+// SumProjectDailyCostMicrousd returns the total cost of all usage records for a project today.
+func (q *Queries) SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.SumProjectDailyCostMicrousd")
+	defer span.End()
+
+	tz := timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+
+	query := `
+		SELECT COALESCE(SUM(u.cost_microusd), 0)
+		FROM run_usage u
+		JOIN job_runs r ON u.run_id = r.id
+		WHERE r.project_id = $1
+		  AND u.created_at >= date_trunc('day', NOW() AT TIME ZONE $2)
+	`
+	var total int64
+	if err := q.db.QueryRow(ctx, query, projectID, tz).Scan(&total); err != nil {
+		return 0, fmt.Errorf("sum project daily cost: %w", err)
+	}
+	return total, nil
+}
+
 func scanRunCheckpoint(scanner scanTarget) (*domain.RunCheckpoint, error) {
 	var cp domain.RunCheckpoint
 	var state []byte

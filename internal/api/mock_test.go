@@ -13,85 +13,87 @@ import (
 
 // mockAPIStore implements APIStore for testing.
 type mockAPIStore struct {
-	createJobFn                 func(ctx context.Context, job *domain.Job) error
-	createJobSecretFn           func(ctx context.Context, secret *domain.JobSecret) error
-	getJobFn                    func(ctx context.Context, id string) (*domain.Job, error)
-	getJobBySlugFn              func(ctx context.Context, projectID, slug string) (*domain.Job, error)
-	listJobsFn                  func(ctx context.Context, projectID string) ([]domain.Job, error)
-	createJobGroupFn            func(ctx context.Context, group *domain.JobGroup) error
-	getJobGroupFn               func(ctx context.Context, id string) (*domain.JobGroup, error)
-	listJobGroupsFn             func(ctx context.Context, projectID string) ([]domain.JobGroup, error)
-	updateJobGroupFn            func(ctx context.Context, group *domain.JobGroup) error
-	deleteJobGroupFn            func(ctx context.Context, id string) error
-	listJobsByGroupFn           func(ctx context.Context, groupID string) ([]domain.Job, error)
-	createEnvironmentFn         func(ctx context.Context, env *domain.Environment) error
-	getEnvironmentFn            func(ctx context.Context, id string) (*domain.Environment, error)
-	listEnvironmentsFn          func(ctx context.Context, projectID string) ([]domain.Environment, error)
-	updateEnvironmentFn         func(ctx context.Context, env *domain.Environment) error
-	deleteEnvironmentFn         func(ctx context.Context, id string) error
-	getResolvedEnvVarsFn        func(ctx context.Context, id string) (map[string]string, error)
-	listJobSecretsFn            func(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
-	listJobsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
-	createJobDependencyFn       func(ctx context.Context, dep *domain.JobDependency) error
-	listJobDependenciesFn       func(ctx context.Context, jobID string) ([]domain.JobDependency, error)
-	deleteJobDependencyFn       func(ctx context.Context, id string) error
-	updateJobFn                 func(ctx context.Context, job *domain.Job) error
-	getRunFn                    func(ctx context.Context, id string) (*domain.JobRun, error)
-	getRunByIdempotencyKeyFn    func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
-	findRecentRunByPayloadFn    func(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
-	countRunsForJobSinceFn      func(ctx context.Context, jobID string, since time.Time) (int, error)
-	createRunCheckpointFn       func(ctx context.Context, checkpoint *domain.RunCheckpoint) error
-	listRunCheckpointsFn        func(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error)
-	createRunUsageFn            func(ctx context.Context, usage *domain.RunUsage) error
-	listRunUsageFn              func(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error)
-	createRunToolCallFn         func(ctx context.Context, call *domain.RunToolCall) error
-	listRunToolCallsFn          func(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error)
-	upsertRunOutputFn           func(ctx context.Context, output *domain.RunOutput) error
-	listRunOutputsFn            func(ctx context.Context, runID string) ([]domain.RunOutput, error)
-	areAllDescendantsTerminalFn func(ctx context.Context, parentRunID string) (bool, error)
-	getProjectQuotaFn           func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
-	countProjectQueuedRunsFn    func(ctx context.Context, projectID string) (int, error)
-	countProjectActiveRunsFn    func(ctx context.Context, projectID string) (int, error)
-	listRunsByProjectFn         func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	listDeadLetterRunsFn        func(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error)
-	updateRunStatusFn           func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	replayDeadLetterRunFn       func(ctx context.Context, runID string) (*domain.JobRun, error)
-	updateRunMetadataFn         func(ctx context.Context, id string, annotations map[string]string) error
-	listChildRunsFn             func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
-	insertEventFn               func(ctx context.Context, event *domain.RunEvent) error
-	listEventsByRunFilteredFn   func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
-	listWebhookDeliveriesFn     func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
-	createAPIKeyFn              func(ctx context.Context, key *domain.APIKey) error
-	listAPIKeysByProjectFn      func(ctx context.Context, projectID string) ([]domain.APIKey, error)
-	revokeAPIKeyFn              func(ctx context.Context, id string) error
-	listJobVersionsByJobFn      func(ctx context.Context, jobID string) ([]domain.JobVersion, error)
-	getAPIKeyByHashFn           func(ctx context.Context, keyHash string) (*domain.APIKey, error)
-	touchAPIKeyLastUsedFn       func(ctx context.Context, id string) error
-	updateHeartbeatFn           func(ctx context.Context, id string) error
-	queueStatsFn                func(ctx context.Context) (*store.QueueStats, error)
-	createWorkflowFn            func(ctx context.Context, w *domain.Workflow) error
-	getWorkflowFn               func(ctx context.Context, id string) (*domain.Workflow, error)
-	getWorkflowBySlugFn         func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
-	listWorkflowsFn             func(ctx context.Context, projectID string) ([]domain.Workflow, error)
-	updateWorkflowFn            func(ctx context.Context, w *domain.Workflow) error
-	deleteWorkflowFn            func(ctx context.Context, id string) error
-	createWorkflowStepFn        func(ctx context.Context, step *domain.WorkflowStep) error
-	listStepsByWorkflowFn       func(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
-	deleteStepsByWorkflowFn     func(ctx context.Context, workflowID string) error
-	getWorkflowRunFn            func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listWorkflowRunsFn          func(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
-	listWorkflowRunsByProjFn    func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
-	listStepRunsByRunFn         func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
-	updateWorkflowRunStatusFn   func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	updateStepRunStatusFn       func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	deleteJobSecretFn           func(ctx context.Context, id string) error
-	batchUpdateJobsEnabledFn    func(ctx context.Context, ids []string, enabled bool) (int64, error)
-	getJobHealthStatsFn         func(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
-	getDebugBundleFn            func(ctx context.Context, runID string) (*domain.DebugBundle, error)
-	updateRunDebugModeFn        func(ctx context.Context, runID string, debugMode bool) error
-	listEventsFn                func(ctx context.Context, runID string) ([]domain.RunEvent, error)
-	createRunFn                 func(ctx context.Context, run *domain.JobRun) error
-	listRunLineageFn            func(ctx context.Context, runID string) ([]domain.JobRun, error)
+	createJobFn                   func(ctx context.Context, job *domain.Job) error
+	createJobSecretFn             func(ctx context.Context, secret *domain.JobSecret) error
+	getJobFn                      func(ctx context.Context, id string) (*domain.Job, error)
+	getJobBySlugFn                func(ctx context.Context, projectID, slug string) (*domain.Job, error)
+	listJobsFn                    func(ctx context.Context, projectID string) ([]domain.Job, error)
+	createJobGroupFn              func(ctx context.Context, group *domain.JobGroup) error
+	getJobGroupFn                 func(ctx context.Context, id string) (*domain.JobGroup, error)
+	listJobGroupsFn               func(ctx context.Context, projectID string) ([]domain.JobGroup, error)
+	updateJobGroupFn              func(ctx context.Context, group *domain.JobGroup) error
+	deleteJobGroupFn              func(ctx context.Context, id string) error
+	listJobsByGroupFn             func(ctx context.Context, groupID string) ([]domain.Job, error)
+	createEnvironmentFn           func(ctx context.Context, env *domain.Environment) error
+	getEnvironmentFn              func(ctx context.Context, id string) (*domain.Environment, error)
+	listEnvironmentsFn            func(ctx context.Context, projectID string) ([]domain.Environment, error)
+	updateEnvironmentFn           func(ctx context.Context, env *domain.Environment) error
+	deleteEnvironmentFn           func(ctx context.Context, id string) error
+	getResolvedEnvVarsFn          func(ctx context.Context, id string) (map[string]string, error)
+	listJobSecretsFn              func(ctx context.Context, projectID, jobID, environment string) ([]domain.JobSecret, error)
+	listJobsByTagFn               func(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error)
+	createJobDependencyFn         func(ctx context.Context, dep *domain.JobDependency) error
+	listJobDependenciesFn         func(ctx context.Context, jobID string) ([]domain.JobDependency, error)
+	deleteJobDependencyFn         func(ctx context.Context, id string) error
+	updateJobFn                   func(ctx context.Context, job *domain.Job) error
+	getRunFn                      func(ctx context.Context, id string) (*domain.JobRun, error)
+	getRunByIdempotencyKeyFn      func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
+	findRecentRunByPayloadFn      func(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
+	countRunsForJobSinceFn        func(ctx context.Context, jobID string, since time.Time) (int, error)
+	createRunCheckpointFn         func(ctx context.Context, checkpoint *domain.RunCheckpoint) error
+	listRunCheckpointsFn          func(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error)
+	createRunUsageFn              func(ctx context.Context, usage *domain.RunUsage) error
+	listRunUsageFn                func(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error)
+	createRunToolCallFn           func(ctx context.Context, call *domain.RunToolCall) error
+	listRunToolCallsFn            func(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error)
+	upsertRunOutputFn             func(ctx context.Context, output *domain.RunOutput) error
+	listRunOutputsFn              func(ctx context.Context, runID string) ([]domain.RunOutput, error)
+	areAllDescendantsTerminalFn   func(ctx context.Context, parentRunID string) (bool, error)
+	getProjectQuotaFn             func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	countProjectQueuedRunsFn      func(ctx context.Context, projectID string) (int, error)
+	countProjectActiveRunsFn      func(ctx context.Context, projectID string) (int, error)
+	listRunsByProjectFn           func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listDeadLetterRunsFn          func(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error)
+	updateRunStatusFn             func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	replayDeadLetterRunFn         func(ctx context.Context, runID string) (*domain.JobRun, error)
+	updateRunMetadataFn           func(ctx context.Context, id string, annotations map[string]string) error
+	listChildRunsFn               func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
+	insertEventFn                 func(ctx context.Context, event *domain.RunEvent) error
+	listEventsByRunFilteredFn     func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
+	listWebhookDeliveriesFn       func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	createAPIKeyFn                func(ctx context.Context, key *domain.APIKey) error
+	listAPIKeysByProjectFn        func(ctx context.Context, projectID string) ([]domain.APIKey, error)
+	revokeAPIKeyFn                func(ctx context.Context, id string) error
+	listJobVersionsByJobFn        func(ctx context.Context, jobID string) ([]domain.JobVersion, error)
+	getAPIKeyByHashFn             func(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	touchAPIKeyLastUsedFn         func(ctx context.Context, id string) error
+	updateHeartbeatFn             func(ctx context.Context, id string) error
+	queueStatsFn                  func(ctx context.Context) (*store.QueueStats, error)
+	createWorkflowFn              func(ctx context.Context, w *domain.Workflow) error
+	getWorkflowFn                 func(ctx context.Context, id string) (*domain.Workflow, error)
+	getWorkflowBySlugFn           func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
+	listWorkflowsFn               func(ctx context.Context, projectID string) ([]domain.Workflow, error)
+	updateWorkflowFn              func(ctx context.Context, w *domain.Workflow) error
+	deleteWorkflowFn              func(ctx context.Context, id string) error
+	createWorkflowStepFn          func(ctx context.Context, step *domain.WorkflowStep) error
+	listStepsByWorkflowFn         func(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	deleteStepsByWorkflowFn       func(ctx context.Context, workflowID string) error
+	getWorkflowRunFn              func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listWorkflowRunsFn            func(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
+	listWorkflowRunsByProjFn      func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
+	listStepRunsByRunFn           func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	updateWorkflowRunStatusFn     func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	updateStepRunStatusFn         func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	deleteJobSecretFn             func(ctx context.Context, id string) error
+	batchUpdateJobsEnabledFn      func(ctx context.Context, ids []string, enabled bool) (int64, error)
+	getJobHealthStatsFn           func(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	getDebugBundleFn              func(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	updateRunDebugModeFn          func(ctx context.Context, runID string, debugMode bool) error
+	listEventsFn                  func(ctx context.Context, runID string) ([]domain.RunEvent, error)
+	createRunFn                   func(ctx context.Context, run *domain.JobRun) error
+	listRunLineageFn              func(ctx context.Context, runID string) ([]domain.JobRun, error)
+	sumRunCostMicrousdFn          func(ctx context.Context, runID string) (int64, error)
+	sumProjectDailyCostMicrousdFn func(ctx context.Context, projectID string, timezone string) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -645,6 +647,20 @@ func (m *mockAPIStore) ListRunLineage(ctx context.Context, runID string) ([]doma
 		return m.listRunLineageFn(ctx, runID)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) SumRunCostMicrousd(ctx context.Context, runID string) (int64, error) {
+	if m.sumRunCostMicrousdFn != nil {
+		return m.sumRunCostMicrousdFn(ctx, runID)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error) {
+	if m.sumProjectDailyCostMicrousdFn != nil {
+		return m.sumProjectDailyCostMicrousdFn(ctx, projectID, timezone)
+	}
+	return 0, nil
 }
 
 // mockQueue implements queue.Queue for testing.

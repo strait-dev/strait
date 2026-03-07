@@ -1401,3 +1401,69 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
+	ms := &mockAPIStore{
+		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 1000}, nil
+		},
+		sumRunCostMicrousdFn: func(_ context.Context, _ string) (int64, error) {
+			return 1500, nil // exceeds 1000 limit
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
+	ms := &mockAPIStore{
+		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 2000}, nil
+		},
+		sumRunCostMicrousdFn: func(_ context.Context, _ string) (int64, error) {
+			return 500, nil // under 2000 limit
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKUsage_CostBudgetDisabled(t *testing.T) {
+	ms := &mockAPIStore{
+		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	// FFCostBudgets is false by default
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50}`)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}

@@ -106,14 +106,18 @@ type RunStore interface {
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
 	ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error)
+	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 }
 
 type ProjectQuota struct {
-	ProjectID        string
-	MaxQueuedRuns    int
-	MaxExecutingRuns int
-	MaxJobs          int
-	Timezone         string
+	ProjectID             string
+	MaxQueuedRuns         int
+	MaxExecutingRuns      int
+	MaxJobs               int
+	Timezone              string
+	MaxCostPerRunMicrousd int64
+	MaxDailyCostMicrousd  int64
 }
 
 // JobHealthStats contains aggregated health metrics for a job.

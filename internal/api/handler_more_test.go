@@ -1512,3 +1512,68 @@ func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 		t.Errorf("status = %d, want 500", w.Code)
 	}
 }
+
+func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		sumProjectDailyCostMicrousdFn: func(_ context.Context, _ string, _ string) (int64, error) {
+			return 5000, nil // at limit
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued {
+		t.Fatal("expected run not to be enqueued when daily cost budget exceeded")
+	}
+}
+
+func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
+	enqueued := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		sumProjectDailyCostMicrousdFn: func(_ context.Context, _ string, _ string) (int64, error) {
+			return 3000, nil // under limit
+		},
+		createRunFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFCostBudgets = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueued {
+		t.Fatal("expected run to be enqueued when daily cost budget not exceeded")
+	}
+}

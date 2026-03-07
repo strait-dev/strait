@@ -323,7 +323,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	defer span.End()
 
 	query := `
-		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone
+		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd
 		FROM project_quotas
 		WHERE project_id = $1`
 
@@ -332,12 +332,16 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	var maxExecuting *int
 	var maxJobs *int
 	var timezone *string
+	var maxCostPerRun *int64
+	var maxDailyCost *int64
 	err := q.db.QueryRow(ctx, query, projectID).Scan(
 		&quota.ProjectID,
 		&maxQueued,
 		&maxExecuting,
 		&maxJobs,
 		&timezone,
+		&maxCostPerRun,
+		&maxDailyCost,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -357,6 +361,12 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	}
 	if timezone != nil {
 		quota.Timezone = *timezone
+	}
+	if maxCostPerRun != nil {
+		quota.MaxCostPerRunMicrousd = *maxCostPerRun
+	}
+	if maxDailyCost != nil {
+		quota.MaxDailyCostMicrousd = *maxDailyCost
 	}
 
 	return quota, nil

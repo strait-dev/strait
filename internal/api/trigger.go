@@ -78,7 +78,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var projectQuota *store.ProjectQuota
-	if s.config.FFProjectQuotas || s.config.FFExecutionWindows {
+	if s.config.FFProjectQuotas || s.config.FFExecutionWindows || s.config.FFCostBudgets {
 		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to load project quota")
@@ -109,6 +109,22 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 				respondError(w, http.StatusTooManyRequests, "project executing quota exceeded")
 				return
 			}
+		}
+	}
+
+	if s.config.FFCostBudgets && projectQuota != nil && projectQuota.MaxDailyCostMicrousd > 0 {
+		tz := projectQuota.Timezone
+		if tz == "" {
+			tz = "UTC"
+		}
+		dailyCost, costErr := s.store.SumProjectDailyCostMicrousd(r.Context(), job.ProjectID, tz)
+		if costErr != nil {
+			respondError(w, http.StatusInternalServerError, "failed to evaluate daily cost budget")
+			return
+		}
+		if dailyCost >= projectQuota.MaxDailyCostMicrousd {
+			respondError(w, http.StatusTooManyRequests, "project daily cost budget exceeded")
+			return
 		}
 	}
 

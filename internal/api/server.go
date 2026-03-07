@@ -104,6 +104,8 @@ type APIStore interface {
 	ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error)
+	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 }
 
 // Pinger checks service health.
