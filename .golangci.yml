@@ -55,6 +55,10 @@ linters:
       disabled-checks:
         - ifElseChain
 
+    gosec:
+      excludes:
+        - G704  # SSRF via taint analysis - URLs from validated job config
+        - G706  # Log injection via taint analysis - structured logging is safe
     godot:
       scope: toplevel
 

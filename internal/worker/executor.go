@@ -291,7 +291,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	req.Header.Set("X-Job-ID", run.JobID)
 	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
 
-	resp, err := e.httpClient.Do(req) //nolint:gosec // URL from validated job config
+	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		if e.metrics != nil {
 			e.metrics.DispatchErrors.Add(ctx, 1)

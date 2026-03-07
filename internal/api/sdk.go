@@ -102,7 +102,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.InsertEvent(r.Context(), event); err != nil {
-		slog.Error("failed to insert event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to insert event", "run_id", runID, "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to insert event")
 		return
 	}
@@ -119,7 +119,7 @@ func (s *Server) handleSDKLog(w http.ResponseWriter, r *http.Request) {
 		})
 		channel := fmt.Sprintf("run:%s", runID)
 		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+			slog.Warn("failed to publish event", "run_id", runID, "error", err)
 		}
 	}
 
@@ -130,7 +130,7 @@ func (s *Server) handleSDKHeartbeat(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
 	if err := s.store.UpdateHeartbeat(r.Context(), runID); err != nil {
-		slog.Error("failed to update heartbeat", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to update heartbeat", "run_id", runID, "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to update heartbeat")
 		return
 	}
@@ -170,7 +170,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 
 	err = s.store.UpdateRunStatus(r.Context(), runID, run.Status, domain.StatusCompleted, fields)
 	if err != nil {
-		slog.Error("failed to complete run", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to complete run", "run_id", runID, "error", err)
 		if errors.Is(err, store.ErrRunConflict) {
 			respondError(w, http.StatusConflict, "run status conflict")
 		} else {
@@ -183,7 +183,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		completedRun := *run
 		completedRun.Status = domain.StatusCompleted
 		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &completedRun); cbErr != nil {
-			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
+			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr)
 		}
 	}
 
@@ -197,7 +197,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		})
 		channel := fmt.Sprintf("run:%s", runID)
 		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+			slog.Warn("failed to publish event", "run_id", runID, "error", err)
 		}
 	}
 
@@ -242,7 +242,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		"error":       req.Error,
 	})
 	if err != nil {
-		slog.Error("failed to fail run", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+		slog.Error("failed to fail run", "run_id", runID, "error", err)
 		if errors.Is(err, store.ErrRunConflict) {
 			respondError(w, http.StatusConflict, "run status conflict")
 		} else {
@@ -256,7 +256,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		failedRun.Status = domain.StatusFailed
 		failedRun.Error = req.Error
 		if cbErr := s.workflowCallback.OnJobRunTerminal(r.Context(), &failedRun); cbErr != nil {
-			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr) //nolint:gosec // structured logging sanitizes values
+			slog.Error("workflow callback failed", "run_id", runID, "error", cbErr)
 		}
 	}
 
@@ -271,7 +271,7 @@ func (s *Server) handleSDKFail(w http.ResponseWriter, r *http.Request) {
 		})
 		channel := fmt.Sprintf("run:%s", runID)
 		if err := s.pubsub.Publish(r.Context(), channel, payload); err != nil {
-			slog.Warn("failed to publish event", "run_id", runID, "error", err) //nolint:gosec // structured logging sanitizes values
+			slog.Warn("failed to publish event", "run_id", runID, "error", err)
 		}
 	}
 

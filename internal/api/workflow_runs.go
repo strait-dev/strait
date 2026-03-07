@@ -300,7 +300,7 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 	stepRef := chi.URLParam(r, "stepRef")
 	beforeRun, beforeErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if beforeErr != nil {
-		slog.Warn("failed to get workflow run before approve step", "workflow_run_id", workflowRunID, "error", beforeErr) //nolint:gosec // structured logging sanitizes values
+		slog.Warn("failed to get workflow run before approve step", "workflow_run_id", workflowRunID, "error", beforeErr)
 	}
 
 	var req approveWorkflowStepRequest
@@ -331,7 +331,7 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 
 	afterRun, afterErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if afterErr != nil {
-		slog.Warn("failed to get workflow run after approve step", "workflow_run_id", workflowRunID, "error", afterErr) //nolint:gosec // structured logging sanitizes values
+		slog.Warn("failed to get workflow run after approve step", "workflow_run_id", workflowRunID, "error", afterErr)
 	}
 	if beforeErr == nil && afterErr == nil && beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
 		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "approve_step")
@@ -353,7 +353,7 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 	stepRef := chi.URLParam(r, "stepRef")
 	beforeRun, beforeErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if beforeErr != nil {
-		slog.Warn("failed to get workflow run before skip step", "workflow_run_id", workflowRunID, "error", beforeErr) //nolint:gosec // structured logging sanitizes values
+		slog.Warn("failed to get workflow run before skip step", "workflow_run_id", workflowRunID, "error", beforeErr)
 	}
 
 	var req skipStepRequest
@@ -375,7 +375,7 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 
 	afterRun, afterErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if afterErr != nil {
-		slog.Warn("failed to get workflow run after skip step", "workflow_run_id", workflowRunID, "error", afterErr) //nolint:gosec // structured logging sanitizes values
+		slog.Warn("failed to get workflow run after skip step", "workflow_run_id", workflowRunID, "error", afterErr)
 	}
 	if beforeErr == nil && afterErr == nil && beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
 		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "skip_step")
@@ -394,7 +394,7 @@ func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.
 	stepRef := chi.URLParam(r, "stepRef")
 	beforeRun, beforeErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if beforeErr != nil {
-		slog.Warn("failed to get workflow run before force-complete step", "workflow_run_id", workflowRunID, "error", beforeErr) //nolint:gosec // structured logging sanitizes values
+		slog.Warn("failed to get workflow run before force-complete step", "workflow_run_id", workflowRunID, "error", beforeErr)
 	}
 
 	var req forceCompleteStepRequest
@@ -416,7 +416,7 @@ func (s *Server) handleForceCompleteWorkflowStep(w http.ResponseWriter, r *http.
 
 	afterRun, afterErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if afterErr != nil {
-		slog.Warn("failed to get workflow run after force-complete step", "workflow_run_id", workflowRunID, "error", afterErr) //nolint:gosec // structured logging sanitizes values
+		slog.Warn("failed to get workflow run after force-complete step", "workflow_run_id", workflowRunID, "error", afterErr)
 	}
 	if beforeErr == nil && afterErr == nil && beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
 		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "force_complete_step")

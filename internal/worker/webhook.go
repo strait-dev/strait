@@ -153,7 +153,7 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
 	}
 
-	resp, err := webhookClient.Do(req) //nolint:gosec // URL from validated job config
+	resp, err := webhookClient.Do(req)
 	if err != nil {
 		return WebhookResult{Error: "delivery failed: " + err.Error()}
 	}
