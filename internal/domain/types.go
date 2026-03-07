@@ -65,6 +65,7 @@ type Job struct {
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
 	RetryStrategy       string            `json:"retry_strategy,omitempty"`
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID       string            `json:"environment_id,omitempty"`
 	Version             int               `json:"version"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`

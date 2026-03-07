@@ -38,6 +38,7 @@ type ExecutorStore interface {
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 }
 
 // WorkflowCallback is called after a job run reaches a terminal state.
@@ -352,6 +353,18 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		)
 		e.handleSystemFailure(ctx, run, "job not found")
 		return
+	}
+
+	// Environment endpoint override: if the job has an environment_id,
+	// resolve its variables and check for ENDPOINT_URL override.
+	if job.EnvironmentID != "" {
+		envVars, envErr := e.store.GetResolvedEnvironmentVariables(ctx, job.EnvironmentID)
+		if envErr != nil {
+			e.logger.Warn("failed to resolve environment variables", "run_id", run.ID, "environment_id", job.EnvironmentID, "error", envErr)
+		} else if override, ok := envVars["ENDPOINT_URL"]; ok && override != "" {
+			e.logger.Info("overriding endpoint URL from environment", "run_id", run.ID, "environment_id", job.EnvironmentID, "original", job.EndpointURL, "override", override)
+			job.EndpointURL = override
+		}
 	}
 
 	if e.circuitBreaker {

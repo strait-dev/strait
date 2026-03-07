@@ -36,6 +36,7 @@ type CreateJobRequest struct {
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
 	RetryStrategy       string            `json:"retry_strategy,omitempty"`
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID       string            `json:"environment_id,omitempty"`
 }
 
 type UpdateJobRequest struct {
@@ -59,6 +60,7 @@ type UpdateJobRequest struct {
 	RunTTLSecs          *int               `json:"run_ttl_secs,omitempty"`
 	RetryStrategy       *string            `json:"retry_strategy,omitempty"`
 	RetryDelaysSecs     *[]int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID       *string            `json:"environment_id,omitempty"`
 	Enabled             *bool              `json:"enabled,omitempty"`
 }
 
@@ -141,6 +143,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		RunTTLSecs:          req.RunTTLSecs,
 		RetryStrategy:       req.RetryStrategy,
 		RetryDelaysSecs:     req.RetryDelaysSecs,
+		EnvironmentID:       req.EnvironmentID,
 		Enabled:             true,
 	}
 
@@ -305,6 +308,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.RetryDelaysSecs != nil {
 		job.RetryDelaysSecs = *req.RetryDelaysSecs
 	}
+	if req.EnvironmentID != nil {
+		job.EnvironmentID = *req.EnvironmentID
+	}
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled
 	}
@@ -397,6 +403,7 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		RunTTLSecs:          source.RunTTLSecs,
 		RetryStrategy:       source.RetryStrategy,
 		RetryDelaysSecs:     source.RetryDelaysSecs,
+		EnvironmentID:       source.EnvironmentID,
 		Enabled:             true,
 	}
 
@@ -525,6 +532,7 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			RunTTLSecs:          jobReq.RunTTLSecs,
 			RetryStrategy:       jobReq.RetryStrategy,
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
+			EnvironmentID:       jobReq.EnvironmentID,
 			Enabled:             true,
 		}
 

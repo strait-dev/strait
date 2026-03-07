@@ -110,6 +110,10 @@ func (m *mockExecutorStore) GetJobHealthStats(ctx context.Context, jobID string,
 	return m.getJobHealthStatsFn(ctx, jobID, since)
 }
 
+func (m *mockExecutorStore) GetResolvedEnvironmentVariables(_ context.Context, _ string) (map[string]string, error) {
+	return nil, nil
+}
+
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

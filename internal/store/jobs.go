@@ -28,9 +28,9 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			id, project_id, group_id, name, slug, description, cron, payload_schema,
 			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
-			webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, version
+			webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 1)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1)
 		RETURNING created_at, updated_at, version`
 
 	tagsJSON, err := marshalJobTags(job.Tags)
@@ -71,6 +71,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		runTTL,
 		dbscan.NilIfEmptyString(job.RetryStrategy),
 		dbscan.NilIfEmptyIntSlice(job.RetryDelaysSecs),
+		dbscan.NilIfEmptyString(job.EnvironmentID),
 	).Scan(&job.CreatedAt, &job.UpdatedAt, &job.Version)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
@@ -87,7 +88,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
 		FROM jobs
 		WHERE id = $1`
 
@@ -110,7 +111,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -133,7 +134,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at DESC
@@ -169,11 +170,11 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		WITH snapshot AS (
 			INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
-				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs)
-			SELECT $25, id, version, name, slug, description, cron, payload_schema,
+				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id)
+			SELECT $26, id, version, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
-				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs
-			FROM jobs WHERE id = $24
+				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id
+			FROM jobs WHERE id = $25
 		)
 		UPDATE jobs
 		SET group_id = $1,
@@ -199,9 +200,10 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    run_ttl_secs = $21,
 		    retry_strategy = $22,
 		    retry_delays_secs = $23,
+		    environment_id = $24,
 		    version = version + 1,
 		    updated_at = NOW()
-		WHERE id = $24
+		WHERE id = $25
 		RETURNING updated_at, version`
 
 	tagsJSON, err := marshalJobTags(job.Tags)
@@ -240,6 +242,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		runTTL,
 		dbscan.NilIfEmptyString(job.RetryStrategy),
 		dbscan.NilIfEmptyIntSlice(job.RetryDelaysSecs),
+		dbscan.NilIfEmptyString(job.EnvironmentID),
 		job.ID,
 		uuid.Must(uuid.NewV7()).String(),
 	).Scan(&job.UpdatedAt, &job.Version)
@@ -288,7 +291,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -416,6 +419,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var runTTLSecs *int
 	var retryStrategy *string
 	var retryDelaysSecs []int
+	var environmentID *string
 
 	err := scanner.Scan(
 		&job.ID,
@@ -443,6 +447,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&runTTLSecs,
 		&retryStrategy,
 		&retryDelaysSecs,
+		&environmentID,
 		&job.Version,
 		&job.CreatedAt,
 		&job.UpdatedAt,
@@ -506,6 +511,9 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	if len(retryDelaysSecs) > 0 {
 		job.RetryDelaysSecs = retryDelaysSecs
 	}
+	if environmentID != nil {
+		job.EnvironmentID = *environmentID
+	}
 
 	return &job, nil
 }
@@ -518,7 +526,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1`
 
