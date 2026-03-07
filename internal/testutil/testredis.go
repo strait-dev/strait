@@ -22,7 +22,7 @@ type TestRedis struct {
 
 // SetupTestRedis starts a Redis container and returns a connected client.
 func SetupTestRedis(ctx context.Context) (*TestRedis, error) {
-	container, err := tcredis.Run(ctx, "redis:7-alpine",
+	container, err := tcredis.Run(ctx, "redis:8-alpine",
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("Ready to accept connections").
 				WithStartupTimeout(30*time.Second),

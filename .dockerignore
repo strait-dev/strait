@@ -1,0 +1,43 @@
+# Version control
+.git
+.gitignore
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.exe
+*.out
+*.test
+
+# CI/CD
+.github
+
+# Documentation (not needed in build)
+*.md
+LICENSE
+
+# Agent/skill configs
+.pi
+.factory
+.agent
+.claude
+.agents
+.windsurf
+
+# Test artifacts
+coverage.out
+*.jsonl
+*-coverage.txt
+
+# Deployment configs (not needed in build)
+fly.toml
+docker-compose.yml
