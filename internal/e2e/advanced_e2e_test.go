@@ -560,7 +560,7 @@ func TestE2E_CronJob(t *testing.T) {
 
 func TestE2E_WebhookDeliveries(t *testing.T) {
 	mustCleanAdv(t)
-	w := advDoReq(t, http.MethodGet, "/v1/webhook-deliveries", "")
+	w := advDoReq(t, http.MethodGet, "/v1/webhook-deliveries?project_id=proj-webhook-test", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("webhook deliveries status = %d; body = %s", w.Code, w.Body.String())
 	}

@@ -60,7 +60,7 @@ type mockAPIStore struct {
 	listChildRunsFn               func(ctx context.Context, parentRunID string) ([]domain.JobRun, error)
 	insertEventFn                 func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn     func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
-	listWebhookDeliveriesFn       func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	listWebhookDeliveriesFn       func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
 	createAPIKeyFn                func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn        func(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	revokeAPIKeyFn                func(ctx context.Context, id string) error
@@ -74,16 +74,23 @@ type mockAPIStore struct {
 	getWorkflowBySlugFn           func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	listWorkflowsFn               func(ctx context.Context, projectID string) ([]domain.Workflow, error)
 	updateWorkflowFn              func(ctx context.Context, w *domain.Workflow) error
+	createWorkflowSnapshotFn      func(ctx context.Context, workflowID string, version int) error
 	deleteWorkflowFn              func(ctx context.Context, id string) error
 	createWorkflowStepFn          func(ctx context.Context, step *domain.WorkflowStep) error
 	listStepsByWorkflowFn         func(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	listStepsByWorkflowVerFn      func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	deleteStepsByWorkflowFn       func(ctx context.Context, workflowID string) error
 	getWorkflowRunFn              func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listWorkflowRunsFn            func(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
 	listWorkflowRunsByProjFn      func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
+	createWorkflowRunLabelsFn     func(ctx context.Context, workflowRunID string, labels map[string]string) error
+	listWorkflowRunLabelsFn       func(ctx context.Context, workflowRunID string) (map[string]string, error)
 	listStepRunsByRunFn           func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	updateWorkflowRunStatusFn     func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn         func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	getStepRunByRunAndRefFn       func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	getStepApprovalByStepRunFn    func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	updateStepApprovalFn          func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	deleteJobSecretFn             func(ctx context.Context, id string) error
 	batchUpdateJobsEnabledFn      func(ctx context.Context, ids []string, enabled bool) (int64, error)
 	getJobHealthStatsFn           func(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
@@ -425,9 +432,9 @@ func (m *mockAPIStore) ListEventsByRunFiltered(ctx context.Context, runID string
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 	if m.listWebhookDeliveriesFn != nil {
-		return m.listWebhookDeliveriesFn(ctx, status, limit)
+		return m.listWebhookDeliveriesFn(ctx, projectID, status, limit)
 	}
 	return nil, nil
 }
@@ -523,6 +530,13 @@ func (m *mockAPIStore) UpdateWorkflow(ctx context.Context, w *domain.Workflow) e
 	return nil
 }
 
+func (m *mockAPIStore) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error {
+	if m.createWorkflowSnapshotFn != nil {
+		return m.createWorkflowSnapshotFn(ctx, workflowID, version)
+	}
+	return nil
+}
+
 func (m *mockAPIStore) DeleteWorkflow(ctx context.Context, id string) error {
 	if m.deleteWorkflowFn != nil {
 		return m.deleteWorkflowFn(ctx, id)
@@ -540,6 +554,13 @@ func (m *mockAPIStore) CreateWorkflowStep(ctx context.Context, step *domain.Work
 func (m *mockAPIStore) ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error) {
 	if m.listStepsByWorkflowFn != nil {
 		return m.listStepsByWorkflowFn(ctx, workflowID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	if m.listStepsByWorkflowVerFn != nil {
+		return m.listStepsByWorkflowVerFn(ctx, workflowID, version)
 	}
 	return nil, nil
 }
@@ -572,6 +593,20 @@ func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID 
 	return nil, nil
 }
 
+func (m *mockAPIStore) CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error {
+	if m.createWorkflowRunLabelsFn != nil {
+		return m.createWorkflowRunLabelsFn(ctx, workflowRunID, labels)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error) {
+	if m.listWorkflowRunLabelsFn != nil {
+		return m.listWorkflowRunLabelsFn(ctx, workflowRunID)
+	}
+	return map[string]string{}, nil
+}
+
 func (m *mockAPIStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
 	if m.listStepRunsByRunFn != nil {
 		return m.listStepRunsByRunFn(ctx, workflowRunID)
@@ -589,6 +624,27 @@ func (m *mockAPIStore) UpdateWorkflowRunStatus(ctx context.Context, id string, f
 func (m *mockAPIStore) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
 	if m.updateStepRunStatusFn != nil {
 		return m.updateStepRunStatusFn(ctx, id, status, fields)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
+	if m.getStepRunByRunAndRefFn != nil {
+		return m.getStepRunByRunAndRefFn(ctx, workflowRunID, stepRef)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
+	if m.getStepApprovalByStepRunFn != nil {
+		return m.getStepApprovalByStepRunFn(ctx, stepRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error {
+	if m.updateStepApprovalFn != nil {
+		return m.updateStepApprovalFn(ctx, id, status, approvedBy, approvedAt, errMsg)
 	}
 	return nil
 }

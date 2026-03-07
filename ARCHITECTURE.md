@@ -12,9 +12,11 @@ The system is designed as a distributed job orchestrator that uses PostgreSQL as
                     │  (Chi router + middleware)         │
                     │                                    │
                     │  /v1/jobs/* ── Job CRUD + Health   │
+                    │  /v1/workflows/* ── DAG CRUD       │
+                    │  /v1/workflow-runs/* ── Run mgmt   │
                     │  /v1/jobs/{id}/trigger ── Enqueue  │
-    HTTP ──────────>│  /v1/runs/* ── Run mgmt + DLQ     │
-    clients         │  /sdk/v1/* ── SDK (JWT auth)      │
+                    │  /v1/runs/* ── Run mgmt + DLQ     │
+                    │  /sdk/v1/* ── SDK (JWT auth)      │
                     │  /metrics ── Prometheus            │
                     └──────────┬───────────────────────┘
                                │ Enqueue (budget check)
@@ -24,6 +26,8 @@ The system is designed as a distributed job orchestrator that uses PostgreSQL as
                     │                                    │
                     │  jobs ── job definitions           │
                     │  job_runs ── run state + queue     │
+                    │  workflows ── DAG definitions      │
+                    │  workflow_runs ── workflow state   │
                     │  run_events ── log entries         │
                     │  run_usage ── AI cost tracking     │
                     │  environments ── endpoint config   │
@@ -38,11 +42,19 @@ The system is designed as a distributed job orchestrator that uses PostgreSQL as
                     │         Worker Executor            │
                     │                                    │
                     │  Poll ─> DequeueN(available)       │
-                    │  Resolve ─> Env override + SSRF   │
-                    │  Execute ─> HTTP POST to endpoint  │
-                    │  Retry ─> Smart strategy select    │
-                    │  Trace ─> Execution timing capture │
-                    │  DLQ ─> Dead letter on exhaustion  │
+                    │  Workflow Engine:                  │
+                    │  - DAG Validation (Kahn's)         │
+                    │  - Atomic Fan-in (UPDATE...RET)    │
+                    │  - Condition Evaluation            │
+                    │  - Template Rendering              │
+                    │  - Sub-workflow Nesting            │
+                    │                                    │
+                    │  Job Execution:                    │
+                    │  - Resolve ─> Env override + SSRF  │
+                    │  - Execute ─> HTTP POST to endpt   │
+                    │  - Retry ─> Smart strategy select  │
+                    │  - Trace ─> Execution timing       │
+                    │  - DLQ ─> Dead letter on exhaust   │
                     └──────────┬───────────────────────┘
                                │ Webhook / PubSub
                                v
@@ -115,7 +127,7 @@ Sets up the OpenTelemetry `TracerProvider` (OTLP HTTP) and `MeterProvider` (Prom
 
 ### 3. Data Model
 
-The system relies on the following primary tables in PostgreSQL:
+The system relies on the following primary tables in PostgreSQL (managed by 47 migrations):
 
 **jobs**
 ```sql
@@ -495,3 +507,227 @@ See the Configuration section in README.md for the complete feature flag referen
 14. **Budget Check Before Recording**: Cost budget validation occurs before persisting usage data, ensuring the violating request is rejected without inflating recorded costs.
 15. **Dead Letter as FSM State**: DLQ is modeled as a first-class FSM state (`dead_letter`) rather than a separate table, allowing standard run queries and transitions while maintaining FSM invariants.
 16. **Jitter on All Retry Strategies**: Even fixed and linear strategies apply ±20% jitter to prevent synchronized retry storms across multiple workers.
+
+### 14. Workflow Engine Architecture
+
+The workflow engine manages the execution of Directed Acyclic Graphs (DAGs) where each node represents a job execution, human approval, or a nested sub-workflow.
+
+**Engine** (`internal/workflow/engine.go`)
+The core engine handles the initiation and progression of workflow runs. Key responsibilities include:
+- **Triggering**: `TriggerWorkflow` and `TriggerSubWorkflow` initialize a `WorkflowRun` and its corresponding `WorkflowStepRun` records. It applies trigger-time step overrides and validates the DAG before starting.
+- **Step Execution**: `startStep` dispatches the appropriate execution logic based on `StepType`. For `job` steps, it enqueues a `JobRun`. For `sub_workflow` steps, it triggers a child workflow run. For `approval` steps, it creates an approval request and waits.
+- **Payload Merging**: Implements a three-layer merging logic: `trigger payload` → `step payload` → `parent outputs` (keyed by `step_ref` under `parent_outputs`). Step payloads support template variable rendering.
+- **Concurrency Control**: Enforces `MaxConcurrentRuns` per workflow using a polling retry mechanism (up to 120 attempts with 250ms delay) and `MaxParallelSteps` per run to limit execution breadth.
+- **Retry Logic**: `RetryWorkflowRun` allows replaying a workflow from the first failed step, pre-completing steps that succeeded in the original run.
+**Callback Handler** (`internal/workflow/callback.go`)
+The callback handler drives workflow progression based on job completion events:
+- **Event Hook**: `OnJobRunTerminal` maps job statuses to step statuses and triggers downstream progression. It hooks into all terminal code paths (executor, SDK, cancellation, reaper).
+- **Atomic Fan-In**: `fanInAndStartReadyChildren` uses `IncrementStepDeps` to atomically increment completion counters. A step is started only when `deps_completed == deps_required`.
+- **Failure Handling**: `handleFailedStep` applies the configured `OnFailure` policy: `fail_workflow` (default), `skip_dependents`, or `continue`.
+- **Sub-workflow Propagation**: `propagateToParent` aggregates outputs from a completed child workflow and completes the parent's `sub_workflow` step.
+- **Step Retries**: Implements independent retry logic for steps, allowing individual steps to retry without failing the entire workflow.
+
+**DAG Validation** (`internal/workflow/dag.go`)
+Ensures the workflow definition is a valid DAG using Kahn's algorithm for cycle detection. It also verifies that all dependencies exist, no self-dependencies are present, and at least one root step exists.
+
+**Condition Evaluator** (`internal/workflow/condition.go`)
+Evaluates step-level conditions before execution. Supports `step_status` checks and composite logic (`all_of`, `any_of`) with recursive nesting. If a condition evaluates to false, the step is transitioned to `skipped`.
+
+**Template Rendering** (`internal/workflow/template.go`)
+Renders `{{var_name}}` placeholders in step payloads using dot-notation for nested access (e.g., `{{parent_outputs.extract.id}}`). It preserves native JSON types for full-variable replacements and stringifies embedded variables.
+
+**Output Transform** (`internal/workflow/transform.go`)
+Applies JSONPath (gjson) extraction to step results before they are persisted as step outputs. This allows downstream steps to receive only the relevant subset of a parent's result.
+
+### 15. Workflow Finite State Machines
+
+The workflow engine uses two distinct FSMs to manage the lifecycle of runs and individual steps.
+**Workflow Run FSM**
+Manages the overall state of a workflow execution instance.
+```
+                    ┌─────────┐
+                    │ pending │
+                    └────┬────┘
+                         │ start
+                         v
+   ┌────────────────┬─────────┬────────────────────┐
+   │                │ running │                     │
+   │                └────┬────┘                     │
+   │          pause │    │    ^ resume              │
+   │                v    │    │                     │
+   │              ┌──────┴────┴┐                    │
+   │              │   paused   │                    │
+   │              └──────┬─────┘                    │
+   │                     │                          │
+   │    ┌──────────┬─────┴─────┬──────────┐         │
+   │    v          v           v          v         │
+   │ completed   failed    timed_out   canceled     │
+   └────────────────────────────────────────────────┘
+```
+
+**Step Run FSM**
+Tracks the execution of a single step within a workflow run.
+
+```
+                    ┌─────────┐
+                    │ pending │
+                    └────┬────┘
+                         │
+          ┌──────────────┼──────────────┐
+          v              v              v
+     ┌─────────┐    ┌─────────┐    ┌─────────┐
+     │ waiting │    │ skipped │    │ canceled│
+     └────┬────┘    └─────────┘    └─────────┘
+          │ start
+          v
+     ┌─────────┐
+     │ running │
+     └────┬────┘
+          │
+    ┌─────┴─────┐
+    v           v
+ completed    failed
+```
+
+### 16. Workflow Data Model
+
+**workflows**
+```sql
+id                  TEXT PRIMARY KEY              -- UUIDv7
+project_id          TEXT NOT NULL
+name                TEXT NOT NULL
+slug                TEXT NOT NULL
+description         TEXT
+enabled             BOOLEAN NOT NULL DEFAULT TRUE
+version             INT NOT NULL DEFAULT 1
+timeout_secs        INT
+max_concurrent_runs INT
+max_parallel_steps  INT
+cron                TEXT
+cron_timezone       TEXT
+skip_if_running     BOOLEAN NOT NULL DEFAULT FALSE
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+**workflow_steps**
+```sql
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_id         TEXT NOT NULL REFERENCES workflows(id)
+job_id              TEXT                          -- FK to jobs
+step_ref            TEXT NOT NULL                 -- Unique within workflow
+depends_on          TEXT[] NOT NULL DEFAULT '{}'  -- Array of step_refs
+condition           JSONB                         -- step_status|all_of|any_of
+on_failure          TEXT NOT NULL DEFAULT 'fail_workflow'
+payload             JSONB                         -- Static payload + templates
+step_type           TEXT NOT NULL DEFAULT 'job'   -- job|approval|sub_workflow
+approval_timeout_secs INT
+approval_approvers  TEXT[]
+retry_max_attempts  INT NOT NULL DEFAULT 0
+retry_backoff       TEXT NOT NULL DEFAULT 'exponential'
+retry_initial_delay_secs INT NOT NULL DEFAULT 1
+retry_max_delay_secs INT NOT NULL DEFAULT 3600
+timeout_secs_override INT
+output_transform    TEXT                          -- JSONPath expression
+sub_workflow_id     TEXT                          -- FK to workflows
+max_nesting_depth   INT NOT NULL DEFAULT 10
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+**workflow_runs**
+```sql
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_id         TEXT NOT NULL REFERENCES workflows(id)
+project_id          TEXT NOT NULL
+status              TEXT NOT NULL DEFAULT 'pending'
+triggered_by        TEXT NOT NULL DEFAULT 'manual'
+workflow_version    INT NOT NULL DEFAULT 1
+max_parallel_steps  INT
+payload             JSONB
+error               TEXT
+retry_of_run_id     TEXT                          -- FK to workflow_runs
+parent_workflow_run_id TEXT                       -- FK for sub-workflows
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+started_at          TIMESTAMPTZ
+finished_at         TIMESTAMPTZ
+expires_at          TIMESTAMPTZ
+```
+
+**workflow_step_runs**
+```sql
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id)
+workflow_step_id    TEXT NOT NULL REFERENCES workflow_steps(id)
+step_ref            TEXT NOT NULL
+job_run_id          TEXT                          -- FK to job_runs
+attempt             INT NOT NULL DEFAULT 1
+status              TEXT NOT NULL DEFAULT 'pending'
+deps_completed      INT NOT NULL DEFAULT 0
+deps_required       INT NOT NULL DEFAULT 0
+output              JSONB
+error               TEXT
+started_at          TIMESTAMPTZ
+finished_at         TIMESTAMPTZ
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+**workflow_step_approvals**
+```sql
+id                  TEXT PRIMARY KEY
+workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id)
+workflow_step_run_id TEXT NOT NULL REFERENCES workflow_step_runs(id)
+approvers           TEXT[] NOT NULL
+status              TEXT NOT NULL DEFAULT 'pending'
+approved_by         TEXT
+requested_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+approved_at         TIMESTAMPTZ
+expires_at          TIMESTAMPTZ
+```
+
+### 17. Workflow Store Layer
+
+The store layer implements workflow-specific persistence logic across several files:
+
+- **workflows.go**: Handles CRUD for workflow definitions and manages version increments.
+- **workflow_runs.go**: Manages the lifecycle of workflow runs, including status transitions with optimistic locking and concurrency counting.
+- **workflow_steps.go**: Handles step definitions and version-scoped step queries.
+- **workflow_step_runs.go**: Manages step execution state. `IncrementStepDeps` uses an `UPDATE ... RETURNING` pattern to atomically increment completion counters and identify ready children in a single query.
+- **workflow_step_approvals.go**: Manages the lifecycle of human approval gates.
+- **workflow_versions.go**: Implements version snapshotting, copying workflow and step definitions into `workflow_versions` and `workflow_version_steps` tables upon update.
+- **workflow_run_labels.go**: Supports attaching arbitrary key-value labels to workflow runs for filtering and organization.
+
+### 18. Workflow API Surface
+
+**Workflow Management**
+- `POST /v1/workflows`: Create a workflow with an initial set of steps.
+- `GET /v1/workflows?project_id=X`: List all workflows for a project.
+- `GET /v1/workflows/{id}`: Get a workflow definition including its current steps.
+- `PATCH /v1/workflows/{id}`: Update workflow configuration or replace steps (triggers version increment).
+- `DELETE /v1/workflows/{id}`: Delete a workflow and all associated runs (cascading).
+- `POST /v1/workflows/{id}/trigger`: Trigger a new workflow run. Supports `step_overrides` to disable specific steps.
+- `GET /v1/workflows/{id}/graph`: Returns the DAG structure in JSON or DOT format for visualization.
+
+**Workflow Run Management**
+- `GET /v1/workflow-runs?project_id=X`: List workflow runs with status and project filters.
+- `GET /v1/workflow-runs/{id}`: Get detailed state of a workflow run.
+- `DELETE /v1/workflow-runs/{id}`: Cancel a running workflow, cascading to all active steps and job runs.
+- `POST /v1/workflow-runs/{id}/pause`: Pause a running workflow.
+- `POST /v1/workflow-runs/{id}/resume`: Resume a paused workflow.
+- `POST /v1/workflow-runs/{id}/retry`: Create a new run replaying from the first failed step.
+- `GET /v1/workflow-runs/{id}/steps`: List all step runs for a workflow run.
+- `POST /v1/workflow-runs/{id}/steps/{stepRef}/approve`: Record an approval for an `approval` step.
+- `POST /v1/workflow-runs/{id}/steps/{stepRef}/skip`: Manually skip a `pending` or `waiting` step.
+- `POST /v1/workflow-runs/{id}/steps/{stepRef}/force-complete`: Manually complete a step with a provided result.
+
+### 19. Workflow Design Decisions
+
+1. **Atomic Fan-In via Dependency Counter**: To handle concurrent parent completions, the system uses a `deps_completed` counter on the step run. Atomic increments via `UPDATE ... RETURNING` combined with Postgres row-level locks ensure that exactly one parent completion triggers the child step when the counter reaches `deps_required`.
+2. **Three-Layer Payload Merging**: Step payloads are dynamically constructed by merging the initial trigger payload, the static step-level payload, and the outputs of all parent steps. This provides a flexible data flow while maintaining type safety.
+3. **Template Variable Rendering**: Payloads support `{{var}}` placeholders with dot-notation. The engine preserves native JSON types for full-variable replacements, allowing steps to pass complex objects and arrays without manual serialization.
+4. **Output Transformation**: Steps can define an `output_transform` using JSONPath. The engine extracts the matching subset of the job result before persisting it, reducing storage overhead and simplifying the input for downstream steps.
+5. **Sub-Workflow Nesting**: Sub-workflows are treated as first-class steps. The engine validates nesting depth (default limit 10) and detects circular references by walking the parent run chain during triggering.
+6. **Step Types**: The engine supports three distinct step types: `job` (standard execution), `approval` (human-in-the-loop gate), and `sub_workflow` (composition of other workflows).
+7. **Workflow Versioning**: Every update to a workflow's steps increments its version. The engine snapshots the entire DAG for each version, ensuring that in-flight runs are not affected by definition changes.
+8. **Step Override at Trigger Time**: Users can selectively disable steps or prune dependencies when triggering a workflow. This allows for dynamic DAG pruning without modifying the underlying definition.
+9. **Retry at Step Level**: Steps have independent retry configurations (max attempts, backoff policy). This allows transient failures in one branch of the DAG to be resolved without restarting the entire workflow.
+10. **Event-Driven Progression**: The workflow engine is entirely event-driven. The `OnJobRunTerminal` callback is the single entry point for progression, hooking into all terminal job states to drive the FSM forward.

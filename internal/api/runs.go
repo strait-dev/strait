@@ -40,6 +40,10 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	var status *domain.RunStatus
 	if statusRaw := query.Get("status"); statusRaw != "" {
 		parsed := domain.RunStatus(statusRaw)
+		if !parsed.IsValid() {
+			respondError(w, http.StatusBadRequest, "status is invalid")
+			return
+		}
 		status = &parsed
 	}
 
@@ -60,15 +64,15 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		metadataValue = &metadataValueRaw
 	}
 
-	limit := 50
+	limit := defaultPageLimit
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {
 			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
-		if parsedLimit > 100 {
-			parsedLimit = 100
+		if parsedLimit > maxPageLimit {
+			parsedLimit = maxPageLimit
 		}
 		limit = parsedLimit
 	}
@@ -257,7 +261,7 @@ func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	limit := 50
+	limit := defaultPageLimit
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		parsedLimit, err := strconv.Atoi(limitRaw)
 		if err != nil || parsedLimit <= 0 {

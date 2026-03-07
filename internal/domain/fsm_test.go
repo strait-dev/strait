@@ -118,6 +118,15 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 	}
 }
 
+func TestRunStatusIsValid(t *testing.T) {
+	if !StatusQueued.IsValid() {
+		t.Fatal("expected queued to be valid")
+	}
+	if RunStatus("not-valid").IsValid() {
+		t.Fatal("expected arbitrary status to be invalid")
+	}
+}
+
 func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
 	tests := []struct {
 		name    string

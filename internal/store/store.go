@@ -144,7 +144,7 @@ type EventStore interface {
 type WebhookDeliveryStore interface {
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
 }
@@ -168,7 +168,11 @@ type WorkflowStore interface {
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error)
+	ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
+	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
+	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
 	DeleteWorkflow(ctx context.Context, id string) error
 }
 
@@ -196,17 +200,28 @@ type WorkflowRunStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
+	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
+	ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error)
+	DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error)
+	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 }
 
 type WorkflowStepRunStore interface {
 	CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error
 	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]StepDepResult, error)
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 }
 
 type Store interface {

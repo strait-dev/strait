@@ -705,7 +705,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, limit)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -768,7 +768,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, limit)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -1013,7 +1013,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, 16)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -1047,7 +1047,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, 16)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -1083,7 +1083,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, 16)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -1117,7 +1117,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, 16)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -1151,7 +1151,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, 16)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {

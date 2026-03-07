@@ -2,6 +2,7 @@ package cdc
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"time"
@@ -80,7 +81,7 @@ func (c *Consumer) poll(ctx context.Context) error {
 
 	messages, err := c.client.Receive(ctx, c.config.BatchSize, c.config.WaitTimeMs)
 	if err != nil {
-		return err
+		return fmt.Errorf("receive cdc messages: %w", err)
 	}
 
 	if len(messages) == 0 {
@@ -120,14 +121,14 @@ func (c *Consumer) poll(ctx context.Context) error {
 	if len(ackIDs) > 0 {
 		if err := c.client.Ack(ctx, ackIDs); err != nil {
 			c.logger.Error("failed to ack messages", "count", len(ackIDs), "error", err)
-			return err
+			return fmt.Errorf("ack cdc messages: %w", err)
 		}
 	}
 
 	if len(nackIDs) > 0 {
 		if err := c.client.Nack(ctx, nackIDs); err != nil {
 			c.logger.Error("failed to nack messages", "count", len(nackIDs), "error", err)
-			return err
+			return fmt.Errorf("nack cdc messages: %w", err)
 		}
 	}
 

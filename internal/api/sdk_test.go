@@ -1178,6 +1178,29 @@ func TestHandleListRuns_InvalidCursor(t *testing.T) {
 	}
 }
 
+func TestHandleListRuns_InvalidStatus(t *testing.T) {
+	called := false
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&status=definitely-not-valid", "")
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if called {
+		t.Fatal("expected ListRunsByProject to not be called for invalid status")
+	}
+}
+
 func TestHandleListChildRuns_Success(t *testing.T) {
 	ms := &mockAPIStore{
 		listChildRunsFn: func(_ context.Context, parentRunID string) ([]domain.JobRun, error) {

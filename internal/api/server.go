@@ -72,7 +72,7 @@ type APIStore interface {
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error)
-	ListWebhookDeliveries(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error)
+	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	ListAPIKeysByProject(ctx context.Context, projectID string) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id string) error
@@ -86,16 +86,23 @@ type APIStore interface {
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
+	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
 	DeleteWorkflow(ctx context.Context, id string) error
 	CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
+	ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	DeleteJobSecret(ctx context.Context, id string) error
 	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
@@ -116,11 +123,21 @@ type Pinger interface {
 // WorkflowCallback is called after a run reaches a terminal state via SDK or cancel.
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
+	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
+	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
+	SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error
+	ForceCompleteStep(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
 }
 
 type WorkflowTrigger interface {
-	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string) (*domain.WorkflowRun, error)
+	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
+	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
+
+const (
+	defaultPageLimit = 50
+	maxPageLimit     = 100
+)
 
 type Server struct {
 	router           chi.Router
@@ -134,16 +151,29 @@ type Server struct {
 	workflowEngine   WorkflowTrigger
 }
 
-func NewServer(cfg *config.Config, s APIStore, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, pinger Pinger, wfCallback WorkflowCallback, workflowEngine WorkflowTrigger) *Server {
+// ServerDeps holds all dependencies required to construct a Server.
+type ServerDeps struct {
+	Config           *config.Config
+	Store            APIStore
+	Queue            queue.Queue
+	PubSub           pubsub.Publisher
+	MetricsHandler   http.Handler
+	Pinger           Pinger
+	WorkflowCallback WorkflowCallback
+	WorkflowEngine   WorkflowTrigger
+}
+
+// NewServer creates a new HTTP API server with the given dependencies.
+func NewServer(deps ServerDeps) *Server {
 	srv := &Server{
-		store:            s,
-		queue:            q,
-		pubsub:           pub,
-		config:           cfg,
-		metricsHandler:   metricsHandler,
-		pinger:           pinger,
-		workflowCallback: wfCallback,
-		workflowEngine:   workflowEngine,
+		store:            deps.Store,
+		queue:            deps.Queue,
+		pubsub:           deps.PubSub,
+		config:           deps.Config,
+		metricsHandler:   deps.MetricsHandler,
+		pinger:           deps.Pinger,
+		workflowCallback: deps.WorkflowCallback,
+		workflowEngine:   deps.WorkflowEngine,
 	}
 	srv.router = srv.routes()
 	return srv
@@ -280,7 +310,10 @@ func (s *Server) routes() chi.Router {
 				r.Get("/", s.handleGetWorkflow)
 				r.Patch("/", s.handleUpdateWorkflow)
 				r.Delete("/", s.handleDeleteWorkflow)
+				r.Post("/dry-run", s.handleDryRunWorkflow)
+				r.Get("/graph", s.handleWorkflowGraph)
 				r.Post("/trigger", s.handleTriggerWorkflow)
+				r.Post("/clone", s.handleCloneWorkflow)
 				r.Get("/runs", s.handleListWorkflowRuns)
 			})
 		})
@@ -290,7 +323,14 @@ func (s *Server) routes() chi.Router {
 			r.Route("/{workflowRunID}", func(r chi.Router) {
 				r.Get("/", s.handleGetWorkflowRun)
 				r.Delete("/", s.handleCancelWorkflowRun)
+				r.Post("/pause", s.handlePauseWorkflowRun)
+				r.Post("/resume", s.handleResumeWorkflowRun)
+				r.Get("/labels", s.handleGetWorkflowRunLabels)
 				r.Get("/steps", s.handleListWorkflowStepRuns)
+				r.Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
+				r.Post("/steps/{stepRef}/skip", s.handleSkipWorkflowStep)
+				r.Post("/steps/{stepRef}/force-complete", s.handleForceCompleteWorkflowStep)
+				r.Post("/retry", s.handleRetryWorkflowRun)
 			})
 		})
 	})
@@ -366,10 +406,10 @@ func validateURL(rawURL string) error {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL must use http or https scheme")
+		return fmt.Errorf("url must use http or https scheme")
 	}
 	if u.Host == "" {
-		return fmt.Errorf("URL must have a host")
+		return fmt.Errorf("url must have a host")
 	}
 
 	// Block private/internal IPs (SSRF protection)
@@ -377,7 +417,7 @@ func validateURL(rawURL string) error {
 	ip := net.ParseIP(host)
 	if ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("URL must not point to private or loopback addresses")
+			return fmt.Errorf("url must not point to private or loopback addresses")
 		}
 	}
 

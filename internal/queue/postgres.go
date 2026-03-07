@@ -19,6 +19,7 @@ type PostgresQueue struct {
 	db store.DBTX
 }
 
+// NewPostgresQueue creates a new Postgres-backed job queue using SKIP LOCKED.
 func NewPostgresQueue(db store.DBTX) *PostgresQueue {
 	return &PostgresQueue{db: db}
 }

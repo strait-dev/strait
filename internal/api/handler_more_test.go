@@ -1359,7 +1359,7 @@ func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			return []domain.WebhookDelivery{
 				{ID: "del-1", RunID: "run-1", JobID: "job-1", WebhookURL: "https://example.com/hook", Status: "delivered", Attempts: 1, MaxAttempts: 3, CreatedAt: now, UpdatedAt: now},
 			}, nil
@@ -1367,7 +1367,7 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1387,14 +1387,14 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	var gotStatus string
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotStatus = status
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?status=pending", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&status=pending", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1409,14 +1409,14 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=10", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=10", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1431,14 +1431,14 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1453,14 +1453,14 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=200", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=200", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1475,7 +1475,7 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=abc", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=abc", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1487,7 +1487,7 @@ func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?limit=-5", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=-5", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1498,18 +1498,219 @@ func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 
 func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListWebhookDeliveries_MissingProjectID(t *testing.T) {
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
+	tests := []struct {
+		name     string
+		priority int
+	}{
+		{"zero_priority", 0},
+		{"mid_priority", 5},
+		{"max_priority", 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+				if run.Priority != tt.priority {
+					t.Errorf("priority = %d, want %d", run.Priority, tt.priority)
+				}
+				return nil
+			}}
+			ms := &mockAPIStore{
+				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+					return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+				},
+			}
+			srv := newTestServer(t, ms, mq, nil)
+			body := fmt.Sprintf(`{"payload":{},"priority":%d}`, tt.priority)
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, r)
+			if w.Code != http.StatusCreated {
+				t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":11}`)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "priority must be between 0 and 10") {
+		t.Errorf("body = %s, want priority error message", w.Body.String())
+	}
+}
+
+func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":-1}`)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
+	tests := []struct {
+		name       string
+		priority   int
+		wantStatus int
+	}{
+		{"negative_one", -1, http.StatusBadRequest},
+		{"zero", 0, http.StatusCreated},
+		{"ten", 10, http.StatusCreated},
+		{"eleven", 11, http.StatusBadRequest},
+		{"large_negative", -100, http.StatusBadRequest},
+		{"large_positive", 999, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := &mockAPIStore{
+				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+					return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
+				},
+			}
+			srv := newTestServer(t, ms, &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}, nil)
+			body := fmt.Sprintf(`{"payload":{},"priority":%d}`, tt.priority)
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, r)
+			if w.Code != tt.wantStatus {
+				t.Errorf("[priority=%d] status = %d, want %d; body: %s", tt.priority, w.Code, tt.wantStatus, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestValidateWorkflowConfig(t *testing.T) {
+	tests := []struct {
+		name             string
+		cronExpr         string
+		cronTimezone     string
+		maxParallelSteps int
+		wantErr          bool
+		wantErrContains  string
+	}{
+		{
+			name:             "valid_no_cron",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "valid_with_cron",
+			cronExpr:         "*/5 * * * *",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "valid_with_cron_and_timezone",
+			cronExpr:         "0 9 * * 1-5",
+			cronTimezone:     "America/New_York",
+			maxParallelSteps: 2,
+		},
+		{
+			name:             "negative_max_parallel_steps",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: -1,
+			wantErr:          true,
+			wantErrContains:  "max_parallel_steps must be >= 0",
+		},
+		{
+			name:             "invalid_cron_expression",
+			cronExpr:         "not-a-cron",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+			wantErr:          true,
+			wantErrContains:  "invalid cron expression",
+		},
+		{
+			name:             "invalid_cron_timezone",
+			cronExpr:         "*/5 * * * *",
+			cronTimezone:     "Invalid/Timezone",
+			maxParallelSteps: 0,
+			wantErr:          true,
+			wantErrContains:  "invalid cron_timezone",
+		},
+		{
+			name:             "valid_cron_timezone_empty_with_cron",
+			cronExpr:         "0 0 * * *",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "zero_max_parallel_steps_valid",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: 0,
+		},
+		{
+			name:             "positive_max_parallel_steps_valid",
+			cronExpr:         "",
+			cronTimezone:     "",
+			maxParallelSteps: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateWorkflowConfig(tt.cronExpr, tt.cronTimezone, tt.maxParallelSteps)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Fatalf("error = %v, want containing %q", err, tt.wantErrContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 

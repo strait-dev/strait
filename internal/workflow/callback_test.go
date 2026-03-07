@@ -20,7 +20,7 @@ func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 		},
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{
 				{StepRef: "a", OnFailure: domain.SkipDependents},
 				{StepRef: "b", DependsOn: []string{"a"}},
@@ -64,7 +64,7 @@ func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 		},
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{
 				{StepRef: "a", OnFailure: domain.Continue},
 			}, nil
@@ -99,7 +99,7 @@ func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 		},
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{
 				{StepRef: "a"}, // No OnFailure set → defaults to fail_workflow.
 			}, nil
@@ -168,7 +168,7 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 		},
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{
 				{StepRef: "s1"},
 				{StepRef: "s2"},
@@ -225,7 +225,7 @@ func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 		},
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{
 				{StepRef: "s1", OnFailure: domain.Continue},
 				{StepRef: "s2"},
@@ -258,7 +258,7 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
 		},
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{
 				{StepRef: "s1", OnFailure: domain.FailWorkflow},
 				{StepRef: "s2"},
@@ -282,7 +282,10 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	skippedIDs := make(map[string]bool)
 	ms := &mockCallbackStore{
-		listStepsByWorkflowFn: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{WorkflowVersion: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 			return []domain.WorkflowStep{
 				{StepRef: "a"},
 				{StepRef: "b", DependsOn: []string{"a"}},

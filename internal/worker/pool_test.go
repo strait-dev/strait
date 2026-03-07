@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestPool_Submit_ExecutesWork(t *testing.T) {
 		t.Fatal("work not executed within timeout")
 	}
 
-	p.Shutdown()
+	_ = p.Shutdown(context.Background())
 }
 
 func TestPool_ConcurrencyLimit(t *testing.T) {
@@ -81,7 +82,7 @@ func TestPool_ConcurrencyLimit(t *testing.T) {
 		t.Fatal("third submit did not proceed after slot became free")
 	}
 
-	p.Shutdown()
+	_ = p.Shutdown(context.Background())
 }
 
 func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
@@ -102,7 +103,7 @@ func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
 
 	shutdownReturned := make(chan struct{})
 	go func() {
-		p.Shutdown()
+		_ = p.Shutdown(context.Background())
 		close(shutdownReturned)
 	}()
 
@@ -135,7 +136,7 @@ func TestPool_Submit_CanceledContext(t *testing.T) {
 		t.Fatal("work executed despite canceled context")
 	}
 
-	p.Shutdown()
+	_ = p.Shutdown(context.Background())
 }
 
 func TestPool_ActiveCount(t *testing.T) {
@@ -164,5 +165,38 @@ func TestPool_ActiveCount(t *testing.T) {
 	}
 
 	close(release)
-	p.Shutdown()
+	_ = p.Shutdown(context.Background())
+}
+
+func TestPool_Shutdown_RespectsContext(t *testing.T) {
+	p := NewPool(1)
+	started := make(chan struct{})
+
+	p.Submit(context.Background(), func() {
+		close(started)
+		time.Sleep(5 * time.Second) // simulates stuck work
+	})
+
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := p.Shutdown(ctx)
+	if err == nil {
+		t.Fatal("expected timeout error from Shutdown, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+}
+
+func TestPool_Shutdown_ReturnsNilOnSuccess(t *testing.T) {
+	p := NewPool(1)
+	p.Submit(context.Background(), func() {})
+
+	err := p.Shutdown(context.Background())
+	if err != nil {
+		t.Fatalf("expected nil error from Shutdown, got %v", err)
+	}
 }

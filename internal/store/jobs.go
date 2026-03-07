@@ -146,7 +146,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 	}
 	defer rows.Close()
 
-	jobs := make([]domain.Job, 0)
+	jobs := make([]domain.Job, 0, 16)
 	for rows.Next() {
 		job, err := scanJob(rows)
 		if err != nil {
@@ -302,7 +302,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 	}
 	defer rows.Close()
 
-	jobs := make([]domain.Job, 0)
+	jobs := make([]domain.Job, 0, 8)
 	for rows.Next() {
 		job, err := scanJob(rows)
 		if err != nil {

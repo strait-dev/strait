@@ -10,24 +10,25 @@ import (
 )
 
 type Config struct {
-	DatabaseURL         string        `mapstructure:"DATABASE_URL"`
-	RedisURL            string        `mapstructure:"REDIS_URL"`
-	RedisSentinelMaster string        `mapstructure:"REDIS_SENTINEL_MASTER"`
-	RedisSentinelAddrs  []string      `mapstructure:"REDIS_SENTINEL_ADDRS"`
-	Mode                string        `mapstructure:"MODE"`
-	Port                int           `mapstructure:"PORT"`
-	WorkerConcurrency   int           `mapstructure:"WORKER_CONCURRENCY"`
-	InternalSecret      string        `mapstructure:"INTERNAL_SECRET"`
-	JWTSigningKey       string        `mapstructure:"JWT_SIGNING_KEY"`
-	SecretEncryptionKey string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
-	LogLevel            string        `mapstructure:"LOG_LEVEL"`
-	HeartbeatInterval   time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
-	ReaperInterval      time.Duration `mapstructure:"REAPER_INTERVAL"`
-	StaleThreshold      time.Duration `mapstructure:"STALE_THRESHOLD"`
-	PollerInterval      time.Duration `mapstructure:"POLLER_INTERVAL"`
-	RunRetentionShort   time.Duration `mapstructure:"RUN_RETENTION_SHORT"`
-	RunRetentionLong    time.Duration `mapstructure:"RUN_RETENTION_LONG"`
-	OTELEndpoint        string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	DatabaseURL              string        `mapstructure:"DATABASE_URL"`
+	RedisURL                 string        `mapstructure:"REDIS_URL"`
+	RedisSentinelMaster      string        `mapstructure:"REDIS_SENTINEL_MASTER"`
+	RedisSentinelAddrs       []string      `mapstructure:"REDIS_SENTINEL_ADDRS"`
+	Mode                     string        `mapstructure:"MODE"`
+	Port                     int           `mapstructure:"PORT"`
+	WorkerConcurrency        int           `mapstructure:"WORKER_CONCURRENCY"`
+	InternalSecret           string        `mapstructure:"INTERNAL_SECRET"`
+	JWTSigningKey            string        `mapstructure:"JWT_SIGNING_KEY"`
+	SecretEncryptionKey      string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
+	LogLevel                 string        `mapstructure:"LOG_LEVEL"`
+	HeartbeatInterval        time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
+	ReaperInterval           time.Duration `mapstructure:"REAPER_INTERVAL"`
+	StaleThreshold           time.Duration `mapstructure:"STALE_THRESHOLD"`
+	PollerInterval           time.Duration `mapstructure:"POLLER_INTERVAL"`
+	RunRetentionShort        time.Duration `mapstructure:"RUN_RETENTION_SHORT"`
+	RunRetentionLong         time.Duration `mapstructure:"RUN_RETENTION_LONG"`
+	OTELEndpoint             string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	WorkflowRunRetentionDays int           `mapstructure:"WORKFLOW_RUN_RETENTION_DAYS"`
 
 	// Database connection pool tuning
 	DBMaxConns        int32         `mapstructure:"DB_MAX_CONNS"`
@@ -90,6 +91,7 @@ type Config struct {
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
 }
 
+// Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	viper.SetDefault("MODE", "all")
 	viper.SetDefault("PORT", 8080)
@@ -99,6 +101,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("REAPER_INTERVAL", 30*time.Second)
 	viper.SetDefault("STALE_THRESHOLD", 60*time.Second)
 	viper.SetDefault("POLLER_INTERVAL", 5*time.Second)
+	viper.SetDefault("WORKFLOW_RUN_RETENTION_DAYS", 30)
 	viper.SetDefault("RUN_RETENTION_SHORT", 30*24*time.Hour)
 	viper.SetDefault("RUN_RETENTION_LONG", 90*24*time.Hour)
 	viper.SetDefault("DB_MAX_CONNS", 25)
@@ -168,6 +171,7 @@ func Load() (*Config, error) {
 	cfg.CORSAllowedOrigins = viper.GetStringSlice("CORS_ALLOWED_ORIGINS")
 	cfg.CORSAllowCredentials = viper.GetBool("CORS_ALLOW_CREDENTIALS")
 	cfg.RedisSentinelAddrs = viper.GetStringSlice("REDIS_SENTINEL_ADDRS")
+	cfg.WorkflowRunRetentionDays = viper.GetInt("WORKFLOW_RUN_RETENTION_DAYS")
 	cfg.WorkerPartitions = viper.GetStringSlice("WORKER_PARTITIONS")
 	cfg.WorkerPartitionWeights = viper.GetString("WORKER_PARTITION_WEIGHTS")
 

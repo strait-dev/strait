@@ -19,6 +19,7 @@ type DelayedPoller struct {
 	interval time.Duration
 }
 
+// NewDelayedPoller creates a new delayed run poller.
 func NewDelayedPoller(s PollerStore, interval time.Duration) *DelayedPoller {
 	return &DelayedPoller{
 		store:    s,

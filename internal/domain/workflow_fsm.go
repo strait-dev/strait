@@ -4,9 +4,11 @@ import "slices"
 
 var validWorkflowTransitions = map[WorkflowRunStatus][]WorkflowRunStatus{
 	WfStatusPending:   {WfStatusRunning, WfStatusCanceled},
-	WfStatusRunning:   {WfStatusCompleted, WfStatusFailed, WfStatusCanceled},
+	WfStatusRunning:   {WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
+	WfStatusPaused:    {WfStatusRunning, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
 	WfStatusCompleted: {},
 	WfStatusFailed:    {},
+	WfStatusTimedOut:  {},
 	WfStatusCanceled:  {},
 }
 
@@ -22,8 +24,8 @@ func ValidateWorkflowTransition(from, to WorkflowRunStatus) error {
 }
 
 var validStepTransitions = map[StepRunStatus][]StepRunStatus{
-	StepPending:   {StepWaiting, StepRunning, StepSkipped, StepCanceled},
-	StepWaiting:   {StepRunning, StepSkipped, StepCanceled},
+	StepPending:   {StepWaiting, StepRunning, StepSkipped, StepCanceled, StepCompleted},
+	StepWaiting:   {StepRunning, StepSkipped, StepCanceled, StepCompleted},
 	StepRunning:   {StepCompleted, StepFailed, StepCanceled},
 	StepCompleted: {},
 	StepFailed:    {},

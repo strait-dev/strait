@@ -51,7 +51,20 @@ func (p *Pool) Available() int {
 	return cap(p.sem) - len(p.sem)
 }
 
-// Shutdown waits for all in-flight work to complete.
-func (p *Pool) Shutdown() {
-	p.wg.Wait()
+// Shutdown waits for all in-flight work to complete. If ctx is canceled
+// before all workers finish, it returns ctx.Err(). This prevents graceful
+// shutdown from blocking indefinitely on stuck HTTP dispatches.
+func (p *Pool) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

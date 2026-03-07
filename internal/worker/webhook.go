@@ -15,13 +15,20 @@ import (
 	"orchestrator/internal/domain"
 )
 
+const (
+	webhookTimeout         = 10 * time.Second
+	webhookMaxIdleConns    = 20
+	webhookMaxIdlePerHost  = 5
+	webhookIdleConnTimeout = 60 * time.Second
+)
+
 // webhookClient is a shared HTTP client for webhook delivery.
 var webhookClient = &http.Client{
-	Timeout: 10 * time.Second,
+	Timeout: webhookTimeout,
 	Transport: &http.Transport{
-		MaxIdleConns:        20,
-		MaxIdleConnsPerHost: 5,
-		IdleConnTimeout:     60 * time.Second,
+		MaxIdleConns:        webhookMaxIdleConns,
+		MaxIdleConnsPerHost: webhookMaxIdlePerHost,
+		IdleConnTimeout:     webhookIdleConnTimeout,
 	},
 }
 

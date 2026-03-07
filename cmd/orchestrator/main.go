@@ -140,7 +140,7 @@ func runServe(modeOverride string) error {
 
 	startCDCConsumer(gCtx, g, cfg, pub)
 	startAPIServer(gCtx, g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
-	if err := startWorker(gCtx, g, cfg, queries, q, pub, metrics, stepCallback); err != nil {
+	if err := startWorker(gCtx, g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine); err != nil {
 		return err
 	}
 
@@ -261,7 +261,16 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 	if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
 		pinger = redisPub
 	}
-	srv := api.NewServer(cfg, queries, q, pub, metricsHandler, pinger, stepCallback, workflowEngine)
+	srv := api.NewServer(api.ServerDeps{
+		Config:           cfg,
+		Store:            queries,
+		Queue:            q,
+		PubSub:           pub,
+		MetricsHandler:   metricsHandler,
+		Pinger:           pinger,
+		WorkflowCallback: stepCallback,
+		WorkflowEngine:   workflowEngine,
+	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           srv,
@@ -289,7 +298,7 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback) error {
+func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) error {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return nil
 	}
@@ -330,12 +339,16 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 	g.Go(func() error {
 		<-gCtx.Done()
 		slog.Info("shutting down worker pool")
-		p.Shutdown()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+		if err := p.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("worker pool shutdown timed out", "error", err)
+		}
 		return nil
 	})
 
 	// Start scheduler (cron, delayed poller, reaper)
-	sched := scheduler.New(cfg, queries, q, stepCallback)
+	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine)
 	if err := sched.Start(gCtx); err != nil {
 		return fmt.Errorf("start scheduler: %w", err)
 	}

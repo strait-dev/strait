@@ -28,18 +28,22 @@ type statusUpdateCall struct {
 }
 
 type mockExecutorStore struct {
-	getJobFn             func(ctx context.Context, id string) (*domain.Job, error)
-	listSecretsFn        func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
-	updateRunStatusFn    func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	updateHeartbeatFn    func(ctx context.Context, id string) error
-	canDispatchFn        func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
-	recordFailureFn      func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
-	recordSuccessFn      func(ctx context.Context, endpointURL string) error
-	getJobHealthStatsFn  func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
-	getResolvedEnvVarsFn func(ctx context.Context, id string) (map[string]string, error)
-	mu                   sync.Mutex
-	statusCalls          []statusUpdateCall
-	heartbeatRunIDs      []string
+	getJobFn                 func(ctx context.Context, id string) (*domain.Job, error)
+	listSecretsFn            func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
+	getWorkflowStepRunFn     func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	getWorkflowRunFn         func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listStepsByWorkflowVerFn func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	updateRunStatusFn        func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateHeartbeatFn        func(ctx context.Context, id string) error
+	canDispatchFn            func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	recordFailureFn          func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	recordSuccessFn          func(ctx context.Context, endpointURL string) error
+	getJobHealthStatsFn      func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
+	getResolvedEnvVarsFn     func(ctx context.Context, id string) (map[string]string, error)
+
+	mu              sync.Mutex
+	statusCalls     []statusUpdateCall
+	heartbeatRunIDs []string
 }
 
 func (m *mockExecutorStore) GetJob(ctx context.Context, id string) (*domain.Job, error) {
@@ -81,6 +85,27 @@ func (m *mockExecutorStore) UpdateHeartbeat(ctx context.Context, id string) erro
 		return nil
 	}
 	return m.updateHeartbeatFn(ctx, id)
+}
+
+func (m *mockExecutorStore) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
+	if m.getWorkflowStepRunFn != nil {
+		return m.getWorkflowStepRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockExecutorStore) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
+	if m.getWorkflowRunFn != nil {
+		return m.getWorkflowRunFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockExecutorStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	if m.listStepsByWorkflowVerFn != nil {
+		return m.listStepsByWorkflowVerFn(ctx, workflowID, version)
+	}
+	return nil, nil
 }
 
 func (m *mockExecutorStore) CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error) {
@@ -189,7 +214,7 @@ func newTestExecutor(t *testing.T, store *mockExecutorStore, q queue.Queue, hear
 	t.Helper()
 
 	pool := NewPool(4)
-	t.Cleanup(pool.Shutdown)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
 
 	exec := NewExecutor(ExecutorConfig{
 		Pool:              pool,
@@ -309,7 +334,7 @@ func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
 		HTTPClient:        server.Client(),
 		CircuitBreaker:    true,
 	})
-	t.Cleanup(exec.pool.Shutdown)
+	t.Cleanup(func() { _ = exec.pool.Shutdown(context.Background()) })
 
 	run := testRun(1)
 	exec.execute(context.Background(), run)
@@ -871,7 +896,7 @@ func TestExecutor_HandleSystemFailure(t *testing.T) {
 
 func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
 	pool := NewPool(1)
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown(context.Background()) }()
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -1011,7 +1036,7 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 
 	shutdownDone := make(chan struct{})
 	go func() {
-		pool.Shutdown()
+		_ = pool.Shutdown(context.Background())
 		close(shutdownDone)
 	}()
 
@@ -1181,7 +1206,7 @@ func TestExecutor_NilMetrics(t *testing.T) {
 		PollInterval:      time.Millisecond,
 		HeartbeatInterval: time.Hour,
 	})
-	t.Cleanup(exec.pool.Shutdown)
+	t.Cleanup(func() { _ = exec.pool.Shutdown(context.Background()) })
 
 	job := testJob("http://example.invalid", 1, 5)
 	run := testRun(1)
@@ -1469,6 +1494,83 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 	}
 }
 
+func TestExecutor_PanicRecovery(t *testing.T) {
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		panic("simulated crash in job lookup")
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			return []domain.JobRun{*testRun(1)}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	_ = pool.Shutdown(context.Background())
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
+	}
+	errMsg, ok := calls[0].fields["error"].(string)
+	if !ok {
+		t.Fatal("expected error field in status update")
+	}
+	if !strings.Contains(errMsg, "panic:") {
+		t.Fatalf("error = %q, want to contain 'panic:'", errMsg)
+	}
+}
+
+func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		panic(errors.New("runtime error: index out of range"))
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			return []domain.JobRun{*testRun(1)}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	_ = pool.Shutdown(context.Background())
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
+	}
+}
+
 func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 	store := &mockExecutorStore{}
 
@@ -1491,7 +1593,7 @@ func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 	}
 
 	pool := NewPool(1)
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown(context.Background()) }()
 
 	exec := NewExecutor(ExecutorConfig{
 		Pool:              pool,
@@ -1548,7 +1650,7 @@ func BenchmarkExecutorPoll(b *testing.B) {
 		HeartbeatInterval: time.Hour,
 		HTTPClient:        &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("skip") })},
 	})
-	defer exec.pool.Shutdown()
+	defer func() { _ = exec.pool.Shutdown(context.Background()) }()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

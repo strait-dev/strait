@@ -24,6 +24,7 @@ type Metrics struct {
 	ExecutionTraceQueueWait metric.Float64Histogram
 }
 
+// InitMetrics registers Prometheus metrics and returns the HTTP handler.
 func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Context) error, error) {
 	exporter, err := prometheus.New()
 	if err != nil {
