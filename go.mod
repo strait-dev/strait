@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/exaring/otelpgx v0.10.0
 	github.com/gdamore/tcell/v2 v2.13.8
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
@@ -32,6 +33,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.42.0
 	go.opentelemetry.io/otel/sdk v1.42.0
 	go.opentelemetry.io/otel/sdk/metric v1.42.0
+	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.19.0
 	golang.org/x/term v0.40.0
 	gopkg.in/yaml.v3 v3.0.1

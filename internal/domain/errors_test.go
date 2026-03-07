@@ -135,37 +135,25 @@ func TestValidateTransition_ReturnsUnknownStatusError(t *testing.T) {
 	}
 }
 
-func TestMustTransition_ValidDoesNotPanic(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("MustTransition panicked for valid transition: %v", r)
-		}
-	}()
-	MustTransition(StatusQueued, StatusDequeued)
+func TestTransition_ValidReturnsNil(t *testing.T) {
+	if err := Transition(StatusQueued, StatusDequeued); err != nil {
+		t.Fatalf("Transition returned error for valid transition: %v", err)
+	}
 }
 
-func TestMustTransition_InvalidPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("MustTransition did not panic for invalid transition")
-		}
-	}()
-	MustTransition(StatusCompleted, StatusExecuting)
+func TestTransition_InvalidReturnsError(t *testing.T) {
+	err := Transition(StatusCompleted, StatusExecuting)
+	if err == nil {
+		t.Fatal("Transition did not return error for invalid transition")
+	}
 }
 
-func TestMustTransition_PanicContainsError(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic")
-		}
-		err, ok := r.(error)
-		if !ok {
-			t.Fatalf("panic value is %T, want error", r)
-		}
-		if !strings.Contains(err.Error(), "completed") {
-			t.Errorf("panic error should mention status, got %q", err.Error())
-		}
-	}()
-	MustTransition(StatusCompleted, StatusQueued)
+func TestTransition_ErrorContainsStatus(t *testing.T) {
+	err := Transition(StatusCompleted, StatusQueued)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "completed") {
+		t.Errorf("error should mention status, got %q", err.Error())
+	}
 }

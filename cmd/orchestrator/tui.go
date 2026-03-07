@@ -288,6 +288,8 @@ func (d *tuiDashboard) setupInputCapture(done chan struct{}) {
 			close(done)
 			d.app.Stop()
 			return nil
+		default:
+			// pass through all other keys
 		}
 
 		switch event.Rune() {

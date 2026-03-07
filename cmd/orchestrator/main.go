@@ -24,6 +24,7 @@ import (
 	"orchestrator/internal/workflow"
 	"orchestrator/migrations"
 
+	"github.com/exaring/otelpgx"
 	"github.com/golang-migrate/migrate/v4"
 	pgmigrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -179,7 +180,8 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	poolConfig.MinConns = cfg.DBMinConns
 	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
 	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
-
+	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
