@@ -104,6 +104,7 @@ type Config struct {
 	WebhookMaxAttempts    int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
 	DefaultJobMaxAttempts int `mapstructure:"DEFAULT_JOB_MAX_ATTEMPTS"`
 	DefaultJobTimeoutSecs int `mapstructure:"DEFAULT_JOB_TIMEOUT_SECS"`
+	WorkerQueueSize       int `mapstructure:"WORKER_QUEUE_SIZE"`
 
 	// Scheduler settings
 	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
@@ -185,6 +186,7 @@ func setDefaults() {
 	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
+	viper.SetDefault("WORKER_QUEUE_SIZE", 0)
 	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
 	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
 	viper.SetDefault("MAX_WORKFLOW_NESTING_DEPTH", 10)
@@ -215,7 +217,8 @@ func BindEnv() error {
 		"FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES", "FF_JOB_HEALTH_SCORING", "FF_ADAPTIVE_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_ATTEMPTS",
-		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKFLOW_RETENTION",
+		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
+		"WORKFLOW_RETENTION",
 		"REAPER_DELETE_BATCH_SIZE", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
 		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
 	}

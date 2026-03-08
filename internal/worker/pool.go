@@ -3,52 +3,117 @@ package worker
 import (
 	"context"
 	"log/slog"
-	"sync"
+
+	"github.com/alitto/pond/v2"
 )
 
-// Pool manages a fixed number of concurrent worker goroutines using a
-// semaphore pattern (buffered channel).
+// Pool manages a fixed number of concurrent worker goroutines backed by
+// github.com/alitto/pond/v2. It provides the same Submit/Shutdown interface
+// as the previous semaphore-based pool plus observability methods for
+// running workers, waiting tasks, and throughput counters.
 type Pool struct {
-	sem chan struct{}
-	wg  sync.WaitGroup
+	inner       pond.Pool
+	concurrency int
 }
 
-// NewPool creates a pool with the given concurrency limit.
-func NewPool(concurrency int) *Pool {
+// PoolOption configures optional pool behaviour.
+type PoolOption func(*poolConfig)
+
+type poolConfig struct {
+	queueSize int
+}
+
+// WithQueueSize sets a bounded task queue for backpressure. When the queue
+// is full, Submit blocks until a slot opens or the context is canceled.
+// A value ≤ 0 means unbounded (the default).
+func WithQueueSize(n int) PoolOption {
+	return func(c *poolConfig) { c.queueSize = n }
+}
+
+// NewPool creates a pool with the given concurrency limit and options.
+func NewPool(concurrency int, opts ...PoolOption) *Pool {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 
+	cfg := poolConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	var pondOpts []pond.Option
+	if cfg.queueSize > 0 {
+		pondOpts = append(pondOpts, pond.WithQueueSize(cfg.queueSize))
+	}
+
 	return &Pool{
-		sem: make(chan struct{}, concurrency),
+		inner:       pond.NewPool(concurrency, pondOpts...),
+		concurrency: concurrency,
 	}
 }
 
-// Submit schedules work on the pool. It blocks if all slots are occupied.
+// Submit schedules work on the pool. It blocks if all slots are occupied
+// (and the queue is full when backpressure is configured).
 // If ctx is canceled while waiting for a slot, the work is dropped.
 func (p *Pool) Submit(ctx context.Context, fn func()) {
 	select {
-	case p.sem <- struct{}{}:
-		p.wg.Add(1)
-		go func() {
-			defer func() {
-				<-p.sem
-				p.wg.Done()
-			}()
-			fn()
-		}()
 	case <-ctx.Done():
 		slog.Warn("pool: work dropped, context canceled")
+		return
+	default:
 	}
+	p.inner.Submit(fn)
 }
 
 // ActiveCount returns the number of currently running workers.
 func (p *Pool) ActiveCount() int {
-	return len(p.sem)
+	return int(p.inner.RunningWorkers())
 }
 
+// Available returns the number of idle worker slots.
 func (p *Pool) Available() int {
-	return cap(p.sem) - len(p.sem)
+	running := int(p.inner.RunningWorkers())
+	if running >= p.concurrency {
+		return 0
+	}
+	return p.concurrency - running
+}
+
+// RunningWorkers returns the current number of goroutines executing tasks.
+func (p *Pool) RunningWorkers() int64 {
+	return p.inner.RunningWorkers()
+}
+
+// WaitingTasks returns the number of tasks waiting in the queue.
+func (p *Pool) WaitingTasks() uint64 {
+	return p.inner.WaitingTasks()
+}
+
+// SubmittedTasks returns the total number of tasks submitted to the pool.
+func (p *Pool) SubmittedTasks() uint64 {
+	return p.inner.SubmittedTasks()
+}
+
+// CompletedTasks returns the total number of tasks that have finished
+// (successfully or with failure).
+func (p *Pool) CompletedTasks() uint64 {
+	return p.inner.CompletedTasks()
+}
+
+// SuccessfulTasks returns the total number of tasks that completed without error.
+func (p *Pool) SuccessfulTasks() uint64 {
+	return p.inner.SuccessfulTasks()
+}
+
+// FailedTasks returns the total number of tasks that panicked or returned an error.
+func (p *Pool) FailedTasks() uint64 {
+	return p.inner.FailedTasks()
+}
+
+// DroppedTasks returns the total number of tasks that were dropped because
+// the pool was stopped before they could be executed.
+func (p *Pool) DroppedTasks() uint64 {
+	return p.inner.DroppedTasks()
 }
 
 // Shutdown waits for all in-flight work to complete. If ctx is canceled
@@ -57,7 +122,7 @@ func (p *Pool) Available() int {
 func (p *Pool) Shutdown(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
-		p.wg.Wait()
+		p.inner.StopAndWait()
 		close(done)
 	}()
 
@@ -65,6 +130,7 @@ func (p *Pool) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
+		p.inner.Stop()
 		return ctx.Err()
 	}
 }

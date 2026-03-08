@@ -12,5 +12,6 @@ func TestMain(m *testing.M) {
 		// running (simulates stuck work that outlives context-canceled shutdown).
 		goleak.IgnoreTopFunction("time.Sleep"),
 		goleak.IgnoreTopFunction("sync.runtime_SemacquireWaitGroup"),
+		goleak.IgnoreTopFunction("github.com/alitto/pond/v2/internal/future.(*Future).Err"),
 	)
 }

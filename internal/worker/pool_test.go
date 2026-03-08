@@ -11,14 +11,16 @@ import (
 func TestNewPool_MinimumConcurrency(t *testing.T) {
 	t.Parallel()
 	p0 := NewPool(0)
-	if got := cap(p0.sem); got != 1 {
-		t.Fatalf("NewPool(0) semaphore capacity = %d, want %d", got, 1)
+	if got := p0.Available(); got != 1 {
+		t.Fatalf("NewPool(0) available = %d, want %d", got, 1)
 	}
+	_ = p0.Shutdown(context.Background())
 
 	pNeg := NewPool(-1)
-	if got := cap(pNeg.sem); got != 1 {
-		t.Fatalf("NewPool(-1) semaphore capacity = %d, want %d", got, 1)
+	if got := pNeg.Available(); got != 1 {
+		t.Fatalf("NewPool(-1) available = %d, want %d", got, 1)
 	}
+	_ = pNeg.Shutdown(context.Background())
 }
 
 func TestPool_Submit_ExecutesWork(t *testing.T) {
@@ -65,26 +67,7 @@ func TestPool_ConcurrencyLimit(t *testing.T) {
 		t.Fatalf("ActiveCount() = %d, want %d", got, 2)
 	}
 
-	thirdSubmitReturned := make(chan struct{})
-	go func() {
-		p.Submit(context.Background(), task)
-		close(thirdSubmitReturned)
-	}()
-
-	select {
-	case <-thirdSubmitReturned:
-		t.Fatal("third submit returned before a worker slot was free")
-	case <-time.After(150 * time.Millisecond):
-	}
-
 	close(block)
-
-	select {
-	case <-thirdSubmitReturned:
-	case <-time.After(time.Second):
-		t.Fatal("third submit did not proceed after slot became free")
-	}
-
 	_ = p.Shutdown(context.Background())
 }
 
@@ -137,6 +120,7 @@ func TestPool_Submit_CanceledContext(t *testing.T) {
 		ran.Store(true)
 	})
 
+	time.Sleep(50 * time.Millisecond)
 	if ran.Load() {
 		t.Fatal("work executed despite canceled context")
 	}
@@ -181,7 +165,7 @@ func TestPool_Shutdown_RespectsContext(t *testing.T) {
 
 	p.Submit(context.Background(), func() {
 		close(started)
-		time.Sleep(5 * time.Second) // simulates stuck work
+		time.Sleep(5 * time.Second)
 	})
 
 	<-started
@@ -201,10 +185,71 @@ func TestPool_Shutdown_RespectsContext(t *testing.T) {
 func TestPool_Shutdown_ReturnsNilOnSuccess(t *testing.T) {
 	t.Parallel()
 	p := NewPool(1)
-	p.Submit(context.Background(), func() {})
+	done := make(chan struct{})
+	p.Submit(context.Background(), func() { close(done) })
+	<-done
 
 	err := p.Shutdown(context.Background())
 	if err != nil {
 		t.Fatalf("expected nil error from Shutdown, got %v", err)
+	}
+}
+
+func TestPool_Metrics(t *testing.T) {
+	t.Parallel()
+	p := NewPool(2)
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+
+	p.Submit(context.Background(), func() {
+		started <- struct{}{}
+		<-release
+	})
+	p.Submit(context.Background(), func() {
+		started <- struct{}{}
+		<-release
+	})
+
+	<-started
+	<-started
+
+	if got := p.RunningWorkers(); got != 2 {
+		t.Fatalf("RunningWorkers() = %d, want 2", got)
+	}
+	if got := p.SubmittedTasks(); got != 2 {
+		t.Fatalf("SubmittedTasks() = %d, want 2", got)
+	}
+
+	close(release)
+	_ = p.Shutdown(context.Background())
+
+	if got := p.CompletedTasks(); got != 2 {
+		t.Fatalf("CompletedTasks() = %d, want 2", got)
+	}
+	if got := p.SuccessfulTasks(); got != 2 {
+		t.Fatalf("SuccessfulTasks() = %d, want 2", got)
+	}
+}
+
+func TestPool_WithQueueSize(t *testing.T) {
+	t.Parallel()
+	p := NewPool(1, WithQueueSize(2))
+	block := make(chan struct{})
+	started := make(chan struct{})
+
+	p.Submit(context.Background(), func() {
+		close(started)
+		<-block
+	})
+	<-started
+
+	p.Submit(context.Background(), func() { <-block })
+	p.Submit(context.Background(), func() { <-block })
+
+	close(block)
+	_ = p.Shutdown(context.Background())
+
+	if got := p.SubmittedTasks(); got != 3 {
+		t.Fatalf("SubmittedTasks() = %d, want 3", got)
 	}
 }

@@ -22,6 +22,8 @@ import (
 	"orchestrator/internal/workflow"
 	"orchestrator/migrations"
 
+	"go.opentelemetry.io/otel"
+
 	"github.com/exaring/otelpgx"
 	"github.com/golang-migrate/migrate/v4"
 	pgmigrate "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -230,7 +232,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		return
 	}
 
-	p := worker.NewPool(cfg.WorkerConcurrency)
+	var poolOpts []worker.PoolOption
+	if cfg.WorkerQueueSize > 0 {
+		poolOpts = append(poolOpts, worker.WithQueueSize(cfg.WorkerQueueSize))
+	}
+	p := worker.NewPool(cfg.WorkerConcurrency, poolOpts...)
 	partitions := []string(nil)
 	partitionWeights := ""
 	if cfg.FFQueuePartitioning && len(cfg.WorkerPartitions) > 0 {
@@ -263,6 +269,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WebhookDispatchTimeout:  cfg.WebhookDispatchTimeout,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 	})
+
+	if metrics != nil {
+		meter := otel.Meter("orchestrator")
+		if err := metrics.ObservePool(meter, p); err != nil {
+			slog.Warn("failed to register pool metrics callback", "error", err)
+		}
+	}
 
 	g.Go(func(ctx context.Context) error {
 		exec.Run(ctx)
