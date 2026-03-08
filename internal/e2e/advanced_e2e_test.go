@@ -566,10 +566,7 @@ func TestE2E_WebhookDeliveries(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("webhook deliveries status = %d; body = %s", w.Code, w.Body.String())
 	}
-	var deliveries []map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&deliveries); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	_ = advDecodeSlice(t, w)
 }
 
 func TestE2E_TriggerDisabledJob(t *testing.T) {
