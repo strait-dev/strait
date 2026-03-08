@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
 
@@ -166,10 +167,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	args := []any{status, id}
 	param := 3
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
-	}
+	keys := lo.Keys(fields)
 	sort.Strings(keys)
 
 	for _, key := range keys {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/robfig/cron/v3"
+	"github.com/samber/lo"
 )
 
 type workflowStepRequest struct {
@@ -544,10 +545,7 @@ func (s *Server) handleWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 func buildWorkflowDOT(adjacency map[string][]string) string {
 	var b strings.Builder
 	b.WriteString("digraph workflow {\n")
-	keys := make([]string, 0, len(adjacency))
-	for k := range adjacency {
-		keys = append(keys, k)
-	}
+	keys := lo.Keys(adjacency)
 	sort.Strings(keys)
 	for _, src := range keys {
 		dsts := adjacency[src]

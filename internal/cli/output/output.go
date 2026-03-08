@@ -13,6 +13,7 @@ import (
 	"text/template"
 
 	"github.com/PaesslerAG/jsonpath"
+	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -70,10 +71,7 @@ func renderTable(w io.Writer, data any, noHeaders bool) error {
 		_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
 	}
 	for _, row := range rows {
-		cells := make([]string, 0, len(headers))
-		for _, h := range headers {
-			cells = append(cells, row[h])
-		}
+		cells := lo.Map(headers, func(h string, _ int) string { return row[h] })
 		_, _ = fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 
@@ -91,10 +89,7 @@ func renderCSV(w io.Writer, data any) error {
 		return err
 	}
 	for _, row := range rows {
-		record := make([]string, 0, len(headers))
-		for _, h := range headers {
-			record = append(record, row[h])
-		}
+		record := lo.Map(headers, func(h string, _ int) string { return row[h] })
 		if err := cw.Write(record); err != nil {
 			return err
 		}
@@ -173,10 +168,9 @@ func rowsFromData(data any) ([]string, []map[string]string, error) {
 			rows = append(rows, row)
 		}
 		headerList := mapKeys(headers)
-		normalized := make([]map[string]string, 0, len(rows))
-		for _, r := range rows {
-			normalized = append(normalized, normalizeRow(r, headerList))
-		}
+		normalized := lo.Map(rows, func(r map[string]string, _ int) map[string]string {
+			return normalizeRow(r, headerList)
+		})
 		return headerList, normalized, nil
 	}
 
@@ -255,12 +249,9 @@ func stringify(v any) string {
 }
 
 func mapKeys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	keys := lo.Keys(m)
+	sort.Strings(keys)
+	return keys
 }
 
 func normalizeRow(in map[string]string, headers []string) map[string]string {

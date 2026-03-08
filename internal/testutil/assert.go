@@ -12,6 +12,8 @@ import (
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
+
+	"github.com/samber/lo"
 )
 
 func AssertRunStatus(t testing.TB, ctx context.Context, s store.Store, runID string, expected domain.RunStatus) {
@@ -73,10 +75,10 @@ func AssertEventExists(t testing.TB, ctx context.Context, s store.Store, runID s
 		t.Fatalf("ListEvents(%q) error = %v", runID, err)
 	}
 
-	for _, event := range events {
-		if string(event.Type) == eventType {
-			return
-		}
+	if lo.ContainsBy(events, func(event domain.RunEvent) bool {
+		return string(event.Type) == eventType
+	}) {
+		return
 	}
 
 	t.Fatalf("expected event type %q for run %q, got %d events", eventType, runID, len(events))

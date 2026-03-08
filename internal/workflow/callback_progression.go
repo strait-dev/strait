@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"orchestrator/internal/domain"
+
+	"github.com/samber/lo"
 )
 
 func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun) error {
@@ -31,25 +33,17 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	if err != nil {
 		return fmt.Errorf("list steps by workflow: %w", err)
 	}
-	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, st := range steps {
-		stepByRef[st.StepRef] = st
-	}
+	stepByRef := lo.KeyBy(steps, func(st domain.WorkflowStep) string { return st.StepRef })
 
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
-	stepRunByID := make(map[string]domain.WorkflowStepRun, len(stepRuns))
-	stepStatuses := make(map[string]domain.StepRunStatus, len(stepRuns))
-	runningStepCount := 0
-	for _, sr := range stepRuns {
-		stepRunByID[sr.ID] = sr
-		stepStatuses[sr.StepRef] = sr.Status
-		if sr.Status == domain.StepRunning {
-			runningStepCount++
-		}
-	}
+	stepRunByID := lo.KeyBy(stepRuns, func(sr domain.WorkflowStepRun) string { return sr.ID })
+	stepStatuses := lo.Associate(stepRuns, func(sr domain.WorkflowStepRun) (string, domain.StepRunStatus) {
+		return sr.StepRef, sr.Status
+	})
+	runningStepCount := lo.CountBy(stepRuns, func(sr domain.WorkflowStepRun) bool { return sr.Status == domain.StepRunning })
 
 	for _, dep := range deps {
 		if dep.DepsCompleted != dep.DepsRequired {
@@ -139,10 +133,9 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return fmt.Errorf("list workflow steps: %w", err)
 	}
 
-	policyByRef := make(map[string]domain.FailurePolicy, len(steps))
-	for _, step := range steps {
-		policyByRef[step.StepRef] = step.OnFailure
-	}
+	policyByRef := lo.Associate(steps, func(step domain.WorkflowStep) (string, domain.FailurePolicy) {
+		return step.StepRef, step.OnFailure
+	})
 
 	hasFailingStep := false
 	for _, sr := range stepRuns {
@@ -232,12 +225,10 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		// Aggregate child step outputs as the parent step's output.
 		var outputPayload json.RawMessage
 		if len(childStepRuns) > 0 {
-			outputs := make(map[string]json.RawMessage, len(childStepRuns))
-			for _, sr := range childStepRuns {
-				if len(sr.Output) > 0 {
-					outputs[sr.StepRef] = sr.Output
-				}
-			}
+			outputs := lo.Associate(
+				lo.Filter(childStepRuns, func(sr domain.WorkflowStepRun, _ int) bool { return len(sr.Output) > 0 }),
+				func(sr domain.WorkflowStepRun) (string, json.RawMessage) { return sr.StepRef, sr.Output },
+			)
 			if len(outputs) > 0 {
 				if raw, marshalErr := json.Marshal(outputs); marshalErr == nil {
 					outputPayload = raw
@@ -414,23 +405,16 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 	if err != nil {
 		return fmt.Errorf("list workflow steps: %w", err)
 	}
-	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, step := range steps {
-		stepByRef[step.StepRef] = step
-	}
+	stepByRef := lo.KeyBy(steps, func(step domain.WorkflowStep) string { return step.StepRef })
 
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
-	stepStatuses := make(map[string]domain.StepRunStatus, len(stepRuns))
-	runningStepCount := 0
-	for _, sr := range stepRuns {
-		stepStatuses[sr.StepRef] = sr.Status
-		if sr.Status == domain.StepRunning {
-			runningStepCount++
-		}
-	}
+	stepStatuses := lo.Associate(stepRuns, func(sr domain.WorkflowStepRun) (string, domain.StepRunStatus) {
+		return sr.StepRef, sr.Status
+	})
+	runningStepCount := lo.CountBy(stepRuns, func(sr domain.WorkflowStepRun) bool { return sr.Status == domain.StepRunning })
 
 	for _, sr := range stepRuns {
 		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
