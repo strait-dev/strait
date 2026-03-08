@@ -3408,7 +3408,7 @@ func assertRunEqual(t *testing.T, want, got *domain.JobRun) {
 		t.Fatal("run is nil")
 	}
 
-	testutil.AssertEqual(t, got, want, testutil.IgnoreFields(domain.JobRun{}, "Payload", "Result"))
+	testutil.AssertEqual(t, got, want, testutil.IgnoreFields(domain.JobRun{}, "Payload", "Result"), testutil.EquateEmpty())
 
 	if len(got.Payload) != 0 || len(want.Payload) != 0 {
 		testutil.AssertJSONEqual(t, got.Payload, want.Payload)
