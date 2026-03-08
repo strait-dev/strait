@@ -48,8 +48,12 @@ Migrations run automatically on startup. Use `--mode api` or `--mode worker` for
 - **golang-migrate/v4** — embedded SQL migrations
 - **robfig/cron/v3** — cron expression scheduling
 - **golang-jwt/v5** — JWT run token auth
+- **sourcegraph/conc** — structured concurrency with panic-safe goroutines
+- **alitto/pond/v2** — worker pool with bounded queue backpressure and metrics
+- **samber/lo** — type-safe generic collection utilities
 - **OpenTelemetry** — distributed tracing (OTLP) + Prometheus metrics
 - **viper** — environment variable configuration
+- **google/go-cmp** — structural comparison with rich diffs for test assertions
 - **testcontainers-go** — Postgres/Redis containers for integration tests
 
 ## Project Structure
@@ -69,8 +73,8 @@ orchestrator/
 │   ├── scheduler/          # Cron, delayed poller, stale run reaper, retention
 │   ├── store/              # Database queries (pgx, raw SQL, no ORM)
 │   ├── telemetry/          # OpenTelemetry tracing + Prometheus metrics
-│   ├── testutil/           # Test factories, test DB/Redis helpers
-│   ├── worker/             # Executor, pool, backoff strategies, heartbeat, webhook dispatch
+│   ├── testutil/           # Test factories, go-cmp assertion helpers, test DB/Redis helpers
+│   ├── worker/             # Executor, pond/v2 pool, backoff strategies, heartbeat, webhook dispatch
 │   └── workflow/           # DAG validation, engine, step callback, conditions, templates
 ├── migrations/             # 47 SQL migrations (embedded via go:embed)
 ├── docker-compose.yml      # Postgres 18 + Redis 8 + Sequin for development

@@ -77,7 +77,7 @@ The core logic resides in the `internal/` directory, organized into specialized 
     Implements the Chi HTTP router, middleware chain, and authentication (Internal Secret + Run Token).
   </Card>
   <Card title="worker" icon="gears">
-    Handles the executor pool, HTTP dispatch, smart retries, and state transitions.
+    Handles the pond/v2 executor pool with bounded queue backpressure, HTTP dispatch, smart retries, and state transitions. Exposes OTel metrics for pool observability.
   </Card>
   <Card title="workflow" icon="diagram-sankey">
     Manages DAG execution, Kahn's algorithm validation, and atomic fan-in logic.
@@ -167,7 +167,7 @@ The system implements two distinct authentication schemes:
     A worker claims the run via `SKIP LOCKED` and updates status to `dequeued`.
   </Step>
   <Step title="Execute">
-    The execution is submitted to the worker pool using `context.WithoutCancel`.
+    The execution is submitted to the pond/v2 worker pool using `context.WithoutCancel`. The pool provides bounded backpressure and reports running workers, waiting tasks, and completion metrics via OTel.
   </Step>
   <Step title="Dispatch">
     The executor sends an HTTP POST to the resolved endpoint URL.
@@ -194,3 +194,5 @@ The workflow engine manages the execution of Directed Acyclic Graphs (DAGs).
 4. **Single Binary, Three Modes**: Simplifies deployment while allowing independent scaling.
 5. **Micro-USD Cost Tracking**: Uses integer micro-USD to avoid floating-point precision issues.
 6. **Dead Letter as FSM State**: DLQ is modeled as a first-class FSM state.
+7. **Structured Concurrency (conc)**: All goroutines use `sourcegraph/conc` for automatic panic recovery and fail-fast error propagation.
+8. **Production-Grade Pool (pond/v2)**: Worker pool uses `alitto/pond/v2` for bounded queue backpressure, graceful shutdown, and built-in metrics instead of a hand-rolled semaphore.

@@ -51,6 +51,10 @@ We follow idiomatic Go patterns and specific project conventions:
 - **Raw SQL**: We use `pgx/v5` and raw SQL for all database operations. Do not use an ORM.
 - **Interface Segregation**: Define small, focused interfaces at the consumer side.
 - **Error Handling**: Wrap errors using `%w` to provide context while preserving the original error type.
+- **Collections**: Use `samber/lo` for collection operations (Map, Filter, KeyBy, Keys) instead of hand-written loops.
+- **Concurrency**: Use `sourcegraph/conc` for goroutines (WaitGroup, pool). Never use bare `go` statements or `sync.WaitGroup` directly.
+- **Worker Pool**: Use the `internal/worker` pond/v2 pool. Do not create custom goroutine pools.
+- **Test Assertions**: Use `testutil.AssertEqual` (powered by `google/go-cmp`) for structural comparisons with rich diffs. Avoid manual field-by-field assertions.
 - **No Emojis**: Avoid using emojis in code, comments, or documentation.
 
 ## Linting
@@ -84,7 +88,7 @@ If `lefthook` fails, you must fix the linting errors before you can commit your 
   - `api/`: HTTP handlers and routing.
   - `domain/`: Core business logic and FSM definitions.
   - `store/`: Database access layer (raw SQL).
-  - `worker/`: Job execution and worker pool logic.
-  - `scheduler/`: Background tasks and polling.
-  - `testutil/`: Shared testing helpers and factories.
+  - `worker/`: Job execution and pond/v2 worker pool with backpressure and OTel metrics.
+  - `scheduler/`: Background tasks and polling (uses conc for structured concurrency).
+  - `testutil/`: Shared testing helpers, go-cmp assertion utilities, and data factories.
 - `migrations/`: SQL migration files embedded into the binary.

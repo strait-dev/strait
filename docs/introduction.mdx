@@ -41,18 +41,23 @@ The orchestrator is built with a modern, high-performance tech stack:
 - **PostgreSQL 18**: Primary store, job queue (SKIP LOCKED), and workflow state.
 - **Redis 8**: Pub/Sub for SSE streaming and CDC event publishing.
 - **Sequin**: CDC (Change Data Capture) from Postgres WAL.
+- **sourcegraph/conc**: Structured concurrency with panic-safe goroutines and context-aware pools.
+- **alitto/pond/v2**: Production-grade worker pool with bounded queue backpressure and built-in metrics.
+- **samber/lo**: Type-safe generic collection utilities (Map, Filter, KeyBy, Keys).
 - **OpenTelemetry**: Distributed tracing and Prometheus metrics.
+- **google/go-cmp**: Structural comparison with rich, human-readable diffs for test assertions.
 
 ## Project Structure
 
 The core logic resides in the `internal/` directory:
 
 - `internal/api/`: HTTP handlers, middleware, and auth.
-- `internal/worker/`: Executor, pool, and backoff strategies.
+- `internal/worker/`: Executor, pond/v2 pool with backpressure, and backoff strategies.
 - `internal/workflow/`: DAG validation, engine, and templates.
 - `internal/queue/`: Queue interface + Postgres SKIP LOCKED.
 - `internal/store/`: Database queries (pgx, raw SQL).
 - `internal/domain/`: Core types and FSM definitions.
+- `internal/testutil/`: Test factories, go-cmp assertion helpers, and test DB/Redis helpers.
 
 ## System Overview
 
