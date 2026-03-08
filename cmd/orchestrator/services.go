@@ -28,7 +28,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"golang.org/x/sync/errgroup"
+	"github.com/sourcegraph/conc/pool"
 )
 
 // connectDatabase creates and verifies a Postgres connection pool.
@@ -136,7 +136,7 @@ func retrySleep(ctx context.Context, attempt int) error {
 }
 
 // startCDCConsumer registers and starts the Sequin CDC consumer if configured.
-func startCDCConsumer(gCtx context.Context, g *errgroup.Group, cfg *config.Config, pub pubsub.Publisher) {
+func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher) {
 	if cfg.SequinBaseURL == "" {
 		return
 	}
@@ -154,8 +154,8 @@ func startCDCConsumer(gCtx context.Context, g *errgroup.Group, cfg *config.Confi
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 
-	g.Go(func() error {
-		cdcConsumer.Run(gCtx)
+	g.Go(func(ctx context.Context) error {
+		cdcConsumer.Run(ctx)
 		return nil
 	})
 
@@ -166,7 +166,7 @@ func startCDCConsumer(gCtx context.Context, g *errgroup.Group, cfg *config.Confi
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -207,7 +207,7 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 		IdleTimeout:       120 * time.Second,
 	}
 
-	g.Go(func() error {
+	g.Go(func(context.Context) error {
 		slog.Info("api server listening", "addr", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("http server: %w", err)
@@ -215,8 +215,8 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 		return nil
 	})
 
-	g.Go(func() error {
-		<-gCtx.Done()
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
 		slog.Info("shutting down api server")
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
@@ -225,9 +225,9 @@ func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config,
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) error {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
-		return nil
+		return
 	}
 
 	p := worker.NewPool(cfg.WorkerConcurrency)
@@ -264,13 +264,13 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 	})
 
-	g.Go(func() error {
-		exec.Run(gCtx)
+	g.Go(func(ctx context.Context) error {
+		exec.Run(ctx)
 		return nil
 	})
 
-	g.Go(func() error {
-		<-gCtx.Done()
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
 		slog.Info("shutting down worker pool")
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
@@ -282,17 +282,15 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 
 	// Start scheduler (cron, delayed poller, reaper)
 	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine)
-	if err := sched.Start(gCtx); err != nil {
-		return fmt.Errorf("start scheduler: %w", err)
-	}
-
-	g.Go(func() error {
-		<-gCtx.Done()
+	g.Go(func(ctx context.Context) error {
+		if err := sched.Start(ctx); err != nil {
+			return fmt.Errorf("start scheduler: %w", err)
+		}
+		<-ctx.Done()
 		slog.Info("shutting down scheduler")
 		sched.Stop()
 		return nil
 	})
-	return nil
 }
 
 func runMigrations(databaseURL string) error {

@@ -15,7 +15,7 @@ import (
 	"orchestrator/internal/telemetry"
 	"orchestrator/internal/workflow"
 
-	"golang.org/x/sync/errgroup"
+	concpool "github.com/sourcegraph/conc/pool"
 )
 
 var version = "dev"
@@ -95,11 +95,11 @@ func runServe(modeOverride string) error {
 		}
 	}()
 
-	pool, err := connectDatabase(ctx, cfg)
+	dbPool, err := connectDatabase(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	defer dbPool.Close()
 
 	// Run migrations
 	if err := runMigrations(cfg.DatabaseURL); err != nil {
@@ -107,9 +107,9 @@ func runServe(modeOverride string) error {
 	}
 
 	// Create dependencies
-	queries := store.New(pool)
+	queries := store.New(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
-	q := queue.NewPostgresQueue(pool)
+	q := queue.NewPostgresQueue(dbPool)
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -119,20 +119,17 @@ func runServe(modeOverride string) error {
 		defer rdb.Close()
 	}
 
-	// Error group for concurrent goroutines
-	g, gCtx := errgroup.WithContext(ctx)
+	g := concpool.New().WithContext(ctx).WithFailFast()
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
-	startCDCConsumer(gCtx, g, cfg, pub)
-	startAPIServer(gCtx, g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
-	if err := startWorker(gCtx, g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine); err != nil {
-		return err
-	}
+	startCDCConsumer(g, cfg, pub)
+	startAPIServer(g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
+	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("errgroup: %w", err)
+		return fmt.Errorf("services: %w", err)
 	}
 
 	slog.Info("orchestrator stopped")

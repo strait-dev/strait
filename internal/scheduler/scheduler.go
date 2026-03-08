@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
+
+	"github.com/sourcegraph/conc"
 
 	"orchestrator/internal/config"
 	"orchestrator/internal/queue"
@@ -21,7 +22,7 @@ type Scheduler struct {
 	cron   *CronScheduler
 	poller *DelayedPoller
 	reaper *Reaper
-	wg     sync.WaitGroup
+	wg     conc.WaitGroup
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -41,9 +42,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.cron.Start()
-	s.wg.Add(2)
-	go func() { defer s.wg.Done(); s.poller.Run(ctx) }()
-	go func() { defer s.wg.Done(); s.reaper.Run(ctx) }()
+	s.wg.Go(func() { s.poller.Run(ctx) })
+	s.wg.Go(func() { s.reaper.Run(ctx) })
 
 	slog.Info("scheduler started")
 	return nil
