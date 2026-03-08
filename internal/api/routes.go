@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -44,6 +45,18 @@ func (s *Server) routes() chi.Router {
 		triggerRateLimitWindow = time.Minute
 	}
 
+	// rateLimitEnabled controls whether per-route rate limiters are applied.
+	// When the global rate limit is disabled (RateLimitRequests=0), per-route
+	// rate limits are also skipped. This allows tests to run without hitting 429s.
+	rateLimitEnabled := s.config.RateLimitRequests > 0
+	// rateLimit returns a rate limiting middleware if enabled, otherwise a no-op.
+	rateLimit := func(requests int, window time.Duration) func(http.Handler) http.Handler {
+		if !rateLimitEnabled {
+			return func(next http.Handler) http.Handler { return next }
+		}
+		return httprate.LimitByIP(requests, window)
+	}
+
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
 	if s.metricsHandler != nil {
@@ -54,15 +67,15 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
-			r.With(httprate.LimitByIP(20, time.Minute)).Post("/", s.handleCreateSecret)
+			r.With(rateLimit(20, time.Minute)).Post("/", s.handleCreateSecret)
 			r.Get("/", s.handleListSecrets)
 			r.Delete("/{secretID}", s.handleDeleteSecret)
 		})
 
 		r.Route("/jobs", func(r chi.Router) {
-			r.With(httprate.LimitByIP(30, time.Minute)).Post("/", s.handleCreateJob)
+			r.With(rateLimit(30, time.Minute)).Post("/", s.handleCreateJob)
 			r.Get("/", s.handleListJobs)
-			r.With(httprate.LimitByIP(10, time.Minute)).Post("/batch", s.handleBatchCreateJobs)
+			r.With(rateLimit(10, time.Minute)).Post("/batch", s.handleBatchCreateJobs)
 			r.Post("/batch-enable", s.handleBatchEnableJobs)
 			r.Post("/batch-disable", s.handleBatchDisableJobs)
 
@@ -70,8 +83,8 @@ func (s *Server) routes() chi.Router {
 				r.Get("/", s.handleGetJob)
 				r.Patch("/", s.handleUpdateJob)
 				r.Delete("/", s.handleDeleteJob)
-				r.With(httprate.LimitByIP(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
-				r.With(httprate.LimitByIP(5, time.Minute)).Post("/trigger/bulk", s.handleBulkTriggerJob)
+				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
+				r.With(rateLimit(5, time.Minute)).Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.Post("/dependencies", s.handleCreateJobDependency)
 				r.Get("/dependencies", s.handleListJobDependencies)
 				r.Delete("/dependencies/{depID}", s.handleDeleteJobDependency)
