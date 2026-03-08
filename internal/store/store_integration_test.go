@@ -4570,18 +4570,18 @@ func TestIncrementStepRunAttempt(t *testing.T) {
 		t.Fatalf("CreateWorkflowStepRun() error = %v", err)
 	}
 
-	// Attempt starts at 0 (default), increment to 1
-	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 1); err != nil {
-		t.Fatalf("IncrementStepRunAttempt(0->1) error = %v", err)
-	}
-
-	// Increment to 2
+	// Attempt starts at 1 (default set by CreateWorkflowStepRun), increment to 2
 	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 2); err != nil {
 		t.Fatalf("IncrementStepRunAttempt(1->2) error = %v", err)
 	}
 
-	// Optimistic lock: trying to increment to 2 again should fail (current is 2, expects 1)
-	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 2); err == nil {
+	// Increment to 3
+	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 3); err != nil {
+		t.Fatalf("IncrementStepRunAttempt(2->3) error = %v", err)
+	}
+
+	// Optimistic lock: trying to increment to 3 again should fail (current is 3, expects 2)
+	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 3); err == nil {
 		t.Fatal("IncrementStepRunAttempt(stale) error = nil, want error")
 	}
 
@@ -4689,7 +4689,7 @@ func TestGetDebugBundle(t *testing.T) {
 	run := mustCreateRun(t, ctx, q, job)
 
 	// Insert an event
-	event := &domain.RunEvent{ID: newID(), RunID: run.ID, Type: domain.EventLog, Level: "info", Message: "hello"}
+	event := &domain.RunEvent{ID: newID(), RunID: run.ID, Type: domain.EventLog, Level: "info", Message: "hello", Data: json.RawMessage(`{"key":"value"}`)}
 	if err := q.InsertEvent(ctx, event); err != nil {
 		t.Fatalf("InsertEvent() error = %v", err)
 	}
