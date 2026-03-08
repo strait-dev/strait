@@ -15,6 +15,7 @@ import (
 	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/store"
+	"orchestrator/internal/testutil"
 )
 
 // decodePaginatedList decodes a PaginatedResponse body into the given slice pointer.
@@ -1409,27 +1410,23 @@ func TestHandleCloneJob_Success(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &cloned); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if cloned.Name != "Cloned Job" {
-		t.Fatalf("name = %q, want %q", cloned.Name, "Cloned Job")
-	}
-	if cloned.Slug != "cloned-job" {
-		t.Fatalf("slug = %q, want %q", cloned.Slug, "cloned-job")
-	}
-	if cloned.EndpointURL != sourceJob.EndpointURL {
-		t.Fatalf("endpoint_url = %q, want %q", cloned.EndpointURL, sourceJob.EndpointURL)
-	}
-	if cloned.MaxAttempts != sourceJob.MaxAttempts {
-		t.Fatalf("max_attempts = %d, want %d", cloned.MaxAttempts, sourceJob.MaxAttempts)
-	}
-	if cloned.TimeoutSecs != sourceJob.TimeoutSecs {
-		t.Fatalf("timeout_secs = %d, want %d", cloned.TimeoutSecs, sourceJob.TimeoutSecs)
-	}
-	if cloned.RunTTLSecs != sourceJob.RunTTLSecs {
-		t.Fatalf("run_ttl_secs = %d, want %d", cloned.RunTTLSecs, sourceJob.RunTTLSecs)
-	}
-	if cloned.ProjectID != sourceJob.ProjectID {
-		t.Fatalf("project_id = %q, want %q", cloned.ProjectID, sourceJob.ProjectID)
-	}
+	testutil.AssertEqual(t, domain.Job{
+		Name:        cloned.Name,
+		Slug:        cloned.Slug,
+		EndpointURL: cloned.EndpointURL,
+		MaxAttempts: cloned.MaxAttempts,
+		TimeoutSecs: cloned.TimeoutSecs,
+		RunTTLSecs:  cloned.RunTTLSecs,
+		ProjectID:   cloned.ProjectID,
+	}, domain.Job{
+		Name:        "Cloned Job",
+		Slug:        "cloned-job",
+		EndpointURL: sourceJob.EndpointURL,
+		MaxAttempts: sourceJob.MaxAttempts,
+		TimeoutSecs: sourceJob.TimeoutSecs,
+		RunTTLSecs:  sourceJob.RunTTLSecs,
+		ProjectID:   sourceJob.ProjectID,
+	})
 }
 
 func TestHandleCloneJob_NotFound(t *testing.T) {

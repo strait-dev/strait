@@ -18,6 +18,7 @@ import (
 	"orchestrator/internal/domain"
 	"orchestrator/internal/queue"
 	orcstore "orchestrator/internal/store"
+	"orchestrator/internal/testutil"
 )
 
 type statusUpdateCall struct {
@@ -262,12 +263,15 @@ func TestExecutor_Dispatch_Success(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("status update calls = %d, want 2", len(calls))
 	}
-	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusExecuting {
-		t.Fatalf("first transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusExecuting)
+
+	gotTransitions := []string{
+		fmt.Sprintf("%s->%s", calls[0].from, calls[0].to),
+		fmt.Sprintf("%s->%s", calls[1].from, calls[1].to),
 	}
-	if calls[1].from != domain.StatusExecuting || calls[1].to != domain.StatusCompleted {
-		t.Fatalf("second transition = %s->%s, want %s->%s", calls[1].from, calls[1].to, domain.StatusExecuting, domain.StatusCompleted)
-	}
+	testutil.AssertEqual(t, gotTransitions, []string{
+		"dequeued->executing",
+		"executing->completed",
+	})
 
 	gotResult, ok := calls[1].fields["result"].(json.RawMessage)
 	if !ok {
@@ -1662,9 +1666,7 @@ func TestBuildPartitionCycle_Weights(t *testing.T) {
 	if len(cycle) != 3 {
 		t.Fatalf("cycle len = %d, want 3", len(cycle))
 	}
-	if cycle[0] != "proj-a" || cycle[1] != "proj-a" || cycle[2] != "proj-b" {
-		t.Fatalf("unexpected cycle order: %#v", cycle)
-	}
+	testutil.AssertEqual(t, cycle, []string{"proj-a", "proj-a", "proj-b"})
 }
 
 func BenchmarkExecutorPoll(b *testing.B) {

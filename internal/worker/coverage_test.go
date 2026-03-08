@@ -12,8 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
+	"orchestrator/internal/testutil"
 )
 
 // Mock publisher for worker tests.
@@ -317,21 +320,13 @@ func TestResolveExecutionPolicy_OverridesFromStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.maxAttempts != 7 {
-		t.Fatalf("expected maxAttempts=7, got %d", got.maxAttempts)
-	}
-	if got.timeoutSecs != 90 {
-		t.Fatalf("expected timeoutSecs=90, got %d", got.timeoutSecs)
-	}
-	if got.retryBackoff != domain.RetryBackoffFixed {
-		t.Fatalf("expected retryBackoff=fixed, got %s", got.retryBackoff)
-	}
-	if got.retryInitialSecs != 10 {
-		t.Fatalf("expected retryInitialSecs=10, got %d", got.retryInitialSecs)
-	}
-	if got.retryMaxSecs != 300 {
-		t.Fatalf("expected retryMaxSecs=300, got %d", got.retryMaxSecs)
-	}
+	testutil.AssertEqual(t, got, executionPolicy{
+		maxAttempts:      7,
+		timeoutSecs:      90,
+		retryBackoff:     domain.RetryBackoffFixed,
+		retryInitialSecs: 10,
+		retryMaxSecs:     300,
+	}, cmp.AllowUnexported(executionPolicy{}))
 }
 
 func TestResolveExecutionPolicy_StepNotFoundInList(t *testing.T) {
@@ -423,22 +418,13 @@ func TestResolveExecutionPolicy_PartialOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.maxAttempts != 5 {
-		t.Fatalf("expected maxAttempts=5, got %d", got.maxAttempts)
-	}
-	// Non-overridden fields should keep fallback values.
-	if got.timeoutSecs != 60 {
-		t.Fatalf("expected timeoutSecs=60 (unchanged), got %d", got.timeoutSecs)
-	}
-	if got.retryBackoff != domain.RetryBackoffExponential {
-		t.Fatalf("expected retryBackoff=exponential (unchanged), got %s", got.retryBackoff)
-	}
-	if got.retryInitialSecs != 2 {
-		t.Fatalf("expected retryInitialSecs=2 (unchanged), got %d", got.retryInitialSecs)
-	}
-	if got.retryMaxSecs != 1800 {
-		t.Fatalf("expected retryMaxSecs=1800 (unchanged), got %d", got.retryMaxSecs)
-	}
+	testutil.AssertEqual(t, got, executionPolicy{
+		maxAttempts:      5,
+		timeoutSecs:      60,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 2,
+		retryMaxSecs:     1800,
+	}, cmp.AllowUnexported(executionPolicy{}))
 }
 
 // SendWebhookWithClient tests.

@@ -3,6 +3,8 @@ package domain
 import (
 	"fmt"
 	"testing"
+
+	"orchestrator/internal/testutil"
 )
 
 func TestValidateTransition_AllValidTransitions(t *testing.T) {
@@ -55,9 +57,7 @@ func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 			if !ok {
 				t.Errorf("terminal status %s not found in validTransitions", status)
 			}
-			if len(transitions) != 0 {
-				t.Errorf("terminal status %s should not have transitions", status)
-			}
+			testutil.AssertEqual(t, transitions, []RunStatus{})
 		})
 	}
 }

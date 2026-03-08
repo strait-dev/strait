@@ -3394,30 +3394,10 @@ func assertJobEqual(t *testing.T, want, got *domain.Job) {
 		t.Fatal("job is nil")
 	}
 
-	if got.ID != want.ID ||
-		got.ProjectID != want.ProjectID ||
-		got.Name != want.Name ||
-		got.Slug != want.Slug ||
-		got.Description != want.Description ||
-		got.Cron != want.Cron ||
-		got.EndpointURL != want.EndpointURL ||
-		got.MaxAttempts != want.MaxAttempts ||
-		got.TimeoutSecs != want.TimeoutSecs ||
-		got.Enabled != want.Enabled ||
-		got.WebhookURL != want.WebhookURL ||
-		got.WebhookSecret != want.WebhookSecret {
-		t.Fatalf("job mismatch: got %+v want %+v", *got, *want)
-	}
+	testutil.AssertEqual(t, got, want, testutil.IgnoreFields(domain.Job{}, "PayloadSchema"))
 
 	if !jsonEqual(got.PayloadSchema, want.PayloadSchema) {
 		t.Fatalf("payload_schema mismatch: got %s want %s", string(got.PayloadSchema), string(want.PayloadSchema))
-	}
-
-	if !got.CreatedAt.Equal(want.CreatedAt) {
-		t.Fatalf("created_at mismatch: got %v want %v", got.CreatedAt, want.CreatedAt)
-	}
-	if !got.UpdatedAt.Equal(want.UpdatedAt) {
-		t.Fatalf("updated_at mismatch: got %v want %v", got.UpdatedAt, want.UpdatedAt)
 	}
 }
 
@@ -3428,24 +3408,13 @@ func assertRunEqual(t *testing.T, want, got *domain.JobRun) {
 		t.Fatal("run is nil")
 	}
 
-	if got.ID != want.ID ||
-		got.JobID != want.JobID ||
-		got.ProjectID != want.ProjectID ||
-		got.Status != want.Status ||
-		got.Attempt != want.Attempt ||
-		got.Error != want.Error ||
-		got.TriggeredBy != want.TriggeredBy ||
-		got.ParentRunID != want.ParentRunID ||
-		got.Priority != want.Priority ||
-		got.IdempotencyKey != want.IdempotencyKey {
-		t.Fatalf("run mismatch: got %+v want %+v", *got, *want)
-	}
+	testutil.AssertEqual(t, got, want, testutil.IgnoreFields(domain.JobRun{}, "Payload", "Result"))
 
-	if !jsonEqual(got.Payload, want.Payload) {
-		t.Fatalf("payload mismatch: got %s want %s", string(got.Payload), string(want.Payload))
+	if len(got.Payload) != 0 || len(want.Payload) != 0 {
+		testutil.AssertJSONEqual(t, got.Payload, want.Payload)
 	}
-	if !jsonEqual(got.Result, want.Result) {
-		t.Fatalf("result mismatch: got %s want %s", string(got.Result), string(want.Result))
+	if len(got.Result) != 0 || len(want.Result) != 0 {
+		testutil.AssertJSONEqual(t, got.Result, want.Result)
 	}
 
 	assertTimePtrEqual(t, "scheduled_at", want.ScheduledAt, got.ScheduledAt)
@@ -3455,9 +3424,6 @@ func assertRunEqual(t *testing.T, want, got *domain.JobRun) {
 	assertTimePtrEqual(t, "next_retry_at", want.NextRetryAt, got.NextRetryAt)
 	assertTimePtrEqual(t, "expires_at", want.ExpiresAt, got.ExpiresAt)
 
-	if !got.CreatedAt.Equal(want.CreatedAt) {
-		t.Fatalf("created_at mismatch: got %v want %v", got.CreatedAt, want.CreatedAt)
-	}
 }
 
 func assertTimePtrEqual(t *testing.T, field string, want, got *time.Time) {

@@ -12,6 +12,7 @@ import (
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
+	"orchestrator/internal/testutil"
 )
 
 type mockEngineStore struct {
@@ -889,15 +890,10 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 		if err != nil {
 			t.Fatalf("cancelRemainingSteps() error = %v", err)
 		}
-		if len(updated) != 2 {
-			t.Fatalf("updated len = %d, want 2", len(updated))
-		}
-		if updated["sr-running"] != domain.StepCanceled {
-			t.Fatalf("running step status = %s, want %s", updated["sr-running"], domain.StepCanceled)
-		}
-		if updated["sr-pending"] != domain.StepCanceled {
-			t.Fatalf("pending step status = %s, want %s", updated["sr-pending"], domain.StepCanceled)
-		}
+		testutil.AssertEqual(t, updated, map[string]domain.StepRunStatus{
+			"sr-running": domain.StepCanceled,
+			"sr-pending": domain.StepCanceled,
+		})
 		if _, ok := updated["sr-completed"]; ok {
 			t.Fatal("completed step should not be canceled")
 		}
