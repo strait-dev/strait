@@ -1,0 +1,132 @@
+---
+title: "Testing"
+description: "Overview of the testing infrastructure and patterns used in the orchestrator."
+---
+
+Testing is a core part of the orchestrator development process. We use a combination of unit, integration, E2E, and fuzz tests to ensure system reliability.
+
+## Test Infrastructure
+
+Shared testing utilities are located in `internal/testutil/`:
+
+- `testdb.go`: Helpers for spinning up ephemeral PostgreSQL instances using `testcontainers-go`.
+- `testredis.go`: Helpers for ephemeral Redis instances.
+- `factory.go`: Data factories for generating test entities (jobs, runs, workflows).
+- `assert.go`: Custom assertion helpers for common domain checks (uses `samber/lo` for collection queries).
+- `cmp.go`: Structural comparison helpers powered by `google/go-cmp` for rich, human-readable diffs.
+
+## Running Tests
+
+### Unit Tests
+
+Unit tests are fast and do not require external dependencies.
+
+```bash
+go test ./...
+```
+
+### Integration Tests
+
+Integration tests require Docker to run `testcontainers`. They are marked with the `integration` build tag.
+
+```bash
+go test -tags integration ./...
+```
+
+### End-to-End (E2E) Tests
+
+E2E tests verify the entire system flow, from API request to job execution.
+
+```bash
+go test -tags integration ./internal/e2e/...
+```
+
+### Fuzz Tests
+
+We use Go's native fuzzing to test the robustness of the FSM transitions.
+
+```bash
+go test -fuzz FuzzFSMTransition ./internal/domain/
+```
+
+### Benchmarks
+
+Performance benchmarks for critical paths like the job queue and workflow engine.
+
+```bash
+go test -bench . ./internal/...
+```
+
+## Advanced Testing Tools
+
+### Race Detector
+
+Always run tests with the race detector enabled in CI and during local development of concurrent features.
+
+```bash
+go test -race ./...
+```
+
+### Code Coverage
+
+Generate a coverage report to identify untested paths.
+
+```bash
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+## Test Patterns
+
+### Table-Driven Tests
+
+We prefer table-driven tests for testing multiple scenarios with the same logic.
+
+```go
+func TestCalculateBackoff(t *testing.T) {
+    tests := []struct {
+        name     string
+        attempt  int
+        expected time.Duration
+    }{
+        {"first attempt", 1, 1 * time.Second},
+        {"second attempt", 2, 2 * time.Second},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // ...
+        })
+    }
+}
+```
+
+### Parallel Execution
+
+Use `t.Parallel()` in unit tests to speed up execution.
+
+### Structural Assertions with go-cmp
+
+Use `testutil.AssertEqual` for comparing complex structs. It produces rich, human-readable diffs on failure instead of opaque assertion messages.
+
+```go
+func TestCreateJob(t *testing.T) {
+    got := store.GetJob(ctx, id)
+    testutil.AssertEqual(t, got, want)
+}
+```
+
+Available helpers in `internal/testutil/cmp.go`:
+
+- `AssertEqual(t, got, want, ...cmp.Option)`: Structural comparison with rich diff output.
+- `AssertJSONEqual(t, a, b []byte)`: JSON-aware comparison that ignores key ordering.
+- `EquateEmpty()`: Treats nil slices/maps as equal to empty ones.
+- `IgnoreFields(typ, ...names)`: Skips specified fields during comparison (useful for timestamps, IDs).
+
+### Testcontainers
+
+We use `testcontainers-go` to manage the lifecycle of PostgreSQL and Redis during integration tests. This ensures a clean state for every test suite.
+
+### Test Fixtures
+
+Static test data and JSON payloads are stored in `testdata/` directories within their respective packages.

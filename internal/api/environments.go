@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -11,9 +12,9 @@ import (
 )
 
 type CreateEnvironmentRequest struct {
-	ProjectID string            `json:"project_id"`
-	Name      string            `json:"name"`
-	Slug      string            `json:"slug"`
+	ProjectID string            `json:"project_id" validate:"required"`
+	Name      string            `json:"name" validate:"required"`
+	Slug      string            `json:"slug" validate:"required"`
 	ParentID  string            `json:"parent_id,omitempty"`
 	Variables map[string]string `json:"variables,omitempty"`
 }
@@ -32,18 +33,17 @@ type EnvironmentResponse struct {
 
 func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusNotFound, "environments feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
 	var req CreateEnvironmentRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.ProjectID == "" || req.Name == "" || req.Slug == "" {
-		respondError(w, http.StatusBadRequest, "missing required fields")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -56,7 +56,7 @@ func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.store.CreateEnvironment(r.Context(), env); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create environment")
+		respondError(w, r, http.StatusInternalServerError, "failed to create environment")
 		return
 	}
 
@@ -65,7 +65,7 @@ func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusNotFound, "environments feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -73,20 +73,20 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 	env, err := s.store.GetEnvironment(r.Context(), envID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, http.StatusNotFound, "environment not found")
+			respondError(w, r, http.StatusNotFound, "environment not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get environment")
+		respondError(w, r, http.StatusInternalServerError, "failed to get environment")
 		return
 	}
 
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(r.Context(), envID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, http.StatusNotFound, "environment not found")
+			respondError(w, r, http.StatusNotFound, "environment not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to resolve environment variables")
+		respondError(w, r, http.StatusInternalServerError, "failed to resolve environment variables")
 		return
 	}
 
@@ -98,28 +98,35 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusNotFound, "environments feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
-		respondError(w, http.StatusBadRequest, "project_id is required")
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
 	}
 
-	envs, err := s.store.ListEnvironments(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list environments")
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, envs)
-}
+	envs, err := s.store.ListEnvironments(r.Context(), projectID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list environments")
+		return
+	}
 
+	respondJSON(w, http.StatusOK, paginatedResult(envs, limit, func(e domain.Environment) string {
+		return e.CreatedAt.Format(time.RFC3339Nano)
+	}))
+}
 func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusNotFound, "environments feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -127,16 +134,16 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 	env, err := s.store.GetEnvironment(r.Context(), envID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, http.StatusNotFound, "environment not found")
+			respondError(w, r, http.StatusNotFound, "environment not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get environment")
+		respondError(w, r, http.StatusInternalServerError, "failed to get environment")
 		return
 	}
 
 	var req UpdateEnvironmentRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -155,10 +162,10 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 
 	if err := s.store.UpdateEnvironment(r.Context(), env); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, http.StatusNotFound, "environment not found")
+			respondError(w, r, http.StatusNotFound, "environment not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to update environment")
+		respondError(w, r, http.StatusInternalServerError, "failed to update environment")
 		return
 	}
 
@@ -167,17 +174,17 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusNotFound, "environments feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
 	envID := chi.URLParam(r, "envID")
 	if err := s.store.DeleteEnvironment(r.Context(), envID); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, http.StatusNotFound, "environment not found")
+			respondError(w, r, http.StatusNotFound, "environment not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to delete environment")
+		respondError(w, r, http.StatusInternalServerError, "failed to delete environment")
 		return
 	}
 
@@ -186,7 +193,7 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleGetResolvedVariables(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFEnvironments {
-		respondError(w, http.StatusNotFound, "environments feature is not enabled")
+		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
 		return
 	}
 
@@ -194,10 +201,10 @@ func (s *Server) handleGetResolvedVariables(w http.ResponseWriter, r *http.Reque
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(r.Context(), envID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
-			respondError(w, http.StatusNotFound, "environment not found")
+			respondError(w, r, http.StatusNotFound, "environment not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to resolve environment variables")
+		respondError(w, r, http.StatusInternalServerError, "failed to resolve environment variables")
 		return
 	}
 

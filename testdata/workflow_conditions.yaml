@@ -1,0 +1,43 @@
+# Workflow with conditional branching:
+#   check → success-path (if check completes)
+#   check → failure-path (if check fails, on_failure: continue)
+#   [success-path, failure-path] → cleanup
+name: conditional-workflow
+project_id: proj-test
+enabled: true
+version: 1
+timeout_secs: 3600
+steps:
+  - step_ref: check
+    job_id: job-healthcheck
+    step_type: job
+    on_failure: continue
+    retry_max_attempts: 2
+    retry_backoff: exponential
+    retry_initial_delay_secs: 5
+    retry_max_delay_secs: 30
+
+  - step_ref: success-path
+    job_id: job-deploy
+    step_type: job
+    depends_on:
+      - check
+    condition:
+      type: on_success
+      step_ref: check
+
+  - step_ref: failure-path
+    job_id: job-rollback
+    step_type: job
+    depends_on:
+      - check
+    condition:
+      type: on_failure
+      step_ref: check
+
+  - step_ref: cleanup
+    job_id: job-cleanup
+    step_type: job
+    depends_on:
+      - success-path
+      - failure-path

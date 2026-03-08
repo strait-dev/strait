@@ -26,7 +26,7 @@ type TestDB struct {
 }
 
 func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
-	pgContainer, err := postgres.Run(ctx, "postgres:16-alpine",
+	pgContainer, err := postgres.Run(ctx, "postgres:18-alpine",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),

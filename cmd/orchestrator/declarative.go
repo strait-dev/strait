@@ -198,7 +198,7 @@ func loadManifestInputs(inputs []string) ([]loadedManifest, error) {
 			continue
 		}
 
-		f, err := os.Open(input) //nolint:gosec
+		f, err := os.Open(input) //nolint:gosec // input is a CLI-provided manifest file path
 		if err != nil {
 			return nil, err
 		}
@@ -226,7 +226,7 @@ func decodeManifestDirectory(dir string) ([]loadedManifest, error) {
 		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
 			return nil
 		}
-		f, err := os.Open(path) //nolint:gosec
+		f, err := os.Open(path) //nolint:gosec // path is from filepath.WalkDir within user-provided directory
 		if err != nil {
 			return err
 		}

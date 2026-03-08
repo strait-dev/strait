@@ -16,3 +16,8 @@ type Subscription struct {
 func (s *Subscription) Close() {
 	s.cancel()
 }
+
+// NewSubscription creates a Subscription with a channel and cancel function.
+func NewSubscription(ch <-chan []byte, cancel context.CancelFunc) *Subscription {
+	return &Subscription{Ch: ch, cancel: cancel}
+}

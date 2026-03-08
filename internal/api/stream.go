@@ -17,21 +17,21 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			respondError(w, http.StatusNotFound, "run not found")
+			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get run")
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
 		return
 	}
 
 	if run.Status.IsTerminal() {
-		respondError(w, http.StatusGone, "run already in terminal state")
+		respondError(w, r, http.StatusGone, "run already in terminal state")
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		respondError(w, http.StatusInternalServerError, "streaming not supported")
+		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
 
@@ -44,7 +44,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	if s.pubsub == nil {
 		slog.Error("pubsub not configured", "run_id", runID)
-		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n")
+		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n"); err != nil {
+			slog.Warn("failed to write SSE error", "run_id", runID, "error", err)
+		}
 		flusher.Flush()
 		return
 	}
@@ -53,13 +55,19 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	sub, err := s.pubsub.Subscribe(r.Context(), channel)
 	if err != nil {
 		slog.Error("failed to subscribe", "run_id", runID, "error", err)
-		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n")
+		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
+			slog.Warn("failed to write SSE subscribe error", "run_id", runID, "error", err)
+		}
 		flusher.Flush()
 		return
 	}
 	defer sub.Close()
 
-	ticker := time.NewTicker(15 * time.Second)
+	keepalive := s.config.SSEKeepaliveInterval
+	if keepalive <= 0 {
+		keepalive = 15 * time.Second
+	}
+	ticker := time.NewTicker(keepalive)
 	defer ticker.Stop()
 
 	for {
@@ -70,10 +78,16 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
+				slog.Warn("failed to write SSE data", "run_id", runID, "error", err)
+				return
+			}
 			flusher.Flush()
 		case <-ticker.C:
-			_, _ = fmt.Fprintf(w, ": keepalive\n\n")
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+				slog.Warn("failed to write SSE keepalive", "run_id", runID, "error", err)
+				return
+			}
 			flusher.Flush()
 		}
 	}

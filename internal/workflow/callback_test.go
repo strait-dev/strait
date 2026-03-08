@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -15,6 +16,7 @@ func newTestCallback(ms *mockCallbackStore) *StepCallback {
 }
 
 func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
+	t.Parallel()
 	skippedIDs := make(map[string]bool)
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -27,7 +29,7 @@ func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 				{StepRef: "c"},
 			}, nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
 				{ID: "sr-b", StepRef: "b", Status: domain.StepWaiting},
@@ -59,6 +61,7 @@ func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 }
 
 func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
+	t.Parallel()
 	workflowChecked := false
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -72,7 +75,7 @@ func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
 		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
 			return nil, nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			workflowChecked = true
 			return []domain.WorkflowStepRun{
 				{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
@@ -94,6 +97,7 @@ func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
 }
 
 func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
+	t.Parallel()
 	workflowFailed := false
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -110,7 +114,7 @@ func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
 			}
 			return nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return nil, nil
 		},
 	}
@@ -126,9 +130,10 @@ func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
 }
 
 func TestCancelRemainingSteps(t *testing.T) {
+	t.Parallel()
 	canceledIDs := make(map[string]bool)
 	ms := &mockCallbackStore{
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-1", StepRef: "s1", Status: domain.StepCompleted},
 				{ID: "sr-2", StepRef: "s2", Status: domain.StepWaiting},
@@ -157,9 +162,10 @@ func TestCancelRemainingSteps(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
+	t.Parallel()
 	wfStatus := domain.WfStatusRunning
 	ms := &mockCallbackStore{
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-1", StepRef: "s1", Status: domain.StepCompleted},
 				{ID: "sr-2", StepRef: "s2", Status: domain.StepCompleted},
@@ -190,9 +196,10 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
+	t.Parallel()
 	wfUpdated := false
 	ms := &mockCallbackStore{
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-1", StepRef: "s1", Status: domain.StepCompleted},
 				{ID: "sr-2", StepRef: "s2", Status: domain.StepRunning},
@@ -214,9 +221,10 @@ func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
+	t.Parallel()
 	wfStatus := domain.WfStatusRunning
 	ms := &mockCallbackStore{
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-1", StepRef: "s1", Status: domain.StepFailed},
 				{ID: "sr-2", StepRef: "s2", Status: domain.StepCompleted},
@@ -247,9 +255,10 @@ func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
 }
 
 func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
+	t.Parallel()
 	wfStatus := domain.WfStatusRunning
 	ms := &mockCallbackStore{
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-1", StepRef: "s1", Status: domain.StepFailed},
 				{ID: "sr-2", StepRef: "s2", Status: domain.StepCompleted},
@@ -280,6 +289,7 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 }
 
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
+	t.Parallel()
 	skippedIDs := make(map[string]bool)
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -293,7 +303,7 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 				{StepRef: "d"}, // Independent step.
 			}, nil
 		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
 				{ID: "sr-a", StepRef: "a", Status: domain.StepFailed},
 				{ID: "sr-b", StepRef: "b", Status: domain.StepWaiting},
@@ -325,6 +335,7 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 }
 
 func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
+	t.Parallel()
 	ms := &mockCallbackStore{
 		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
 			return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepRunning}, nil

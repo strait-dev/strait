@@ -11,6 +11,7 @@ import (
 )
 
 func TestReaper_ReapStale(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -46,6 +47,7 @@ func TestReaper_ReapStale(t *testing.T) {
 }
 
 func TestReaper_ReapExpired(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -77,6 +79,7 @@ func TestReaper_ReapExpired(t *testing.T) {
 }
 
 func TestReaper_ReapStaleDequeued(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -111,6 +114,7 @@ func TestReaper_ReapStaleDequeued(t *testing.T) {
 }
 
 func TestReaper_NoStaleRuns(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -139,6 +143,7 @@ func TestReaper_NoStaleRuns(t *testing.T) {
 }
 
 func TestReaper_RunLoop(t *testing.T) {
+	t.Parallel()
 	var ticked atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -165,6 +170,7 @@ func TestReaper_RunLoop(t *testing.T) {
 }
 
 func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
+	t.Parallel()
 	var deleted atomic.Int64
 	ms := &mockReaperStore{
 		deleteOldWorkflowRunsFn: func(_ context.Context, before time.Time, limit int) (int64, error) {
@@ -188,6 +194,7 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 }
 
 func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
+	t.Parallel()
 	var wfUpdates atomic.Int32
 	var stepUpdates atomic.Int32
 	var runUpdates atomic.Int32
@@ -206,7 +213,7 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 			wfUpdates.Add(1)
 			return nil
 		},
-		listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+		listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			if workflowRunID != "wr-1" {
 				t.Fatalf("unexpected workflowRunID %q", workflowRunID)
 			}
@@ -249,6 +256,7 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 }
 
 func TestReaper_ReapStale_ListError(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -269,6 +277,7 @@ func TestReaper_ReapStale_ListError(t *testing.T) {
 }
 
 func TestReaper_ReapStale_UpdateError(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	var updateCalls atomic.Int32
 	ms := &mockReaperStore{
@@ -300,6 +309,7 @@ func TestReaper_ReapStale_UpdateError(t *testing.T) {
 }
 
 func TestReaper_ReapExpired_ListError(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
 		listExpiredRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
@@ -320,6 +330,7 @@ func TestReaper_ReapExpired_ListError(t *testing.T) {
 }
 
 func TestReaper_ReapExpired_UpdateError(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	var updateCalls atomic.Int32
 	ms := &mockReaperStore{
@@ -351,6 +362,7 @@ func TestReaper_ReapExpired_UpdateError(t *testing.T) {
 }
 
 func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	ms := &mockReaperStore{
 		listStaleDequeuedFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -371,6 +383,7 @@ func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
 }
 
 func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
+	t.Parallel()
 	var transitioned atomic.Int32
 	var updateCalls atomic.Int32
 	ms := &mockReaperStore{
@@ -402,7 +415,9 @@ func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
 }
 
 func TestReaper_ReapExpiredApprovals(t *testing.T) {
+	t.Parallel()
 	t.Run("success_single_approval", func(t *testing.T) {
+		t.Parallel()
 		var approvalUpdates atomic.Int32
 		var stepUpdates atomic.Int32
 		var workflowUpdates atomic.Int32
@@ -453,6 +468,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 	})
 
 	t.Run("list_error", func(t *testing.T) {
+		t.Parallel()
 		var approvalUpdates atomic.Int32
 		var stepUpdates atomic.Int32
 		var workflowUpdates atomic.Int32
@@ -490,6 +506,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 	})
 
 	t.Run("update_approval_error_continues", func(t *testing.T) {
+		t.Parallel()
 		var stepUpdates atomic.Int32
 		var workflowUpdates atomic.Int32
 
@@ -534,6 +551,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 	})
 
 	t.Run("update_step_error_continues", func(t *testing.T) {
+		t.Parallel()
 		var workflowUpdates atomic.Int32
 		var stepUpdates atomic.Int32
 
@@ -573,6 +591,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 	})
 
 	t.Run("workflow_running_to_failed", func(t *testing.T) {
+		t.Parallel()
 		var workflowUpdates atomic.Int32
 
 		ms := &mockReaperStore{
@@ -603,6 +622,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 	})
 
 	t.Run("workflow_paused_fallback", func(t *testing.T) {
+		t.Parallel()
 		var workflowUpdates atomic.Int32
 
 		ms := &mockReaperStore{
@@ -636,6 +656,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 	})
 
 	t.Run("both_workflow_updates_fail", func(t *testing.T) {
+		t.Parallel()
 		var approvalUpdates atomic.Int32
 		var stepUpdates atomic.Int32
 		var workflowUpdates atomic.Int32
@@ -690,6 +711,7 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 	})
 
 	t.Run("multiple_approvals", func(t *testing.T) {
+		t.Parallel()
 		var approvalUpdates atomic.Int32
 		var stepUpdates atomic.Int32
 		var workflowUpdates atomic.Int32
@@ -738,7 +760,9 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 }
 
 func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
+	t.Parallel()
 	t.Run("retention_disabled", func(t *testing.T) {
+		t.Parallel()
 		var deleteCalls atomic.Int32
 
 		ms := &mockReaperStore{
@@ -757,6 +781,7 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("delete_error", func(t *testing.T) {
+		t.Parallel()
 		var deleteCalls atomic.Int32
 
 		ms := &mockReaperStore{
@@ -775,6 +800,7 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("delete_zero_count", func(t *testing.T) {
+		t.Parallel()
 		var deleteCalls atomic.Int32
 
 		ms := &mockReaperStore{
@@ -793,6 +819,7 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("negative_retention", func(t *testing.T) {
+		t.Parallel()
 		var deleteCalls atomic.Int32
 
 		ms := &mockReaperStore{
@@ -812,7 +839,9 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 }
 
 func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
+	t.Parallel()
 	t.Run("list_error", func(t *testing.T) {
+		t.Parallel()
 		var wfUpdates atomic.Int32
 		var stepLists atomic.Int32
 		var stepUpdates atomic.Int32
@@ -827,7 +856,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 				wfUpdates.Add(1)
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				stepLists.Add(1)
 				return nil, nil
 			},
@@ -854,6 +883,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("workflow_update_error_continues", func(t *testing.T) {
+		t.Parallel()
 		var wfUpdates atomic.Int32
 		var stepLists atomic.Int32
 
@@ -871,7 +901,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 				}
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				stepLists.Add(1)
 				if workflowRunID != "wr-2" {
 					t.Fatalf("expected step listing only for wr-2, got %s", workflowRunID)
@@ -892,6 +922,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("step_listing_error_continues", func(t *testing.T) {
+		t.Parallel()
 		var stepLists atomic.Int32
 
 		ms := &mockReaperStore{
@@ -904,7 +935,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				stepLists.Add(1)
 				if workflowRunID == "wr-1" {
 					return nil, errors.New("list steps failed")
@@ -925,6 +956,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("step_already_terminal_skipped", func(t *testing.T) {
+		t.Parallel()
 		var stepUpdates atomic.Int32
 
 		ms := &mockReaperStore{
@@ -934,7 +966,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepCompleted}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -952,6 +984,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("step_no_job_run_skipped", func(t *testing.T) {
+		t.Parallel()
 		var stepUpdates atomic.Int32
 		var runGets atomic.Int32
 
@@ -962,7 +995,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: ""}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
@@ -990,6 +1023,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("get_job_run_error_continues", func(t *testing.T) {
+		t.Parallel()
 		var runGets atomic.Int32
 		var runUpdates atomic.Int32
 
@@ -1000,7 +1034,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"},
 					{ID: "sr-2", Status: domain.StepRunning, JobRunID: "run-2"},
@@ -1034,6 +1068,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("job_run_already_terminal_skipped", func(t *testing.T) {
+		t.Parallel()
 		var runUpdates atomic.Int32
 
 		ms := &mockReaperStore{
@@ -1043,7 +1078,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -1067,6 +1102,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("job_run_update_error_continues", func(t *testing.T) {
+		t.Parallel()
 		var runUpdates atomic.Int32
 
 		ms := &mockReaperStore{
@@ -1076,7 +1112,7 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string) ([]domain.WorkflowStepRun, error) {
+			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 				return []domain.WorkflowStepRun{
 					{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"},
 					{ID: "sr-2", Status: domain.StepRunning, JobRunID: "run-2"},
@@ -1110,7 +1146,9 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 }
 
 func TestReaper_WithWorkflowRetention(t *testing.T) {
+	t.Parallel()
 	t.Run("sets_positive_retention", func(t *testing.T) {
+		t.Parallel()
 		ms := &mockReaperStore{}
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(7 * 24 * time.Hour)
@@ -1121,6 +1159,7 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 	})
 
 	t.Run("ignores_zero_retention", func(t *testing.T) {
+		t.Parallel()
 		ms := &mockReaperStore{}
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(0)
@@ -1131,6 +1170,7 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 	})
 
 	t.Run("ignores_negative_retention", func(t *testing.T) {
+		t.Parallel()
 		ms := &mockReaperStore{}
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(-time.Hour)
@@ -1141,6 +1181,7 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 	})
 
 	t.Run("custom_retention_used_in_reap", func(t *testing.T) {
+		t.Parallel()
 		var deletedBefore time.Time
 		var deleteCalls atomic.Int32
 
@@ -1174,6 +1215,7 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 }
 
 func TestReaper_ReapTerminalRetention(t *testing.T) {
+	t.Parallel()
 	var called atomic.Int32
 	ms := &mockReaperStore{
 		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
@@ -1197,6 +1239,7 @@ func TestReaper_ReapTerminalRetention(t *testing.T) {
 }
 
 func TestReaper_RetentionDisabled_SkipsRetention(t *testing.T) {
+	t.Parallel()
 	var called atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -1226,6 +1269,7 @@ func TestReaper_RetentionDisabled_SkipsRetention(t *testing.T) {
 }
 
 func TestReaper_RetentionEnabled_CallsRetention(t *testing.T) {
+	t.Parallel()
 	var called atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
@@ -1255,6 +1299,7 @@ func TestReaper_RetentionEnabled_CallsRetention(t *testing.T) {
 }
 
 func TestReaper_CustomRetentionPeriods(t *testing.T) {
+	t.Parallel()
 	customShort := 7 * 24 * time.Hour
 	customLong := 14 * 24 * time.Hour
 	var called atomic.Int32
@@ -1280,6 +1325,7 @@ func TestReaper_CustomRetentionPeriods(t *testing.T) {
 }
 
 func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
+	t.Parallel()
 	var called atomic.Int32
 	ms := &mockReaperStore{
 		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {

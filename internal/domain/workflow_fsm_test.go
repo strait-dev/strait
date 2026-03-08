@@ -7,6 +7,7 @@ import (
 )
 
 func TestValidateWorkflowTransition_AllValidTransitions(t *testing.T) {
+	t.Parallel()
 	for from, toStatuses := range validWorkflowTransitions {
 		for _, to := range toStatuses {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
@@ -19,6 +20,7 @@ func TestValidateWorkflowTransition_AllValidTransitions(t *testing.T) {
 }
 
 func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		from WorkflowRunStatus
 		to   WorkflowRunStatus
@@ -46,6 +48,7 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 }
 
 func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
+	t.Parallel()
 	err := ValidateWorkflowTransition(WorkflowRunStatus("unknown"), WfStatusRunning)
 	if err == nil {
 		t.Fatal("expected error for unknown status")
@@ -58,6 +61,7 @@ func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
 }
 
 func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
+	t.Parallel()
 	terminalStatuses := []WorkflowRunStatus{WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled}
 	for _, status := range terminalStatuses {
 		t.Run(string(status), func(t *testing.T) {
@@ -73,6 +77,7 @@ func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
 }
 
 func TestAllWorkflowStatusesCovered(t *testing.T) {
+	t.Parallel()
 	allStatuses := []WorkflowRunStatus{
 		WfStatusPending,
 		WfStatusRunning,
@@ -97,6 +102,7 @@ func TestAllWorkflowStatusesCovered(t *testing.T) {
 }
 
 func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status   WorkflowRunStatus
 		expected bool
@@ -120,6 +126,7 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 }
 
 func TestWorkflowRunStatusIsValid(t *testing.T) {
+	t.Parallel()
 	if !WfStatusRunning.IsValid() {
 		t.Fatal("expected running to be valid")
 	}
@@ -129,7 +136,9 @@ func TestWorkflowRunStatusIsValid(t *testing.T) {
 }
 
 func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
+	t.Parallel()
 	t.Run("transition_error_from_terminal", func(t *testing.T) {
+		t.Parallel()
 		err := ValidateWorkflowTransition(WfStatusCompleted, WfStatusRunning)
 		var te *TransitionError
 		if !errors.As(err, &te) {
@@ -141,6 +150,7 @@ func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
 	})
 
 	t.Run("unknown_status_error", func(t *testing.T) {
+		t.Parallel()
 		err := ValidateWorkflowTransition(WorkflowRunStatus("bogus"), WfStatusRunning)
 		var ue *UnknownStatusError
 		if !errors.As(err, &ue) {
@@ -152,6 +162,7 @@ func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
 	})
 
 	t.Run("self_transition_running", func(t *testing.T) {
+		t.Parallel()
 		err := ValidateWorkflowTransition(WfStatusRunning, WfStatusRunning)
 		var te *TransitionError
 		if !errors.As(err, &te) {
@@ -161,6 +172,7 @@ func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
 }
 
 func TestValidateStepTransition_AllValidTransitions(t *testing.T) {
+	t.Parallel()
 	for from, toStatuses := range validStepTransitions {
 		for _, to := range toStatuses {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
@@ -173,6 +185,7 @@ func TestValidateStepTransition_AllValidTransitions(t *testing.T) {
 }
 
 func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		from StepRunStatus
@@ -195,6 +208,7 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateStepTransition(tc.from, tc.to)
 			if err == nil {
 				t.Fatalf("expected error for %s -> %s, got nil", tc.from, tc.to)
@@ -204,6 +218,7 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 }
 
 func TestValidateStepTransition_UnknownStatus(t *testing.T) {
+	t.Parallel()
 	err := ValidateStepTransition(StepRunStatus("unknown"), StepRunning)
 	if err == nil {
 		t.Fatal("expected error for unknown status")
@@ -216,6 +231,7 @@ func TestValidateStepTransition_UnknownStatus(t *testing.T) {
 }
 
 func TestValidateStepTransition_TerminalHaveNoTransitions(t *testing.T) {
+	t.Parallel()
 	terminalStatuses := []StepRunStatus{StepCompleted, StepFailed, StepSkipped, StepCanceled}
 	for _, status := range terminalStatuses {
 		t.Run(string(status), func(t *testing.T) {
@@ -231,6 +247,7 @@ func TestValidateStepTransition_TerminalHaveNoTransitions(t *testing.T) {
 }
 
 func TestAllStepStatusesCovered(t *testing.T) {
+	t.Parallel()
 	allStatuses := []StepRunStatus{
 		StepPending,
 		StepWaiting,
@@ -255,7 +272,9 @@ func TestAllStepStatusesCovered(t *testing.T) {
 }
 
 func TestValidateStepTransition_ErrorTypes(t *testing.T) {
+	t.Parallel()
 	t.Run("transition_error_from_terminal", func(t *testing.T) {
+		t.Parallel()
 		err := ValidateStepTransition(StepCompleted, StepRunning)
 		var te *TransitionError
 		if !errors.As(err, &te) {
@@ -267,6 +286,7 @@ func TestValidateStepTransition_ErrorTypes(t *testing.T) {
 	})
 
 	t.Run("unknown_status_error", func(t *testing.T) {
+		t.Parallel()
 		err := ValidateStepTransition(StepRunStatus("bogus"), StepRunning)
 		var ue *UnknownStatusError
 		if !errors.As(err, &ue) {
@@ -278,6 +298,7 @@ func TestValidateStepTransition_ErrorTypes(t *testing.T) {
 	})
 
 	t.Run("self_transition_running", func(t *testing.T) {
+		t.Parallel()
 		err := ValidateStepTransition(StepRunning, StepRunning)
 		var te *TransitionError
 		if !errors.As(err, &te) {
@@ -287,6 +308,7 @@ func TestValidateStepTransition_ErrorTypes(t *testing.T) {
 }
 
 func TestStepRunStatusIsTerminal_AllStatuses(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status   StepRunStatus
 		expected bool

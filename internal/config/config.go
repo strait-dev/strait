@@ -42,6 +42,9 @@ type Config struct {
 	TriggerRateLimitRequests int           `mapstructure:"TRIGGER_RATE_LIMIT_REQUESTS"`
 	TriggerRateLimitWindow   time.Duration `mapstructure:"TRIGGER_RATE_LIMIT_WINDOW"`
 
+	RequestTimeout     time.Duration `mapstructure:"REQUEST_TIMEOUT"`
+	MaxRequestBodySize int64         `mapstructure:"MAX_REQUEST_BODY_SIZE"`
+
 	// Sequin CDC settings
 	SequinBaseURL      string `mapstructure:"SEQUIN_BASE_URL"`
 	SequinConsumerName string `mapstructure:"SEQUIN_CONSUMER_NAME"`
@@ -89,10 +92,35 @@ type Config struct {
 	FFJobDependencies  bool `mapstructure:"FF_JOB_DEPENDENCIES"`
 	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
+
+	// Worker/Executor timeouts
+	WebhookTimeout          time.Duration `mapstructure:"WEBHOOK_TIMEOUT"`
+	WebhookIdleConnTimeout  time.Duration `mapstructure:"WEBHOOK_IDLE_CONN_TIMEOUT"`
+	ExecutorHTTPTimeout     time.Duration `mapstructure:"EXECUTOR_HTTP_TIMEOUT"`
+	ExecutorIdleConnTimeout time.Duration `mapstructure:"EXECUTOR_IDLE_CONN_TIMEOUT"`
+	WebhookDispatchTimeout  time.Duration `mapstructure:"WEBHOOK_DISPATCH_TIMEOUT"`
+
+	// Worker settings
+	WebhookMaxAttempts    int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
+	DefaultJobMaxAttempts int `mapstructure:"DEFAULT_JOB_MAX_ATTEMPTS"`
+	DefaultJobTimeoutSecs int `mapstructure:"DEFAULT_JOB_TIMEOUT_SECS"`
+	WorkerQueueSize       int `mapstructure:"WORKER_QUEUE_SIZE"`
+
+	// Scheduler settings
+	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
+	ReaperDeleteBatchSize int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
+
+	// Workflow settings
+	MaxWorkflowNestingDepth int `mapstructure:"MAX_WORKFLOW_NESTING_DEPTH"`
+
+	CDCBatchSize  int `mapstructure:"CDC_BATCH_SIZE"`
+	CDCWaitTimeMs int `mapstructure:"CDC_WAIT_TIME_MS"`
+
+	// SSE settings
+	SSEKeepaliveInterval time.Duration `mapstructure:"SSE_KEEPALIVE_INTERVAL"`
 }
 
-// Load reads configuration from environment variables.
-func Load() (*Config, error) {
+func setDefaults() {
 	viper.SetDefault("MODE", "all")
 	viper.SetDefault("PORT", 8080)
 	viper.SetDefault("WORKER_CONCURRENCY", 10)
@@ -112,6 +140,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("RATE_LIMIT_WINDOW", time.Minute)
 	viper.SetDefault("TRIGGER_RATE_LIMIT_REQUESTS", 10)
 	viper.SetDefault("TRIGGER_RATE_LIMIT_WINDOW", time.Minute)
+	viper.SetDefault("REQUEST_TIMEOUT", 30*time.Second)
+	viper.SetDefault("MAX_REQUEST_BODY_SIZE", int64(1<<20))
 	viper.SetDefault("SEQUIN_BATCH_SIZE", 10)
 	viper.SetDefault("SEQUIN_WAIT_TIME_MS", 5000)
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", []string{"*"})
@@ -148,6 +178,66 @@ func Load() (*Config, error) {
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
 	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
+	viper.SetDefault("WEBHOOK_TIMEOUT", 10*time.Second)
+	viper.SetDefault("WEBHOOK_IDLE_CONN_TIMEOUT", 60*time.Second)
+	viper.SetDefault("EXECUTOR_HTTP_TIMEOUT", 5*time.Minute)
+	viper.SetDefault("EXECUTOR_IDLE_CONN_TIMEOUT", 90*time.Second)
+	viper.SetDefault("WEBHOOK_DISPATCH_TIMEOUT", 15*time.Second)
+	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
+	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
+	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
+	viper.SetDefault("WORKER_QUEUE_SIZE", 0)
+	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
+	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
+	viper.SetDefault("MAX_WORKFLOW_NESTING_DEPTH", 10)
+	viper.SetDefault("CDC_BATCH_SIZE", 10)
+	viper.SetDefault("CDC_WAIT_TIME_MS", 5000)
+	viper.SetDefault("SSE_KEEPALIVE_INTERVAL", 15*time.Second)
+}
+
+func BindEnv() error {
+	keys := []string{
+		"DATABASE_URL", "REDIS_URL", "REDIS_SENTINEL_MASTER", "REDIS_SENTINEL_ADDRS",
+		"MODE", "PORT", "WORKER_CONCURRENCY", "INTERNAL_SECRET", "JWT_SIGNING_KEY",
+		"SECRET_ENCRYPTION_KEY", "LOG_LEVEL", "HEARTBEAT_INTERVAL", "REAPER_INTERVAL",
+		"STALE_THRESHOLD", "POLLER_INTERVAL", "RUN_RETENTION_SHORT", "RUN_RETENTION_LONG",
+		"OTEL_EXPORTER_OTLP_ENDPOINT", "WORKFLOW_RUN_RETENTION_DAYS", "DB_MAX_CONNS",
+		"DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME", "RATE_LIMIT_REQUESTS",
+		"RATE_LIMIT_WINDOW", "TRIGGER_RATE_LIMIT_REQUESTS", "TRIGGER_RATE_LIMIT_WINDOW",
+		"REQUEST_TIMEOUT", "MAX_REQUEST_BODY_SIZE", "SEQUIN_BASE_URL", "SEQUIN_CONSUMER_NAME",
+		"SEQUIN_API_TOKEN", "SEQUIN_BATCH_SIZE", "SEQUIN_WAIT_TIME_MS", "CORS_ALLOWED_ORIGINS",
+		"CORS_ALLOW_CREDENTIALS", "FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS",
+		"FF_EXECUTION_WINDOWS", "FF_QUEUE_PARTITIONING", "WORKER_PARTITIONS",
+		"WORKER_PARTITION_WEIGHTS", "FF_PROGRESS_STREAMING", "FF_CHECKPOINTS",
+		"FF_RUN_CONTINUATION", "FF_USAGE_TRACKING", "FF_COST_BUDGETS",
+		"FF_ERROR_CLASSIFICATION", "FF_SMART_RETRY", "FF_CIRCUIT_BREAKER", "FF_BULKHEADS",
+		"FF_RUN_DLQ", "FF_PAYLOAD_VALIDATION", "FF_JOB_TAGS", "FF_RUN_ANNOTATIONS",
+		"FF_SECRET_INJECTION", "FF_RUN_REPLAY", "FF_DRY_RUN", "FF_RUN_RETENTION",
+		"FF_EXECUTION_TRACING", "FF_DEBUG_BUNDLE", "FF_BATCH_JOB_OPS", "FF_ENVIRONMENTS",
+		"FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES", "FF_JOB_HEALTH_SCORING", "FF_ADAPTIVE_TIMEOUT",
+		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
+		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_ATTEMPTS",
+		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
+		"WORKFLOW_RETENTION",
+		"REAPER_DELETE_BATCH_SIZE", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
+		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
+	}
+
+	for _, key := range keys {
+		if err := viper.BindEnv(key); err != nil {
+			return fmt.Errorf("bind env %s: %w", key, err)
+		}
+	}
+
+	return nil
+}
+
+// Load reads configuration from environment variables.
+func Load() (*Config, error) {
+	setDefaults()
+	if err := BindEnv(); err != nil {
+		return nil, err
+	}
 
 	viper.AutomaticEnv()
 
@@ -168,12 +258,30 @@ func Load() (*Config, error) {
 	cfg.DBMinConns = viper.GetInt32("DB_MIN_CONNS")
 	cfg.RateLimitWindow = viper.GetDuration("RATE_LIMIT_WINDOW")
 	cfg.TriggerRateLimitWindow = viper.GetDuration("TRIGGER_RATE_LIMIT_WINDOW")
+	cfg.RequestTimeout = viper.GetDuration("REQUEST_TIMEOUT")
+	cfg.MaxRequestBodySize = viper.GetInt64("MAX_REQUEST_BODY_SIZE")
 	cfg.CORSAllowedOrigins = viper.GetStringSlice("CORS_ALLOWED_ORIGINS")
 	cfg.CORSAllowCredentials = viper.GetBool("CORS_ALLOW_CREDENTIALS")
 	cfg.RedisSentinelAddrs = viper.GetStringSlice("REDIS_SENTINEL_ADDRS")
 	cfg.WorkflowRunRetentionDays = viper.GetInt("WORKFLOW_RUN_RETENTION_DAYS")
 	cfg.WorkerPartitions = viper.GetStringSlice("WORKER_PARTITIONS")
 	cfg.WorkerPartitionWeights = viper.GetString("WORKER_PARTITION_WEIGHTS")
+	cfg.WebhookTimeout = viper.GetDuration("WEBHOOK_TIMEOUT")
+	cfg.WebhookIdleConnTimeout = viper.GetDuration("WEBHOOK_IDLE_CONN_TIMEOUT")
+	cfg.ExecutorHTTPTimeout = viper.GetDuration("EXECUTOR_HTTP_TIMEOUT")
+	cfg.ExecutorIdleConnTimeout = viper.GetDuration("EXECUTOR_IDLE_CONN_TIMEOUT")
+	cfg.WebhookDispatchTimeout = viper.GetDuration("WEBHOOK_DISPATCH_TIMEOUT")
+	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
+	cfg.CDCBatchSize = viper.GetInt("CDC_BATCH_SIZE")
+	cfg.CDCWaitTimeMs = viper.GetInt("CDC_WAIT_TIME_MS")
+	cfg.SSEKeepaliveInterval = viper.GetDuration("SSE_KEEPALIVE_INTERVAL")
+
+	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
+		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
+	}
+	if !viper.IsSet("CDC_WAIT_TIME_MS") && viper.IsSet("SEQUIN_WAIT_TIME_MS") {
+		cfg.CDCWaitTimeMs = viper.GetInt("SEQUIN_WAIT_TIME_MS")
+	}
 
 	if cfg.DatabaseURL == "" {
 		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}

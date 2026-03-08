@@ -1,0 +1,41 @@
+# Fan-out/fan-in workflow:
+#   init → [worker-1, worker-2, worker-3] → aggregate
+name: fanout-workflow
+project_id: proj-test
+enabled: true
+version: 1
+max_parallel_steps: 3
+steps:
+  - step_ref: init
+    job_id: job-init
+    step_type: job
+
+  - step_ref: worker-1
+    job_id: job-worker
+    step_type: job
+    depends_on:
+      - init
+    payload: '{"partition": 1}'
+
+  - step_ref: worker-2
+    job_id: job-worker
+    step_type: job
+    depends_on:
+      - init
+    payload: '{"partition": 2}'
+
+  - step_ref: worker-3
+    job_id: job-worker
+    step_type: job
+    depends_on:
+      - init
+    payload: '{"partition": 3}'
+
+  - step_ref: aggregate
+    job_id: job-aggregate
+    step_type: job
+    depends_on:
+      - worker-1
+      - worker-2
+      - worker-3
+    payload: '{"merge_strategy": "concat"}'

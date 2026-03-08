@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
 
@@ -280,7 +281,7 @@ func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.Ru
 	return nil
 }
 
-func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int) ([]domain.RunCheckpoint, error) {
+func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunCheckpoints")
 	defer span.End()
 
@@ -291,11 +292,21 @@ func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit in
 	query := `
 		SELECT id, run_id, sequence, source, state, created_at
 		FROM run_checkpoints
-		WHERE run_id = $1
-		ORDER BY sequence DESC
-		LIMIT $2`
+		WHERE run_id = $1`
 
-	rows, err := q.db.Query(ctx, query, runID, limit)
+	args := []any{runID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY sequence DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list run checkpoints: %w", err)
 	}
@@ -361,7 +372,7 @@ func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) er
 	return nil
 }
 
-func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int) ([]domain.RunUsage, error) {
+func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunUsage")
 	defer span.End()
 
@@ -372,11 +383,21 @@ func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int) ([]
 	query := `
 		SELECT id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at
 		FROM run_usage
-		WHERE run_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2`
+		WHERE run_id = $1`
 
-	rows, err := q.db.Query(ctx, query, runID, limit)
+	args := []any{runID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list run usage: %w", err)
 	}
@@ -432,7 +453,7 @@ func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCal
 	return nil
 }
 
-func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int) ([]domain.RunToolCall, error) {
+func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunToolCalls")
 	defer span.End()
 
@@ -443,11 +464,21 @@ func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int)
 	query := `
 		SELECT id, run_id, tool_name, input, output, duration_ms, status, created_at
 		FROM run_tool_calls
-		WHERE run_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2`
+		WHERE run_id = $1`
 
-	rows, err := q.db.Query(ctx, query, runID, limit)
+	args := []any{runID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list run tool calls: %w", err)
 	}
@@ -500,17 +531,28 @@ func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput)
 	return nil
 }
 
-func (q *Queries) ListRunOutputs(ctx context.Context, runID string) ([]domain.RunOutput, error) {
+func (q *Queries) ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunOutputs")
 	defer span.End()
 
 	query := `
 		SELECT id, run_id, output_key, schema, value, created_at
 		FROM run_outputs
-		WHERE run_id = $1
-		ORDER BY output_key ASC`
+		WHERE run_id = $1`
 
-	rows, err := q.db.Query(ctx, query, runID)
+	args := []any{runID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY output_key ASC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list run outputs: %w", err)
 	}
@@ -784,7 +826,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	return runs, nil
 }
 
-func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListDeadLetterRuns")
 	defer span.End()
 
@@ -797,11 +839,21 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth
 		FROM job_runs
-		WHERE project_id = $1 AND status = 'dead_letter'
-		ORDER BY created_at DESC
-		LIMIT $2`
+		WHERE project_id = $1 AND status = 'dead_letter'`
 
-	rows, err := q.db.Query(ctx, query, projectID, limit)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list dead letter runs: %w", err)
 	}
@@ -888,10 +940,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	args := []any{to, id, from}
 	param := 4
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
-	}
+	keys := lo.Keys(fields)
 	sort.Strings(keys)
 
 	for _, key := range keys {
@@ -1099,7 +1148,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	return runs, nil
 }
 
-func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]domain.JobRun, error) {
+func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListChildRuns")
 	defer span.End()
 
@@ -1108,10 +1157,21 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string) ([]doma
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth
 		FROM job_runs
-		WHERE parent_run_id = $1
-		ORDER BY created_at ASC`
+		WHERE parent_run_id = $1`
 
-	rows, err := q.db.Query(ctx, query, parentRunID)
+	args := []any{parentRunID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at ASC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list child runs: %w", err)
 	}
@@ -1200,27 +1260,27 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 		return nil, err
 	}
 
-	events, err := q.ListEvents(ctx, runID)
+	events, err := q.ListEvents(ctx, runID, 10000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get debug bundle events: %w", err)
 	}
 
-	checkpoints, err := q.ListRunCheckpoints(ctx, runID, 1000)
+	checkpoints, err := q.ListRunCheckpoints(ctx, runID, 1000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get debug bundle checkpoints: %w", err)
 	}
 
-	usage, err := q.ListRunUsage(ctx, runID, 1000)
+	usage, err := q.ListRunUsage(ctx, runID, 1000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get debug bundle usage: %w", err)
 	}
 
-	toolCalls, err := q.ListRunToolCalls(ctx, runID, 1000)
+	toolCalls, err := q.ListRunToolCalls(ctx, runID, 1000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get debug bundle tool calls: %w", err)
 	}
 
-	outputs, err := q.ListRunOutputs(ctx, runID)
+	outputs, err := q.ListRunOutputs(ctx, runID, 10000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get debug bundle outputs: %w", err)
 	}
@@ -1253,7 +1313,7 @@ func (q *Queries) UpdateRunDebugMode(ctx context.Context, runID string, debugMod
 	return nil
 }
 
-func (q *Queries) ListRunLineage(ctx context.Context, runID string) ([]domain.JobRun, error) {
+func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _ *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunLineage")
 	defer span.End()
 
@@ -1293,9 +1353,10 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string) ([]domain.Jo
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth
 		FROM lineage
-		ORDER BY lineage_depth ASC`
+		ORDER BY lineage_depth ASC
+		LIMIT $2`
 
-	rows, err := q.db.Query(ctx, query, rootID)
+	rows, err := q.db.Query(ctx, query, rootID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list run lineage: %w", err)
 	}

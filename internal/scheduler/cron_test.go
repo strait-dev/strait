@@ -23,6 +23,7 @@ func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, p
 }
 
 func TestNewCronScheduler(t *testing.T) {
+	t.Parallel()
 	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{}, nil)
 	if cs == nil {
 		t.Fatal("expected scheduler to be non-nil")
@@ -30,6 +31,7 @@ func TestNewCronScheduler(t *testing.T) {
 }
 
 func TestCronScheduler_LoadJobs_Success(t *testing.T) {
+	t.Parallel()
 	store := &mockCronStore{
 		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
 			return []domain.Job{
@@ -47,6 +49,7 @@ func TestCronScheduler_LoadJobs_Success(t *testing.T) {
 }
 
 func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
+	t.Parallel()
 	store := &mockCronStore{
 		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
 			return []domain.Job{}, nil
@@ -61,6 +64,7 @@ func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
 }
 
 func TestCronScheduler_LoadJobs_StoreError(t *testing.T) {
+	t.Parallel()
 	storeErr := errors.New("store error")
 	store := &mockCronStore{
 		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
@@ -79,6 +83,7 @@ func TestCronScheduler_LoadJobs_StoreError(t *testing.T) {
 }
 
 func TestCronScheduler_LoadJobs_InvalidCron(t *testing.T) {
+	t.Parallel()
 	store := &mockCronStore{
 		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
 			return []domain.Job{{ID: "job-1", ProjectID: "proj-1", Cron: "bad"}}, nil
@@ -96,6 +101,7 @@ func TestCronScheduler_LoadJobs_InvalidCron(t *testing.T) {
 }
 
 func TestCronScheduler_StartStop(t *testing.T) {
+	t.Parallel()
 	store := &mockCronStore{
 		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
 			return []domain.Job{{ID: "job-1", ProjectID: "proj-1", Cron: "* * * * *"}}, nil
@@ -113,6 +119,7 @@ func TestCronScheduler_StartStop(t *testing.T) {
 }
 
 func TestCronScheduler_TriggerJob(t *testing.T) {
+	t.Parallel()
 	var enqueued domain.JobRun
 	q := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
@@ -137,6 +144,7 @@ func TestCronScheduler_TriggerJob(t *testing.T) {
 }
 
 func TestCronScheduler_TriggerJob_WithTTL(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
@@ -167,6 +175,7 @@ func TestCronScheduler_TriggerJob_WithTTL(t *testing.T) {
 }
 
 func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
@@ -192,6 +201,7 @@ func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
 }
 
 func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
+	t.Parallel()
 	triggered := false
 	cs := NewCronScheduler(&mockCronStore{
 		countRunningWfRunsFn: func(_ context.Context, workflowID string) (int, error) {
@@ -215,6 +225,7 @@ func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
 }
 
 func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
+	t.Parallel()
 	triggered := false
 	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{}, &mockWorkflowTrigger{
 		triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
@@ -236,5 +247,26 @@ func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
 
 	if !triggered {
 		t.Fatal("expected workflow cron trigger to run")
+	}
+}
+
+func FuzzCronExpression(f *testing.F) {
+	f.Add("*/5 * * * *")
+	f.Add("0 0 * * *")
+	f.Add("0 12 * * MON-FRI")
+	f.Add("")
+	f.Add("not a cron")
+	f.Add("* * * * * *")
+
+	f.Fuzz(func(t *testing.T, expr string) {
+		cs := NewCronScheduler(nil, nil, nil)
+		_, _ = cs.cron.AddFunc(expr, func() {})
+	})
+}
+
+func BenchmarkCronParse(b *testing.B) {
+	cs := NewCronScheduler(nil, nil, nil)
+	for b.Loop() {
+		_, _ = cs.cron.AddFunc("*/5 * * * *", func() {})
 	}
 }

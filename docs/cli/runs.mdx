@@ -1,0 +1,90 @@
+---
+title: "Runs"
+description: "Monitor and manage job runs."
+---
+
+## runs list
+List runs with optional filters.
+
+```bash
+orchestrator runs list --status executing --limit 20
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--project` | string | | Project ID |
+| `--status` | string | | Status filter |
+| `--limit` | int | 50 | Maximum runs to return |
+
+## runs get
+Get a run by ID.
+
+```bash
+orchestrator runs get run_abc123
+```
+
+## runs cancel
+Cancel one or more runs.
+
+```bash
+orchestrator runs cancel run_abc123
+orchestrator runs cancel --all --status queued --yes
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--all` | bool | false | Cancel all runs matching filters |
+| `--project` | string | | Project ID (for `--all`) |
+| `--status` | string | | Status filter (for `--all`) |
+| `--limit` | int | 100 | Max runs to consider (for `--all`) |
+| `--yes` | bool | false | Skip confirmation prompt |
+
+## runs watch
+Watch a run until it reaches a terminal state.
+
+```bash
+orchestrator runs watch run_abc123 --timeout 10m
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--interval` | duration | 2s | Poll interval |
+| `--timeout` | duration | 5m | Max watch duration (0 = no limit) |
+
+## runs logs
+Show run events and logs.
+
+```bash
+orchestrator runs logs run_abc123 --follow
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--follow` / `-f` | bool | false | Stream logs by polling |
+| `--interval` | duration | 2s | Poll interval when following |
+| `--level` | string | | Event level filter |
+| `--type` | string | | Event type filter |
+
+## runs replay
+Replay a run using its original payload.
+
+```bash
+orchestrator runs replay run_abc123 --wait
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--wait` | bool | false | Wait for replayed run to complete |
+
+## runs events
+Inspect run events.
+
+```bash
+orchestrator runs events --run run_abc123 --level error
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--run` | string | Run ID (required) |
+| `--level` | string | Event level filter |
+| `--type` | string | Event type filter |

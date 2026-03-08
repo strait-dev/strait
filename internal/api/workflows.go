@@ -16,11 +16,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/robfig/cron/v3"
+	"github.com/samber/lo"
 )
 
 type workflowStepRequest struct {
 	JobID                 string                    `json:"job_id,omitempty"`
-	StepRef               string                    `json:"step_ref"`
+	StepRef               string                    `json:"step_ref" validate:"required"`
 	DependsOn             []string                  `json:"depends_on,omitempty"`
 	Condition             json.RawMessage           `json:"condition,omitempty"`
 	OnFailure             domain.FailurePolicy      `json:"on_failure,omitempty"`
@@ -39,9 +40,9 @@ type workflowStepRequest struct {
 }
 
 type createWorkflowRequest struct {
-	ProjectID         string                `json:"project_id"`
-	Name              string                `json:"name"`
-	Slug              string                `json:"slug"`
+	ProjectID         string                `json:"project_id" validate:"required"`
+	Name              string                `json:"name" validate:"required"`
+	Slug              string                `json:"slug" validate:"required"`
 	Description       string                `json:"description,omitempty"`
 	Enabled           *bool                 `json:"enabled,omitempty"`
 	TimeoutSecs       int                   `json:"timeout_secs,omitempty"`
@@ -68,7 +69,7 @@ type updateWorkflowRequest struct {
 }
 
 type dryRunWorkflowRequest struct {
-	Steps []workflowStepRequest `json:"steps"`
+	Steps []workflowStepRequest `json:"steps" validate:"required"`
 }
 
 type workflowGraphResponse struct {
@@ -93,18 +94,17 @@ type workflowResponse struct {
 
 func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req createWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.ProjectID == "" || req.Name == "" || req.Slug == "" {
-		respondError(w, http.StatusBadRequest, "missing required fields")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if err := validateWorkflowSteps(req.Steps); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -127,12 +127,12 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		SkipIfRunning:     req.SkipIfRunning,
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := s.store.CreateWorkflow(r.Context(), wf); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to create workflow")
 		return
 	}
 
@@ -160,14 +160,14 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			slog.Error("failed to create workflow step", "error", err, "step_ref", step.StepRef, "workflow_id", wf.ID)
-			respondError(w, http.StatusInternalServerError, "failed to create workflow step")
+			respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
 			return
 		}
 		steps = append(steps, step)
 	}
 
 	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to snapshot workflow version")
+		respondError(w, r, http.StatusInternalServerError, "failed to snapshot workflow version")
 		return
 	}
 
@@ -179,16 +179,16 @@ func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, http.StatusNotFound, "workflow not found")
+			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
 		return
 	}
 
 	steps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow steps")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
 		return
 	}
 
@@ -198,17 +198,25 @@ func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
-		respondError(w, http.StatusBadRequest, "project_id is required")
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
 	}
 
-	workflows, err := s.store.ListWorkflows(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflows")
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, workflows)
+	workflows, err := s.store.ListWorkflows(r.Context(), projectID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflows")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paginatedResult(workflows, limit, func(wf domain.Workflow) string {
+		return wf.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -216,16 +224,20 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, http.StatusNotFound, "workflow not found")
+			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
 		return
 	}
 
 	var req updateWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -260,26 +272,26 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		wf.SkipIfRunning = *req.SkipIfRunning
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := s.store.UpdateWorkflow(r.Context(), wf); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, http.StatusNotFound, "workflow not found")
+			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to update workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to update workflow")
 		return
 	}
 
 	if req.Steps != nil {
 		if err := validateWorkflowSteps(*req.Steps); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 		if err := s.store.DeleteStepsByWorkflow(r.Context(), wf.ID); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to replace workflow steps")
+			respondError(w, r, http.StatusInternalServerError, "failed to replace workflow steps")
 			return
 		}
 		for _, stepReq := range *req.Steps {
@@ -304,20 +316,20 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 				MaxNestingDepth:       stepReq.MaxNestingDepth,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
-				respondError(w, http.StatusInternalServerError, "failed to create workflow step")
+				respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
 				return
 			}
 		}
 	}
 
 	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to snapshot workflow version")
+		respondError(w, r, http.StatusInternalServerError, "failed to snapshot workflow version")
 		return
 	}
 
 	steps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow steps")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
 		return
 	}
 
@@ -327,7 +339,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowID")
 	if err := s.store.DeleteWorkflow(r.Context(), workflowID); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to delete workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to delete workflow")
 		return
 	}
 
@@ -336,7 +348,7 @@ func (s *Server) handleDeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 	if s.workflowEngine == nil {
-		respondError(w, http.StatusServiceUnavailable, "workflow engine unavailable")
+		respondError(w, r, http.StatusServiceUnavailable, "workflow engine unavailable")
 		return
 	}
 
@@ -344,24 +356,28 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, http.StatusNotFound, "workflow not found")
+			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
 		return
 	}
 	if wf == nil {
-		respondError(w, http.StatusNotFound, "workflow not found")
+		respondError(w, r, http.StatusNotFound, "workflow not found")
 		return
 	}
 	if !wf.Enabled {
-		respondError(w, http.StatusConflict, "workflow is disabled")
+		respondError(w, r, http.StatusConflict, "workflow is disabled")
 		return
 	}
 
 	var req triggerWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -373,16 +389,16 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 	run, err := s.workflowEngine.TriggerWorkflow(r.Context(), workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, http.StatusNotFound, "workflow not found")
+			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
 		slog.Error("failed to trigger workflow", "error", err, "workflow_id", workflowID)
-		respondError(w, http.StatusInternalServerError, "failed to trigger workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to trigger workflow")
 		return
 	}
 	if len(req.Labels) > 0 {
 		if err := s.store.CreateWorkflowRunLabels(r.Context(), run.ID, req.Labels); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to persist workflow run labels")
+			respondError(w, r, http.StatusInternalServerError, "failed to persist workflow run labels")
 			return
 		}
 	}
@@ -444,19 +460,23 @@ func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowID")
 
 	var req dryRunWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	if len(req.Steps) == 0 {
 		steps, err := s.store.ListStepsByWorkflow(r.Context(), workflowID)
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to list workflow steps")
+			respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
 			return
 		}
 		if err := workflow.ValidateDAG(steps); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 		respondJSON(w, http.StatusOK, map[string]any{"valid": true, "step_count": len(steps)})
@@ -464,7 +484,7 @@ func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := validateWorkflowSteps(req.Steps); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -473,7 +493,7 @@ func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, domain.WorkflowStep{StepRef: sreq.StepRef, DependsOn: sreq.DependsOn})
 	}
 	if err := workflow.ValidateDAG(steps); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -486,7 +506,7 @@ func (s *Server) handleWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 
 	steps, err := s.store.ListStepsByWorkflow(r.Context(), workflowID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list workflow steps")
+		respondError(w, r, http.StatusInternalServerError, "failed to list workflow steps")
 		return
 	}
 
@@ -525,10 +545,7 @@ func (s *Server) handleWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 func buildWorkflowDOT(adjacency map[string][]string) string {
 	var b strings.Builder
 	b.WriteString("digraph workflow {\n")
-	keys := make([]string, 0, len(adjacency))
-	for k := range adjacency {
-		keys = append(keys, k)
-	}
+	keys := lo.Keys(adjacency)
 	sort.Strings(keys)
 	for _, src := range keys {
 		dsts := adjacency[src]
@@ -574,15 +591,15 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 	sourceWf, err := s.store.GetWorkflow(r.Context(), sourceID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
-			respondError(w, http.StatusNotFound, "workflow not found")
+			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
 		return
 	}
 
 	var req cloneWorkflowRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := s.decodeJSON(r, &req); err != nil {
 		// Body is optional for clone — use defaults.
 		req = cloneWorkflowRequest{}
 	}
@@ -614,13 +631,13 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 		SkipIfRunning:     sourceWf.SkipIfRunning,
 	}
 	if err := s.store.CreateWorkflow(r.Context(), newWf); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create cloned workflow")
+		respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow")
 		return
 	}
 
 	sourceSteps, err := s.store.ListStepsByWorkflow(r.Context(), sourceID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list source workflow steps")
+		respondError(w, r, http.StatusInternalServerError, "failed to list source workflow steps")
 		return
 	}
 
@@ -647,14 +664,14 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 			MaxNestingDepth:       src.MaxNestingDepth,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to create cloned workflow step")
+			respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow step")
 			return
 		}
 		newSteps = append(newSteps, step)
 	}
 
 	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), newWf.ID, newWf.Version); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to snapshot cloned workflow version")
+		respondError(w, r, http.StatusInternalServerError, "failed to snapshot cloned workflow version")
 		return
 	}
 

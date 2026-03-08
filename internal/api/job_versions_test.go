@@ -27,6 +27,7 @@ func makeVersionedJob(id string, version int) *domain.Job {
 }
 
 func TestTriggerJob_StampsJobVersion(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 
 	ms := &mockAPIStore{
@@ -57,6 +58,7 @@ func TestTriggerJob_StampsJobVersion(t *testing.T) {
 }
 
 func TestTriggerJob_StampsVersionOne(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 
 	ms := &mockAPIStore{
@@ -87,6 +89,7 @@ func TestTriggerJob_StampsVersionOne(t *testing.T) {
 }
 
 func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 
 	ms := &mockAPIStore{
@@ -117,6 +120,7 @@ func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
 }
 
 func TestBulkTrigger_StampsJobVersion(t *testing.T) {
+	t.Parallel()
 	var capturedRuns []*domain.JobRun
 
 	ms := &mockAPIStore{
@@ -150,6 +154,7 @@ func TestBulkTrigger_StampsJobVersion(t *testing.T) {
 }
 
 func TestBulkTrigger_VersionConsistency(t *testing.T) {
+	t.Parallel()
 	var capturedRuns []*domain.JobRun
 
 	ms := &mockAPIStore{
@@ -184,6 +189,7 @@ func TestBulkTrigger_VersionConsistency(t *testing.T) {
 }
 
 func TestCreateJob_ReturnsVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-123"
@@ -218,6 +224,7 @@ func TestCreateJob_ReturnsVersion(t *testing.T) {
 }
 
 func TestUpdateJob_IncrementsVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 2), nil
@@ -248,8 +255,9 @@ func TestUpdateJob_IncrementsVersion(t *testing.T) {
 }
 
 func TestListJobVersions_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, jobID string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},
 				{ID: "v2", JobID: jobID, Version: 2, Name: "name-v2", Slug: "slug-v2", EndpointURL: "https://example.com"},
@@ -267,9 +275,7 @@ func TestListJobVersions_Success(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 3 {
 		t.Fatalf("expected 3 versions, got %d", len(resp))
 	}
@@ -281,8 +287,9 @@ func TestListJobVersions_Success(t *testing.T) {
 }
 
 func TestListJobVersions_Empty(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, _ string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{}, nil
 		},
 	}
@@ -296,17 +303,16 @@ func TestListJobVersions_Empty(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 0 {
 		t.Fatalf("expected empty array, got %d items", len(resp))
 	}
 }
 
 func TestListJobVersions_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, _ string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return nil, errors.New("boom")
 		},
 	}
@@ -321,6 +327,7 @@ func TestListJobVersions_StoreError(t *testing.T) {
 }
 
 func TestGetJob_IncludesVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return makeVersionedJob(id, 5), nil
@@ -345,8 +352,9 @@ func TestGetJob_IncludesVersion(t *testing.T) {
 }
 
 func TestListJobs_IncludesVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, projectID string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{
 				*makeVersionedJob("job-1", 2),
 				*makeVersionedJob("job-2", 7),
@@ -363,9 +371,7 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 jobs, got %d", len(resp))
 	}
@@ -377,6 +383,7 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 }
 
 func TestGetRun_IncludesJobVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{
@@ -409,6 +416,7 @@ func TestGetRun_IncludesJobVersion(t *testing.T) {
 }
 
 func TestListRuns_IncludesJobVersion(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{
@@ -427,9 +435,7 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(resp))
 	}
@@ -441,8 +447,9 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 }
 
 func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobVersionsByJobFn: func(_ context.Context, jobID string) ([]domain.JobVersion, error) {
+		listJobVersionsByJobFn: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},
 				{ID: "v2", JobID: jobID, Version: 2, Name: "name-v2", Slug: "slug-v2", EndpointURL: "https://example.com"},
@@ -459,9 +466,7 @@ func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 versions, got %d", len(resp))
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -126,7 +127,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 	return job, nil
 }
 
-func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {
+func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobs")
 	defer span.End()
 
@@ -136,17 +137,27 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string) ([]domain.Job,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
 		FROM jobs
-		WHERE project_id = $1
-		ORDER BY created_at DESC
-		LIMIT 1000`
+		WHERE project_id = $1`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs: %w", err)
 	}
 	defer rows.Close()
 
-	jobs := make([]domain.Job, 0, 16)
+	jobs := make([]domain.Job, 0, limit)
 	for rows.Next() {
 		job, err := scanJob(rows)
 		if err != nil {
@@ -528,7 +539,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	return &job, nil
 }
 
-func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {
+func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobsByTag")
 	defer span.End()
 
@@ -541,13 +552,23 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		WHERE project_id = $1`
 
 	args := []any{projectID, tagKey}
+	param := 3
 	if tagValue == "" {
 		base += ` AND tags ? $2`
 	} else {
 		base += ` AND tags ->> $2 = $3`
 		args = append(args, tagValue)
+		param++
 	}
-	base += ` ORDER BY created_at DESC`
+
+	if cursor != nil {
+		base += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	base += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, base, args...)
 	if err != nil {

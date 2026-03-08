@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
 
@@ -90,20 +91,35 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	return run, nil
 }
 
-func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit, offset int) ([]domain.WorkflowRun, error) {
+func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowRuns")
 	defer span.End()
 
-	query := `
-		SELECT id, workflow_id, project_id, status, triggered_by, payload,
-		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
-		FROM workflow_runs
-		WHERE workflow_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3`
+	var rows pgx.Rows
+	var err error
 
-	rows, err := q.db.Query(ctx, query, workflowID, limit, offset)
+	if cursor != nil {
+		query := `
+			SELECT id, workflow_id, project_id, status, triggered_by, payload,
+			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+			       retry_of_run_id, parent_workflow_run_id, created_at
+			FROM workflow_runs
+			WHERE workflow_id = $1 AND created_at < $3
+			ORDER BY created_at DESC
+			LIMIT $2`
+		rows, err = q.db.Query(ctx, query, workflowID, limit, *cursor)
+	} else {
+		query := `
+			SELECT id, workflow_id, project_id, status, triggered_by, payload,
+			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+			       retry_of_run_id, parent_workflow_run_id, created_at
+			FROM workflow_runs
+			WHERE workflow_id = $1
+			ORDER BY created_at DESC
+			LIMIT $2`
+		rows, err = q.db.Query(ctx, query, workflowID, limit)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list workflow runs: %w", err)
 	}
@@ -125,7 +141,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 	return runs, nil
 }
 
-func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int) ([]domain.WorkflowRun, error) {
+func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowRunsByProject")
 	defer span.End()
 
@@ -142,6 +158,12 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	if status != nil {
 		baseQuery += fmt.Sprintf(" AND status = $%d", param)
 		args = append(args, *status)
+		param++
+	}
+
+	if cursor != nil {
+		baseQuery += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
 		param++
 	}
 
@@ -221,10 +243,7 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, 
 	args := []any{to, id, from}
 	param := 4
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
-	}
+	keys := lo.Keys(fields)
 	sort.Strings(keys)
 
 	for _, key := range keys {

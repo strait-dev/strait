@@ -29,6 +29,7 @@ func (m *mockPublisher) Publish(ctx context.Context, channel string, data []byte
 }
 
 func TestJobRunHandlerTable(t *testing.T) {
+	t.Parallel()
 	h := NewJobRunHandler(nil, nil)
 	if got := h.Table(); got != "job_runs" {
 		t.Fatalf("Table() = %q, want %q", got, "job_runs")
@@ -36,6 +37,7 @@ func TestJobRunHandlerTable(t *testing.T) {
 }
 
 func TestJobRunHandlerHandlePublishes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		action Action
@@ -47,6 +49,7 @@ func TestJobRunHandlerHandlePublishes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			pub := &mockPublisher{}
 			logger, logs := newBufferedLogger()
 			h := NewJobRunHandler(pub, logger)
@@ -103,6 +106,7 @@ func TestJobRunHandlerHandlePublishes(t *testing.T) {
 }
 
 func TestJobRunHandlerHandleNilPublisher(t *testing.T) {
+	t.Parallel()
 	logger, _ := newBufferedLogger()
 	h := NewJobRunHandler(nil, logger)
 	msg := Message{
@@ -116,6 +120,7 @@ func TestJobRunHandlerHandleNilPublisher(t *testing.T) {
 }
 
 func TestJobRunHandlerHandleInvalidRecord(t *testing.T) {
+	t.Parallel()
 	h := NewJobRunHandler(&mockPublisher{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{`)}
 
@@ -129,6 +134,7 @@ func TestJobRunHandlerHandleInvalidRecord(t *testing.T) {
 }
 
 func TestJobRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
+	t.Parallel()
 	pub := &mockPublisher{publishFn: func(context.Context, string, []byte) error { return errors.New("boom") }}
 	logger, logs := newBufferedLogger()
 	h := NewJobRunHandler(pub, logger)
@@ -149,6 +155,7 @@ func TestJobRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 }
 
 func TestWorkflowRunHandlerTable(t *testing.T) {
+	t.Parallel()
 	h := NewWorkflowRunHandler(nil, nil)
 	if got := h.Table(); got != "workflow_runs" {
 		t.Fatalf("Table() = %q, want %q", got, "workflow_runs")
@@ -156,6 +163,7 @@ func TestWorkflowRunHandlerTable(t *testing.T) {
 }
 
 func TestWorkflowRunHandlerHandlePatterns(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		action Action
@@ -167,6 +175,7 @@ func TestWorkflowRunHandlerHandlePatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			pub := &mockPublisher{}
 			h := NewWorkflowRunHandler(pub, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 			msg := Message{
@@ -215,6 +224,7 @@ func TestWorkflowRunHandlerHandlePatterns(t *testing.T) {
 }
 
 func TestWorkflowRunHandlerHandleNilPublisher(t *testing.T) {
+	t.Parallel()
 	h := NewWorkflowRunHandler(nil, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"wf_run_1","workflow_id":"wf_1","project_id":"proj_9","status":"running"}`)}
 	if err := h.Handle(context.Background(), msg); err != nil {
@@ -223,6 +233,7 @@ func TestWorkflowRunHandlerHandleNilPublisher(t *testing.T) {
 }
 
 func TestWorkflowRunHandlerHandleInvalidRecord(t *testing.T) {
+	t.Parallel()
 	h := NewWorkflowRunHandler(&mockPublisher{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	err := h.Handle(context.Background(), Message{Action: ActionInsert, Record: json.RawMessage(`{`)})
 	if err == nil {
@@ -234,6 +245,7 @@ func TestWorkflowRunHandlerHandleInvalidRecord(t *testing.T) {
 }
 
 func TestWorkflowRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
+	t.Parallel()
 	pub := &mockPublisher{publishFn: func(context.Context, string, []byte) error { return errors.New("boom") }}
 	logger, logs := newBufferedLogger()
 	h := NewWorkflowRunHandler(pub, logger)
@@ -251,6 +263,7 @@ func TestWorkflowRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 }
 
 func TestWorkflowStepRunHandlerTable(t *testing.T) {
+	t.Parallel()
 	h := NewWorkflowStepRunHandler(nil, nil)
 	if got := h.Table(); got != "workflow_step_runs" {
 		t.Fatalf("Table() = %q, want %q", got, "workflow_step_runs")
@@ -258,6 +271,7 @@ func TestWorkflowStepRunHandlerTable(t *testing.T) {
 }
 
 func TestWorkflowStepRunHandlerHandlePatterns(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		action Action
@@ -269,6 +283,7 @@ func TestWorkflowStepRunHandlerHandlePatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			pub := &mockPublisher{}
 			h := NewWorkflowStepRunHandler(pub, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 			msg := Message{
@@ -317,6 +332,7 @@ func TestWorkflowStepRunHandlerHandlePatterns(t *testing.T) {
 }
 
 func TestWorkflowStepRunHandlerHandleNilPublisher(t *testing.T) {
+	t.Parallel()
 	h := NewWorkflowStepRunHandler(nil, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"step_run_1","workflow_run_id":"wf_run_123","step_ref":"build","status":"running"}`)}
 	if err := h.Handle(context.Background(), msg); err != nil {
@@ -325,6 +341,7 @@ func TestWorkflowStepRunHandlerHandleNilPublisher(t *testing.T) {
 }
 
 func TestWorkflowStepRunHandlerHandleInvalidRecord(t *testing.T) {
+	t.Parallel()
 	h := NewWorkflowStepRunHandler(&mockPublisher{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	err := h.Handle(context.Background(), Message{Action: ActionInsert, Record: json.RawMessage(`{`)})
 	if err == nil {
@@ -336,6 +353,7 @@ func TestWorkflowStepRunHandlerHandleInvalidRecord(t *testing.T) {
 }
 
 func TestWorkflowStepRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
+	t.Parallel()
 	pub := &mockPublisher{publishFn: func(context.Context, string, []byte) error { return errors.New("boom") }}
 	logger, logs := newBufferedLogger()
 	h := NewWorkflowStepRunHandler(pub, logger)
@@ -353,6 +371,7 @@ func TestWorkflowStepRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 }
 
 func TestChangeEventMarshalWithChanges(t *testing.T) {
+	t.Parallel()
 	e := ChangeEvent{
 		Table:     "job_runs",
 		Action:    ActionUpdate,
@@ -372,6 +391,7 @@ func TestChangeEventMarshalWithChanges(t *testing.T) {
 }
 
 func TestChangeEventMarshalOmitsNilChanges(t *testing.T) {
+	t.Parallel()
 	e := ChangeEvent{
 		Table:     "job_runs",
 		Action:    ActionInsert,

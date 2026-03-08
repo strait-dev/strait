@@ -3,6 +3,7 @@ package worker
 import "testing"
 
 func TestValidateEndpointURL_Valid(t *testing.T) {
+	t.Parallel()
 	urls := []string{
 		"https://example.com/webhook",
 		"http://api.example.com:8080/path",
@@ -16,6 +17,7 @@ func TestValidateEndpointURL_Valid(t *testing.T) {
 }
 
 func TestValidateEndpointURL_PrivateIP(t *testing.T) {
+	t.Parallel()
 	urls := []string{
 		"http://10.0.0.1/admin",
 		"http://192.168.1.1/internal",
@@ -29,6 +31,7 @@ func TestValidateEndpointURL_PrivateIP(t *testing.T) {
 }
 
 func TestValidateEndpointURL_Loopback(t *testing.T) {
+	t.Parallel()
 	urls := []string{
 		"http://127.0.0.1/metadata",
 		"http://127.0.0.1:9000/admin",
@@ -41,26 +44,43 @@ func TestValidateEndpointURL_Loopback(t *testing.T) {
 }
 
 func TestValidateEndpointURL_LinkLocal(t *testing.T) {
+	t.Parallel()
 	if err := validateEndpointURL("http://169.254.169.254/latest/meta-data/"); err == nil {
 		t.Error("validateEndpointURL(link-local) = nil, want error")
 	}
 }
 
 func TestValidateEndpointURL_InvalidScheme(t *testing.T) {
+	t.Parallel()
 	if err := validateEndpointURL("ftp://example.com/file"); err == nil {
 		t.Error("validateEndpointURL(ftp) = nil, want error for non-http(s) scheme")
 	}
 }
 
 func TestValidateEndpointURL_MissingHost(t *testing.T) {
+	t.Parallel()
 	if err := validateEndpointURL("http:///path"); err == nil {
 		t.Error("validateEndpointURL(no host) = nil, want error")
 	}
 }
 
 func TestValidateEndpointURL_CloudMetadata(t *testing.T) {
+	t.Parallel()
 	// AWS metadata endpoint — must be blocked
 	if err := validateEndpointURL("http://169.254.169.254/latest/meta-data/iam/security-credentials/"); err == nil {
 		t.Error("validateEndpointURL(AWS metadata) = nil, want error for link-local address")
 	}
+}
+
+func FuzzValidateEndpointURL(f *testing.F) {
+	f.Add("https://example.com/webhook")
+	f.Add("http://127.0.0.1/admin")
+	f.Add("ftp://evil.com")
+	f.Add("")
+	f.Add("http://169.254.169.254/latest")
+	f.Add("not-a-url")
+
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		_ = validateEndpointURL(rawURL)
+	})
 }

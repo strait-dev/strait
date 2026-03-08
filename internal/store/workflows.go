@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -95,7 +96,7 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 	return w, nil
 }
 
-func (q *Queries) ListWorkflows(ctx context.Context, projectID string) ([]domain.Workflow, error) {
+func (q *Queries) ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflows")
 	defer span.End()
 
@@ -103,10 +104,21 @@ func (q *Queries) ListWorkflows(ctx context.Context, projectID string) ([]domain
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
 		       max_parallel_steps, cron, cron_timezone, skip_if_running, created_at, updated_at
 		FROM workflows
-		WHERE project_id = $1
-		ORDER BY created_at DESC`
+		WHERE project_id = $1`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list workflows: %w", err)
 	}

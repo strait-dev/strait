@@ -49,9 +49,9 @@ func TestMain(m *testing.M) {
 			InternalSecret:           "test-secret",
 			JWTSigningKey:            "test-jwt-key-must-be-at-least-32-chars-long",
 			SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
-			RateLimitRequests:        5000,
+			RateLimitRequests:        0,
 			RateLimitWindow:          time.Minute,
-			TriggerRateLimitRequests: 5000,
+			TriggerRateLimitRequests: 0,
 			TriggerRateLimitWindow:   time.Minute,
 			CORSAllowedOrigins:       []string{"*"},
 			CORSAllowCredentials:     false,
@@ -134,11 +134,13 @@ func mustDecodeObject(t *testing.T, w *httptest.ResponseRecorder) map[string]any
 
 func mustDecodeList(t *testing.T, w *httptest.ResponseRecorder) []map[string]any {
 	t.Helper()
-	var resp []map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+	var envelope struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	return resp
+	return envelope.Data
 }
 
 func asString(t *testing.T, m map[string]any, key string) string {

@@ -6,6 +6,7 @@ import (
 )
 
 func TestSubscription_Close(t *testing.T) {
+	t.Parallel()
 	var called bool
 	ch := make(chan []byte)
 	sub := &Subscription{
@@ -20,6 +21,7 @@ func TestSubscription_Close(t *testing.T) {
 }
 
 func TestSubscription_Close_Idempotent(t *testing.T) {
+	t.Parallel()
 	// Use a real context.CancelFunc which is safe to call multiple times.
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
@@ -37,6 +39,7 @@ func TestSubscription_Close_Idempotent(t *testing.T) {
 }
 
 func TestSubscription_ChannelType(t *testing.T) {
+	t.Parallel()
 	ch := make(chan []byte, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

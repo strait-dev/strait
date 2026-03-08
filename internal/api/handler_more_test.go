@@ -16,6 +16,7 @@ import (
 )
 
 func TestHandleUpdateJob_Success(t *testing.T) {
+	t.Parallel()
 	var updated *domain.Job
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -51,6 +52,7 @@ func TestHandleUpdateJob_Success(t *testing.T) {
 }
 
 func TestHandleUpdateJob_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, store.ErrJobNotFound
@@ -67,6 +69,7 @@ func TestHandleUpdateJob_NotFound(t *testing.T) {
 }
 
 func TestHandleUpdateJob_InvalidBody(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, Name: "Old", EndpointURL: "https://example.com"}, nil
@@ -83,6 +86,7 @@ func TestHandleUpdateJob_InvalidBody(t *testing.T) {
 }
 
 func TestHandleUpdateJob_InvalidCron(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, Name: "Old", EndpointURL: "https://example.com"}, nil
@@ -99,6 +103,7 @@ func TestHandleUpdateJob_InvalidCron(t *testing.T) {
 }
 
 func TestHandleUpdateJob_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, Name: "Old", EndpointURL: "https://example.com"}, nil
@@ -118,6 +123,7 @@ func TestHandleUpdateJob_StoreError(t *testing.T) {
 }
 
 func TestHandleCreateJob_MissingFields_ProjectID(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
@@ -130,6 +136,7 @@ func TestHandleCreateJob_MissingFields_ProjectID(t *testing.T) {
 }
 
 func TestHandleCreateJob_InvalidURL(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
@@ -142,6 +149,7 @@ func TestHandleCreateJob_InvalidURL(t *testing.T) {
 }
 
 func TestHandleCreateJob_InvalidCron(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
@@ -154,6 +162,7 @@ func TestHandleCreateJob_InvalidCron(t *testing.T) {
 }
 
 func TestHandleCreateJob_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, _ *domain.Job) error {
 			return errors.New("insert failed")
@@ -172,6 +181,7 @@ func TestHandleCreateJob_StoreError(t *testing.T) {
 }
 
 func TestHandleCreateJob_DefaultValues(t *testing.T) {
+	t.Parallel()
 	var got *domain.Job
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
@@ -202,6 +212,7 @@ func TestHandleCreateJob_DefaultValues(t *testing.T) {
 }
 
 func TestHandleDeleteJob_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, store.ErrJobNotFound
@@ -218,6 +229,7 @@ func TestHandleDeleteJob_NotFound(t *testing.T) {
 }
 
 func TestHandleDeleteJob_StoreGetError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, errors.New("db down")
@@ -234,6 +246,7 @@ func TestHandleDeleteJob_StoreGetError(t *testing.T) {
 }
 
 func TestHandleDeleteJob_StoreUpdateError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, EndpointURL: "https://example.com", Enabled: true}, nil
@@ -253,6 +266,7 @@ func TestHandleDeleteJob_StoreUpdateError(t *testing.T) {
 }
 
 func TestHandleCancelRun_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
@@ -269,6 +283,7 @@ func TestHandleCancelRun_NotFound(t *testing.T) {
 }
 
 func TestHandleCancelRun_TerminalState(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusCompleted}, nil
@@ -285,6 +300,7 @@ func TestHandleCancelRun_TerminalState(t *testing.T) {
 }
 
 func TestHandleCancelRun_UpdateError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
@@ -304,6 +320,7 @@ func TestHandleCancelRun_UpdateError(t *testing.T) {
 }
 
 func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
+	t.Parallel()
 	getRunCalls := 0
 	updates := make(map[string]domain.RunStatus)
 
@@ -319,7 +336,7 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 			updates[id] = to
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{
 				{ID: "child-running", ParentRunID: parentRunID, Status: domain.StatusQueued},
 				{ID: "child-done", ParentRunID: parentRunID, Status: domain.StatusCompleted},
@@ -346,6 +363,7 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 }
 
 func TestHandleTriggerJob_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, store.ErrJobNotFound
@@ -362,6 +380,7 @@ func TestHandleTriggerJob_NotFound(t *testing.T) {
 }
 
 func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
+	t.Parallel()
 	enqueued := false
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -407,6 +426,7 @@ func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
 }
 
 func TestHandleTriggerJob_DelayedSchedule(t *testing.T) {
+	t.Parallel()
 	var enqueued *domain.JobRun
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -438,6 +458,7 @@ func TestHandleTriggerJob_DelayedSchedule(t *testing.T) {
 }
 
 func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -471,6 +492,7 @@ func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
 }
 
 func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -504,6 +526,7 @@ func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
 }
 
 func TestHandleTriggerJob_EnqueueError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 120}, nil
@@ -525,48 +548,56 @@ func TestHandleTriggerJob_EnqueueError(t *testing.T) {
 }
 
 func TestValidateURL_ValidHTTPS(t *testing.T) {
+	t.Parallel()
 	if err := validateURL("https://example.com"); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 }
 
 func TestValidateURL_ValidHTTP(t *testing.T) {
+	t.Parallel()
 	if err := validateURL("http://example.com"); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 }
 
 func TestValidateURL_InvalidScheme(t *testing.T) {
+	t.Parallel()
 	if err := validateURL("ftp://example.com"); err == nil {
 		t.Fatal("expected error for invalid scheme")
 	}
 }
 
 func TestValidateURL_NoHost(t *testing.T) {
+	t.Parallel()
 	if err := validateURL("http://"); err == nil {
 		t.Fatal("expected error for missing host")
 	}
 }
 
 func TestValidateURL_LoopbackIP(t *testing.T) {
+	t.Parallel()
 	if err := validateURL("http://127.0.0.1"); err == nil {
 		t.Fatal("expected error for loopback IP")
 	}
 }
 
 func TestValidateURL_PrivateIP(t *testing.T) {
+	t.Parallel()
 	if err := validateURL("http://192.168.1.1"); err == nil {
 		t.Fatal("expected error for private IP")
 	}
 }
 
 func TestValidateURL_InvalidURL(t *testing.T) {
+	t.Parallel()
 	if err := validateURL("://bad"); err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
 }
 
 func TestHandleStats_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
 			return nil, errors.New("db down")
@@ -583,8 +614,9 @@ func TestHandleStats_StoreError(t *testing.T) {
 }
 
 func TestHandleListChildRuns_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -599,8 +631,9 @@ func TestHandleListChildRuns_StoreError(t *testing.T) {
 }
 
 func TestHandleListChildRuns_SuccessBody(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return []domain.JobRun{{ID: "run-child-1"}, {ID: "run-child-2"}}, nil
 		},
 	}
@@ -618,6 +651,7 @@ func TestHandleListChildRuns_SuccessBody(t *testing.T) {
 }
 
 func TestHandleGetJob_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, errors.New("db down")
@@ -634,8 +668,9 @@ func TestHandleGetJob_StoreError(t *testing.T) {
 }
 
 func TestHandleListJobs_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, _ string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -650,6 +685,7 @@ func TestHandleListJobs_StoreError(t *testing.T) {
 }
 
 func TestHandleGetRun_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, errors.New("db down")
@@ -666,6 +702,7 @@ func TestHandleGetRun_StoreError(t *testing.T) {
 }
 
 func TestHandleUpdateJob_AllFields(t *testing.T) {
+	t.Parallel()
 	name := "new name"
 	slug := "new-slug"
 	desc := "new description"
@@ -722,6 +759,7 @@ func TestHandleUpdateJob_AllFields(t *testing.T) {
 }
 
 func TestHandleTriggerJob_InvalidBody(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 120}, nil
@@ -738,6 +776,7 @@ func TestHandleTriggerJob_InvalidBody(t *testing.T) {
 }
 
 func TestHandleTriggerJob_GetJobError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, errors.New("db down")
@@ -754,6 +793,7 @@ func TestHandleTriggerJob_GetJobError(t *testing.T) {
 }
 
 func TestHandleTriggerJob_IdempotencyLookupError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
@@ -775,6 +815,7 @@ func TestHandleTriggerJob_IdempotencyLookupError(t *testing.T) {
 }
 
 func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
+	t.Parallel()
 	getRunCalls := 0
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -787,7 +828,7 @@ func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
 		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -802,6 +843,7 @@ func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
 }
 
 func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
+	t.Parallel()
 	getRunCalls := 0
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -814,7 +856,7 @@ func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
 		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, errors.New("list failed")
 		},
 	}
@@ -829,6 +871,7 @@ func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
 }
 
 func TestHandleSDKComplete_StoreGetError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, errors.New("db down")
@@ -846,6 +889,7 @@ func TestHandleSDKComplete_StoreGetError(t *testing.T) {
 }
 
 func TestHandleSDKComplete_UpdateError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
@@ -866,6 +910,7 @@ func TestHandleSDKComplete_UpdateError(t *testing.T) {
 }
 
 func TestHandleSDKFail_StoreGetError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, errors.New("db down")
@@ -883,6 +928,7 @@ func TestHandleSDKFail_StoreGetError(t *testing.T) {
 }
 
 func TestHandleSDKFail_UpdateError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
@@ -903,6 +949,7 @@ func TestHandleSDKFail_UpdateError(t *testing.T) {
 }
 
 func TestHandleSDKComplete_InvalidBody(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{"result":`)
@@ -914,6 +961,7 @@ func TestHandleSDKComplete_InvalidBody(t *testing.T) {
 }
 
 func TestHandleSDKFail_InvalidBody(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{"error":`)
@@ -925,6 +973,7 @@ func TestHandleSDKFail_InvalidBody(t *testing.T) {
 }
 
 func TestHandleTriggerJob_RunTTLSecs(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -962,6 +1011,7 @@ func TestHandleTriggerJob_RunTTLSecs(t *testing.T) {
 }
 
 func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -999,6 +1049,7 @@ func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
 }
 
 func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
+	t.Parallel()
 	enqueued := false
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -1034,6 +1085,7 @@ func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
 }
 
 func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
+	t.Parallel()
 	enqueued := false
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -1061,6 +1113,7 @@ func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
 }
 
 func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
+	t.Parallel()
 	enqueued := false
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -1094,6 +1147,7 @@ func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
 }
 
 func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
+	t.Parallel()
 	var capturedRun *domain.JobRun
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -1129,6 +1183,7 @@ func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
 }
 
 func TestHandleCreateJob_WithRunTTL(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-ttl"
@@ -1155,6 +1210,7 @@ func TestHandleCreateJob_WithRunTTL(t *testing.T) {
 }
 
 func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
+	t.Parallel()
 	var updated *domain.Job
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -1182,6 +1238,7 @@ func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
 }
 
 func TestHealthReady_RedisDown(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		queueStatsFn: func(ctx context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 0, Executing: 0, Delayed: 0}, nil
@@ -1202,6 +1259,7 @@ func TestHealthReady_RedisDown(t *testing.T) {
 }
 
 func TestHealthReady_NoPinger(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		queueStatsFn: func(ctx context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 0, Executing: 0, Delayed: 0}, nil
@@ -1220,6 +1278,7 @@ func TestHealthReady_NoPinger(t *testing.T) {
 }
 
 func TestHealthReady_RedisOK(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		queueStatsFn: func(ctx context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 0, Executing: 0, Delayed: 0}, nil
@@ -1239,9 +1298,10 @@ func TestHealthReady_RedisOK(t *testing.T) {
 }
 
 func TestHandleListRunEvents_Success(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID string, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			if runID != "run-123" {
 				t.Errorf("runID = %s, want run-123", runID)
 			}
@@ -1262,18 +1322,17 @@ func TestHandleListRunEvents_Success(t *testing.T) {
 	}
 
 	var events []domain.RunEvent
-	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &events)
 	if len(events) != 2 {
 		t.Errorf("len(events) = %d, want 2", len(events))
 	}
 }
 
 func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
+	t.Parallel()
 	var gotLevel string
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			gotLevel = level
 			return []domain.RunEvent{}, nil
 		},
@@ -1293,9 +1352,10 @@ func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
 }
 
 func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
+	t.Parallel()
 	var gotType string
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			gotType = eventType
 			return []domain.RunEvent{}, nil
 		},
@@ -1315,8 +1375,9 @@ func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
 }
 
 func TestHandleListRunEvents_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -1332,8 +1393,9 @@ func TestHandleListRunEvents_StoreError(t *testing.T) {
 }
 
 func TestHandleListRunEvents_EmptyResult(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string) ([]domain.RunEvent, error) {
+		listEventsByRunFilteredFn: func(ctx context.Context, runID, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
 			return []domain.RunEvent{}, nil
 		},
 	}
@@ -1348,18 +1410,17 @@ func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 	}
 
 	var events []domain.RunEvent
-	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &events)
 	if len(events) != 0 {
 		t.Errorf("len(events) = %d, want 0", len(events))
 	}
 }
 
 func TestHandleListWebhookDeliveries_Success(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			return []domain.WebhookDelivery{
 				{ID: "del-1", RunID: "run-1", JobID: "job-1", WebhookURL: "https://example.com/hook", Status: "delivered", Attempts: 1, MaxAttempts: 3, CreatedAt: now, UpdatedAt: now},
 			}, nil
@@ -1376,18 +1437,17 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	}
 
 	var deliveries []domain.WebhookDelivery
-	if err := json.Unmarshal(w.Body.Bytes(), &deliveries); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &deliveries)
 	if len(deliveries) != 1 {
 		t.Errorf("len = %d, want 1", len(deliveries))
 	}
 }
 
 func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
+	t.Parallel()
 	var gotStatus string
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotStatus = status
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1407,9 +1467,10 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 }
 
 func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
+	t.Parallel()
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1423,15 +1484,16 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if gotLimit != 10 {
-		t.Errorf("limit = %d, want 10", gotLimit)
+	if gotLimit != 11 { // handler passes limit+1 for has_more detection
+		t.Errorf("limit = %d, want 11 (10+1)", gotLimit)
 	}
 }
 
 func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
+	t.Parallel()
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1445,15 +1507,16 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if gotLimit != 50 {
-		t.Errorf("limit = %d, want 50 (default)", gotLimit)
+	if gotLimit != 51 { // handler passes limit+1 (default 50+1)
+		t.Errorf("limit = %d, want 51 (default+1)", gotLimit)
 	}
 }
 
 func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
+	t.Parallel()
 	var gotLimit int
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			gotLimit = limit
 			return []domain.WebhookDelivery{}, nil
 		},
@@ -1467,12 +1530,13 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if gotLimit != 100 {
-		t.Errorf("limit = %d, want 100 (capped)", gotLimit)
+	if gotLimit != 101 { // handler passes limit+1 (capped 100+1)
+		t.Errorf("limit = %d, want 101 (capped+1)", gotLimit)
 	}
 }
 
 func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=abc", "")
@@ -1485,6 +1549,7 @@ func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 }
 
 func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=-5", "")
@@ -1497,8 +1562,9 @@ func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 }
 
 func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -1514,6 +1580,7 @@ func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 }
 
 func TestHandleListWebhookDeliveries_MissingProjectID(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
@@ -1526,6 +1593,7 @@ func TestHandleListWebhookDeliveries_MissingProjectID(t *testing.T) {
 }
 
 func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		priority int
@@ -1536,6 +1604,7 @@ func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 				if run.Priority != tt.priority {
 					t.Errorf("priority = %d, want %d", run.Priority, tt.priority)
@@ -1560,6 +1629,7 @@ func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 }
 
 func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
@@ -1572,12 +1642,13 @@ func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "priority must be between 0 and 10") {
+	if !strings.Contains(w.Body.String(), "Priority") || !strings.Contains(w.Body.String(), "max") {
 		t.Errorf("body = %s, want priority error message", w.Body.String())
 	}
 }
 
 func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
@@ -1593,6 +1664,7 @@ func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
 }
 
 func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		priority   int
@@ -1607,6 +1679,7 @@ func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ms := &mockAPIStore{
 				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 					return &domain.Job{ID: id, Enabled: true, TimeoutSecs: 30}, nil
@@ -1625,6 +1698,7 @@ func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
 }
 
 func TestValidateWorkflowConfig(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		cronExpr         string
@@ -1697,6 +1771,7 @@ func TestValidateWorkflowConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateWorkflowConfig(tt.cronExpr, tt.cronTimezone, tt.maxParallelSteps)
 			if tt.wantErr {
 				if err == nil {
@@ -1715,6 +1790,7 @@ func TestValidateWorkflowConfig(t *testing.T) {
 }
 
 func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
+	t.Parallel()
 	enqueued := false
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -1747,6 +1823,7 @@ func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
 }
 
 func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
+	t.Parallel()
 	enqueued := false
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -1780,6 +1857,7 @@ func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
 }
 
 func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -1795,12 +1873,13 @@ func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid retry_strategy, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "invalid retry_strategy") {
+	if !strings.Contains(w.Body.String(), "RetryStrategy") || !strings.Contains(w.Body.String(), "oneof") {
 		t.Fatalf("expected error about retry_strategy, got: %s", w.Body.String())
 	}
 }
 
 func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -1823,9 +1902,11 @@ func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
 }
 
 func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
+	t.Parallel()
 	strategies := []string{"exponential", "linear", "fixed", "custom"}
 	for _, strategy := range strategies {
 		t.Run(strategy, func(t *testing.T) {
+			t.Parallel()
 			ms := &mockAPIStore{
 				createJobFn: func(_ context.Context, _ *domain.Job) error { return nil },
 			}
@@ -1850,6 +1931,7 @@ func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
 }
 
 func TestHandleUpdateJob_InvalidRetryStrategy(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
@@ -1866,6 +1948,7 @@ func TestHandleUpdateJob_InvalidRetryStrategy(t *testing.T) {
 }
 
 func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
@@ -1882,6 +1965,7 @@ func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
 }
 
 func TestHandleSDKUsage_CostBudgetCheckBeforeRecord(t *testing.T) {
+	t.Parallel()
 	// Verify that when budget is exceeded, usage is NOT recorded.
 	usageRecorded := false
 	ms := &mockAPIStore{

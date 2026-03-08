@@ -27,6 +27,7 @@ func testEnabledJob(id string) *domain.Job {
 }
 
 func TestHandleBulkTrigger_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
@@ -70,6 +71,7 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_WithPayloads(t *testing.T) {
+	t.Parallel()
 	received := make([]json.RawMessage, 0, 3)
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -108,6 +110,7 @@ func TestHandleBulkTrigger_WithPayloads(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_WithScheduledAt(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return testEnabledJob(id), nil
@@ -141,6 +144,7 @@ func TestHandleBulkTrigger_WithScheduledAt(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_EmptyItems(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -153,6 +157,7 @@ func TestHandleBulkTrigger_EmptyItems(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -177,6 +182,7 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, store.ErrJobNotFound
@@ -193,6 +199,7 @@ func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			job := testEnabledJob(id)
@@ -211,6 +218,7 @@ func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
@@ -223,6 +231,7 @@ func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
+	t.Parallel()
 	call := 0
 	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	mq := &mockQueue{
@@ -248,6 +257,7 @@ func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
 }
 
 func TestHandleBulkTrigger_SingleItem(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
 	srv := newTestServer(t, ms, mq, nil)
@@ -272,6 +282,7 @@ func TestHandleBulkTrigger_SingleItem(t *testing.T) {
 }
 
 func TestHandleBulkCancel_Success(t *testing.T) {
+	t.Parallel()
 	runs := map[string]*domain.JobRun{
 		"run-1": {ID: "run-1", Status: domain.StatusExecuting},
 		"run-2": {ID: "run-2", Status: domain.StatusExecuting},
@@ -292,7 +303,7 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 			updates++
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -318,6 +329,7 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 }
 
 func TestHandleBulkCancel_PartialFailure(t *testing.T) {
+	t.Parallel()
 	runs := map[string]*domain.JobRun{
 		"run-1": {ID: "run-1", Status: domain.StatusExecuting},
 		"run-3": {ID: "run-3", Status: domain.StatusCompleted},
@@ -332,7 +344,7 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -366,6 +378,7 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 }
 
 func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -377,6 +390,7 @@ func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
 }
 
 func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	runIDs := make([]string, 101)
@@ -400,6 +414,7 @@ func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
 }
 
 func TestHandleBulkCancel_InvalidBody(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -411,6 +426,7 @@ func TestHandleBulkCancel_InvalidBody(t *testing.T) {
 }
 
 func TestHandleBulkCancel_AllTerminal(t *testing.T) {
+	t.Parallel()
 	runs := map[string]*domain.JobRun{
 		"run-1": {ID: "run-1", Status: domain.StatusCompleted},
 		"run-2": {ID: "run-2", Status: domain.StatusFailed},
@@ -423,7 +439,7 @@ func TestHandleBulkCancel_AllTerminal(t *testing.T) {
 			}
 			return nil, fmt.Errorf("not found")
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -446,6 +462,7 @@ func TestHandleBulkCancel_AllTerminal(t *testing.T) {
 }
 
 func TestHandleBulkCancel_WithChildren(t *testing.T) {
+	t.Parallel()
 	runs := map[string]*domain.JobRun{
 		"run-parent": {ID: "run-parent", Status: domain.StatusExecuting},
 	}
@@ -464,7 +481,7 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 			updatedIDs = append(updatedIDs, id)
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if parentRunID != "run-parent" {
 				t.Fatalf("unexpected parent run ID: %s", parentRunID)
 			}

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"orchestrator/internal/domain"
 	"orchestrator/internal/store"
@@ -11,27 +12,26 @@ import (
 )
 
 type createSecretRequest struct {
-	ProjectID   string `json:"project_id"`
+	ProjectID   string `json:"project_id" validate:"required"`
 	JobID       string `json:"job_id,omitempty"`
 	Environment string `json:"environment,omitempty"`
-	SecretKey   string `json:"secret_key"`
-	Value       string `json:"value"`
+	SecretKey   string `json:"secret_key" validate:"required"`
+	Value       string `json:"value" validate:"required"`
 }
 
 func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFSecretInjection {
-		respondError(w, http.StatusNotFound, "secret injection is not enabled")
+		respondError(w, r, http.StatusNotFound, "secret injection is not enabled")
 		return
 	}
 
 	var req createSecretRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.ProjectID == "" || req.SecretKey == "" || req.Value == "" {
-		respondError(w, http.StatusBadRequest, "missing required fields")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
@@ -48,7 +48,7 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateJobSecret(r.Context(), secret); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create secret")
+		respondError(w, r, http.StatusInternalServerError, "failed to create secret")
 		return
 	}
 
@@ -57,41 +57,48 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListSecrets(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFSecretInjection {
-		respondError(w, http.StatusNotFound, "secret injection is not enabled")
+		respondError(w, r, http.StatusNotFound, "secret injection is not enabled")
 		return
 	}
 
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
-		respondError(w, http.StatusBadRequest, "project_id is required")
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
 	}
 
 	jobID := r.URL.Query().Get("job_id")
 	environment := r.URL.Query().Get("environment")
 
-	secrets, err := s.store.ListJobSecrets(r.Context(), projectID, jobID, environment)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list secrets")
+	limit, cursor, pErr := parsePaginationParams(r)
+	if pErr != nil {
+		respondError(w, r, http.StatusBadRequest, pErr.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, secrets)
-}
+	secrets, err := s.store.ListJobSecrets(r.Context(), projectID, jobID, environment, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list secrets")
+		return
+	}
 
+	respondJSON(w, http.StatusOK, paginatedResult(secrets, limit, func(s domain.JobSecret) string {
+		return s.CreatedAt.Format(time.RFC3339Nano)
+	}))
+}
 func (s *Server) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFSecretInjection {
-		respondError(w, http.StatusNotFound, "secret injection is not enabled")
+		respondError(w, r, http.StatusNotFound, "secret injection is not enabled")
 		return
 	}
 
 	secretID := chi.URLParam(r, "secretID")
 	if err := s.store.DeleteJobSecret(r.Context(), secretID); err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
-			respondError(w, http.StatusNotFound, "secret not found")
+			respondError(w, r, http.StatusNotFound, "secret not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to delete secret")
+		respondError(w, r, http.StatusInternalServerError, "failed to delete secret")
 		return
 	}
 

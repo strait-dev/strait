@@ -1,8 +1,13 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"orchestrator/internal/testutil"
+)
 
 func TestWorkflowRunStatus_IsTerminal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status   WorkflowRunStatus
 		expected bool
@@ -14,16 +19,17 @@ func TestWorkflowRunStatus_IsTerminal(t *testing.T) {
 		{WfStatusCanceled, true},
 	}
 
+	got := make(map[WorkflowRunStatus]bool, len(tests))
+	want := make(map[WorkflowRunStatus]bool, len(tests))
 	for _, tc := range tests {
-		t.Run(string(tc.status), func(t *testing.T) {
-			if got := tc.status.IsTerminal(); got != tc.expected {
-				t.Errorf("WorkflowRunStatus(%s).IsTerminal() = %v, expected %v", tc.status, got, tc.expected)
-			}
-		})
+		got[tc.status] = tc.status.IsTerminal()
+		want[tc.status] = tc.expected
 	}
+	testutil.AssertEqual(t, got, want)
 }
 
 func TestStepRunStatus_IsTerminal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status   StepRunStatus
 		expected bool
@@ -37,11 +43,11 @@ func TestStepRunStatus_IsTerminal(t *testing.T) {
 		{StepCanceled, true},
 	}
 
+	got := make(map[StepRunStatus]bool, len(tests))
+	want := make(map[StepRunStatus]bool, len(tests))
 	for _, tc := range tests {
-		t.Run(string(tc.status), func(t *testing.T) {
-			if got := tc.status.IsTerminal(); got != tc.expected {
-				t.Errorf("StepRunStatus(%s).IsTerminal() = %v, expected %v", tc.status, got, tc.expected)
-			}
-		})
+		got[tc.status] = tc.status.IsTerminal()
+		want[tc.status] = tc.expected
 	}
+	testutil.AssertEqual(t, got, want)
 }

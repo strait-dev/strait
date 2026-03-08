@@ -1,0 +1,16 @@
+{
+  "event": "job.completed",
+  "job_id": "job-abc123",
+  "run_id": "run-xyz789",
+  "project_id": "proj-test",
+  "status": "completed",
+  "result": {
+    "processed": 42,
+    "skipped": 3,
+    "errors": []
+  },
+  "duration_ms": 1250,
+  "attempt": 1,
+  "triggered_by": "cron",
+  "completed_at": "2026-03-07T12:00:00Z"
+}

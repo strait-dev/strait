@@ -11,6 +11,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	q := New(nil)
 	if q == nil {
 		t.Fatal("New(nil) returned nil")
@@ -18,6 +19,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestSentinelErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  error
@@ -30,6 +32,7 @@ func TestSentinelErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.err.Error() != tt.msg {
 				t.Errorf("Error() = %q, want %q", tt.err.Error(), tt.msg)
 			}
@@ -38,6 +41,7 @@ func TestSentinelErrors(t *testing.T) {
 }
 
 func TestSentinelErrors_Wrapping(t *testing.T) {
+	t.Parallel()
 	sentinels := []error{ErrJobNotFound, ErrRunNotFound, ErrRunConflict}
 	for _, sentinel := range sentinels {
 		t.Run(sentinel.Error(), func(t *testing.T) {
@@ -50,6 +54,7 @@ func TestSentinelErrors_Wrapping(t *testing.T) {
 }
 
 func TestSentinelErrors_NotEqual(t *testing.T) {
+	t.Parallel()
 	if errors.Is(ErrJobNotFound, ErrRunNotFound) {
 		t.Error("ErrJobNotFound should not equal ErrRunNotFound")
 	}
@@ -99,6 +104,7 @@ func (m *mockRow) Scan(dest ...any) error {
 }
 
 func TestQueueStats_Success(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -129,6 +135,7 @@ func TestQueueStats_Success(t *testing.T) {
 }
 
 func TestQueueStats_ZeroValues(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{
@@ -154,6 +161,7 @@ func TestQueueStats_ZeroValues(t *testing.T) {
 }
 
 func TestQueueStats_DBError(t *testing.T) {
+	t.Parallel()
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			return &mockRow{

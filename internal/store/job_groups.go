@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -62,18 +63,28 @@ func (q *Queries) GetJobGroup(ctx context.Context, id string) (*domain.JobGroup,
 	return group, nil
 }
 
-func (q *Queries) ListJobGroups(ctx context.Context, projectID string) ([]domain.JobGroup, error) {
+func (q *Queries) ListJobGroups(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobGroups")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, name, slug, description, created_at, updated_at
 		FROM job_groups
-		WHERE project_id = $1
-		ORDER BY created_at DESC
-		LIMIT 1000`
+		WHERE project_id = $1`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list job groups: %w", err)
 	}
@@ -145,7 +156,7 @@ func (q *Queries) DeleteJobGroup(ctx context.Context, id string) error {
 	return nil
 }
 
-func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string) ([]domain.Job, error) {
+func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobsByGroup")
 	defer span.End()
 
@@ -155,10 +166,21 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string) ([]domain
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
 		FROM jobs
-		WHERE group_id = $1
-		ORDER BY created_at DESC`
+		WHERE group_id = $1`
 
-	rows, err := q.db.Query(ctx, query, groupID)
+	args := []any{groupID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs by group: %w", err)
 	}

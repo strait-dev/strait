@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -67,7 +68,7 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.We
 	return d, nil
 }
 
-func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int) ([]domain.WebhookDelivery, error) {
+func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWebhookDeliveries")
 	defer span.End()
 
@@ -84,9 +85,15 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status s
 		param++
 	}
 
-	baseQuery += " ORDER BY created_at DESC"
-	baseQuery += fmt.Sprintf(" LIMIT $%d", param)
+	if cursor != nil {
+		baseQuery += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	baseQuery += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
 	args = append(args, limit)
+
 	rows, err := q.db.Query(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list webhook deliveries: %w", err)

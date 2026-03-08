@@ -1,0 +1,67 @@
+---
+title: "Environments"
+description: "Manage environment configurations and endpoint URL overrides."
+---
+
+Environments are endpoint URL overrides per environment (e.g., staging/production routing).
+
+<Note>
+If CLI commands are limited, environments can also be managed via the REST API.
+</Note>
+
+## environments list
+
+List environments for a project.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --project | string | | Project ID |
+
+```bash
+orchestrator environments list --project my-project
+```
+
+## environments get
+
+Get environment details by ID.
+
+```bash
+orchestrator environments get <env-id>
+```
+
+## environments create
+
+Create a new environment.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --name | string | | Name of the environment |
+| --project | string | | Project ID |
+
+```bash
+orchestrator environments create --name staging --project my-project
+```
+
+## environments update
+
+Update an existing environment.
+
+```bash
+orchestrator environments update <env-id> --name production
+```
+
+## environments delete
+
+Delete an environment.
+
+```bash
+orchestrator environments delete <env-id>
+```
+
+## environments variables
+
+Manage environment variables for an environment.
+
+```bash
+orchestrator environments variables <env-id>
+```

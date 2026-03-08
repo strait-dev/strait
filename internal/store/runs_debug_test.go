@@ -50,6 +50,7 @@ func (m *mockRows) RawValues() [][]byte { return nil }
 func (m *mockRows) Conn() *pgx.Conn { return nil }
 
 func TestGetDebugBundle(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	db := &mockDBTX{}
 
@@ -173,7 +174,9 @@ func TestGetDebugBundle(t *testing.T) {
 }
 
 func TestUpdateRunDebugMode(t *testing.T) {
+	t.Parallel()
 	t.Run("success", func(t *testing.T) {
+		t.Parallel()
 		db := &mockDBTX{execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 			if !strings.Contains(sql, "UPDATE job_runs SET debug_mode") {
 				t.Fatalf("unexpected SQL: %s", sql)
@@ -194,6 +197,7 @@ func TestUpdateRunDebugMode(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
+		t.Parallel()
 		db := &mockDBTX{execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("UPDATE 0"), nil
 		}}

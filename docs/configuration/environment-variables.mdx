@@ -1,0 +1,164 @@
+---
+title: "Environment Variables"
+description: "Complete reference of environment variables used to configure the orchestrator."
+---
+
+This page documents all environment variables available for configuring the orchestrator.
+
+<Note>
+  Required fields: `DATABASE_URL`, `INTERNAL_SECRET`, and `JWT_SIGNING_KEY`.
+</Note>
+
+## Core Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `DATABASE_URL` | String | (Required) | PostgreSQL connection string. |
+| `REDIS_URL` | String | - | Redis connection string for pub/sub and CDC. |
+| `MODE` | String | `all` | Operation mode: `all`, `api`, or `worker`. |
+| `PORT` | Integer | `8080` | Port the HTTP server listens on. |
+| `INTERNAL_SECRET` | String | (Required) | Secret used for internal authentication between components. |
+| `JWT_SIGNING_KEY` | String | (Required) | Key used to sign JWT run tokens. Must be at least 32 characters. |
+| `LOG_LEVEL` | String | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. |
+| `SECRET_ENCRYPTION_KEY` | String | - | Key used to encrypt job secrets. Required if `FF_SECRET_INJECTION` is enabled. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | - | OpenTelemetry collector endpoint. |
+
+## Worker Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `WORKER_CONCURRENCY` | Integer | `10` | Number of concurrent jobs a worker can execute. |
+| `WEBHOOK_TIMEOUT` | Duration | `10s` | Timeout for webhook requests. |
+| `WEBHOOK_IDLE_CONN_TIMEOUT` | Duration | `60s` | Idle connection timeout for webhook client. |
+| `EXECUTOR_HTTP_TIMEOUT` | Duration | `5m` | Timeout for executor HTTP requests. |
+| `EXECUTOR_IDLE_CONN_TIMEOUT` | Duration | `90s` | Idle connection timeout for executor client. |
+| `WEBHOOK_MAX_ATTEMPTS` | Integer | `3` | Maximum number of attempts for webhook delivery. |
+| `DEFAULT_JOB_MAX_ATTEMPTS` | Integer | `3` | Default maximum retry attempts for jobs. |
+| `DEFAULT_JOB_TIMEOUT_SECS` | Integer | `300` | Default timeout for jobs in seconds. |
+| `WORKER_QUEUE_SIZE` | Integer | `0` | Bounded task queue size for the worker pool. When the queue is full, task submission blocks until a slot opens, providing backpressure. `0` means unbounded. |
+| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `30s` | Timeout for webhook dispatch requests. |
+
+## Scheduler Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `HEARTBEAT_INTERVAL` | Duration | `10s` | Interval for worker heartbeats. |
+| `REAPER_INTERVAL` | Duration | `30s` | Interval for the stale run reaper process. |
+| `STALE_THRESHOLD` | Duration | `60s` | Threshold after which a run is considered stale. |
+| `POLLER_INTERVAL` | Duration | `5s` | Interval for the job poller to check for new work. |
+| `REAPER_DELETE_BATCH_SIZE` | Integer | `100` | Number of records to delete in a single reaper batch. |
+
+## Database Pool
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `DB_MAX_CONNS` | Integer | `25` | Maximum number of open connections to the database. |
+| `DB_MIN_CONNS` | Integer | `5` | Minimum number of idle connections in the pool. |
+| `DB_MAX_CONN_LIFETIME` | Duration | `30m` | Maximum amount of time a connection may be reused. |
+| `DB_MAX_CONN_IDLE_TIME` | Duration | `5m` | Maximum amount of time a connection may be idle. |
+
+## Rate Limiting
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `RATE_LIMIT_REQUESTS` | Integer | `100` | Number of requests allowed per window. |
+| `RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for rate limiting. |
+| `TRIGGER_RATE_LIMIT_REQUESTS` | Integer | `10` | Number of trigger requests allowed per window. |
+| `TRIGGER_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for trigger rate limiting. |
+
+## Request Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `REQUEST_TIMEOUT` | Duration | `30s` | Timeout for incoming HTTP requests. |
+| `MAX_REQUEST_BODY_SIZE` | Integer | `1MB` | Maximum size of the request body in bytes. |
+
+## Sequin CDC
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `SEQUIN_BASE_URL` | String | - | Base URL for the Sequin CDC service. |
+| `SEQUIN_CONSUMER_NAME` | String | - | Name of the Sequin consumer. |
+| `SEQUIN_API_TOKEN` | String | - | API token for Sequin authentication. |
+| `SEQUIN_BATCH_SIZE` | Integer | `10` | Number of events to fetch from Sequin in one batch. |
+| `SEQUIN_WAIT_TIME_MS` | Integer | `5000` | Wait time in milliseconds for Sequin long polling. |
+
+## CORS Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `CORS_ALLOWED_ORIGINS` | String List | `*` | Comma-separated list of allowed origins. |
+| `CORS_ALLOW_CREDENTIALS` | Boolean | `false` | Whether to allow credentials in CORS requests. |
+
+## Retention Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `RUN_RETENTION_SHORT` | Duration | `30d` | Short-term retention period for job runs. |
+| `RUN_RETENTION_LONG` | Duration | `90d` | Long-term retention period for job runs. |
+| `WORKFLOW_RUN_RETENTION_DAYS` | Integer | `30` | Number of days to retain workflow run data. |
+| `WORKFLOW_RETENTION` | Duration | `30d` | Retention period for workflow definitions. |
+
+## Redis Sentinel
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `REDIS_SENTINEL_MASTER` | String | - | Name of the Redis Sentinel master. |
+| `REDIS_SENTINEL_ADDRS` | String List | - | Comma-separated list of Redis Sentinel addresses. |
+
+## Workflow Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `MAX_WORKFLOW_NESTING_DEPTH` | Integer | `10` | Maximum allowed depth for nested workflows. |
+
+## SSE Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `SSE_KEEPALIVE_INTERVAL` | Duration | `15s` | Interval for sending keepalive events over SSE. |
+
+## Worker Partitions
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `WORKER_PARTITIONS` | String List | - | List of partitions this worker should handle. |
+| `WORKER_PARTITION_WEIGHTS` | String | - | Weights for the configured partitions. |
+
+## Feature Flags
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `FF_CONCURRENCY_LIMITS` | Boolean | `false` | Enable per-project concurrency limits. |
+| `FF_PROJECT_QUOTAS` | Boolean | `false` | Enable project-level resource quotas. |
+| `FF_EXECUTION_WINDOWS` | Boolean | `false` | Enable scheduled execution windows. |
+| `FF_QUEUE_PARTITIONING` | Boolean | `false` | Enable partitioning of the job queue. |
+| `FF_PROGRESS_STREAMING` | Boolean | `false` | Enable real-time progress streaming via SSE. |
+| `FF_CHECKPOINTS` | Boolean | `false` | Enable SDK-driven run state checkpoints. |
+| `FF_RUN_CONTINUATION` | Boolean | `false` | Enable run continuation for long-running jobs. |
+| `FF_USAGE_TRACKING` | Boolean | `false` | Enable tracking of AI model usage and costs. |
+| `FF_COST_BUDGETS` | Boolean | `false` | Enable cost budget enforcement. |
+| `FF_ERROR_CLASSIFICATION` | Boolean | `false` | Enable automated error classification. |
+| `FF_SMART_RETRY` | Boolean | `false` | Enable advanced retry strategies with jitter. |
+| `FF_CIRCUIT_BREAKER` | Boolean | `false` | Enable circuit breakers for job endpoints. |
+| `FF_BULKHEADS` | Boolean | `false` | Enable bulkhead isolation for job execution. |
+| `FF_RUN_DLQ` | Boolean | `false` | Enable Dead Letter Queue for failed runs. |
+| `FF_PAYLOAD_VALIDATION` | Boolean | `false` | Enable JSON schema validation for payloads. |
+| `FF_JOB_TAGS` | Boolean | `false` | Enable tagging of jobs and runs. |
+| `FF_RUN_ANNOTATIONS` | Boolean | `false` | Enable adding annotations to active runs. |
+| `FF_SECRET_INJECTION` | Boolean | `false` | Enable injection of encrypted secrets into runs. |
+| `FF_RUN_REPLAY` | Boolean | `false` | Enable replaying of past job runs. |
+| `FF_DRY_RUN` | Boolean | `false` | Enable dry-run mode for job executions. |
+| `FF_RUN_RETENTION` | Boolean | `false` | Enable custom retention policies per run. |
+| `FF_EXECUTION_TRACING` | Boolean | `false` | Enable detailed execution timing traces. |
+| `FF_DEBUG_BUNDLE` | Boolean | `false` | Enable collection of debug diagnostics. |
+| `FF_BATCH_JOB_OPS` | Boolean | `false` | Enable batch operations on jobs. |
+| `FF_ENVIRONMENTS` | Boolean | `false` | Enable multi-environment support. |
+| `FF_JOB_GROUPS` | Boolean | `false` | Enable logical grouping of jobs. |
+| `FF_JOB_DEPENDENCIES` | Boolean | `false` | Enable inter-job dependency management. |
+| `FF_JOB_HEALTH_SCORING` | Boolean | `false` | Enable automated health scoring for jobs. |
+| `FF_ADAPTIVE_TIMEOUT` | Boolean | `false` | Enable adaptive timeouts based on historical data. |
+
+<Warning>
+  `SECRET_ENCRYPTION_KEY` is required when `FF_SECRET_INJECTION` is set to `true`.
+</Warning>

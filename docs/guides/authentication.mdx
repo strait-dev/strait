@@ -1,0 +1,87 @@
+---
+title: "Authentication"
+description: "Internal authentication schemes for the orchestrator API and SDK."
+---
+
+The orchestrator supports multiple authentication mechanisms depending on the client type and the endpoint being accessed.
+
+## Authentication Schemes
+
+The system primarily uses two authentication schemes for the main API and a specialized JWT-based scheme for the SDK.
+
+### 1. Internal Secret
+The Internal Secret is a global shared secret used for administrative tasks and internal service-to-service communication.
+
+<Info>
+  The internal secret is configured via the `INTERNAL_SECRET` environment variable.
+</Info>
+
+You can provide the internal secret in two ways:
+- **Header**: `X-Internal-Secret: your-secret-here`
+- **Bearer Token**: `Authorization: Bearer your-secret-here`
+
+### 2. API Keys
+Per-project API keys are the recommended way for external integrations to interact with the orchestrator.
+
+- **Format**: API keys typically start with `orc_`.
+- **Hashing**: Keys are SHA-256 hashed before being stored in the database.
+- **Tracking**: The system tracks `last_used_at` timestamps for each key.
+- **Security**: Keys can have an `expires_at` date and can be revoked at any time.
+
+To use an API key, include it in the `Authorization` header:
+```bash
+Authorization: Bearer orc_your_api_key_here
+```
+
+### 3. JWT Run Tokens (SDK)
+When a job run is triggered, the orchestrator generates a short-lived JWT (JSON Web Token) scoped specifically to that run. This token is used by the SDK to authenticate calls to the `/sdk/v1` endpoints.
+
+- **Algorithm**: HS256
+- **Subject**: The `runID`
+- **Signing Key**: Configured via `JWT_SIGNING_KEY`
+
+## Middleware Chain
+
+Authentication is handled by a chain of middleware in `internal/api/middleware.go`:
+
+1. `apiKeyOrSecretAuth`: The entry point that determines if the request is using an API key (starts with `orc_`) or should be validated against the internal secret.
+2. `apiKeyAuth`: Validates the API key hash, checks for revocation, expiration, and updates the `last_used_at` timestamp.
+3. `internalSecretAuth`: Performs a constant-time comparison of the provided secret against the configured `INTERNAL_SECRET`.
+4. `runTokenAuth`: Specifically for SDK endpoints, validates the JWT and ensures the `runID` in the token matches the requested resource.
+
+## Managing API Keys
+
+### Create an API Key
+```bash
+curl -X POST https://api.orchestrator.com/v1/api-keys \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_123",
+    "name": "Production Key",
+    "expires_at": "2026-12-31T23:59:59Z"
+  }'
+```
+
+### List API Keys
+```bash
+curl -H "Authorization: Bearer $INTERNAL_SECRET" \
+  https://api.orchestrator.com/v1/api-keys?project_id=proj_123
+```
+
+### Revoke an API Key
+```bash
+curl -X DELETE https://api.orchestrator.com/v1/api-keys/key_123 \
+  -H "Authorization: Bearer $INTERNAL_SECRET"
+```
+
+## Security Best Practices
+
+<Warning>
+  Never expose the `INTERNAL_SECRET` or raw API keys in client-side code or public repositories.
+</Warning>
+
+- **Rotate Secrets**: Regularly rotate the `INTERNAL_SECRET` and API keys.
+- **Use Scoped Keys**: Use API keys instead of the internal secret whenever possible to limit the blast radius.
+- **Monitor Usage**: Check the `last_used_at` field to identify and revoke unused keys.
+- **Short-lived Tokens**: The SDK uses JWT run tokens to ensure that even if a token is leaked, it only grants access to a single run for a limited time.

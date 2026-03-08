@@ -7,6 +7,7 @@ import (
 
 // TestInit_NoEndpoint verifies that Init handles empty endpoint gracefully.
 func TestInit_NoEndpoint(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	shutdown, err := Init(ctx, "test-service", "")
 
@@ -28,6 +29,7 @@ func TestInit_NoEndpoint(t *testing.T) {
 // TestInit_WithEndpoint verifies that Init can be called with a valid endpoint.
 // Note: This test does not actually connect to an OTLP endpoint.
 func TestInit_WithEndpoint(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	// Use a localhost endpoint that won't actually connect
 	shutdown, err := Init(ctx, "test-service", "http://localhost:4318")
@@ -47,6 +49,7 @@ func TestInit_WithEndpoint(t *testing.T) {
 
 // TestInit_ServiceName verifies that Init accepts a service name.
 func TestInit_ServiceName(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	serviceNames := []string{
 		"orchestrator",
@@ -56,6 +59,7 @@ func TestInit_ServiceName(t *testing.T) {
 
 	for _, name := range serviceNames {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			shutdown, err := Init(ctx, name, "")
 			if err != nil {
 				t.Errorf("Init with service name %q returned error: %v", name, err)
@@ -70,6 +74,7 @@ func TestInit_ServiceName(t *testing.T) {
 
 // TestInit_ShutdownIdempotent verifies that shutdown can be called multiple times.
 func TestInit_ShutdownIdempotent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	shutdown, err := Init(ctx, "test-service", "")
 	if err != nil {

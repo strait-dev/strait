@@ -53,11 +53,13 @@ func advDecodeMap(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 
 func advDecodeSlice(t *testing.T, w *httptest.ResponseRecorder) []map[string]any {
 	t.Helper()
-	var resp []map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+	var envelope struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	return resp
+	return envelope.Data
 }
 
 func advUnique(prefix string) string {
@@ -564,10 +566,7 @@ func TestE2E_WebhookDeliveries(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("webhook deliveries status = %d; body = %s", w.Code, w.Body.String())
 	}
-	var deliveries []map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&deliveries); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	_ = advDecodeSlice(t, w)
 }
 
 func TestE2E_TriggerDisabledJob(t *testing.T) {

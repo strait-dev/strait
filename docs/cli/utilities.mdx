@@ -1,0 +1,214 @@
+---
+title: "Utilities & Meta"
+description: "Utility commands for configuration, aliases, contexts, and system information."
+---
+
+## alias set
+
+Set a command alias. Aliases expand the first argument before parsing.
+
+```bash
+orchestrator alias set st stats
+```
+
+## alias list
+
+List all configured aliases.
+
+```bash
+orchestrator alias list
+```
+
+## alias delete
+
+Delete a command alias.
+
+```bash
+orchestrator alias delete st
+```
+
+## context create
+
+Create or update a named context for connecting to different servers or projects.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --server | string | | Server URL |
+| --project | string | | Default project |
+| --format | string | | Output format |
+| --api-key | string | | API key (stored securely in keychain) |
+
+```bash
+orchestrator context create production --server https://api.orchestrator.io --project main
+```
+
+## context use
+
+Set the active context.
+
+```bash
+orchestrator context use production
+```
+
+## context list
+
+List all available contexts.
+
+```bash
+orchestrator context list
+```
+
+## context current
+
+Show the settings of the currently active context.
+
+```bash
+orchestrator context current
+```
+
+## profile
+
+Capture a `pprof` profile from the running server.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --output, -o | string | | Output file path |
+| --duration | duration | 30s | Profile duration |
+| --type | string | cpu | Profile type (cpu, heap, goroutine, allocs, block, mutex, threadcreate) |
+
+```bash
+orchestrator profile --type heap --output heap.prof
+```
+
+## api
+
+Call raw API endpoints directly.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --header | string[] | | Custom HTTP headers |
+| --field | string[] | | Request body fields |
+
+```bash
+orchestrator api POST /v1/runs --field project=default --field job=my-job
+```
+
+## run
+
+Run a command with orchestrator context environment variables injected.
+
+```bash
+orchestrator run -- env | grep ORCHESTRATOR
+```
+
+<Note>
+Injected variables include `ORCHESTRATOR_SERVER`, `ORCHESTRATOR_API_KEY`, and others from the active context.
+</Note>
+
+## send
+
+Send a raw event payload to the server.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --data | json | | Event payload data |
+
+```bash
+orchestrator send my-event --data '{"key": "value"}'
+```
+
+## wait run
+
+Wait for a specific run to reach a certain condition.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --for | string | status=completed | Condition to wait for |
+| --timeout | duration | 5m | Maximum wait time |
+| --interval | duration | 2s | Check interval |
+
+```bash
+orchestrator wait run <run_id> --for status=failed
+```
+
+## wait queue
+
+Wait for the queue to reach a specific state.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --empty | bool | false | Wait for the queue to be empty |
+| --timeout | duration | 10m | Maximum wait time |
+| --interval | duration | 2s | Check interval |
+
+```bash
+orchestrator wait queue --empty
+```
+
+## version
+
+Print version information.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --short | bool | false | Print only the version number |
+| --json | bool | false | Output in JSON format |
+| --check-server | bool | false | Check server version |
+| --check-update | bool | false | Check for CLI updates |
+
+```bash
+orchestrator version --check-server
+```
+
+## completion
+
+Generate shell completion scripts.
+
+```bash
+orchestrator completion zsh > ~/.zshrc.d/_orchestrator
+```
+
+<Note>
+Supported shells: `bash`, `zsh`, `fish`, `powershell`.
+</Note>
+
+## docs
+
+Generate CLI documentation.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --man | bool | false | Generate man pages |
+| --markdown | bool | false | Generate Markdown documentation |
+
+```bash
+orchestrator docs --markdown
+```
+
+## upgrade
+
+Upgrade the CLI to the latest version.
+
+```bash
+orchestrator upgrade
+```
+
+## extension list
+
+List discovered CLI extensions.
+
+```bash
+orchestrator extension list
+```
+
+## extension run
+
+Run a CLI extension.
+
+```bash
+orchestrator extension run my-ext
+```
+
+<Note>
+Extensions are executables named `orchestrator-<name>` found in your `PATH`.
+</Note>

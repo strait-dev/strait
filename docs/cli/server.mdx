@@ -1,0 +1,44 @@
+---
+title: "Server Runtime"
+description: "Commands for starting and managing the orchestrator server components."
+---
+
+## serve
+
+Start the orchestrator server components.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --mode | string | all | Component mode (api, worker, all) |
+
+```bash
+orchestrator serve --mode all
+```
+
+<Note>
+Running the `orchestrator` binary with no subcommand is equivalent to running `orchestrator serve`.
+</Note>
+
+## server start
+
+Equivalent to the `serve` command.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --mode | string | all | Component mode (api, worker, all) |
+
+```bash
+orchestrator server start --mode api
+```
+
+## Server Modes
+
+The orchestrator can be run in different modes to allow for independent scaling of components:
+
+- **api**: Handles HTTP requests, API endpoints, and webhooks. Use this mode for scaling the web-facing layer.
+- **worker**: Executes jobs and workflows. Use this mode for scaling the processing power of the system.
+- **all**: Runs both API and worker components in a single process. This is ideal for local development or small-scale deployments.
+
+<Tip>
+In production, it is recommended to run `api` and `worker` modes separately to ensure that heavy job execution does not impact API responsiveness.
+</Tip>

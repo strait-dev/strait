@@ -155,7 +155,7 @@ func TestE2E_WorkflowRetryFromFailed(t *testing.T) {
 	triggered := wfTriggerWorkflow(t, srv, asString(t, wf, "id"), projectID, map[string]any{"seed": "x"}, nil)
 	originalRunID := asString(t, triggered, "id")
 
-	origStepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, originalRunID)
+	origStepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, originalRunID, 10000, nil)
 	if err != nil {
 		t.Fatalf("list original step runs: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestE2E_WorkflowRetryFromFailed(t *testing.T) {
 		t.Fatalf("expected retry_of_run_id=%s, got %s", originalRunID, asString(t, newRun, "retry_of_run_id"))
 	}
 
-	newStepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, newRunID)
+	newStepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, newRunID, 10000, nil)
 	if err != nil {
 		t.Fatalf("list retry step runs: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestE2E_WorkflowSkipStep(t *testing.T) {
 		t.Fatalf("skip step status = %d, body = %s", skipResp.Code, skipResp.Body.String())
 	}
 
-	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID)
+	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
 	if err != nil {
 		t.Fatalf("list step runs: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestE2E_WorkflowForceCompleteStep(t *testing.T) {
 		t.Fatalf("force-complete step status = %d, body = %s", forceResp.Code, forceResp.Body.String())
 	}
 
-	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID)
+	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
 	if err != nil {
 		t.Fatalf("list step runs: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestE2E_WorkflowTemplateSubstitution(t *testing.T) {
 	triggered := wfTriggerWorkflow(t, srv, asString(t, wf, "id"), projectID, map[string]any{"var_name": "resolved_value"}, nil)
 	runID := asString(t, triggered, "id")
 
-	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID)
+	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
 	if err != nil {
 		t.Fatalf("list step runs: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestE2E_WorkflowStepOverrides(t *testing.T) {
 	triggered := wfTriggerWorkflow(t, srv, asString(t, wf, "id"), projectID, nil, []domain.StepOverride{{StepRef: "B", Enabled: false}})
 	runID := asString(t, triggered, "id")
 
-	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID)
+	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
 	if err != nil {
 		t.Fatalf("list step runs: %v", err)
 	}

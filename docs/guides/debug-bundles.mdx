@@ -1,0 +1,68 @@
+---
+title: "Debug Bundles"
+description: "Aggregating run data for troubleshooting and observability."
+---
+
+Debug Bundles are a powerful feature for troubleshooting production issues by aggregating all relevant data for a specific job run into a single, comprehensive object.
+
+## What is a Debug Bundle?
+
+A Debug Bundle includes:
+- **Run Details**: The full `JobRun` object (status, payload, result, error, etc.).
+- **Events**: All structured logs and state change events associated with the run.
+- **Checkpoints**: All saved resumable states.
+- **Usage**: AI model token usage and cost tracking.
+- **Tool Calls**: Details of all external tools invoked during the run.
+- **Outputs**: Structured outputs stored by the job.
+
+## Enabling Debug Mode
+
+<Note>
+  Debug bundles are gated by the `FF_DEBUG_BUNDLE` feature flag.
+</Note>
+
+You can enable or disable debug mode for a specific run at any time:
+
+```bash
+curl -X POST https://api.orchestrator.com/v1/runs/{runID}/debug \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "debug_mode": true
+  }'
+```
+
+## Fetching a Debug Bundle
+
+To retrieve the full bundle for a run:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  https://api.orchestrator.com/v1/runs/{runID}/debug-bundle
+```
+
+## Use Cases
+
+- **Post-mortem Analysis**: Understand exactly why a job failed by looking at the sequence of events and tool calls leading up to the error.
+- **Cost Auditing**: Review the `usage` data to see which AI models were used and the associated costs for a specific run.
+- **State Inspection**: Examine `checkpoints` to see the internal state of a long-running job at different points in time.
+- **Tool Debugging**: Verify the inputs and outputs of tool calls to ensure external integrations are working as expected.
+
+## Data Interpretation
+
+The bundle is returned as a JSON object with the following structure:
+
+```json
+{
+  "run": { ... },
+  "events": [ ... ],
+  "checkpoints": [ ... ],
+  "usage": [ ... ],
+  "tool_calls": [ ... ],
+  "outputs": [ ... ]
+}
+```
+
+<Tip>
+  When troubleshooting, start by looking at the `events` with `level: "error"` and then correlate them with the `tool_calls` and `checkpoints` around the same timestamp.
+</Tip>

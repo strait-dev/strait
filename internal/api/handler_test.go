@@ -15,7 +15,24 @@ import (
 	"orchestrator/internal/domain"
 	"orchestrator/internal/pubsub"
 	"orchestrator/internal/store"
+	"orchestrator/internal/testutil"
 )
+
+// decodePaginatedList decodes a PaginatedResponse body into the given slice pointer.
+func decodePaginatedList(t testing.TB, body []byte, out any) {
+	t.Helper()
+	var envelope struct {
+		Data       json.RawMessage `json:"data"`
+		HasMore    bool            `json:"has_more"`
+		NextCursor *string         `json:"next_cursor,omitempty"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatalf("invalid paginated JSON: %v\nbody: %s", err, string(body))
+	}
+	if err := json.Unmarshal(envelope.Data, out); err != nil {
+		t.Fatalf("invalid data array JSON: %v", err)
+	}
+}
 
 func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *Server {
 	t.Helper()
@@ -23,7 +40,7 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "01234567890123456789012345678901",
 	}
-	var p *mockPublisher
+	var p pubsub.Publisher
 	if pub != nil {
 		p = pub
 	}
@@ -67,6 +84,7 @@ func authedRequest(method, path string, body string) *http.Request {
 }
 
 func TestHandleHealth(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -87,6 +105,7 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleAuth_MissingSecret(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
@@ -100,6 +119,7 @@ func TestHandleAuth_MissingSecret(t *testing.T) {
 }
 
 func TestHandleCreateJob_Success(t *testing.T) {
+	t.Parallel()
 	var created atomic.Bool
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
@@ -131,6 +151,7 @@ func TestHandleCreateJob_Success(t *testing.T) {
 }
 
 func TestHandleCreateJob_MissingFields(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", `{}`))
@@ -141,6 +162,7 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 }
 
 func TestHandleCreateJob_TagsFeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
@@ -163,6 +185,7 @@ func TestHandleCreateJob_TagsFeatureDisabled(t *testing.T) {
 }
 
 func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
+	t.Parallel()
 	tags := make(map[string]string)
 	for i := range 21 {
 		tags[strings.Repeat("k", i+1)] = "v"
@@ -194,6 +217,7 @@ func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
 }
 
 func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
+	t.Parallel()
 	req := map[string]any{
 		"project_id":   "proj-1",
 		"name":         "Tagged Job",
@@ -222,6 +246,7 @@ func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
 }
 
 func TestHandleGetJob_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -253,6 +278,7 @@ func TestHandleGetJob_Success(t *testing.T) {
 }
 
 func TestHandleGetJob_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, store.ErrJobNotFound
@@ -269,8 +295,9 @@ func TestHandleGetJob_NotFound(t *testing.T) {
 }
 
 func TestHandleListJobs_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, projectID string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{
 				{ID: "job-1", ProjectID: projectID, Name: "Job 1"},
 				{ID: "job-2", ProjectID: projectID, Name: "Job 2"},
@@ -287,15 +314,14 @@ func TestHandleListJobs_Success(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 jobs, got %d", len(resp))
 	}
 }
 
 func TestHandleListJobs_MissingProjectID(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/", ""))
@@ -306,6 +332,7 @@ func TestHandleListJobs_MissingProjectID(t *testing.T) {
 }
 
 func TestHandleCreateJobGroup_Success(t *testing.T) {
+	t.Parallel()
 	var created atomic.Bool
 	ms := &mockAPIStore{
 		createJobGroupFn: func(_ context.Context, group *domain.JobGroup) error {
@@ -337,6 +364,7 @@ func TestHandleCreateJobGroup_Success(t *testing.T) {
 }
 
 func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFJobGroups = true
 	w := httptest.NewRecorder()
@@ -348,6 +376,7 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 }
 
 func TestHandleCreateJobGroup_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{"project_id":"proj-1","name":"Core","slug":"core"}`))
@@ -358,6 +387,7 @@ func TestHandleCreateJobGroup_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleGetJobGroup_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobGroupFn: func(_ context.Context, id string) (*domain.JobGroup, error) {
 			return &domain.JobGroup{ID: id, ProjectID: "proj-1", Name: "Core", Slug: "core"}, nil
@@ -375,6 +405,7 @@ func TestHandleGetJobGroup_Success(t *testing.T) {
 }
 
 func TestHandleGetJobGroup_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobGroupFn: func(_ context.Context, _ string) (*domain.JobGroup, error) {
 			return nil, store.ErrJobGroupNotFound
@@ -392,8 +423,9 @@ func TestHandleGetJobGroup_NotFound(t *testing.T) {
 }
 
 func TestHandleListJobGroups_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobGroupsFn: func(_ context.Context, projectID string) ([]domain.JobGroup, error) {
+		listJobGroupsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.JobGroup, error) {
 			return []domain.JobGroup{
 				{ID: "group-1", ProjectID: projectID, Name: "Core", Slug: "core"},
 				{ID: "group-2", ProjectID: projectID, Name: "Ops", Slug: "ops"},
@@ -411,15 +443,14 @@ func TestHandleListJobGroups_Success(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 groups, got %d", len(resp))
 	}
 }
 
 func TestHandleDeleteJobGroup_Success(t *testing.T) {
+	t.Parallel()
 	var deletedID string
 	ms := &mockAPIStore{
 		deleteJobGroupFn: func(_ context.Context, id string) error {
@@ -442,8 +473,9 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 }
 
 func TestHandleListJobsByGroup_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsByGroupFn: func(_ context.Context, groupID string) ([]domain.Job, error) {
+		listJobsByGroupFn: func(_ context.Context, groupID string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return []domain.Job{{ID: "job-1", GroupID: groupID, ProjectID: "proj-1", Name: "Job 1"}}, nil
 		},
 	}
@@ -458,17 +490,16 @@ func TestHandleListJobsByGroup_Success(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
 	}
 }
 
 func TestHandleListJobs_FilterByTag(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listJobsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string) ([]domain.Job, error) {
+		listJobsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.Job, error) {
 			if projectID != "proj-1" || tagKey != "team" || tagValue != "core" {
 				t.Fatalf("unexpected list by tag args: %q %q %q", projectID, tagKey, tagValue)
 			}
@@ -486,15 +517,14 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
 	}
 }
 
 func TestHandleListJobs_FilterByTag_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
@@ -508,6 +538,7 @@ func TestHandleListJobs_FilterByTag_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleCreateJobDependency_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
@@ -547,6 +578,7 @@ func TestHandleCreateJobDependency_Success(t *testing.T) {
 }
 
 func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
@@ -568,6 +600,7 @@ func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
 }
 
 func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
@@ -585,6 +618,7 @@ func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
 }
 
 func TestHandleCreateJobDependency_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -596,8 +630,9 @@ func TestHandleCreateJobDependency_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleListJobDependencies_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
-	ms.listJobDependenciesFn = func(_ context.Context, jobID string) ([]domain.JobDependency, error) {
+	ms.listJobDependenciesFn = func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: time.Now()}}, nil
 	}
 
@@ -612,15 +647,14 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 	}
 
 	var resp []domain.JobDependency
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 dependency, got %d", len(resp))
 	}
 }
 
 func TestHandleDeleteJobDependency_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	ms.getJobFn = func(_ context.Context, id string) (*domain.Job, error) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
@@ -646,6 +680,7 @@ func TestHandleDeleteJobDependency_Success(t *testing.T) {
 }
 
 func TestHandleTriggerJob_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -690,6 +725,7 @@ func TestHandleTriggerJob_Success(t *testing.T) {
 }
 
 func TestHandleTriggerJob_DisabledJob(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -712,6 +748,7 @@ func TestHandleTriggerJob_DisabledJob(t *testing.T) {
 }
 
 func TestHandleStats_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		queueStatsFn: func(_ context.Context) (*store.QueueStats, error) {
 			return &store.QueueStats{Queued: 5, Executing: 2, Delayed: 1}, nil
@@ -736,6 +773,7 @@ func TestHandleStats_Success(t *testing.T) {
 }
 
 func TestHandleCancelRun_Success(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -761,7 +799,7 @@ func TestHandleCancelRun_Success(t *testing.T) {
 			}
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -776,6 +814,7 @@ func TestHandleCancelRun_Success(t *testing.T) {
 }
 
 func TestHandleDeleteJob_SoftDelete(t *testing.T) {
+	t.Parallel()
 	var updatedJob *domain.Job
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -810,6 +849,7 @@ func TestHandleDeleteJob_SoftDelete(t *testing.T) {
 }
 
 func TestHandleUpdateJob_ValidEndpointURL(t *testing.T) {
+	t.Parallel()
 	var updated bool
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -841,6 +881,7 @@ func TestHandleUpdateJob_ValidEndpointURL(t *testing.T) {
 }
 
 func TestHandleUpdateJob_SSRFBlocksPrivateIP(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -868,6 +909,7 @@ func TestHandleUpdateJob_SSRFBlocksPrivateIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			body := `{"endpoint_url": "` + tt.url + `"}`
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
@@ -880,6 +922,7 @@ func TestHandleUpdateJob_SSRFBlocksPrivateIP(t *testing.T) {
 }
 
 func TestHandleUpdateJob_SSRFBlocksLocalhost(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -907,6 +950,7 @@ func TestHandleUpdateJob_SSRFBlocksLocalhost(t *testing.T) {
 }
 
 func TestHandleUpdateJob_InvalidURL(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -932,6 +976,7 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			body := `{"endpoint_url": "` + tt.url + `"}`
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
@@ -944,6 +989,7 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 }
 
 func TestHandleUpdateJob_NilEndpointURL_SkipsValidation(t *testing.T) {
+	t.Parallel()
 	var updated bool
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
@@ -976,6 +1022,7 @@ func TestHandleUpdateJob_NilEndpointURL_SkipsValidation(t *testing.T) {
 }
 
 func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
@@ -1010,6 +1057,7 @@ func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
 }
 
 func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
@@ -1044,6 +1092,7 @@ func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
 }
 
 func TestHandleReplayRun_Success(t *testing.T) {
+	t.Parallel()
 	originalPayload := json.RawMessage(`{"k":"v"}`)
 	originalRun := &domain.JobRun{
 		ID:             "run-123",
@@ -1109,6 +1158,7 @@ func TestHandleReplayRun_Success(t *testing.T) {
 }
 
 func TestHandleReplayRun_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			t.Fatal("GetRun should not be called when replay feature is disabled")
@@ -1129,6 +1179,7 @@ func TestHandleReplayRun_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleReplayRun_DisabledJob(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: "run-123", JobID: "job-1", Status: domain.StatusFailed}, nil
@@ -1152,6 +1203,7 @@ func TestHandleReplayRun_DisabledJob(t *testing.T) {
 }
 
 func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return &domain.JobRun{ID: "run-123", JobID: "job-1", Status: domain.StatusCompleted}, nil
@@ -1169,12 +1221,13 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 }
 
 func TestHandleListDeadLetterRuns_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listDeadLetterRunsFn: func(_ context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+		listDeadLetterRunsFn: func(_ context.Context, projectID string, limit int, _ *time.Time) ([]domain.JobRun, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("unexpected project_id: %s", projectID)
 			}
-			if limit != 25 {
+			if limit != 26 { // handler passes limit+1 for has_more detection
 				t.Fatalf("unexpected limit: %d", limit)
 			}
 			return []domain.JobRun{{ID: "run-dlq-1", ProjectID: "proj-1", Status: domain.StatusDeadLetter}}, nil
@@ -1192,9 +1245,7 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 	}
 
 	var runs []domain.JobRun
-	if err := json.Unmarshal(w.Body.Bytes(), &runs); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &runs)
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(runs))
 	}
@@ -1204,8 +1255,9 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 }
 
 func TestHandleListDeadLetterRuns_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listDeadLetterRunsFn: func(_ context.Context, _ string, _ int) ([]domain.JobRun, error) {
+		listDeadLetterRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			t.Fatal("ListDeadLetterRuns should not be called when FFRunDLQ is disabled")
 			return nil, nil
 		},
@@ -1222,6 +1274,7 @@ func TestHandleListDeadLetterRuns_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		replayDeadLetterRunFn: func(_ context.Context, runID string) (*domain.JobRun, error) {
 			if runID != "run-123" {
@@ -1251,6 +1304,7 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 }
 
 func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		replayDeadLetterRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return nil, fmt.Errorf("run run-123 is not dead_letter")
@@ -1269,6 +1323,7 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 }
 
 func TestHandleTriggerJob_DryRunMode(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{
@@ -1318,6 +1373,7 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 }
 
 func TestHandleCloneJob_Success(t *testing.T) {
+	t.Parallel()
 	sourceJob := &domain.Job{
 		ID:          "job-source",
 		ProjectID:   "proj-1",
@@ -1354,30 +1410,27 @@ func TestHandleCloneJob_Success(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &cloned); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if cloned.Name != "Cloned Job" {
-		t.Fatalf("name = %q, want %q", cloned.Name, "Cloned Job")
-	}
-	if cloned.Slug != "cloned-job" {
-		t.Fatalf("slug = %q, want %q", cloned.Slug, "cloned-job")
-	}
-	if cloned.EndpointURL != sourceJob.EndpointURL {
-		t.Fatalf("endpoint_url = %q, want %q", cloned.EndpointURL, sourceJob.EndpointURL)
-	}
-	if cloned.MaxAttempts != sourceJob.MaxAttempts {
-		t.Fatalf("max_attempts = %d, want %d", cloned.MaxAttempts, sourceJob.MaxAttempts)
-	}
-	if cloned.TimeoutSecs != sourceJob.TimeoutSecs {
-		t.Fatalf("timeout_secs = %d, want %d", cloned.TimeoutSecs, sourceJob.TimeoutSecs)
-	}
-	if cloned.RunTTLSecs != sourceJob.RunTTLSecs {
-		t.Fatalf("run_ttl_secs = %d, want %d", cloned.RunTTLSecs, sourceJob.RunTTLSecs)
-	}
-	if cloned.ProjectID != sourceJob.ProjectID {
-		t.Fatalf("project_id = %q, want %q", cloned.ProjectID, sourceJob.ProjectID)
-	}
+	testutil.AssertEqual(t, domain.Job{
+		Name:        cloned.Name,
+		Slug:        cloned.Slug,
+		EndpointURL: cloned.EndpointURL,
+		MaxAttempts: cloned.MaxAttempts,
+		TimeoutSecs: cloned.TimeoutSecs,
+		RunTTLSecs:  cloned.RunTTLSecs,
+		ProjectID:   cloned.ProjectID,
+	}, domain.Job{
+		Name:        "Cloned Job",
+		Slug:        "cloned-job",
+		EndpointURL: sourceJob.EndpointURL,
+		MaxAttempts: sourceJob.MaxAttempts,
+		TimeoutSecs: sourceJob.TimeoutSecs,
+		RunTTLSecs:  sourceJob.RunTTLSecs,
+		ProjectID:   sourceJob.ProjectID,
+	})
 }
 
 func TestHandleCloneJob_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	ms.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
 		return nil, store.ErrJobNotFound
@@ -1393,6 +1446,7 @@ func TestHandleCloneJob_NotFound(t *testing.T) {
 }
 
 func TestHandleCloneJob_MissingFields(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	ms.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
 		return &domain.Job{ID: "job-1", ProjectID: "proj-1", EndpointURL: "https://example.com"}, nil
@@ -1410,6 +1464,7 @@ func TestHandleCloneJob_MissingFields(t *testing.T) {
 // Batch Job Definition Ops (2.38).
 
 func TestHandleBatchCreateJobs_Success(t *testing.T) {
+	t.Parallel()
 	createdCount := 0
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
@@ -1450,6 +1505,7 @@ func TestHandleBatchCreateJobs_Success(t *testing.T) {
 }
 
 func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		createJobFn: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-ok"
@@ -1489,6 +1545,7 @@ func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
 }
 
 func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	srv.config.FFBatchJobOps = true
@@ -1506,6 +1563,7 @@ func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
 }
 
 func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFBatchJobOps = true
 
@@ -1518,6 +1576,7 @@ func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
 }
 
 func TestHandleBatchCreateJobs_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	// FFBatchJobOps defaults to false
 
@@ -1533,6 +1592,7 @@ func TestHandleBatchCreateJobs_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFBatchJobOps = true
 
@@ -1558,6 +1618,7 @@ func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
 }
 
 func TestHandleBatchEnableJobs_Success(t *testing.T) {
+	t.Parallel()
 	var capturedEnabled bool
 	var capturedIDs []string
 	ms := &mockAPIStore{
@@ -1593,6 +1654,7 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 }
 
 func TestHandleBatchDisableJobs_Success(t *testing.T) {
+	t.Parallel()
 	var capturedEnabled bool
 	ms := &mockAPIStore{
 		batchUpdateJobsEnabledFn: func(_ context.Context, ids []string, enabled bool) (int64, error) {
@@ -1623,6 +1685,7 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 }
 
 func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFBatchJobOps = true
 
@@ -1638,6 +1701,7 @@ func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
 }
 
 func TestHandleBatchEnableJobs_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -1652,6 +1716,7 @@ func TestHandleBatchEnableJobs_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFBatchJobOps = true
 
@@ -1674,6 +1739,7 @@ func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
 // Job Health Scoring (2.41).
 
 func TestHandleGetJobHealth_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test"}, nil
@@ -1721,6 +1787,7 @@ func TestHandleGetJobHealth_Success(t *testing.T) {
 }
 
 func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
@@ -1749,6 +1816,7 @@ func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
 }
 
 func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
@@ -1769,6 +1837,7 @@ func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
 }
 
 func TestHandleGetJobHealth_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return nil, store.ErrJobNotFound
@@ -1786,6 +1855,7 @@ func TestHandleGetJobHealth_NotFound(t *testing.T) {
 }
 
 func TestHandleGetJobHealth_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -1800,6 +1870,7 @@ func TestHandleGetJobHealth_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleCreateEnvironment_Success(t *testing.T) {
+	t.Parallel()
 	var created atomic.Bool
 	ms := &mockAPIStore{
 		createEnvironmentFn: func(_ context.Context, env *domain.Environment) error {
@@ -1832,6 +1903,7 @@ func TestHandleCreateEnvironment_Success(t *testing.T) {
 }
 
 func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFEnvironments = true
 
@@ -1844,6 +1916,7 @@ func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
 }
 
 func TestHandleCreateEnvironment_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -1855,6 +1928,7 @@ func TestHandleCreateEnvironment_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleGetEnvironment_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getEnvironmentFn: func(_ context.Context, id string) (*domain.Environment, error) {
 			return &domain.Environment{
@@ -1899,8 +1973,9 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 }
 
 func TestHandleListEnvironments_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listEnvironmentsFn: func(_ context.Context, projectID string) ([]domain.Environment, error) {
+		listEnvironmentsFn: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Environment, error) {
 			return []domain.Environment{
 				{ID: "env-1", ProjectID: projectID, Name: "Development", Slug: "dev"},
 				{ID: "env-2", ProjectID: projectID, Name: "Production", Slug: "production"},
@@ -1918,15 +1993,14 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 	}
 
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 environments, got %d", len(resp))
 	}
 }
 
 func TestHandleGetResolvedVariables_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getResolvedEnvVarsFn: func(_ context.Context, id string) (map[string]string, error) {
 			if id != "env-1" {
@@ -1957,6 +2031,7 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 // Phase C: Execution Replay/Debug tests.
 
 func TestHandleGetDebugBundle_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getDebugBundleFn: func(_ context.Context, runID string) (*domain.DebugBundle, error) {
 			if runID != "run-1" {
@@ -1999,6 +2074,7 @@ func TestHandleGetDebugBundle_Success(t *testing.T) {
 }
 
 func TestHandleGetDebugBundle_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getDebugBundleFn: func(_ context.Context, _ string) (*domain.DebugBundle, error) {
 			t.Fatal("GetDebugBundle should not be called when FFDebugBundle is disabled")
@@ -2017,6 +2093,7 @@ func TestHandleGetDebugBundle_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getDebugBundleFn: func(_ context.Context, _ string) (*domain.DebugBundle, error) {
 			return nil, store.ErrRunNotFound
@@ -2035,6 +2112,7 @@ func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
 }
 
 func TestHandleSetDebugMode_Success(t *testing.T) {
+	t.Parallel()
 	var calledRunID string
 	var calledDebugMode bool
 	ms := &mockAPIStore{
@@ -2063,6 +2141,7 @@ func TestHandleSetDebugMode_Success(t *testing.T) {
 }
 
 func TestHandleSetDebugMode_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		updateRunDebugModeFn: func(_ context.Context, _ string, _ bool) error {
 			t.Fatal("UpdateRunDebugMode should not be called when FFDebugBundle is disabled")
@@ -2081,6 +2160,7 @@ func TestHandleSetDebugMode_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		updateRunDebugModeFn: func(_ context.Context, _ string, _ bool) error {
 			return store.ErrRunNotFound
@@ -2099,6 +2179,7 @@ func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
 }
 
 func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
+	t.Parallel()
 	var enqueuedRun *domain.JobRun
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
@@ -2113,7 +2194,7 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
 		},
-		listRunCheckpointsFn: func(_ context.Context, runID string, _ int) ([]domain.RunCheckpoint, error) {
+		listRunCheckpointsFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
 			if runID != "run-1" {
 				t.Fatalf("unexpected runID: %s", runID)
 			}
@@ -2150,6 +2231,7 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 }
 
 func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return &domain.JobRun{
@@ -2162,7 +2244,7 @@ func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
 		},
-		listRunCheckpointsFn: func(_ context.Context, _ string, _ int) ([]domain.RunCheckpoint, error) {
+		listRunCheckpointsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
 			return []domain.RunCheckpoint{
 				{ID: "cp-1", RunID: "run-1", Sequence: 1, State: json.RawMessage(`{"step":1}`)},
 			}, nil
@@ -2181,6 +2263,7 @@ func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
 }
 
 func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
 			return &domain.JobRun{
@@ -2206,8 +2289,9 @@ func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
 }
 
 func TestHandleListRunLineage_Success(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listRunLineageFn: func(_ context.Context, runID string) ([]domain.JobRun, error) {
+		listRunLineageFn: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			if runID != "run-1" {
 				t.Fatalf("expected run-1, got %s", runID)
 			}
@@ -2228,9 +2312,7 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 	}
 
 	var runs []domain.JobRun
-	if err := json.NewDecoder(w.Body).Decode(&runs); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &runs)
 	if len(runs) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(runs))
 	}
@@ -2240,6 +2322,7 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 }
 
 func TestHandleListRunLineage_FeatureDisabled(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 	srv.config.FFRunContinuation = false
 
@@ -2252,8 +2335,9 @@ func TestHandleListRunLineage_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleListRunLineage_StoreError(t *testing.T) {
+	t.Parallel()
 	ms := &mockAPIStore{
-		listRunLineageFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listRunLineageFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

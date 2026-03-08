@@ -118,7 +118,7 @@ func BenchmarkHandleBulkCancel(b *testing.B) {
 		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -185,7 +185,7 @@ func BenchmarkHandleListJobs(b *testing.B) {
 	}
 
 	ms := &mockAPIStore{
-		listJobsFn: func(_ context.Context, _ string) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.Job, error) {
 			return jobs, nil
 		},
 	}
@@ -320,6 +320,7 @@ func TestConcurrentBulkTrigger(t *testing.T) {
 			defer wg.Done()
 			w := httptest.NewRecorder()
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body)
+			r.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", idx+1)
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusCreated {
 				errs[idx] = fmt.Errorf("goroutine %d: expected 201, got %d", idx, w.Code)
@@ -371,7 +372,7 @@ func TestConcurrentBulkCancel(t *testing.T) {
 			cancelAttempts[id]++
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 	}
@@ -453,7 +454,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 			}
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
 		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, _, _ *string, limit int, _ *time.Time) ([]domain.JobRun, error) {

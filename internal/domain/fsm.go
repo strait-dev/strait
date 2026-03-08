@@ -33,8 +33,8 @@ func ValidateTransition(from, to RunStatus) error {
 	return &TransitionError{From: from, To: to}
 }
 
-func MustTransition(from, to RunStatus) {
-	if err := ValidateTransition(from, to); err != nil {
-		panic(err)
-	}
+// Transition validates and returns an error if the transition is invalid.
+// Prefer this over MustTransition in production code to avoid panics.
+func Transition(from, to RunStatus) error {
+	return ValidateTransition(from, to)
 }

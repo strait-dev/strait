@@ -6,6 +6,7 @@ linters:
     - dupword
     - errcheck
     - errorlint
+    - exhaustive
     - gocritic
     - godot
     - gosec
@@ -68,6 +69,8 @@ linters:
       disable:
         - fieldalignment
 
+    exhaustive:
+      default-signifies-exhaustive: true
   exclusions:
     warn-unused: true
     presets:

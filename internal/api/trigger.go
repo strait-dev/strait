@@ -22,7 +22,7 @@ import (
 type TriggerRequest struct {
 	Payload     json.RawMessage `json:"payload,omitempty"`
 	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
-	Priority    int             `json:"priority,omitempty"`
+	Priority    int             `json:"priority,omitempty" validate:"min=0,max=10"`
 	DryRun      bool            `json:"dry_run,omitempty"`
 }
 
@@ -32,38 +32,37 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			respondError(w, http.StatusNotFound, "job not found")
+			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "failed to get job")
+		respondError(w, r, http.StatusInternalServerError, "failed to get job")
 		return
 	}
 
 	if !job.Enabled {
-		respondError(w, http.StatusBadRequest, "job is disabled")
+		respondError(w, r, http.StatusBadRequest, "job is disabled")
 		return
 	}
 
 	var req TriggerRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Priority < 0 || req.Priority > 10 {
-		respondError(w, http.StatusBadRequest, "priority must be between 0 and 10")
+	if !s.validateRequest(w, r, &req) {
 		return
 	}
 
 	// Handle dry-run mode
 	if req.DryRun {
 		if !s.config.FFDryRun {
-			respondError(w, http.StatusNotFound, "dry-run mode is not enabled")
+			respondError(w, r, http.StatusNotFound, "dry-run mode is not enabled")
 			return
 		}
 		result, err := s.validateTriggerRequest(r.Context(), jobID, req)
 		if err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 		respondJSON(w, http.StatusOK, result)
@@ -71,14 +70,14 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.config.FFPayloadValidation {
 		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
-			respondError(w, http.StatusBadRequest, "payload validation failed: "+err.Error())
+			respondError(w, r, http.StatusBadRequest, "payload validation failed: "+err.Error())
 			return
 		}
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid payload: "+err.Error())
+		respondError(w, r, http.StatusBadRequest, "invalid payload: "+err.Error())
 		return
 	}
 
@@ -86,7 +85,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	if s.config.FFProjectQuotas || s.config.FFExecutionWindows || s.config.FFCostBudgets {
 		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to load project quota")
+			respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
 			return
 		}
 	}
@@ -95,11 +94,11 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		if projectQuota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
 			if countErr != nil {
-				respondError(w, http.StatusInternalServerError, "failed to evaluate project queued quota")
+				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project queued quota")
 				return
 			}
 			if queuedRuns >= projectQuota.MaxQueuedRuns {
-				respondError(w, http.StatusTooManyRequests, "project queued quota exceeded")
+				respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
 				return
 			}
 		}
@@ -107,11 +106,11 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		if projectQuota.MaxExecutingRuns > 0 {
 			activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
 			if countErr != nil {
-				respondError(w, http.StatusInternalServerError, "failed to evaluate project active quota")
+				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project active quota")
 				return
 			}
 			if activeRuns >= projectQuota.MaxExecutingRuns {
-				respondError(w, http.StatusTooManyRequests, "project executing quota exceeded")
+				respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
 				return
 			}
 		}
@@ -124,11 +123,11 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		dailyCost, costErr := s.store.SumProjectDailyCostMicrousd(r.Context(), job.ProjectID, tz)
 		if costErr != nil {
-			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
+			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
 			return
 		}
 		if dailyCost >= projectQuota.MaxDailyCostMicrousd {
-			respondError(w, http.StatusTooManyRequests, "project daily cost budget exceeded")
+			respondError(w, r, http.StatusTooManyRequests, "project daily cost budget exceeded")
 			return
 		}
 	}
@@ -137,11 +136,11 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
 		runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
 		if countErr != nil {
-			respondError(w, http.StatusInternalServerError, "failed to evaluate job rate limit")
+			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job rate limit")
 			return
 		}
 		if runCount >= job.RateLimitMax {
-			respondError(w, http.StatusTooManyRequests, "job rate limit exceeded")
+			respondError(w, r, http.StatusTooManyRequests, "job rate limit exceeded")
 			return
 		}
 	}
@@ -153,7 +152,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	if idempotencyKey != "" {
 		existingRun, err := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to check idempotency key")
+			respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key")
 			return
 		}
 		if existingRun != nil {
@@ -169,7 +168,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
 		existingRun, findErr := s.store.FindRecentRunByPayload(r.Context(), job.ID, payload, since)
 		if findErr != nil {
-			respondError(w, http.StatusInternalServerError, "failed to evaluate payload deduplication")
+			respondError(w, r, http.StatusInternalServerError, "failed to evaluate payload deduplication")
 			return
 		}
 		if existingRun != nil {
@@ -192,7 +191,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
 		if adjustErr != nil {
-			respondError(w, http.StatusBadRequest, "execution window validation failed: "+adjustErr.Error())
+			respondError(w, r, http.StatusBadRequest, "execution window validation failed: "+adjustErr.Error())
 			return
 		}
 		scheduledAt = adjustedScheduledAt
@@ -213,7 +212,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to sign run token")
+		respondError(w, r, http.StatusInternalServerError, "failed to sign run token")
 		return
 	}
 
@@ -238,7 +237,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to enqueue run")
+		respondError(w, r, http.StatusInternalServerError, "failed to enqueue run")
 		return
 	}
 

@@ -13,7 +13,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := s.store.QueueStats(ctx)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to get stats")
+		respondError(w, r, http.StatusInternalServerError, "failed to get stats")
 		return
 	}
 

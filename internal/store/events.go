@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -42,18 +43,28 @@ func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	return nil
 }
 
-func (q *Queries) ListEvents(ctx context.Context, runID string) ([]domain.RunEvent, error) {
+func (q *Queries) ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEvents")
 	defer span.End()
 
 	query := `
 		SELECT id, run_id, type, level, message, data, created_at
 		FROM run_events
-		WHERE run_id = $1
-		ORDER BY created_at ASC
-		LIMIT 10000`
+		WHERE run_id = $1`
 
-	rows, err := q.db.Query(ctx, query, runID)
+	args := []any{runID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at ASC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
@@ -95,7 +106,7 @@ func (q *Queries) ListEvents(ctx context.Context, runID string) ([]domain.RunEve
 	return events, nil
 }
 
-func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string) ([]domain.RunEvent, error) {
+func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEventsByRunFiltered")
 	defer span.End()
 
@@ -116,9 +127,17 @@ func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, lev
 	if eventType != "" {
 		baseQuery += fmt.Sprintf(" AND type = $%d", param)
 		args = append(args, eventType)
+		param++
 	}
 
-	baseQuery += " ORDER BY created_at ASC LIMIT 10000"
+	if cursor != nil {
+		baseQuery += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	baseQuery += fmt.Sprintf(" ORDER BY created_at ASC LIMIT $%d", param)
+	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, baseQuery, args...)
 	if err != nil {

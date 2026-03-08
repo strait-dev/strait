@@ -1,0 +1,104 @@
+---
+title: "Workflows"
+description: "Manage and trigger workflows."
+---
+
+## workflows list
+List workflows for a project.
+
+```bash
+orchestrator workflows list --project proj_1
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--project` | string | Project ID |
+
+## workflows get
+Get a workflow by ID or slug.
+
+```bash
+orchestrator workflows get data-pipeline
+```
+
+## workflows describe
+Show workflow details and step dependency graph.
+
+```bash
+orchestrator workflows describe data-pipeline
+```
+
+## workflows create
+Create a workflow with steps.
+
+```bash
+orchestrator workflows create \
+  --name "Data Pipeline" \
+  --slug data-pipeline \
+  --steps-json '[{"job_id": "job_1", "step_ref": "extract"}, {"job_id": "job_2", "step_ref": "transform", "depends_on": ["extract"]}]'
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--project` | string | Project ID |
+| `--name` | string | Workflow name |
+| `--slug` | string | Workflow slug |
+| `--description` | string | Workflow description |
+| `--steps-json` | string | JSON array of workflow steps |
+
+## workflows update
+Update an existing workflow.
+
+```bash
+orchestrator workflows update data-pipeline --enabled=false
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--name` | string | Workflow name |
+| `--slug` | string | Workflow slug |
+| `--description` | string | Workflow description |
+| `--enabled` | bool | Workflow enabled state |
+| `--steps-json` | string | JSON array of workflow steps |
+
+## workflows delete
+Delete a workflow.
+
+```bash
+orchestrator workflows delete data-pipeline --yes
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--yes` | bool | false | Skip confirmation prompt |
+
+## workflows runs
+List runs for a specific workflow.
+
+```bash
+orchestrator workflows runs data-pipeline --limit 20
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--limit` | int | 50 | Maximum runs to return |
+| `--offset` | int | 0 | Pagination offset |
+
+## workflows trigger
+Trigger a workflow run.
+
+```bash
+orchestrator workflows trigger data-pipeline --payload '{"source": "s3://bucket/data.csv"}'
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--payload` | string | Inline JSON payload |
+| `--payload-file` | string | Path to payload JSON file |
+
+## workflows graph
+Show the dependency graph for a workflow.
+
+```bash
+orchestrator workflows graph data-pipeline
+```

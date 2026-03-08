@@ -299,7 +299,7 @@ func TestListJobs(t *testing.T) {
 		}
 	}
 
-	jobs, err := q.ListJobs(ctx, projectID)
+	jobs, err := q.ListJobs(ctx, projectID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobs() error = %v", err)
 	}
@@ -330,7 +330,7 @@ func TestListJobs_FiltersByProject(t *testing.T) {
 		t.Fatalf("CreateJob() other error = %v", err)
 	}
 
-	jobs, err := q.ListJobs(ctx, targetProject)
+	jobs, err := q.ListJobs(ctx, targetProject, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobs() error = %v", err)
 	}
@@ -369,7 +369,7 @@ func TestListJobsByTag(t *testing.T) {
 		t.Fatalf("CreateJob(jobC) error = %v", err)
 	}
 
-	jobs, err := q.ListJobsByTag(ctx, projectID, "team", "core")
+	jobs, err := q.ListJobsByTag(ctx, projectID, "team", "core", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobsByTag() error = %v", err)
 	}
@@ -383,7 +383,7 @@ func TestListJobsByTag(t *testing.T) {
 		t.Fatalf("ListJobsByTag() service tag = %q, want %q", jobs[0].Tags["service"], "scheduler")
 	}
 
-	jobs, err = q.ListJobsByTag(ctx, projectID, "team", "")
+	jobs, err = q.ListJobsByTag(ctx, projectID, "team", "", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobsByTag(key-only) error = %v", err)
 	}
@@ -1004,7 +1004,7 @@ func TestListChildRuns(t *testing.T) {
 		t.Fatalf("CreateRun() child2 error = %v", err)
 	}
 
-	children, err := q.ListChildRuns(ctx, parent.ID)
+	children, err := q.ListChildRuns(ctx, parent.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListChildRuns() error = %v", err)
 	}
@@ -1105,7 +1105,7 @@ func TestInsertEvent(t *testing.T) {
 		t.Fatal("InsertEvent() did not set CreatedAt")
 	}
 
-	events, err := q.ListEvents(ctx, run.ID)
+	events, err := q.ListEvents(ctx, run.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListEvents() error = %v", err)
 	}
@@ -1144,7 +1144,7 @@ func TestListEvents(t *testing.T) {
 		}
 	}
 
-	events, err := q.ListEvents(ctx, run.ID)
+	events, err := q.ListEvents(ctx, run.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListEvents() error = %v", err)
 	}
@@ -1237,7 +1237,7 @@ func TestRunCheckpoints(t *testing.T) {
 		t.Fatalf("CreateRunCheckpoint() error = %v", err)
 	}
 
-	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, 10)
+	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunCheckpoints() error = %v", err)
 	}
@@ -1278,7 +1278,7 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 		t.Fatalf("CreateRunUsage() cost = %d, want 65", usage.CostMicrousd)
 	}
 
-	usages, err := q.ListRunUsage(ctx, run.ID, 10)
+	usages, err := q.ListRunUsage(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunUsage() error = %v", err)
 	}
@@ -1290,7 +1290,7 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	if err := q.CreateRunToolCall(ctx, call); err != nil {
 		t.Fatalf("CreateRunToolCall() error = %v", err)
 	}
-	calls, err := q.ListRunToolCalls(ctx, run.ID, 10)
+	calls, err := q.ListRunToolCalls(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunToolCalls() error = %v", err)
 	}
@@ -1306,7 +1306,7 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
 		t.Fatalf("UpsertRunOutput() second error = %v", err)
 	}
-	outputs, err := q.ListRunOutputs(ctx, run.ID)
+	outputs, err := q.ListRunOutputs(ctx, run.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListRunOutputs() error = %v", err)
 	}
@@ -1451,7 +1451,7 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatalf("GetJobSecret(not found) error = %v, want ErrJobSecretNotFound", err)
 	}
 
-	allProd, err := q.ListJobSecrets(ctx, projectID, "", "prod")
+	allProd, err := q.ListJobSecrets(ctx, projectID, "", "prod", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobSecrets(project+env) error = %v", err)
 	}
@@ -1459,7 +1459,7 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatalf("ListJobSecrets(project+env) len = %d, want 2", len(allProd))
 	}
 
-	jobOnly, err := q.ListJobSecrets(ctx, projectID, job.ID, "prod")
+	jobOnly, err := q.ListJobSecrets(ctx, projectID, job.ID, "prod", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobSecrets(project+job+env) error = %v", err)
 	}
@@ -1467,7 +1467,7 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatalf("ListJobSecrets(project+job+env) = %+v, want only %q", jobOnly, jobSecret.ID)
 	}
 
-	noneForEnv, err := q.ListJobSecrets(ctx, projectID, "", "staging")
+	noneForEnv, err := q.ListJobSecrets(ctx, projectID, "", "staging", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobSecrets(staging) error = %v", err)
 	}
@@ -1580,7 +1580,7 @@ func TestAPIKey_CRUD(t *testing.T) {
 		t.Fatal("GetAPIKeyByHash(missing) error = nil, want error")
 	}
 
-	keys, err := q.ListAPIKeysByProject(ctx, projectID)
+	keys, err := q.ListAPIKeysByProject(ctx, projectID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListAPIKeysByProject() error = %v", err)
 	}
@@ -1591,7 +1591,7 @@ func TestAPIKey_CRUD(t *testing.T) {
 		t.Fatalf("ListAPIKeysByProject() order mismatch: got IDs [%q, %q], want [%q, %q]", keys[0].ID, keys[1].ID, key2.ID, key1.ID)
 	}
 
-	none, err := q.ListAPIKeysByProject(ctx, "project-api-key-none")
+	none, err := q.ListAPIKeysByProject(ctx, "project-api-key-none", 10000, nil)
 	if err != nil {
 		t.Fatalf("ListAPIKeysByProject(none) error = %v", err)
 	}
@@ -1610,7 +1610,7 @@ func TestAPIKey_CRUD(t *testing.T) {
 		t.Fatal("GetAPIKeyByHash(revoked) revoked_at = nil, want non-nil")
 	}
 
-	keys, err = q.ListAPIKeysByProject(ctx, projectID)
+	keys, err = q.ListAPIKeysByProject(ctx, projectID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListAPIKeysByProject(after revoke) error = %v", err)
 	}
@@ -1726,7 +1726,7 @@ func TestJobVersion_CRUD(t *testing.T) {
 		t.Fatal("CreateJobVersion(duplicate version) error = nil, want error")
 	}
 
-	versions, err := q.ListJobVersionsByJob(ctx, job.ID)
+	versions, err := q.ListJobVersionsByJob(ctx, job.ID, 10000, nil)
 	if err != nil {
 		t.Fatalf("ListJobVersionsByJob() error = %v", err)
 	}
@@ -1740,7 +1740,7 @@ func TestJobVersion_CRUD(t *testing.T) {
 		t.Fatalf("ListJobVersionsByJob() fallback endpoint = %q, want %q", versions[0].FallbackEndpointURL, v2.FallbackEndpointURL)
 	}
 
-	empty, err := q.ListJobVersionsByJob(ctx, newID())
+	empty, err := q.ListJobVersionsByJob(ctx, newID(), 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobVersionsByJob(unknown job) error = %v", err)
 	}
@@ -1882,7 +1882,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 		t.Fatal("UpdateWebhookDelivery(missing) error = nil, want error")
 	}
 
-	all, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "", 10)
+	all, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "", 10, nil)
 	if err != nil {
 		t.Fatalf("ListWebhookDeliveries(all) error = %v", err)
 	}
@@ -1893,7 +1893,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 		t.Fatalf("ListWebhookDeliveries(all) order mismatch: got IDs [%q, %q], want [%q, %q]", all[0].ID, all[1].ID, delivery2.ID, delivery1.ID)
 	}
 
-	delivered, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "delivered", 10)
+	delivered, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "delivered", 10, nil)
 	if err != nil {
 		t.Fatalf("ListWebhookDeliveries(delivered) error = %v", err)
 	}
@@ -1901,7 +1901,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 		t.Fatalf("ListWebhookDeliveries(delivered) = %+v, want only %q", delivered, delivery1.ID)
 	}
 
-	none, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "pending", 0)
+	none, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "pending", 0, nil)
 	if err != nil {
 		t.Fatalf("ListWebhookDeliveries(limit 0) error = %v", err)
 	}
@@ -2056,7 +2056,7 @@ func TestJobGroup_CRUD(t *testing.T) {
 		t.Fatalf("GetJobGroup() mismatch: got %+v want %+v", *gotGroup, *group)
 	}
 
-	groups, err := q.ListJobGroups(ctx, projectID)
+	groups, err := q.ListJobGroups(ctx, projectID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobGroups() error = %v", err)
 	}
@@ -2074,7 +2074,7 @@ func TestJobGroup_CRUD(t *testing.T) {
 		t.Fatalf("CreateJob(jobOutsideGroup) error = %v", err)
 	}
 
-	jobsByGroup, err := q.ListJobsByGroup(ctx, group.ID)
+	jobsByGroup, err := q.ListJobsByGroup(ctx, group.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobsByGroup() error = %v", err)
 	}
@@ -2085,7 +2085,7 @@ func TestJobGroup_CRUD(t *testing.T) {
 		t.Fatalf("ListJobsByGroup() job id = %q, want %q", jobsByGroup[0].ID, jobInGroup.ID)
 	}
 
-	emptyJobs, err := q.ListJobsByGroup(ctx, newID())
+	emptyJobs, err := q.ListJobsByGroup(ctx, newID(), 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobsByGroup() empty error = %v", err)
 	}
@@ -2131,7 +2131,7 @@ func TestJobGroup_CRUD(t *testing.T) {
 		t.Fatalf("DeleteJobGroup() not found error = %v, want ErrJobGroupNotFound", err)
 	}
 
-	emptyGroups, err := q.ListJobGroups(ctx, "project-job-group-empty")
+	emptyGroups, err := q.ListJobGroups(ctx, "project-job-group-empty", 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobGroups() empty project error = %v", err)
 	}
@@ -2165,7 +2165,7 @@ func TestJobDependency_CRUD(t *testing.T) {
 		t.Fatalf("CreateJobDependency() condition = %q, want completed", dep.Condition)
 	}
 
-	deps, err := q.ListJobDependencies(ctx, job.ID)
+	deps, err := q.ListJobDependencies(ctx, job.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobDependencies() error = %v", err)
 	}
@@ -2189,7 +2189,7 @@ func TestJobDependency_CRUD(t *testing.T) {
 		t.Fatalf("DeleteJobDependency() error = %v", err)
 	}
 
-	deps, err = q.ListJobDependencies(ctx, job.ID)
+	deps, err = q.ListJobDependencies(ctx, job.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobDependencies() after delete error = %v", err)
 	}
@@ -2214,7 +2214,7 @@ func TestJobDependency_CRUD(t *testing.T) {
 		t.Fatal("CreateJobDependency() missing job FK error = nil, want error")
 	}
 
-	emptyDeps, err := q.ListJobDependencies(ctx, depJobA.ID)
+	emptyDeps, err := q.ListJobDependencies(ctx, depJobA.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListJobDependencies() empty error = %v", err)
 	}
@@ -2276,7 +2276,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 		}
 	}
 
-	envs, err := q.ListEnvironments(ctx, projectID)
+	envs, err := q.ListEnvironments(ctx, projectID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListEnvironments() error = %v", err)
 	}
@@ -2328,7 +2328,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 		t.Fatalf("DeleteEnvironment() not found error = %v, want ErrEnvironmentNotFound", err)
 	}
 
-	emptyEnvs, err := q.ListEnvironments(ctx, "project-environment-empty")
+	emptyEnvs, err := q.ListEnvironments(ctx, "project-environment-empty", 100, nil)
 	if err != nil {
 		t.Fatalf("ListEnvironments() empty project error = %v", err)
 	}
@@ -2651,7 +2651,7 @@ func TestWorkflow_CRUD(t *testing.T) {
 		t.Fatalf("CreateWorkflow(other) error = %v", err)
 	}
 
-	workflows, err := q.ListWorkflows(ctx, projectID)
+	workflows, err := q.ListWorkflows(ctx, projectID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListWorkflows() error = %v", err)
 	}
@@ -2698,7 +2698,7 @@ func TestWorkflow_CRUD(t *testing.T) {
 		t.Fatalf("UpdateWorkflow() not found error = %v, want ErrWorkflowNotFound", err)
 	}
 
-	empty, err := q.ListWorkflows(ctx, "project-workflow-empty")
+	empty, err := q.ListWorkflows(ctx, "project-workflow-empty", 100, nil)
 	if err != nil {
 		t.Fatalf("ListWorkflows() empty project error = %v", err)
 	}
@@ -2878,7 +2878,7 @@ func TestWorkflowRun_CRUD(t *testing.T) {
 		t.Fatalf("CreateWorkflowRun(run3) error = %v", err)
 	}
 
-	listed, err := q.ListWorkflowRuns(ctx, workflow.ID, 10, 0)
+	listed, err := q.ListWorkflowRuns(ctx, workflow.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListWorkflowRuns() error = %v", err)
 	}
@@ -2889,7 +2889,9 @@ func TestWorkflowRun_CRUD(t *testing.T) {
 		t.Fatalf("ListWorkflowRuns() ids = [%q, %q, %q], want [%q, %q, %q]", listed[0].ID, listed[1].ID, listed[2].ID, run3.ID, run2.ID, run1.ID)
 	}
 
-	paged, err := q.ListWorkflowRuns(ctx, workflow.ID, 1, 1)
+	// Cursor-based pagination: use created_at of the first result as cursor to get the next page
+	cursor := listed[0].CreatedAt
+	paged, err := q.ListWorkflowRuns(ctx, workflow.ID, 1, &cursor)
 	if err != nil {
 		t.Fatalf("ListWorkflowRuns() paged error = %v", err)
 	}
@@ -2900,7 +2902,7 @@ func TestWorkflowRun_CRUD(t *testing.T) {
 		t.Fatalf("ListWorkflowRuns() paged id = %q, want %q", paged[0].ID, run2.ID)
 	}
 
-	allByProject, err := q.ListWorkflowRunsByProject(ctx, projectID, nil, 10)
+	allByProject, err := q.ListWorkflowRunsByProject(ctx, projectID, nil, 10, nil)
 	if err != nil {
 		t.Fatalf("ListWorkflowRunsByProject(nil status) error = %v", err)
 	}
@@ -2909,7 +2911,7 @@ func TestWorkflowRun_CRUD(t *testing.T) {
 	}
 
 	status := domain.WfStatusRunning
-	onlyRunning, err := q.ListWorkflowRunsByProject(ctx, projectID, &status, 10)
+	onlyRunning, err := q.ListWorkflowRunsByProject(ctx, projectID, &status, 10, nil)
 	if err != nil {
 		t.Fatalf("ListWorkflowRunsByProject(running) error = %v", err)
 	}
@@ -3109,7 +3111,7 @@ func TestWorkflowStepRun_CRUD(t *testing.T) {
 		t.Fatalf("CreateWorkflowStepRun(second) error = %v", err)
 	}
 
-	list, err := q.ListStepRunsByWorkflowRun(ctx, run.ID)
+	list, err := q.ListStepRunsByWorkflowRun(ctx, run.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListStepRunsByWorkflowRun() error = %v", err)
 	}
@@ -3392,30 +3394,10 @@ func assertJobEqual(t *testing.T, want, got *domain.Job) {
 		t.Fatal("job is nil")
 	}
 
-	if got.ID != want.ID ||
-		got.ProjectID != want.ProjectID ||
-		got.Name != want.Name ||
-		got.Slug != want.Slug ||
-		got.Description != want.Description ||
-		got.Cron != want.Cron ||
-		got.EndpointURL != want.EndpointURL ||
-		got.MaxAttempts != want.MaxAttempts ||
-		got.TimeoutSecs != want.TimeoutSecs ||
-		got.Enabled != want.Enabled ||
-		got.WebhookURL != want.WebhookURL ||
-		got.WebhookSecret != want.WebhookSecret {
-		t.Fatalf("job mismatch: got %+v want %+v", *got, *want)
-	}
+	testutil.AssertEqual(t, got, want, testutil.IgnoreFields(domain.Job{}, "PayloadSchema"))
 
 	if !jsonEqual(got.PayloadSchema, want.PayloadSchema) {
 		t.Fatalf("payload_schema mismatch: got %s want %s", string(got.PayloadSchema), string(want.PayloadSchema))
-	}
-
-	if !got.CreatedAt.Equal(want.CreatedAt) {
-		t.Fatalf("created_at mismatch: got %v want %v", got.CreatedAt, want.CreatedAt)
-	}
-	if !got.UpdatedAt.Equal(want.UpdatedAt) {
-		t.Fatalf("updated_at mismatch: got %v want %v", got.UpdatedAt, want.UpdatedAt)
 	}
 }
 
@@ -3426,24 +3408,13 @@ func assertRunEqual(t *testing.T, want, got *domain.JobRun) {
 		t.Fatal("run is nil")
 	}
 
-	if got.ID != want.ID ||
-		got.JobID != want.JobID ||
-		got.ProjectID != want.ProjectID ||
-		got.Status != want.Status ||
-		got.Attempt != want.Attempt ||
-		got.Error != want.Error ||
-		got.TriggeredBy != want.TriggeredBy ||
-		got.ParentRunID != want.ParentRunID ||
-		got.Priority != want.Priority ||
-		got.IdempotencyKey != want.IdempotencyKey {
-		t.Fatalf("run mismatch: got %+v want %+v", *got, *want)
-	}
+	testutil.AssertEqual(t, got, want, testutil.IgnoreFields(domain.JobRun{}, "Payload", "Result"), testutil.EquateEmpty())
 
-	if !jsonEqual(got.Payload, want.Payload) {
-		t.Fatalf("payload mismatch: got %s want %s", string(got.Payload), string(want.Payload))
+	if len(got.Payload) != 0 || len(want.Payload) != 0 {
+		testutil.AssertJSONEqual(t, got.Payload, want.Payload)
 	}
-	if !jsonEqual(got.Result, want.Result) {
-		t.Fatalf("result mismatch: got %s want %s", string(got.Result), string(want.Result))
+	if len(got.Result) != 0 || len(want.Result) != 0 {
+		testutil.AssertJSONEqual(t, got.Result, want.Result)
 	}
 
 	assertTimePtrEqual(t, "scheduled_at", want.ScheduledAt, got.ScheduledAt)
@@ -3453,9 +3424,6 @@ func assertRunEqual(t *testing.T, want, got *domain.JobRun) {
 	assertTimePtrEqual(t, "next_retry_at", want.NextRetryAt, got.NextRetryAt)
 	assertTimePtrEqual(t, "expires_at", want.ExpiresAt, got.ExpiresAt)
 
-	if !got.CreatedAt.Equal(want.CreatedAt) {
-		t.Fatalf("created_at mismatch: got %v want %v", got.CreatedAt, want.CreatedAt)
-	}
 }
 
 func assertTimePtrEqual(t *testing.T, field string, want, got *time.Time) {
@@ -3984,7 +3952,7 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 		}
 	}
 
-	allForRun, err := q.ListEventsByRunFiltered(ctx, run.ID, "", "")
+	allForRun, err := q.ListEventsByRunFiltered(ctx, run.ID, "", "", 100, nil)
 	if err != nil {
 		t.Fatalf("ListEventsByRunFiltered() all error = %v", err)
 	}
@@ -3992,7 +3960,7 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 		t.Fatalf("ListEventsByRunFiltered() all len = %d, want 3", len(allForRun))
 	}
 
-	infoOnly, err := q.ListEventsByRunFiltered(ctx, run.ID, "info", "")
+	infoOnly, err := q.ListEventsByRunFiltered(ctx, run.ID, "info", "", 100, nil)
 	if err != nil {
 		t.Fatalf("ListEventsByRunFiltered() level error = %v", err)
 	}
@@ -4000,7 +3968,7 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 		t.Fatalf("ListEventsByRunFiltered() level len = %d, want 2", len(infoOnly))
 	}
 
-	logOnly, err := q.ListEventsByRunFiltered(ctx, run.ID, "", string(domain.EventLog))
+	logOnly, err := q.ListEventsByRunFiltered(ctx, run.ID, "", string(domain.EventLog), 100, nil)
 	if err != nil {
 		t.Fatalf("ListEventsByRunFiltered() type error = %v", err)
 	}
@@ -4008,7 +3976,7 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 		t.Fatalf("ListEventsByRunFiltered() type len = %d, want 2", len(logOnly))
 	}
 
-	infoLogs, err := q.ListEventsByRunFiltered(ctx, run.ID, "info", string(domain.EventLog))
+	infoLogs, err := q.ListEventsByRunFiltered(ctx, run.ID, "info", string(domain.EventLog), 100, nil)
 	if err != nil {
 		t.Fatalf("ListEventsByRunFiltered() level+type error = %v", err)
 	}
@@ -4017,5 +3985,1785 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 	}
 	if infoLogs[0].ID != events[0].ID {
 		t.Fatalf("ListEventsByRunFiltered() level+type ID = %q, want %q", infoLogs[0].ID, events[0].ID)
+	}
+}
+
+// ============ Phase 8: Tests for previously untested store methods ============
+
+func TestWorkflowRunLabels_CRUD(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wf-run-labels"
+	wfID := newID()
+	wf := &domain.Workflow{ID: wfID, ProjectID: projectID, Name: "wf-labels", Slug: "wf-labels-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	wfRunID := newID()
+	wfRun := &domain.WorkflowRun{ID: wfRunID, WorkflowID: wfID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+
+	// Create labels
+	labels := map[string]string{"env": "staging", "team": "backend"}
+	if err := q.CreateWorkflowRunLabels(ctx, wfRunID, labels); err != nil {
+		t.Fatalf("CreateWorkflowRunLabels() error = %v", err)
+	}
+
+	// List labels
+	got, err := q.ListWorkflowRunLabels(ctx, wfRunID)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunLabels() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListWorkflowRunLabels() len = %d, want 2", len(got))
+	}
+	if got["env"] != "staging" {
+		t.Fatalf("label env = %q, want staging", got["env"])
+	}
+	if got["team"] != "backend" {
+		t.Fatalf("label team = %q, want backend", got["team"])
+	}
+
+	// Empty labels noop
+	if err := q.CreateWorkflowRunLabels(ctx, wfRunID, map[string]string{}); err != nil {
+		t.Fatalf("CreateWorkflowRunLabels(empty) error = %v", err)
+	}
+
+	// Upsert
+	if err := q.CreateWorkflowRunLabels(ctx, wfRunID, map[string]string{"env": "production"}); err != nil {
+		t.Fatalf("CreateWorkflowRunLabels(upsert) error = %v", err)
+	}
+	got2, _ := q.ListWorkflowRunLabels(ctx, wfRunID)
+	if got2["env"] != "production" {
+		t.Fatalf("label env after upsert = %q, want production", got2["env"])
+	}
+
+	// Empty for unknown run
+	empty, err := q.ListWorkflowRunLabels(ctx, newID())
+	if err != nil {
+		t.Fatalf("ListWorkflowRunLabels(unknown) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ListWorkflowRunLabels(unknown) len = %d, want 0", len(empty))
+	}
+}
+
+func TestWorkflowStepApproval_CRUD(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-step-approval"
+	job := mustCreateJob(t, ctx, q, projectID)
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-approval", Slug: "wf-approval-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+	step := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "approval-step"}
+	if err := q.CreateWorkflowStep(ctx, step); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+	wfRun := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusRunning, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+	stepRun := &domain.WorkflowStepRun{ID: newID(), WorkflowRunID: wfRun.ID, WorkflowStepID: step.ID, StepRef: "approval-step", Status: domain.StepPending}
+	if err := q.CreateWorkflowStepRun(ctx, stepRun); err != nil {
+		t.Fatalf("CreateWorkflowStepRun() error = %v", err)
+	}
+
+	// Create approval
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	expires := now.Add(1 * time.Hour)
+	approval := &domain.WorkflowStepApproval{
+		ID:                newID(),
+		WorkflowRunID:     wfRun.ID,
+		WorkflowStepRunID: stepRun.ID,
+		Approvers:         []string{"alice", "bob"},
+		Status:            "pending",
+		RequestedAt:       now,
+		ExpiresAt:         &expires,
+	}
+	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
+	}
+
+	// Get by step run ID
+	got, err := q.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowStepApprovalByStepRunID() error = %v", err)
+	}
+	if got.ID != approval.ID {
+		t.Fatalf("approval ID = %q, want %q", got.ID, approval.ID)
+	}
+	if got.Status != "pending" {
+		t.Fatalf("approval status = %q, want pending", got.Status)
+	}
+	if len(got.Approvers) != 2 {
+		t.Fatalf("approval approvers len = %d, want 2", len(got.Approvers))
+	}
+
+	// Update approval
+	approvedAt := now.Add(5 * time.Minute)
+	if err := q.UpdateWorkflowStepApproval(ctx, approval.ID, "approved", "alice", &approvedAt, ""); err != nil {
+		t.Fatalf("UpdateWorkflowStepApproval() error = %v", err)
+	}
+	updated, _ := q.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
+	if updated.Status != "approved" {
+		t.Fatalf("updated status = %q, want approved", updated.Status)
+	}
+	if updated.ApprovedBy != "alice" {
+		t.Fatalf("updated approved_by = %q, want alice", updated.ApprovedBy)
+	}
+
+	// Update not found
+	if err := q.UpdateWorkflowStepApproval(ctx, newID(), "approved", "bob", &approvedAt, ""); err == nil {
+		t.Fatal("UpdateWorkflowStepApproval(unknown) error = nil, want error")
+	}
+}
+
+func TestListExpiredWorkflowStepApprovals(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-expired-approvals"
+	job := mustCreateJob(t, ctx, q, projectID)
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-expired", Slug: "wf-expired-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+	step := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "exp-step"}
+	if err := q.CreateWorkflowStep(ctx, step); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+	wfRun := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusRunning, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+
+	// Create two step runs
+	sr1 := &domain.WorkflowStepRun{ID: newID(), WorkflowRunID: wfRun.ID, WorkflowStepID: step.ID, StepRef: "exp-step-1", Status: domain.StepPending}
+	if err := q.CreateWorkflowStepRun(ctx, sr1); err != nil {
+		t.Fatalf("CreateWorkflowStepRun(1) error = %v", err)
+	}
+	sr2 := &domain.WorkflowStepRun{ID: newID(), WorkflowRunID: wfRun.ID, WorkflowStepID: step.ID, StepRef: "exp-step-2", Status: domain.StepPending}
+	if err := q.CreateWorkflowStepRun(ctx, sr2); err != nil {
+		t.Fatalf("CreateWorkflowStepRun(2) error = %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	pastExpiry := now.Add(-1 * time.Hour)
+	futureExpiry := now.Add(1 * time.Hour)
+
+	// Expired pending approval
+	a1 := &domain.WorkflowStepApproval{ID: newID(), WorkflowRunID: wfRun.ID, WorkflowStepRunID: sr1.ID, Approvers: []string{"alice"}, Status: "pending", RequestedAt: now, ExpiresAt: &pastExpiry}
+	if err := q.CreateWorkflowStepApproval(ctx, a1); err != nil {
+		t.Fatalf("CreateWorkflowStepApproval(expired) error = %v", err)
+	}
+
+	// Not-expired pending approval
+	a2 := &domain.WorkflowStepApproval{ID: newID(), WorkflowRunID: wfRun.ID, WorkflowStepRunID: sr2.ID, Approvers: []string{"bob"}, Status: "pending", RequestedAt: now, ExpiresAt: &futureExpiry}
+	if err := q.CreateWorkflowStepApproval(ctx, a2); err != nil {
+		t.Fatalf("CreateWorkflowStepApproval(future) error = %v", err)
+	}
+
+	expired, err := q.ListExpiredWorkflowStepApprovals(ctx)
+	if err != nil {
+		t.Fatalf("ListExpiredWorkflowStepApprovals() error = %v", err)
+	}
+	if len(expired) != 1 {
+		t.Fatalf("ListExpiredWorkflowStepApprovals() len = %d, want 1", len(expired))
+	}
+	if expired[0].ID != a1.ID {
+		t.Fatalf("expired approval ID = %q, want %q", expired[0].ID, a1.ID)
+	}
+}
+
+func TestCountRunningWorkflowRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-count-running-wfruns"
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-count", Slug: "wf-count-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	// No runs yet
+	count, err := q.CountRunningWorkflowRuns(ctx, wf.ID)
+	if err != nil {
+		t.Fatalf("CountRunningWorkflowRuns() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+
+	// Create pending run (not running)
+	wfRun1 := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun1); err != nil {
+		t.Fatalf("CreateWorkflowRun(pending) error = %v", err)
+	}
+
+	// Create running run
+	wfRun2 := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun2); err != nil {
+		t.Fatalf("CreateWorkflowRun(running) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, wfRun2.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus() error = %v", err)
+	}
+
+	count, err = q.CountRunningWorkflowRuns(ctx, wf.ID)
+	if err != nil {
+		t.Fatalf("CountRunningWorkflowRuns() after running error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+}
+
+func TestGetStepRunByWorkflowRunAndRef(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-step-run-by-ref"
+	job := mustCreateJob(t, ctx, q, projectID)
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-ref", Slug: "wf-ref-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+	step := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "my-step"}
+	if err := q.CreateWorkflowStep(ctx, step); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+	wfRun := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusRunning, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+	sr := &domain.WorkflowStepRun{ID: newID(), WorkflowRunID: wfRun.ID, WorkflowStepID: step.ID, StepRef: "my-step", Status: domain.StepPending}
+	if err := q.CreateWorkflowStepRun(ctx, sr); err != nil {
+		t.Fatalf("CreateWorkflowStepRun() error = %v", err)
+	}
+
+	got, err := q.GetStepRunByWorkflowRunAndRef(ctx, wfRun.ID, "my-step")
+	if err != nil {
+		t.Fatalf("GetStepRunByWorkflowRunAndRef() error = %v", err)
+	}
+	if got.ID != sr.ID {
+		t.Fatalf("step run ID = %q, want %q", got.ID, sr.ID)
+	}
+	if got.StepRef != "my-step" {
+		t.Fatalf("step run ref = %q, want my-step", got.StepRef)
+	}
+}
+
+func TestDeleteWorkflowRunsFinishedBefore(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-delete-old-wfruns"
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-delete", Slug: "wf-delete-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	// Create a completed run with finished_at in the past
+	wfRun := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(running) error = %v", err)
+	}
+	oldTime := time.Now().UTC().Add(-48 * time.Hour)
+	if err := q.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusRunning, domain.WfStatusCompleted, map[string]any{"finished_at": oldTime}); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(completed) error = %v", err)
+	}
+
+	// Create a recent running run (should not be deleted)
+	wfRun2 := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun2); err != nil {
+		t.Fatalf("CreateWorkflowRun(recent) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, wfRun2.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(recent) error = %v", err)
+	}
+
+	deleted, err := q.DeleteWorkflowRunsFinishedBefore(ctx, time.Now().UTC().Add(-24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("DeleteWorkflowRunsFinishedBefore() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+
+	// Verify the completed run is gone
+	_, err = q.GetWorkflowRun(ctx, wfRun.ID)
+	if !errors.Is(err, store.ErrWorkflowRunNotFound) {
+		t.Fatalf("GetWorkflowRun(deleted) error = %v, want ErrWorkflowRunNotFound", err)
+	}
+
+	// Verify the running run still exists
+	_, err = q.GetWorkflowRun(ctx, wfRun2.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRun(running) error = %v", err)
+	}
+}
+
+func TestGetWorkflowRunsByParent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wfrun-parent"
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-parent", Slug: "wf-parent-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	parentRun := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusRunning, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, parentRun); err != nil {
+		t.Fatalf("CreateWorkflowRun(parent) error = %v", err)
+	}
+
+	childRun := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "workflow"}
+	if err := q.CreateWorkflowRun(ctx, childRun); err != nil {
+		t.Fatalf("CreateWorkflowRun(child) error = %v", err)
+	}
+	_, err := testDB.Pool.Exec(ctx, `UPDATE workflow_runs SET parent_workflow_run_id = $1 WHERE id = $2`, parentRun.ID, childRun.ID)
+	if err != nil {
+		t.Fatalf("set parent_workflow_run_id error = %v", err)
+	}
+
+	children, err := q.GetWorkflowRunsByParent(ctx, parentRun.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunsByParent() error = %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("children len = %d, want 1", len(children))
+	}
+	if children[0].ID != childRun.ID {
+		t.Fatalf("child ID = %q, want %q", children[0].ID, childRun.ID)
+	}
+
+	// Empty for unknown parent
+	empty, err := q.GetWorkflowRunsByParent(ctx, newID())
+	if err != nil {
+		t.Fatalf("GetWorkflowRunsByParent(unknown) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("GetWorkflowRunsByParent(unknown) len = %d, want 0", len(empty))
+	}
+}
+
+func TestListDeadLetterRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-dead-letter"
+	job := mustCreateJob(t, ctx, q, projectID)
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Transition run to dead_letter: queued -> dequeued -> executing -> dead_letter
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(dequeued) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(executing) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+
+	// Create another non-dead-letter run
+	run2 := mustCreateRun(t, ctx, q, job)
+	_ = run2
+
+	runs, err := q.ListDeadLetterRuns(ctx, projectID, 50, nil)
+	if err != nil {
+		t.Fatalf("ListDeadLetterRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("ListDeadLetterRuns() len = %d, want 1", len(runs))
+	}
+	if runs[0].ID != run.ID {
+		t.Fatalf("dead letter run ID = %q, want %q", runs[0].ID, run.ID)
+	}
+	if runs[0].Status != domain.StatusDeadLetter {
+		t.Fatalf("dead letter run status = %q, want dead_letter", runs[0].Status)
+	}
+}
+
+func TestReplayDeadLetterRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-replay-dead-letter"
+	job := mustCreateJob(t, ctx, q, projectID)
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Transition to dead_letter
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(dequeued) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(executing) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+
+	// Replay
+	replayed, err := q.ReplayDeadLetterRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ReplayDeadLetterRun() error = %v", err)
+	}
+	if replayed.Status != domain.StatusQueued {
+		t.Fatalf("replayed status = %q, want queued", replayed.Status)
+	}
+	if replayed.Attempt != 1 {
+		t.Fatalf("replayed attempt = %d, want 1", replayed.Attempt)
+	}
+
+	// Replay non-dead-letter run should fail
+	run2 := mustCreateRun(t, ctx, q, job)
+	_, err = q.ReplayDeadLetterRun(ctx, run2.ID)
+	if err == nil {
+		t.Fatal("ReplayDeadLetterRun(non-dead-letter) error = nil, want error")
+	}
+}
+
+func TestSumRunCostMicrousd(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-sum-cost")
+	run := mustCreateRun(t, ctx, q, job)
+
+	// No usage yet
+	total, err := q.SumRunCostMicrousd(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("SumRunCostMicrousd() error = %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
+	}
+
+	// Add usage records
+	u1 := &domain.RunUsage{ID: newID(), RunID: run.ID, Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 1000, Provider: "openai"}
+	if err := q.CreateRunUsage(ctx, u1); err != nil {
+		t.Fatalf("CreateRunUsage(1) error = %v", err)
+	}
+	u2 := &domain.RunUsage{ID: newID(), RunID: run.ID, Model: "gpt-4", PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300, CostMicrousd: 2500, Provider: "openai"}
+	if err := q.CreateRunUsage(ctx, u2); err != nil {
+		t.Fatalf("CreateRunUsage(2) error = %v", err)
+	}
+
+	total, err = q.SumRunCostMicrousd(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("SumRunCostMicrousd() after usage error = %v", err)
+	}
+	if total != 3500 {
+		t.Fatalf("total = %d, want 3500", total)
+	}
+}
+
+func TestSumProjectDailyCostMicrousd(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-daily-cost"
+	job := mustCreateJob(t, ctx, q, projectID)
+	run := mustCreateRun(t, ctx, q, job)
+
+	u := &domain.RunUsage{ID: newID(), RunID: run.ID, Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 5000, Provider: "openai"}
+	if err := q.CreateRunUsage(ctx, u); err != nil {
+		t.Fatalf("CreateRunUsage() error = %v", err)
+	}
+
+	total, err := q.SumProjectDailyCostMicrousd(ctx, projectID, "UTC")
+	if err != nil {
+		t.Fatalf("SumProjectDailyCostMicrousd() error = %v", err)
+	}
+	if total != 5000 {
+		t.Fatalf("total = %d, want 5000", total)
+	}
+
+	// Different project should have 0
+	emptyTotal, err := q.SumProjectDailyCostMicrousd(ctx, "project-nonexistent", "UTC")
+	if err != nil {
+		t.Fatalf("SumProjectDailyCostMicrousd(empty) error = %v", err)
+	}
+	if emptyTotal != 0 {
+		t.Fatalf("emptyTotal = %d, want 0", emptyTotal)
+	}
+}
+
+func TestIncrementStepRunAttempt(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-increment-attempt"
+	job := mustCreateJob(t, ctx, q, projectID)
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-inc", Slug: "wf-inc-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+	step := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "inc-step"}
+	if err := q.CreateWorkflowStep(ctx, step); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+	wfRun := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusRunning, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+	sr := &domain.WorkflowStepRun{ID: newID(), WorkflowRunID: wfRun.ID, WorkflowStepID: step.ID, StepRef: "inc-step", Status: domain.StepPending}
+	if err := q.CreateWorkflowStepRun(ctx, sr); err != nil {
+		t.Fatalf("CreateWorkflowStepRun() error = %v", err)
+	}
+
+	// Attempt starts at 1 (default set by CreateWorkflowStepRun), increment to 2
+	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 2); err != nil {
+		t.Fatalf("IncrementStepRunAttempt(1->2) error = %v", err)
+	}
+
+	// Increment to 3
+	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 3); err != nil {
+		t.Fatalf("IncrementStepRunAttempt(2->3) error = %v", err)
+	}
+
+	// Optimistic lock: trying to increment to 3 again should fail (current is 3, expects 2)
+	if err := q.IncrementStepRunAttempt(ctx, sr.ID, 3); err == nil {
+		t.Fatal("IncrementStepRunAttempt(stale) error = nil, want error")
+	}
+
+	// Unknown step run should fail
+	if err := q.IncrementStepRunAttempt(ctx, newID(), 1); err == nil {
+		t.Fatal("IncrementStepRunAttempt(unknown) error = nil, want error")
+	}
+}
+
+func TestListCronWorkflows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-cron-workflows"
+
+	// Create a workflow with cron
+	wf1 := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-cron", Slug: "wf-cron-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf1); err != nil {
+		t.Fatalf("CreateWorkflow(cron) error = %v", err)
+	}
+	_, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $1 WHERE id = $2`, "0 * * * *", wf1.ID)
+	if err != nil {
+		t.Fatalf("set cron error = %v", err)
+	}
+
+	// Create a workflow without cron
+	wf2 := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-no-cron", Slug: "wf-no-cron-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf2); err != nil {
+		t.Fatalf("CreateWorkflow(no-cron) error = %v", err)
+	}
+
+	// Create a disabled workflow with cron
+	wf3 := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-disabled-cron", Slug: "wf-disabled-cron-slug", Enabled: false, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf3); err != nil {
+		t.Fatalf("CreateWorkflow(disabled) error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $1 WHERE id = $2`, "*/5 * * * *", wf3.ID)
+	if err != nil {
+		t.Fatalf("set cron disabled error = %v", err)
+	}
+
+	cronWfs, err := q.ListCronWorkflows(ctx)
+	if err != nil {
+		t.Fatalf("ListCronWorkflows() error = %v", err)
+	}
+	if len(cronWfs) != 1 {
+		t.Fatalf("ListCronWorkflows() len = %d, want 1", len(cronWfs))
+	}
+	if cronWfs[0].ID != wf1.ID {
+		t.Fatalf("cron workflow ID = %q, want %q", cronWfs[0].ID, wf1.ID)
+	}
+}
+
+func TestListRunLineage(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-run-lineage"
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	// Create a chain: run1 -> run2 -> run3
+	run1 := mustCreateRun(t, ctx, q, job)
+	run2 := mustCreateRun(t, ctx, q, job)
+	run3 := mustCreateRun(t, ctx, q, job)
+
+	_, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET continuation_of = $1, lineage_depth = $2 WHERE id = $3`, run1.ID, 1, run2.ID)
+	if err != nil {
+		t.Fatalf("set continuation_of run2 error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, `UPDATE job_runs SET continuation_of = $1, lineage_depth = $2 WHERE id = $3`, run2.ID, 2, run3.ID)
+	if err != nil {
+		t.Fatalf("set continuation_of run3 error = %v", err)
+	}
+
+	// Query lineage from run3 (should walk back to run1 and return all 3)
+	lineage, err := q.ListRunLineage(ctx, run3.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunLineage() error = %v", err)
+	}
+	if len(lineage) != 3 {
+		t.Fatalf("ListRunLineage() len = %d, want 3", len(lineage))
+	}
+	// Should be ordered by lineage_depth ASC (run1 first)
+	if lineage[0].ID != run1.ID {
+		t.Fatalf("lineage[0].ID = %q, want %q (root)", lineage[0].ID, run1.ID)
+	}
+	if lineage[2].ID != run3.ID {
+		t.Fatalf("lineage[2].ID = %q, want %q (leaf)", lineage[2].ID, run3.ID)
+	}
+}
+
+// ============================================================================
+// Phase 3-5: Store integration tests for untested methods + edge cases
+// ============================================================================
+
+func TestGetDebugBundle(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-debug-bundle"
+	job := mustCreateJob(t, ctx, q, projectID)
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Insert an event
+	event := &domain.RunEvent{ID: newID(), RunID: run.ID, Type: domain.EventLog, Level: "info", Message: "hello", Data: json.RawMessage(`{"key":"value"}`)}
+	if err := q.InsertEvent(ctx, event); err != nil {
+		t.Fatalf("InsertEvent() error = %v", err)
+	}
+
+	// Insert a checkpoint
+	cp := &domain.RunCheckpoint{RunID: run.ID, Source: "sdk", State: json.RawMessage(`{"step":1}`)}
+	if err := q.CreateRunCheckpoint(ctx, cp); err != nil {
+		t.Fatalf("CreateRunCheckpoint() error = %v", err)
+	}
+
+	// Insert a usage record
+	usage := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "openai", Model: "gpt-4", PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CostMicrousd: 100}
+	if err := q.CreateRunUsage(ctx, usage); err != nil {
+		t.Fatalf("CreateRunUsage() error = %v", err)
+	}
+
+	// Insert a tool call
+	tc := &domain.RunToolCall{ID: newID(), RunID: run.ID, ToolName: "search", Input: json.RawMessage(`{"q":"test"}`), Output: json.RawMessage(`{"r":"ok"}`), DurationMs: 42, Status: "completed"}
+	if err := q.CreateRunToolCall(ctx, tc); err != nil {
+		t.Fatalf("CreateRunToolCall() error = %v", err)
+	}
+
+	// Insert an output
+	out := &domain.RunOutput{ID: newID(), RunID: run.ID, OutputKey: "result", Value: json.RawMessage(`{"v":1}`)}
+	if err := q.UpsertRunOutput(ctx, out); err != nil {
+		t.Fatalf("UpsertRunOutput() error = %v", err)
+	}
+
+	bundle, err := q.GetDebugBundle(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetDebugBundle() error = %v", err)
+	}
+	if bundle.Run == nil {
+		t.Fatal("GetDebugBundle() run is nil")
+	}
+	if bundle.Run.ID != run.ID {
+		t.Fatalf("bundle.Run.ID = %q, want %q", bundle.Run.ID, run.ID)
+	}
+	if len(bundle.Events) != 1 {
+		t.Fatalf("bundle.Events len = %d, want 1", len(bundle.Events))
+	}
+	if len(bundle.Checkpoints) != 1 {
+		t.Fatalf("bundle.Checkpoints len = %d, want 1", len(bundle.Checkpoints))
+	}
+	if len(bundle.Usage) != 1 {
+		t.Fatalf("bundle.Usage len = %d, want 1", len(bundle.Usage))
+	}
+	if len(bundle.ToolCalls) != 1 {
+		t.Fatalf("bundle.ToolCalls len = %d, want 1", len(bundle.ToolCalls))
+	}
+	if len(bundle.Outputs) != 1 {
+		t.Fatalf("bundle.Outputs len = %d, want 1", len(bundle.Outputs))
+	}
+
+	// Nonexistent run
+	_, err = q.GetDebugBundle(ctx, newID())
+	if !errors.Is(err, store.ErrRunNotFound) {
+		t.Fatalf("GetDebugBundle(unknown) error = %v, want ErrRunNotFound", err)
+	}
+}
+
+func TestGetDebugBundle_EmptyCollections(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-debug-bundle-empty")
+	run := mustCreateRun(t, ctx, q, job)
+
+	bundle, err := q.GetDebugBundle(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetDebugBundle() error = %v", err)
+	}
+	if bundle.Run == nil {
+		t.Fatal("bundle.Run is nil")
+	}
+	if bundle.Events == nil {
+		t.Fatal("bundle.Events is nil, want empty slice")
+	}
+	if len(bundle.Events) != 0 {
+		t.Fatalf("bundle.Events len = %d, want 0", len(bundle.Events))
+	}
+	if bundle.Checkpoints == nil {
+		t.Fatal("bundle.Checkpoints is nil, want empty slice")
+	}
+	if len(bundle.Checkpoints) != 0 {
+		t.Fatalf("bundle.Checkpoints len = %d, want 0", len(bundle.Checkpoints))
+	}
+	if bundle.Usage == nil {
+		t.Fatal("bundle.Usage is nil, want empty slice")
+	}
+	if len(bundle.Usage) != 0 {
+		t.Fatalf("bundle.Usage len = %d, want 0", len(bundle.Usage))
+	}
+	if bundle.ToolCalls == nil {
+		t.Fatal("bundle.ToolCalls is nil, want empty slice")
+	}
+	if len(bundle.ToolCalls) != 0 {
+		t.Fatalf("bundle.ToolCalls len = %d, want 0", len(bundle.ToolCalls))
+	}
+	if bundle.Outputs == nil {
+		t.Fatal("bundle.Outputs is nil, want empty slice")
+	}
+	if len(bundle.Outputs) != 0 {
+		t.Fatalf("bundle.Outputs len = %d, want 0", len(bundle.Outputs))
+	}
+}
+
+func TestUpdateRunDebugMode(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-debug-mode")
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Initially false
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.DebugMode {
+		t.Fatal("initial debug_mode = true, want false")
+	}
+
+	// Enable debug mode
+	if err := q.UpdateRunDebugMode(ctx, run.ID, true); err != nil {
+		t.Fatalf("UpdateRunDebugMode(true) error = %v", err)
+	}
+	got, err = q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() after enable error = %v", err)
+	}
+	if !got.DebugMode {
+		t.Fatal("debug_mode = false after enable, want true")
+	}
+
+	// Disable debug mode
+	if err := q.UpdateRunDebugMode(ctx, run.ID, false); err != nil {
+		t.Fatalf("UpdateRunDebugMode(false) error = %v", err)
+	}
+	got, err = q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() after disable error = %v", err)
+	}
+	if got.DebugMode {
+		t.Fatal("debug_mode = true after disable, want false")
+	}
+
+	// Nonexistent run
+	err = q.UpdateRunDebugMode(ctx, newID(), true)
+	if !errors.Is(err, store.ErrRunNotFound) {
+		t.Fatalf("UpdateRunDebugMode(unknown) error = %v, want ErrRunNotFound", err)
+	}
+}
+
+func TestCreateWorkflowVersionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wf-version-snapshot"
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	// Create workflow
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-snap", Slug: "wf-snap-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	// Add steps
+	step1 := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "step-a"}
+	if err := q.CreateWorkflowStep(ctx, step1); err != nil {
+		t.Fatalf("CreateWorkflowStep(a) error = %v", err)
+	}
+	step2 := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "step-b", DependsOn: []string{"step-a"}}
+	if err := q.CreateWorkflowStep(ctx, step2); err != nil {
+		t.Fatalf("CreateWorkflowStep(b) error = %v", err)
+	}
+
+	// Snapshot version 1
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 1); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot(v1) error = %v", err)
+	}
+
+	// List steps by version 1
+	steps, err := q.ListStepsByWorkflowVersion(ctx, wf.ID, 1)
+	if err != nil {
+		t.Fatalf("ListStepsByWorkflowVersion(v1) error = %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("ListStepsByWorkflowVersion(v1) len = %d, want 2", len(steps))
+	}
+
+	// Verify step refs
+	refs := make(map[string]bool)
+	for _, s := range steps {
+		refs[s.StepRef] = true
+	}
+	if !refs["step-a"] || !refs["step-b"] {
+		t.Fatalf("expected step-a and step-b, got refs: %v", refs)
+	}
+
+	// Snapshot nonexistent workflow
+	err = q.CreateWorkflowVersionSnapshot(ctx, newID(), 1)
+	if !errors.Is(err, store.ErrWorkflowNotFound) {
+		t.Fatalf("CreateWorkflowVersionSnapshot(unknown) error = %v, want ErrWorkflowNotFound", err)
+	}
+}
+
+func TestListStepsByWorkflowVersion_Empty(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	// No snapshot exists for this workflow/version
+	steps, err := q.ListStepsByWorkflowVersion(ctx, newID(), 99)
+	if err != nil {
+		t.Fatalf("ListStepsByWorkflowVersion(empty) error = %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("ListStepsByWorkflowVersion(empty) len = %d, want 0", len(steps))
+	}
+}
+
+func TestWorkflowVersionSnapshot_MultipleVersions(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wf-multi-version"
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-multi", Slug: "wf-multi-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	// V1: one step
+	step1 := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "only-step-v1"}
+	if err := q.CreateWorkflowStep(ctx, step1); err != nil {
+		t.Fatalf("CreateWorkflowStep(v1) error = %v", err)
+	}
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 1); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot(v1) error = %v", err)
+	}
+
+	// Update workflow to v2
+	wf.Name = "wf-multi-v2"
+	if err := q.UpdateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("UpdateWorkflow() error = %v", err)
+	}
+	if wf.Version != 2 {
+		t.Fatalf("wf.Version = %d, want 2", wf.Version)
+	}
+
+	// Add a second step for v2
+	step2 := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "new-step-v2"}
+	if err := q.CreateWorkflowStep(ctx, step2); err != nil {
+		t.Fatalf("CreateWorkflowStep(v2) error = %v", err)
+	}
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 2); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot(v2) error = %v", err)
+	}
+
+	// V1 should have 1 step
+	v1Steps, err := q.ListStepsByWorkflowVersion(ctx, wf.ID, 1)
+	if err != nil {
+		t.Fatalf("ListStepsByWorkflowVersion(v1) error = %v", err)
+	}
+	if len(v1Steps) != 1 {
+		t.Fatalf("v1 steps len = %d, want 1", len(v1Steps))
+	}
+	if v1Steps[0].StepRef != "only-step-v1" {
+		t.Fatalf("v1 step ref = %q, want only-step-v1", v1Steps[0].StepRef)
+	}
+
+	// V2 should have 2 steps
+	v2Steps, err := q.ListStepsByWorkflowVersion(ctx, wf.ID, 2)
+	if err != nil {
+		t.Fatalf("ListStepsByWorkflowVersion(v2) error = %v", err)
+	}
+	if len(v2Steps) != 2 {
+		t.Fatalf("v2 steps len = %d, want 2", len(v2Steps))
+	}
+}
+
+func TestCreateRunUsage_Dedicated(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-usage-dedicated")
+	run := mustCreateRun(t, ctx, q, job)
+
+	u1 := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "openai", Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 1000}
+	if err := q.CreateRunUsage(ctx, u1); err != nil {
+		t.Fatalf("CreateRunUsage(1) error = %v", err)
+	}
+	if u1.CreatedAt.IsZero() {
+		t.Fatal("u1.CreatedAt is zero")
+	}
+
+	u2 := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "anthropic", Model: "claude-3", PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300, CostMicrousd: 2000}
+	if err := q.CreateRunUsage(ctx, u2); err != nil {
+		t.Fatalf("CreateRunUsage(2) error = %v", err)
+	}
+
+	u3 := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "openai", Model: "gpt-3.5", PromptTokens: 50, CompletionTokens: 25, TotalTokens: 75, CostMicrousd: 500}
+	if err := q.CreateRunUsage(ctx, u3); err != nil {
+		t.Fatalf("CreateRunUsage(3) error = %v", err)
+	}
+
+	usages, err := q.ListRunUsage(ctx, run.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunUsage() error = %v", err)
+	}
+	if len(usages) != 3 {
+		t.Fatalf("ListRunUsage() len = %d, want 3", len(usages))
+	}
+
+	// Verify DESC ordering by created_at
+	for i := 1; i < len(usages); i++ {
+		if usages[i].CreatedAt.After(usages[i-1].CreatedAt) {
+			t.Fatalf("usages not DESC at index %d", i)
+		}
+	}
+
+	// Verify field values (most recent first = u3)
+	if usages[0].Provider != "openai" || usages[0].Model != "gpt-3.5" {
+		t.Fatalf("usages[0] = %s/%s, want openai/gpt-3.5", usages[0].Provider, usages[0].Model)
+	}
+	if usages[0].PromptTokens != 50 || usages[0].CompletionTokens != 25 || usages[0].TotalTokens != 75 {
+		t.Fatalf("usages[0] tokens = %d/%d/%d, want 50/25/75", usages[0].PromptTokens, usages[0].CompletionTokens, usages[0].TotalTokens)
+	}
+	if usages[0].CostMicrousd != 500 {
+		t.Fatalf("usages[0] cost = %d, want 500", usages[0].CostMicrousd)
+	}
+
+	// Empty for unknown run
+	emptyUsages, err := q.ListRunUsage(ctx, newID(), 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunUsage(unknown) error = %v", err)
+	}
+	if len(emptyUsages) != 0 {
+		t.Fatalf("ListRunUsage(unknown) len = %d, want 0", len(emptyUsages))
+	}
+}
+
+func TestRunUsage_Pagination(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-usage-pagination")
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Create 5 usage records
+	for i := 0; i < 5; i++ {
+		u := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "openai", Model: "gpt-4", PromptTokens: i + 1, CompletionTokens: 1, TotalTokens: i + 2, CostMicrousd: int64((i + 1) * 100)}
+		if err := q.CreateRunUsage(ctx, u); err != nil {
+			t.Fatalf("CreateRunUsage(%d) error = %v", i, err)
+		}
+	}
+
+	// First page
+	page1, err := q.ListRunUsage(ctx, run.ID, 2, nil)
+	if err != nil {
+		t.Fatalf("ListRunUsage(page1) error = %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1))
+	}
+
+	// Second page using cursor
+	cursor := page1[len(page1)-1].CreatedAt
+	page2, err := q.ListRunUsage(ctx, run.ID, 2, &cursor)
+	if err != nil {
+		t.Fatalf("ListRunUsage(page2) error = %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("page2 len = %d, want 2", len(page2))
+	}
+
+	// Ensure no overlap
+	for _, p1 := range page1 {
+		for _, p2 := range page2 {
+			if p1.ID == p2.ID {
+				t.Fatalf("overlap between page1 and page2: %s", p1.ID)
+			}
+		}
+	}
+
+	// Third page
+	cursor2 := page2[len(page2)-1].CreatedAt
+	page3, err := q.ListRunUsage(ctx, run.ID, 2, &cursor2)
+	if err != nil {
+		t.Fatalf("ListRunUsage(page3) error = %v", err)
+	}
+	if len(page3) != 1 {
+		t.Fatalf("page3 len = %d, want 1", len(page3))
+	}
+
+	// Total unique IDs = 5
+	allIDs := make(map[string]bool)
+	for _, u := range page1 {
+		allIDs[u.ID] = true
+	}
+	for _, u := range page2 {
+		allIDs[u.ID] = true
+	}
+	for _, u := range page3 {
+		allIDs[u.ID] = true
+	}
+	if len(allIDs) != 5 {
+		t.Fatalf("total unique usage records = %d, want 5", len(allIDs))
+	}
+}
+
+func TestCreateRunToolCall_Dedicated(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-toolcall-dedicated")
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Tool call with full fields
+	tc1 := &domain.RunToolCall{
+		ID:         newID(),
+		RunID:      run.ID,
+		ToolName:   "search",
+		Input:      json.RawMessage(`{"query":"test"}`),
+		Output:     json.RawMessage(`{"results":[1,2,3]}`),
+		DurationMs: 150,
+		Status:     "completed",
+	}
+	if err := q.CreateRunToolCall(ctx, tc1); err != nil {
+		t.Fatalf("CreateRunToolCall(full) error = %v", err)
+	}
+	if tc1.CreatedAt.IsZero() {
+		t.Fatal("tc1.CreatedAt is zero")
+	}
+
+	// Tool call with minimal fields (no input/output, zero duration)
+	tc2 := &domain.RunToolCall{
+		ID:       newID(),
+		RunID:    run.ID,
+		ToolName: "noop",
+		Status:   "completed",
+	}
+	if err := q.CreateRunToolCall(ctx, tc2); err != nil {
+		t.Fatalf("CreateRunToolCall(minimal) error = %v", err)
+	}
+
+	// Tool call with error status
+	tc3 := &domain.RunToolCall{
+		ID:       newID(),
+		RunID:    run.ID,
+		ToolName: "fail-tool",
+		Input:    json.RawMessage(`{"x":1}`),
+		Status:   "error",
+	}
+	if err := q.CreateRunToolCall(ctx, tc3); err != nil {
+		t.Fatalf("CreateRunToolCall(error) error = %v", err)
+	}
+
+	calls, err := q.ListRunToolCalls(ctx, run.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunToolCalls() error = %v", err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("ListRunToolCalls() len = %d, want 3", len(calls))
+	}
+
+	// Verify DESC ordering
+	for i := 1; i < len(calls); i++ {
+		if calls[i].CreatedAt.After(calls[i-1].CreatedAt) {
+			t.Fatalf("calls not DESC at index %d", i)
+		}
+	}
+
+	// Empty for unknown run
+	empty, err := q.ListRunToolCalls(ctx, newID(), 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunToolCalls(unknown) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ListRunToolCalls(unknown) len = %d, want 0", len(empty))
+	}
+}
+
+func TestRunToolCalls_EmptyInputOutput(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-toolcall-nil")
+	run := mustCreateRun(t, ctx, q, job)
+
+	tc := &domain.RunToolCall{
+		ID:       newID(),
+		RunID:    run.ID,
+		ToolName: "empty-tool",
+		Status:   "completed",
+		// Input and Output intentionally nil
+	}
+	if err := q.CreateRunToolCall(ctx, tc); err != nil {
+		t.Fatalf("CreateRunToolCall(nil io) error = %v", err)
+	}
+
+	calls, err := q.ListRunToolCalls(ctx, run.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunToolCalls() error = %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("len = %d, want 1", len(calls))
+	}
+	if calls[0].ToolName != "empty-tool" {
+		t.Fatalf("ToolName = %q, want empty-tool", calls[0].ToolName)
+	}
+	if calls[0].Input != nil {
+		t.Fatalf("Input = %s, want nil", string(calls[0].Input))
+	}
+	if calls[0].Output != nil {
+		t.Fatalf("Output = %s, want nil", string(calls[0].Output))
+	}
+	if calls[0].DurationMs != 0 {
+		t.Fatalf("DurationMs = %d, want 0", calls[0].DurationMs)
+	}
+}
+
+func TestUpsertRunOutput_Dedicated(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-output-upsert")
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Insert initial output
+	out := &domain.RunOutput{
+		ID:        newID(),
+		RunID:     run.ID,
+		OutputKey: "my-key",
+		Schema:    json.RawMessage(`{"type":"string"}`),
+		Value:     json.RawMessage(`"initial-value"`),
+	}
+	if err := q.UpsertRunOutput(ctx, out); err != nil {
+		t.Fatalf("UpsertRunOutput(insert) error = %v", err)
+	}
+
+	// Verify
+	outputs, err := q.ListRunOutputs(ctx, run.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunOutputs() error = %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("ListRunOutputs() len = %d, want 1", len(outputs))
+	}
+	if !jsonEqual(outputs[0].Value, json.RawMessage(`"initial-value"`)) {
+		t.Fatalf("value = %s, want \"initial-value\"", string(outputs[0].Value))
+	}
+
+	// Upsert same (run_id, output_key) with new value
+	out2 := &domain.RunOutput{
+		ID:        newID(),
+		RunID:     run.ID,
+		OutputKey: "my-key",
+		Schema:    json.RawMessage(`{"type":"number"}`),
+		Value:     json.RawMessage(`42`),
+	}
+	if err := q.UpsertRunOutput(ctx, out2); err != nil {
+		t.Fatalf("UpsertRunOutput(upsert) error = %v", err)
+	}
+
+	// Should still be 1 output (upserted, not duplicated)
+	outputs, err = q.ListRunOutputs(ctx, run.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunOutputs() after upsert error = %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("after upsert len = %d, want 1", len(outputs))
+	}
+	if !jsonEqual(outputs[0].Value, json.RawMessage(`42`)) {
+		t.Fatalf("value after upsert = %s, want 42", string(outputs[0].Value))
+	}
+	if !jsonEqual(outputs[0].Schema, json.RawMessage(`{"type":"number"}`)) {
+		t.Fatalf("schema after upsert = %s, want {\"type\":\"number\"}", string(outputs[0].Schema))
+	}
+}
+
+func TestListRunOutputs_Dedicated(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-output-list")
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Create multiple outputs with different keys
+	keys := []string{"charlie", "alpha", "bravo"}
+	for _, key := range keys {
+		out := &domain.RunOutput{
+			ID:        newID(),
+			RunID:     run.ID,
+			OutputKey: key,
+			Value:     json.RawMessage(`"val-` + key + `"`),
+		}
+		if err := q.UpsertRunOutput(ctx, out); err != nil {
+			t.Fatalf("UpsertRunOutput(%s) error = %v", key, err)
+		}
+	}
+
+	outputs, err := q.ListRunOutputs(ctx, run.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunOutputs() error = %v", err)
+	}
+	if len(outputs) != 3 {
+		t.Fatalf("len = %d, want 3", len(outputs))
+	}
+
+	// Verify ASC ordering by output_key
+	if outputs[0].OutputKey != "alpha" {
+		t.Fatalf("outputs[0].OutputKey = %q, want alpha", outputs[0].OutputKey)
+	}
+	if outputs[1].OutputKey != "bravo" {
+		t.Fatalf("outputs[1].OutputKey = %q, want bravo", outputs[1].OutputKey)
+	}
+	if outputs[2].OutputKey != "charlie" {
+		t.Fatalf("outputs[2].OutputKey = %q, want charlie", outputs[2].OutputKey)
+	}
+
+	// Empty for unknown run
+	empty, err := q.ListRunOutputs(ctx, newID(), 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunOutputs(unknown) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ListRunOutputs(unknown) len = %d, want 0", len(empty))
+	}
+}
+
+func TestRunOutput_NullSchema(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-output-null-schema")
+	run := mustCreateRun(t, ctx, q, job)
+
+	out := &domain.RunOutput{
+		ID:        newID(),
+		RunID:     run.ID,
+		OutputKey: "no-schema",
+		Value:     json.RawMessage(`{"data":"hello"}`),
+		// Schema intentionally nil
+	}
+	if err := q.UpsertRunOutput(ctx, out); err != nil {
+		t.Fatalf("UpsertRunOutput(nil schema) error = %v", err)
+	}
+
+	outputs, err := q.ListRunOutputs(ctx, run.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunOutputs() error = %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("len = %d, want 1", len(outputs))
+	}
+	if outputs[0].Schema != nil {
+		t.Fatalf("Schema = %s, want nil", string(outputs[0].Schema))
+	}
+	if !jsonEqual(outputs[0].Value, json.RawMessage(`{"data":"hello"}`)) {
+		t.Fatalf("Value = %s, want {\"data\":\"hello\"}", string(outputs[0].Value))
+	}
+}
+
+func TestRunOutput_LargeValue(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-output-large")
+	run := mustCreateRun(t, ctx, q, job)
+
+	// Build a large JSON value (>10KB)
+	items := make([]string, 500)
+	for i := range items {
+		items[i] = `"item-` + strconv.Itoa(i) + `"`
+	}
+	largeJSON := `[` + items[0]
+	for i := 1; i < len(items); i++ {
+		largeJSON += `,` + items[i]
+	}
+	largeJSON += `]`
+
+	out := &domain.RunOutput{
+		ID:        newID(),
+		RunID:     run.ID,
+		OutputKey: "large-output",
+		Value:     json.RawMessage(largeJSON),
+	}
+	if err := q.UpsertRunOutput(ctx, out); err != nil {
+		t.Fatalf("UpsertRunOutput(large) error = %v", err)
+	}
+
+	outputs, err := q.ListRunOutputs(ctx, run.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunOutputs() error = %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("len = %d, want 1", len(outputs))
+	}
+	if !jsonEqual(outputs[0].Value, json.RawMessage(largeJSON)) {
+		t.Fatalf("large value mismatch: got %d bytes, want %d bytes", len(outputs[0].Value), len(largeJSON))
+	}
+}
+
+func TestListJobsByGroup(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-jobs-by-group"
+
+	// Create a job group
+	group := &domain.JobGroup{ID: newID(), ProjectID: projectID, Name: "test-group", Slug: "test-group-slug"}
+	if err := q.CreateJobGroup(ctx, group); err != nil {
+		t.Fatalf("CreateJobGroup() error = %v", err)
+	}
+
+	// Create 3 jobs and assign them to the group
+	for i := 0; i < 3; i++ {
+		job := baseJob(newID(), projectID)
+		job.Name = "group-job-" + strconv.Itoa(i)
+		job.Slug = "group-job-slug-" + strconv.Itoa(i)
+		if err := q.CreateJob(ctx, job); err != nil {
+			t.Fatalf("CreateJob(%d) error = %v", i, err)
+		}
+		_, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET group_id = $1 WHERE id = $2`, group.ID, job.ID)
+		if err != nil {
+			t.Fatalf("assign job to group error = %v", err)
+		}
+	}
+
+	// Create a job NOT in the group
+	jobOutside := baseJob(newID(), projectID)
+	jobOutside.Name = "outside-job"
+	jobOutside.Slug = "outside-slug"
+	if err := q.CreateJob(ctx, jobOutside); err != nil {
+		t.Fatalf("CreateJob(outside) error = %v", err)
+	}
+
+	// List jobs by group
+	jobs, err := q.ListJobsByGroup(ctx, group.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListJobsByGroup() error = %v", err)
+	}
+	if len(jobs) != 3 {
+		t.Fatalf("ListJobsByGroup() len = %d, want 3", len(jobs))
+	}
+
+	// Nonexistent group returns empty
+	empty, err := q.ListJobsByGroup(ctx, newID(), 100, nil)
+	if err != nil {
+		t.Fatalf("ListJobsByGroup(unknown) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ListJobsByGroup(unknown) len = %d, want 0", len(empty))
+	}
+}
+
+func TestListJobsByGroup_Pagination(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-group-pagination"
+	group := &domain.JobGroup{ID: newID(), ProjectID: projectID, Name: "pg-group", Slug: "pg-group-slug"}
+	if err := q.CreateJobGroup(ctx, group); err != nil {
+		t.Fatalf("CreateJobGroup() error = %v", err)
+	}
+
+	// Create 5 jobs in the group
+	for i := 0; i < 5; i++ {
+		job := baseJob(newID(), projectID)
+		job.Name = "pg-job-" + strconv.Itoa(i)
+		job.Slug = "pg-job-slug-" + strconv.Itoa(i)
+		if err := q.CreateJob(ctx, job); err != nil {
+			t.Fatalf("CreateJob(%d) error = %v", i, err)
+		}
+		_, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET group_id = $1 WHERE id = $2`, group.ID, job.ID)
+		if err != nil {
+			t.Fatalf("assign job to group error = %v", err)
+		}
+	}
+
+	// Page 1: limit=2
+	page1, err := q.ListJobsByGroup(ctx, group.ID, 2, nil)
+	if err != nil {
+		t.Fatalf("ListJobsByGroup(page1) error = %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1))
+	}
+
+	// Page 2: use cursor
+	cursor := page1[len(page1)-1].CreatedAt
+	page2, err := q.ListJobsByGroup(ctx, group.ID, 2, &cursor)
+	if err != nil {
+		t.Fatalf("ListJobsByGroup(page2) error = %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("page2 len = %d, want 2", len(page2))
+	}
+
+	// Ensure no overlap
+	for _, j1 := range page1 {
+		for _, j2 := range page2 {
+			if j1.ID == j2.ID {
+				t.Fatalf("overlap between page1 and page2: %s", j1.ID)
+			}
+		}
+	}
+
+	// Page 3: last item
+	cursor2 := page2[len(page2)-1].CreatedAt
+	page3, err := q.ListJobsByGroup(ctx, group.ID, 2, &cursor2)
+	if err != nil {
+		t.Fatalf("ListJobsByGroup(page3) error = %v", err)
+	}
+	if len(page3) != 1 {
+		t.Fatalf("page3 len = %d, want 1", len(page3))
+	}
+}
+
+func TestGetWorkflowBySlug(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wf-by-slug"
+	wf := &domain.Workflow{
+		ID:          newID(),
+		ProjectID:   projectID,
+		Name:        "My Workflow",
+		Slug:        "my-workflow-slug",
+		Description: "A test workflow",
+		Enabled:     true,
+		TimeoutSecs: 300,
+		Version:     1,
+	}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	// Retrieve by slug
+	got, err := q.GetWorkflowBySlug(ctx, projectID, "my-workflow-slug")
+	if err != nil {
+		t.Fatalf("GetWorkflowBySlug() error = %v", err)
+	}
+	if got.ID != wf.ID {
+		t.Fatalf("ID = %q, want %q", got.ID, wf.ID)
+	}
+	if got.Name != "My Workflow" {
+		t.Fatalf("Name = %q, want \"My Workflow\"", got.Name)
+	}
+	if got.Slug != "my-workflow-slug" {
+		t.Fatalf("Slug = %q, want my-workflow-slug", got.Slug)
+	}
+	if got.Description != "A test workflow" {
+		t.Fatalf("Description = %q, want \"A test workflow\"", got.Description)
+	}
+	if !got.Enabled {
+		t.Fatal("Enabled = false, want true")
+	}
+	if got.TimeoutSecs != 300 {
+		t.Fatalf("TimeoutSecs = %d, want 300", got.TimeoutSecs)
+	}
+
+	// Nonexistent slug
+	_, err = q.GetWorkflowBySlug(ctx, projectID, "nonexistent-slug")
+	if !errors.Is(err, store.ErrWorkflowNotFound) {
+		t.Fatalf("GetWorkflowBySlug(unknown) error = %v, want ErrWorkflowNotFound", err)
+	}
+
+	// Wrong project
+	_, err = q.GetWorkflowBySlug(ctx, "wrong-project", "my-workflow-slug")
+	if !errors.Is(err, store.ErrWorkflowNotFound) {
+		t.Fatalf("GetWorkflowBySlug(wrong project) error = %v, want ErrWorkflowNotFound", err)
+	}
+}
+
+func TestListWorkflowRunsByProject(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wfrun-by-project"
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-list", Slug: "wf-list-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	// Create 3 workflow runs with different statuses
+	run1 := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, run1); err != nil {
+		t.Fatalf("CreateWorkflowRun(1) error = %v", err)
+	}
+
+	run2 := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, run2); err != nil {
+		t.Fatalf("CreateWorkflowRun(2) error = %v", err)
+	}
+	// Transition to running
+	if err := q.UpdateWorkflowRunStatus(ctx, run2.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(running) error = %v", err)
+	}
+
+	run3 := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "cron"}
+	if err := q.CreateWorkflowRun(ctx, run3); err != nil {
+		t.Fatalf("CreateWorkflowRun(3) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, run3.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(3-running) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, run3.ID, domain.WfStatusRunning, domain.WfStatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(3-completed) error = %v", err)
+	}
+
+	// List all — should be 3
+	all, err := q.ListWorkflowRunsByProject(ctx, projectID, nil, 100, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByProject(all) error = %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("all len = %d, want 3", len(all))
+	}
+
+	// Filter by running status
+	runningStatus := domain.WfStatusRunning
+	running, err := q.ListWorkflowRunsByProject(ctx, projectID, &runningStatus, 100, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByProject(running) error = %v", err)
+	}
+	if len(running) != 1 {
+		t.Fatalf("running len = %d, want 1", len(running))
+	}
+	if running[0].ID != run2.ID {
+		t.Fatalf("running[0].ID = %q, want %q", running[0].ID, run2.ID)
+	}
+
+	// Filter by completed status
+	completedStatus := domain.WfStatusCompleted
+	completed, err := q.ListWorkflowRunsByProject(ctx, projectID, &completedStatus, 100, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByProject(completed) error = %v", err)
+	}
+	if len(completed) != 1 {
+		t.Fatalf("completed len = %d, want 1", len(completed))
+	}
+	if completed[0].ID != run3.ID {
+		t.Fatalf("completed[0].ID = %q, want %q", completed[0].ID, run3.ID)
+	}
+
+	// Pagination: limit=2
+	page1, err := q.ListWorkflowRunsByProject(ctx, projectID, nil, 2, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByProject(page1) error = %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1))
+	}
+
+	cursor := page1[len(page1)-1].CreatedAt
+	page2, err := q.ListWorkflowRunsByProject(ctx, projectID, nil, 2, &cursor)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByProject(page2) error = %v", err)
+	}
+	if len(page2) != 1 {
+		t.Fatalf("page2 len = %d, want 1", len(page2))
+	}
+
+	// Different project should be empty
+	empty, err := q.ListWorkflowRunsByProject(ctx, "nonexistent-project", nil, 100, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByProject(empty) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty len = %d, want 0", len(empty))
+	}
+}
+
+func TestWorkflowVersionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wf-version-snapshot-basic"
+	job := mustCreateJob(t, ctx, q, projectID)
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-version", Slug: "wf-version-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	step := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "step-version"}
+	if err := q.CreateWorkflowStep(ctx, step); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 1); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot() error = %v", err)
+	}
+
+	steps, err := q.ListStepsByWorkflowVersion(ctx, wf.ID, 1)
+	if err != nil {
+		t.Fatalf("ListStepsByWorkflowVersion() error = %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("ListStepsByWorkflowVersion() len = %d, want 1", len(steps))
+	}
+	if steps[0].StepRef != "step-version" {
+		t.Fatalf("ListStepsByWorkflowVersion() step_ref = %q, want step-version", steps[0].StepRef)
+	}
+}
+
+func TestListTimedOutWorkflowRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-timeout-wf-runs"
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-timeout", Slug: "wf-timeout-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	runningExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, runningExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(runningExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, runningExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(runningExpired->running) error = %v", err)
+	}
+	_, err := testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(-2*time.Hour), runningExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at runningExpired error = %v", err)
+	}
+
+	pausedExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, pausedExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(pausedExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, pausedExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(pausedExpired->running) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, pausedExpired.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(pausedExpired->paused) error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(-1*time.Hour), pausedExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at pausedExpired error = %v", err)
+	}
+
+	runningNotExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, runningNotExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(runningNotExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, runningNotExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(runningNotExpired->running) error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(1*time.Hour), runningNotExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at runningNotExpired error = %v", err)
+	}
+
+	completedExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, completedExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(completedExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, completedExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(completedExpired->running) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, completedExpired.ID, domain.WfStatusRunning, domain.WfStatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(completedExpired->completed) error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(-3*time.Hour), completedExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at completedExpired error = %v", err)
+	}
+
+	runs, err := q.ListTimedOutWorkflowRuns(ctx)
+	if err != nil {
+		t.Fatalf("ListTimedOutWorkflowRuns() error = %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("ListTimedOutWorkflowRuns() len = %d, want 2", len(runs))
+	}
+	if runs[0].ID != runningExpired.ID {
+		t.Fatalf("runs[0].ID = %q, want %q", runs[0].ID, runningExpired.ID)
+	}
+	if runs[1].ID != pausedExpired.ID {
+		t.Fatalf("runs[1].ID = %q, want %q", runs[1].ID, pausedExpired.ID)
+	}
+	if runs[0].Status != domain.WfStatusRunning {
+		t.Fatalf("runs[0].status = %q, want running", runs[0].Status)
+	}
+	if runs[1].Status != domain.WfStatusPaused {
+		t.Fatalf("runs[1].status = %q, want paused", runs[1].Status)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"orchestrator/internal/dbscan"
 	"orchestrator/internal/domain"
@@ -56,7 +57,7 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 	).Scan(&v.CreatedAt)
 }
 
-func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string) ([]domain.JobVersion, error) {
+func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobVersionsByJob")
 	defer span.End()
 
@@ -64,10 +65,21 @@ func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string) ([]dom
 		SELECT id, job_id, version, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
 		FROM job_versions
-		WHERE job_id = $1
-		ORDER BY version DESC`
+		WHERE job_id = $1`
 
-	rows, err := q.db.Query(ctx, query, jobID)
+	args := []any{jobID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY version DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list job versions: %w", err)
 	}

@@ -2,34 +2,20 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"orchestrator/internal/api"
-	"orchestrator/internal/cdc"
 	"orchestrator/internal/config"
-	"orchestrator/internal/pubsub"
 	"orchestrator/internal/queue"
-	"orchestrator/internal/scheduler"
 	"orchestrator/internal/store"
 	"orchestrator/internal/telemetry"
-	"orchestrator/internal/worker"
 	"orchestrator/internal/workflow"
-	"orchestrator/migrations"
 
-	"github.com/golang-migrate/migrate/v4"
-	pgmigrate "github.com/golang-migrate/migrate/v4/database/postgres"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"golang.org/x/sync/errgroup"
+	concpool "github.com/sourcegraph/conc/pool"
 )
 
 var version = "dev"
@@ -109,11 +95,11 @@ func runServe(modeOverride string) error {
 		}
 	}()
 
-	pool, err := connectDatabase(ctx, cfg)
+	dbPool, err := connectDatabase(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	defer dbPool.Close()
 
 	// Run migrations
 	if err := runMigrations(cfg.DatabaseURL); err != nil {
@@ -121,9 +107,9 @@ func runServe(modeOverride string) error {
 	}
 
 	// Create dependencies
-	queries := store.New(pool)
+	queries := store.New(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
-	q := queue.NewPostgresQueue(pool)
+	q := queue.NewPostgresQueue(dbPool)
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -133,19 +119,17 @@ func runServe(modeOverride string) error {
 		defer rdb.Close()
 	}
 
-	// Error group for concurrent goroutines
-	g, gCtx := errgroup.WithContext(ctx)
-	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default())
+	g := concpool.New().WithContext(ctx).WithFailFast()
+	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
+		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
-	startCDCConsumer(gCtx, g, cfg, pub)
-	startAPIServer(gCtx, g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
-	if err := startWorker(gCtx, g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine); err != nil {
-		return err
-	}
+	startCDCConsumer(g, cfg, pub)
+	startAPIServer(g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
+	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("errgroup: %w", err)
+		return fmt.Errorf("services: %w", err)
 	}
 
 	slog.Info("orchestrator stopped")
@@ -167,228 +151,4 @@ func setupLogging(level string) {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 	slog.SetDefault(logger)
-}
-
-// connectDatabase creates and verifies a Postgres connection pool.
-func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
-	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse postgres config: %w", err)
-	}
-	poolConfig.MaxConns = cfg.DBMaxConns
-	poolConfig.MinConns = cfg.DBMinConns
-	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
-	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		return nil, fmt.Errorf("connect to postgres: %w", err)
-	}
-
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("ping postgres: %w", err)
-	}
-	slog.Info("connected to postgres",
-		"max_conns", cfg.DBMaxConns,
-		"min_conns", cfg.DBMinConns,
-		"max_conn_lifetime", cfg.DBMaxConnLifetime,
-		"max_conn_idle_time", cfg.DBMaxConnIdleTime,
-	)
-	return pool, nil
-}
-
-// connectRedis creates and verifies a Redis client for pub/sub. Returns a nil
-// publisher and client when Redis is not configured.
-func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, interface{ Close() error }, error) {
-	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create redis client: %w", err)
-	}
-	if rdb == nil {
-		return nil, nil, nil
-	}
-
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, nil, fmt.Errorf("ping redis: %w", err)
-	}
-	if cfg.RedisSentinelMaster != "" {
-		slog.Info("connected to redis via sentinel", "master", cfg.RedisSentinelMaster)
-	} else {
-		slog.Info("connected to redis")
-	}
-	pub := pubsub.NewRedisPublisher(rdb)
-	return pub, rdb, nil
-}
-
-// startCDCConsumer registers and starts the Sequin CDC consumer if configured.
-func startCDCConsumer(gCtx context.Context, g *errgroup.Group, cfg *config.Config, pub pubsub.Publisher) {
-	if cfg.SequinBaseURL == "" {
-		return
-	}
-
-	cdcClient := cdc.NewClient(cfg.SequinBaseURL, cfg.SequinConsumerName, cfg.SequinAPIToken)
-	cdcConsumer := cdc.NewConsumer(cdcClient, cdc.ConsumerConfig{
-		BaseURL:      cfg.SequinBaseURL,
-		ConsumerName: cfg.SequinConsumerName,
-		Credential:   cfg.SequinAPIToken,
-		BatchSize:    cfg.SequinBatchSize,
-		WaitTimeMs:   cfg.SequinWaitTimeMs,
-	}, slog.Default())
-
-	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
-
-	g.Go(func() error {
-		cdcConsumer.Run(gCtx)
-		return nil
-	})
-
-	slog.Info("cdc consumer enabled",
-		"base_url", cfg.SequinBaseURL,
-		"consumer", cfg.SequinConsumerName,
-	)
-}
-
-// startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
-	if cfg.Mode != "api" && cfg.Mode != "all" {
-		return
-	}
-
-	var pinger api.Pinger
-	if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
-		pinger = redisPub
-	}
-	srv := api.NewServer(api.ServerDeps{
-		Config:           cfg,
-		Store:            queries,
-		Queue:            q,
-		PubSub:           pub,
-		MetricsHandler:   metricsHandler,
-		Pinger:           pinger,
-		WorkflowCallback: stepCallback,
-		WorkflowEngine:   workflowEngine,
-	})
-	httpServer := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           srv,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      90 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-
-	g.Go(func() error {
-		slog.Info("api server listening", "addr", httpServer.Addr)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			return fmt.Errorf("http server: %w", err)
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		<-gCtx.Done()
-		slog.Info("shutting down api server")
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer shutdownCancel()
-		return httpServer.Shutdown(shutdownCtx)
-	})
-}
-
-// startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) error {
-	if cfg.Mode != "worker" && cfg.Mode != "all" {
-		return nil
-	}
-
-	p := worker.NewPool(cfg.WorkerConcurrency)
-	partitions := []string(nil)
-	partitionWeights := ""
-	if cfg.FFQueuePartitioning && len(cfg.WorkerPartitions) > 0 {
-		partitions = cfg.WorkerPartitions
-		partitionWeights = cfg.WorkerPartitionWeights
-		slog.Info("worker queue partitioning enabled", "partitions", partitions)
-	}
-	exec := worker.NewExecutor(worker.ExecutorConfig{
-		Pool:              p,
-		Queue:             q,
-		Store:             queries,
-		PollInterval:      cfg.PollerInterval,
-		HeartbeatInterval: cfg.HeartbeatInterval,
-		Publisher:         pub,
-		Metrics:           metrics,
-		WorkflowCallback:  stepCallback,
-		Partitions:        partitions,
-		PartitionWeights:  partitionWeights,
-		CircuitBreaker:    cfg.FFCircuitBreaker,
-		SmartRetry:        cfg.FFSmartRetry,
-		Bulkheads:         cfg.FFBulkheads,
-		SecretInjection:   cfg.FFSecretInjection,
-		ExecutionTracing:  cfg.FFExecutionTracing,
-		AdaptiveTimeout:   cfg.FFAdaptiveTimeout,
-		DLQEnabled:        cfg.FFRunDLQ,
-	})
-
-	g.Go(func() error {
-		exec.Run(gCtx)
-		return nil
-	})
-
-	g.Go(func() error {
-		<-gCtx.Done()
-		slog.Info("shutting down worker pool")
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer shutdownCancel()
-		if err := p.Shutdown(shutdownCtx); err != nil {
-			slog.Warn("worker pool shutdown timed out", "error", err)
-		}
-		return nil
-	})
-
-	// Start scheduler (cron, delayed poller, reaper)
-	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine)
-	if err := sched.Start(gCtx); err != nil {
-		return fmt.Errorf("start scheduler: %w", err)
-	}
-
-	g.Go(func() error {
-		<-gCtx.Done()
-		slog.Info("shutting down scheduler")
-		sched.Stop()
-		return nil
-	})
-	return nil
-}
-
-func runMigrations(databaseURL string) error {
-	// Use pgx/v5/stdlib shim for database/sql compatibility
-	db, err := sql.Open("pgx", databaseURL)
-	if err != nil {
-		return fmt.Errorf("open sql connection: %w", err)
-	}
-	defer db.Close()
-
-	driver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{})
-	if err != nil {
-		return fmt.Errorf("create migration driver: %w", err)
-	}
-
-	source, err := iofs.New(migrations.FS, ".")
-	if err != nil {
-		return fmt.Errorf("create migration source: %w", err)
-	}
-
-	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
-	if err != nil {
-		return fmt.Errorf("create migrator: %w", err)
-	}
-
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("apply migrations: %w", err)
-	}
-
-	slog.Info("migrations applied")
-	return nil
 }

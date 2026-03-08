@@ -223,6 +223,8 @@ func newDiagnoseRunCommand(state *appState) *cobra.Command {
 					remediation = append(remediation, map[string]any{"issue": "run not started", "action": "check worker availability and queue pressure with `orchestrator top queue`"})
 				case "executing":
 					remediation = append(remediation, map[string]any{"issue": "run in progress", "action": "follow events with `orchestrator runs logs " + runID + " --follow`"})
+				default:
+					// other statuses need no specific remediation
 				}
 
 				payload := map[string]any{

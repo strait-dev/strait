@@ -1,0 +1,58 @@
+---
+title: "API Keys"
+description: "Manage API keys for project authentication."
+---
+
+## api-keys create
+
+Create a new API key.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --project | string | | Project ID |
+| --name | string | | Name for the API key |
+| --scopes | string | | Comma-separated list of scopes |
+
+<Warning>
+The raw API key is returned only once upon creation. Ensure you store it safely.
+</Warning>
+
+```bash
+orchestrator api-keys create --project my-project --name "CI/CD Key" --scopes "jobs:read,jobs:write"
+```
+
+## api-keys list
+
+List API keys for a project.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --project | string | | Project ID |
+
+```bash
+orchestrator api-keys list --project my-project
+```
+
+## api-keys revoke
+
+Revoke an API key by its ID.
+
+```bash
+orchestrator api-keys revoke <key-id>
+```
+
+## api-keys rotate
+
+Create a new API key and revoke the old one.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --name | string | | Name for the new API key |
+
+```bash
+orchestrator api-keys rotate <key-id> --name "New CI/CD Key"
+```
+
+<Note>
+Always store your API keys in a secure location, such as a password manager or a secure vault. Never commit them to version control.
+</Note>

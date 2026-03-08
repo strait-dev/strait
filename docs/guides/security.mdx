@@ -1,0 +1,66 @@
+---
+title: "Security"
+description: "Security features and protections implemented in the orchestrator."
+---
+
+The orchestrator includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
+
+## SSRF Protection
+
+To prevent Server-Side Request Forgery (SSRF), all user-provided URLs (e.g., for webhooks or job endpoints) are validated using the `validateURL` function.
+
+### Blocked Hosts
+The following hosts are explicitly blocked:
+- `localhost`
+- `metadata.google.internal`
+- `169.254.169.254` (Cloud metadata service)
+
+### Private IP Detection
+The system performs DNS resolution and checks if any of the resolved IP addresses belong to private or loopback ranges. This prevents access to internal network services.
+
+### Allowed Ports
+To further restrict outbound traffic, only a specific set of standard and common development ports are allowed for webhooks:
+- `80`, `443` (Standard HTTP/S)
+- `3000`, `4000`, `5000` (Common web frameworks)
+- `8080`, `8443` (Alternative HTTP/S)
+- `9000` (Common API port)
+
+## Rate Limiting
+
+The orchestrator implements rate limiting at two levels using the `httprate` middleware.
+
+### Global Rate Limit
+Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This limits the total number of requests a single IP can make within the `RATE_LIMIT_WINDOW`.
+
+### Per-Trigger Rate Limit
+Controlled by `TRIGGER_RATE_LIMIT_REQUESTS`. This specifically limits the `/trigger` endpoints to prevent accidental or malicious job flooding.
+
+## Request Protections
+
+### Timeouts
+The `REQUEST_TIMEOUT` middleware ensures that no API request hangs indefinitely. The default timeout is 30 seconds if not specified.
+
+### Body Size Limits
+The maximum allowed request body size is capped to prevent Denial of Service (DoS) attacks via large payloads.
+- **Default**: 1MB (`MAX_REQUEST_BODY_SIZE`)
+
+### Validation
+All incoming JSON requests are validated using the `go-playground/validator` library. This ensures that required fields are present and data formats (like UUIDs or email addresses) are correct before processing.
+
+## CORS Configuration
+
+Cross-Origin Resource Sharing (CORS) is configured to allow secure access from web dashboards.
+- **Allowed Origins**: Configurable via `CORS_ALLOWED_ORIGINS`.
+- **Allowed Methods**: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`.
+- **Allowed Headers**: Includes `Authorization`, `X-Internal-Secret`, and idempotency keys.
+
+## Input Sanitization
+
+The system uses a strict approach to input:
+- **Disallow Unknown Fields**: The JSON decoder is configured to fail if unknown fields are present in the request body.
+- **Type Safety**: Strong typing in Go ensures that input data matches the expected domain models.
+- **Constant-Time Comparison**: Used for internal secret validation to prevent timing attacks.
+
+<Note>
+  Security is a shared responsibility. While the orchestrator provides these protections, ensure your job endpoints also implement proper authentication and input validation.
+</Note>

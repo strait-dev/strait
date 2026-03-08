@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
 
@@ -105,7 +106,7 @@ func (q *Queries) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*d
 	return sr, nil
 }
 
-func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
 	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStepRunsByWorkflowRun")
 	defer span.End()
 
@@ -113,10 +114,21 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
 		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
 		FROM workflow_step_runs
-		WHERE workflow_run_id = $1
-		ORDER BY created_at ASC`
+		WHERE workflow_run_id = $1`
 
-	rows, err := q.db.Query(ctx, query, workflowRunID)
+	args := []any{workflowRunID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at ASC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list step runs by workflow run: %w", err)
 	}
@@ -155,10 +167,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	args := []any{status, id}
 	param := 3
 
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
-	}
+	keys := lo.Keys(fields)
 	sort.Strings(keys)
 
 	for _, key := range keys {

@@ -20,10 +20,17 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Runtime stage
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -S app \
+    && adduser -S app -G app
 
 COPY --from=builder /orchestrator /usr/local/bin/orchestrator
 
+USER app
+
 EXPOSE 8080
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["orchestrator", "health", "--quiet"]
 
 ENTRYPOINT ["orchestrator"]

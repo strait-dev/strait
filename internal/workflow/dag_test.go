@@ -8,6 +8,7 @@ import (
 )
 
 func TestValidateDAG(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		steps   []domain.WorkflowStep
@@ -124,6 +125,7 @@ func TestValidateDAG(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateDAG(tt.steps)
 			if tt.wantErr == "" {
 				if err != nil {
@@ -152,5 +154,38 @@ func step(ref string, deps ...string) domain.WorkflowStep {
 	return domain.WorkflowStep{
 		StepRef:   ref,
 		DependsOn: deps,
+	}
+}
+
+func FuzzValidateDAG(f *testing.F) {
+	f.Add(3, true)
+	f.Add(0, false)
+	f.Add(10, true)
+
+	f.Fuzz(func(t *testing.T, numSteps int, withDeps bool) {
+		if numSteps < 0 || numSteps > 50 {
+			return
+		}
+		steps := make([]domain.WorkflowStep, numSteps)
+		for i := range steps {
+			steps[i] = domain.WorkflowStep{StepRef: strings.Repeat("s", i+1)}
+			if withDeps && i > 0 {
+				steps[i].DependsOn = []string{steps[i-1].StepRef}
+			}
+		}
+		_ = ValidateDAG(steps)
+	})
+}
+
+func BenchmarkValidateDAG(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 20)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{StepRef: strings.Repeat("s", i+1)}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	for b.Loop() {
+		_ = ValidateDAG(steps)
 	}
 }

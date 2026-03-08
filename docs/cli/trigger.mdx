@@ -1,0 +1,61 @@
+---
+title: "Triggering Jobs"
+description: "Trigger jobs and bulk trigger jobs from the CLI."
+---
+
+## orchestrator trigger
+
+Shortcut for `jobs trigger`. Resolves job by ID first, then by slug (requires `--project` for slug resolution).
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --payload | string | | JSON payload for the job |
+| --payload-file | string | | Path to a file containing the JSON payload |
+| --priority | int | 0 | Job priority |
+| --project | string | | Project ID (required for slug resolution) |
+
+### Examples
+
+Trigger by ID with inline payload:
+```bash
+orchestrator trigger job_123 --payload '{"key": "value"}'
+```
+
+Trigger by slug with payload from file:
+```bash
+orchestrator trigger my-job-slug --project my-project --payload-file payload.json
+```
+
+Trigger with payload from stdin:
+```bash
+echo '{"key": "value"}' | orchestrator trigger job_123 --payload -
+```
+
+## jobs trigger
+
+Trigger a job with full options.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --payload | string | | JSON payload for the job |
+| --payload-file | string | | Path to a file containing the JSON payload |
+| --priority | int | 0 | Job priority |
+| --scheduled-at | string | | RFC3339 timestamp for scheduled execution |
+| --idempotency-key | string | | Key to ensure the job is triggered only once |
+
+```bash
+orchestrator jobs trigger job_123 --scheduled-at "2026-03-07T12:00:00Z"
+```
+
+## jobs trigger-bulk
+
+Trigger multiple instances of a job.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --items-json | string | | JSON array of payloads |
+| --items-file | string | | Path to a file containing a JSON array of payloads |
+
+```bash
+orchestrator jobs trigger-bulk job_123 --items-file batch.json
+```

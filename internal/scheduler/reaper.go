@@ -21,7 +21,7 @@ type ReaperStore interface {
 	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error)
-	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
@@ -77,6 +77,14 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 func (r *Reaper) WithWorkflowRetention(d time.Duration) *Reaper {
 	if d > 0 {
 		r.workflowRetention = d
+	}
+	return r
+}
+
+// WithDeleteBatchSize sets the number of workflow runs to delete per reaper cycle.
+func (r *Reaper) WithDeleteBatchSize(n int) *Reaper {
+	if n > 0 {
+		r.deleteBatchLimit = n
 	}
 	return r
 }
@@ -145,7 +153,7 @@ func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
 			continue
 		}
 
-		stepRuns, listErr := r.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID)
+		stepRuns, listErr := r.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 10000, nil)
 		if listErr != nil {
 			slog.Error("failed to list workflow step runs for timed out workflow", "workflow_run_id", wfRun.ID, "error", listErr)
 			continue

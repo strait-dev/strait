@@ -2,46 +2,89 @@ package api
 
 import (
 	"net/http"
+	"time"
+
+	"orchestrator/internal/domain"
 
 	"github.com/go-chi/chi/v5"
 )
 
 func (s *Server) handleListRunCheckpoints(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
-	checkpoints, err := s.store.ListRunCheckpoints(r.Context(), runID, 100)
+
+	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list run checkpoints")
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, checkpoints)
+
+	checkpoints, err := s.store.ListRunCheckpoints(r.Context(), runID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list run checkpoints")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paginatedResult(checkpoints, limit, func(cp domain.RunCheckpoint) string {
+		return cp.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleListRunUsage(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
-	usage, err := s.store.ListRunUsage(r.Context(), runID, 100)
+
+	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list run usage")
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, usage)
+
+	usage, err := s.store.ListRunUsage(r.Context(), runID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list run usage")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paginatedResult(usage, limit, func(u domain.RunUsage) string {
+		return u.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleListRunToolCalls(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
-	calls, err := s.store.ListRunToolCalls(r.Context(), runID, 100)
+
+	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list run tool calls")
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, calls)
+
+	calls, err := s.store.ListRunToolCalls(r.Context(), runID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list run tool calls")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paginatedResult(calls, limit, func(c domain.RunToolCall) string {
+		return c.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleListRunOutputs(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
-	outputs, err := s.store.ListRunOutputs(r.Context(), runID)
+
+	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list run outputs")
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, outputs)
+
+	outputs, err := s.store.ListRunOutputs(r.Context(), runID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list run outputs")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paginatedResult(outputs, limit, func(o domain.RunOutput) string {
+		return o.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }

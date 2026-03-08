@@ -1,0 +1,52 @@
+---
+title: "Scheduling"
+description: "Managing when jobs and workflows execute."
+---
+
+The orchestrator provides several mechanisms to control the timing of job and workflow executions, from recurring cron schedules to delayed one-off runs.
+
+## Cron Scheduling
+
+Jobs and workflows can be configured with a `cron` expression for automatic, recurring execution.
+
+- **Syntax**: Standard 5-field cron syntax (e.g., `0 * * * *` for every hour).
+- **Timezone Support**: Schedules can be pinned to a specific timezone (e.g., `America/Los_Angeles`) via the `timezone` (for jobs) or `cron_timezone` (for workflows) fields.
+- **Implementation**: Handled by the `CronScheduler` using the `robfig/cron/v3` library.
+
+<Note>
+If a job is disabled (`enabled: false`), its cron schedule is ignored by the scheduler.
+</Note>
+
+## Delayed Execution
+
+Runs can be scheduled to execute at a specific point in the future.
+
+- **Mechanism**: When a run is triggered with a `scheduled_at` timestamp in the future, it is created with a `delayed` status.
+- **Delayed Poller**: A background component periodically checks for `delayed` runs whose `scheduled_at` time has passed and transitions them to `queued`.
+
+## Stale Run Reaper
+
+To ensure system reliability, the `Reaper` background component monitors for runs that have become "stale."
+
+- **Heartbeat Monitoring**: Executing runs are expected to send periodic heartbeats. If a run's `heartbeat_at` timestamp exceeds a configurable threshold, the reaper identifies it as stale.
+- **Stale Dequeued Runs**: Runs that were claimed (`dequeued`) but never transitioned to `executing` are also reaped.
+- **Actions**: Stale runs may be transitioned to `crashed` or `system_failed`, allowing them to be retried if attempts remain.
+
+## Retention Policies
+
+The `RetentionWorker` manages the cleanup of old run data to prevent database bloat.
+
+- **Short Retention (30 days)**: Applied to terminal runs in `completed`, `failed`, `canceled`, or `expired` states.
+- **Long Retention (90 days)**: Applied to terminal runs in `timed_out`, `crashed`, or `system_failed` states, providing a longer window for debugging critical failures.
+
+## Execution Windows
+
+Jobs can define an `execution_window_cron`. This restricts the job from being dequeued unless the current time matches the provided cron-like expression.
+
+<Example>
+`0 9-17 * * 1-5` restricts a job to only run during business hours (9 AM - 5 PM, Monday through Friday).
+</Example>
+
+## Skip-if-Running (Workflows)
+
+Workflows support a `skip_if_running` flag. If enabled, the scheduler will skip triggering a new run if an instance of that workflow is already in a `running` or `paused` state. This is useful for preventing overlapping executions of long-running maintenance tasks.

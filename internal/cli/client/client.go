@@ -50,6 +50,23 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, query url.
 	return c.doJSONWithHeaders(ctx, method, endpoint, query, body, nil, out)
 }
 
+// paginatedResponse wraps the paginated API envelope.
+type paginatedResponse struct {
+	Data       json.RawMessage `json:"data"`
+	NextCursor *string         `json:"next_cursor,omitempty"`
+	HasMore    bool            `json:"has_more"`
+}
+
+// doListJSON performs a GET request and unwraps the paginated response envelope,
+// decoding only the "data" field into out.
+func (c *Client) doListJSON(ctx context.Context, endpoint string, query url.Values, out any) error {
+	var envelope paginatedResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, query, nil, &envelope); err != nil {
+		return err
+	}
+	return json.Unmarshal(envelope.Data, out)
+}
+
 func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, query url.Values, body any, headers map[string]string, out any) error {
 	fullURL, err := url.Parse(c.baseURL)
 	if err != nil {

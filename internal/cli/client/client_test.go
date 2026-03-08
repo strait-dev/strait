@@ -78,7 +78,7 @@ func TestListJobs(t *testing.T) {
 		if r.URL.Query().Get("project_id") != "proj-1" {
 			t.Errorf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
 		}
-		respondJSON(t, w, http.StatusOK, jobs)
+		respondPaginated(t, w, http.StatusOK, jobs)
 	}))
 	defer srv.Close()
 
@@ -190,7 +190,7 @@ func TestListRuns(t *testing.T) {
 		if r.URL.Query().Get("limit") != "50" {
 			t.Errorf("expected limit=50, got %q", r.URL.Query().Get("limit"))
 		}
-		respondJSON(t, w, http.StatusOK, runs)
+		respondPaginated(t, w, http.StatusOK, runs)
 	}))
 	defer srv.Close()
 
@@ -222,7 +222,7 @@ func TestListRuns_WithCursor(t *testing.T) {
 		if !parsed.Equal(cursor) {
 			t.Fatalf("cursor mismatch: got %v, want %v", parsed, cursor)
 		}
-		respondJSON(t, w, http.StatusOK, []domain.JobRun{})
+		respondPaginated(t, w, http.StatusOK, []domain.JobRun{})
 	}))
 	defer srv.Close()
 
@@ -240,7 +240,7 @@ func TestListRuns_WithStatus(t *testing.T) {
 		if r.URL.Query().Get("status") != "executing" {
 			t.Fatalf("expected status=executing, got %q", r.URL.Query().Get("status"))
 		}
-		respondJSON(t, w, http.StatusOK, []domain.JobRun{})
+		respondPaginated(t, w, http.StatusOK, []domain.JobRun{})
 	}))
 	defer srv.Close()
 
@@ -274,7 +274,7 @@ func TestListAllRuns_Pagination(t *testing.T) {
 					CreatedAt: now.Add(-time.Duration(i) * time.Second),
 				}
 			}
-			respondJSON(t, w, http.StatusOK, runs)
+			respondPaginated(t, w, http.StatusOK, runs)
 		case 2:
 			// Second page: should have cursor
 			if r.URL.Query().Get("cursor") == "" {
@@ -288,7 +288,7 @@ func TestListAllRuns_Pagination(t *testing.T) {
 					CreatedAt: now.Add(-time.Duration(100+i) * time.Second),
 				}
 			}
-			respondJSON(t, w, http.StatusOK, runs)
+			respondPaginated(t, w, http.StatusOK, runs)
 		default:
 			t.Fatalf("unexpected call #%d", n)
 		}
@@ -383,7 +383,7 @@ func TestDoJSON_AuthHeader(t *testing.T) {
 		if auth != "Bearer secret-key-123" {
 			t.Fatalf("expected Bearer secret-key-123, got %q", auth)
 		}
-		respondJSON(t, w, http.StatusOK, []domain.Job{})
+		respondPaginated(t, w, http.StatusOK, []domain.Job{})
 	}))
 	defer srv.Close()
 
@@ -408,7 +408,7 @@ func TestDoJSON_Retry429(t *testing.T) {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		respondJSON(t, w, http.StatusOK, []domain.Job{{ID: "job-1"}})
+		respondPaginated(t, w, http.StatusOK, []domain.Job{{ID: "job-1"}})
 	}))
 	defer srv.Close()
 
@@ -436,7 +436,7 @@ func TestDoJSON_Retry5xx(t *testing.T) {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		respondJSON(t, w, http.StatusOK, []domain.Job{{ID: "job-1"}})
+		respondPaginated(t, w, http.StatusOK, []domain.Job{{ID: "job-1"}})
 	}))
 	defer srv.Close()
 
@@ -521,4 +521,22 @@ func respondJSON(t *testing.T, w http.ResponseWriter, status int, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		t.Fatalf("encode response: %v", err)
 	}
+}
+
+// respondPaginated wraps data in the PaginatedResponse envelope for list endpoints.
+func respondPaginated(t *testing.T, w http.ResponseWriter, status int, data any) {
+	t.Helper()
+	respondJSON(t, w, status, paginatedResponse{
+		Data:    mustMarshal(t, data),
+		HasMore: false,
+	})
+}
+
+func mustMarshal(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
 }
