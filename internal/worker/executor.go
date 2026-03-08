@@ -51,31 +51,32 @@ type WorkflowCallback interface {
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
-	pool             *Pool
-	queue            queue.Queue
-	store            ExecutorStore
-	httpClient       *http.Client
-	pollInterval     time.Duration
-	heartbeat        *HeartbeatSender
-	publisher        pubsub.Publisher
-	metrics          *telemetry.Metrics
-	workflowCallback WorkflowCallback
-	partitionCycle   []string
-	nextPartition    int
-	circuitBreaker   bool
-	secretInjection  bool
-	smartRetry       bool
-	bulkheads        bool
-	executionTracing bool
-	adaptiveTimeout  bool
-	dlqEnabled       bool
-	jobActiveRuns    map[string]int
-	jobActiveRunsMu  sync.Mutex
-	circuitThreshold int
-	circuitOpenFor   time.Duration
-	logger           *slog.Logger
-	webhookClient    *http.Client
-	webhookMaxRetry  int
+	pool                   *Pool
+	queue                  queue.Queue
+	store                  ExecutorStore
+	httpClient             *http.Client
+	pollInterval           time.Duration
+	heartbeat              *HeartbeatSender
+	publisher              pubsub.Publisher
+	metrics                *telemetry.Metrics
+	workflowCallback       WorkflowCallback
+	partitionCycle         []string
+	nextPartition          int
+	circuitBreaker         bool
+	secretInjection        bool
+	smartRetry             bool
+	bulkheads              bool
+	executionTracing       bool
+	adaptiveTimeout        bool
+	dlqEnabled             bool
+	jobActiveRuns          map[string]int
+	jobActiveRunsMu        sync.Mutex
+	circuitThreshold       int
+	circuitOpenFor         time.Duration
+	logger                 *slog.Logger
+	webhookClient          *http.Client
+	webhookMaxRetry        int
+	webhookDispatchTimeout time.Duration
 }
 
 // ExecutorConfig holds configuration for the Executor.
@@ -102,6 +103,7 @@ type ExecutorConfig struct {
 	ExecutorIdleConnTimeout time.Duration
 	WebhookTimeout          time.Duration
 	WebhookIdleConnTimeout  time.Duration
+	WebhookDispatchTimeout  time.Duration
 	WebhookMaxAttempts      int
 }
 
@@ -152,31 +154,36 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	if whMaxAttempts <= 0 {
 		whMaxAttempts = 3
 	}
+	whDispatchTimeout := cfg.WebhookDispatchTimeout
+	if whDispatchTimeout <= 0 {
+		whDispatchTimeout = 15 * time.Second
+	}
 
 	return &Executor{
-		pool:             cfg.Pool,
-		queue:            cfg.Queue,
-		store:            cfg.Store,
-		httpClient:       httpClient,
-		pollInterval:     cfg.PollInterval,
-		heartbeat:        NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
-		publisher:        cfg.Publisher,
-		metrics:          cfg.Metrics,
-		workflowCallback: cfg.WorkflowCallback,
-		partitionCycle:   buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
-		circuitBreaker:   cfg.CircuitBreaker,
-		secretInjection:  cfg.SecretInjection,
-		smartRetry:       cfg.SmartRetry,
-		bulkheads:        cfg.Bulkheads,
-		executionTracing: cfg.ExecutionTracing,
-		adaptiveTimeout:  cfg.AdaptiveTimeout,
-		dlqEnabled:       cfg.DLQEnabled,
-		jobActiveRuns:    make(map[string]int),
-		circuitThreshold: defaultCircuitFailureThreshold,
-		circuitOpenFor:   defaultCircuitOpenDuration,
-		logger:           slog.Default(),
-		webhookClient:    whClient,
-		webhookMaxRetry:  whMaxAttempts,
+		pool:                   cfg.Pool,
+		queue:                  cfg.Queue,
+		store:                  cfg.Store,
+		httpClient:             httpClient,
+		pollInterval:           cfg.PollInterval,
+		heartbeat:              NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
+		publisher:              cfg.Publisher,
+		metrics:                cfg.Metrics,
+		workflowCallback:       cfg.WorkflowCallback,
+		partitionCycle:         buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
+		circuitBreaker:         cfg.CircuitBreaker,
+		secretInjection:        cfg.SecretInjection,
+		smartRetry:             cfg.SmartRetry,
+		bulkheads:              cfg.Bulkheads,
+		executionTracing:       cfg.ExecutionTracing,
+		adaptiveTimeout:        cfg.AdaptiveTimeout,
+		dlqEnabled:             cfg.DLQEnabled,
+		jobActiveRuns:          make(map[string]int),
+		circuitThreshold:       defaultCircuitFailureThreshold,
+		circuitOpenFor:         defaultCircuitOpenDuration,
+		logger:                 slog.Default(),
+		webhookClient:          whClient,
+		webhookMaxRetry:        whMaxAttempts,
+		webhookDispatchTimeout: whDispatchTimeout,
 	}
 }
 

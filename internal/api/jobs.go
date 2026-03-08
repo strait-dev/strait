@@ -87,16 +87,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.MaxAttempts == 0 {
-		req.MaxAttempts = s.config.DefaultJobMaxAttempts
-		if req.MaxAttempts == 0 {
-			req.MaxAttempts = 3
-		}
+		req.MaxAttempts = s.defaultJobMaxAttempts()
 	}
 	if req.TimeoutSecs == 0 {
-		req.TimeoutSecs = s.config.DefaultJobTimeoutSecs
-		if req.TimeoutSecs == 0 {
-			req.TimeoutSecs = 300
-		}
+		req.TimeoutSecs = s.defaultJobTimeoutSecs()
 	}
 
 	if req.Cron != "" {
@@ -490,6 +484,20 @@ func validateRetryConfig(strategy string, delays []int) error {
 	return nil
 }
 
+func (s *Server) defaultJobMaxAttempts() int {
+	if s.config != nil && s.config.DefaultJobMaxAttempts > 0 {
+		return s.config.DefaultJobMaxAttempts
+	}
+	return 3
+}
+
+func (s *Server) defaultJobTimeoutSecs() int {
+	if s.config != nil && s.config.DefaultJobTimeoutSecs > 0 {
+		return s.config.DefaultJobTimeoutSecs
+	}
+	return 300
+}
+
 // Batch job definition operations (2.38).
 
 const maxBatchSize = 50
@@ -539,8 +547,8 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 
 	var resp BatchCreateJobsResponse
 	for i, jobReq := range req.Jobs {
-		if jobReq.ProjectID == "" || jobReq.Name == "" || jobReq.Slug == "" || jobReq.EndpointURL == "" {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "missing required fields"})
+		if err := s.validate.Struct(&jobReq); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "validation failed"})
 			continue
 		}
 
@@ -555,10 +563,10 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if jobReq.MaxAttempts == 0 {
-			jobReq.MaxAttempts = 3
+			jobReq.MaxAttempts = s.defaultJobMaxAttempts()
 		}
 		if jobReq.TimeoutSecs == 0 {
-			jobReq.TimeoutSecs = 300
+			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
 		}
 
 		if len(jobReq.Tags) > 0 && !s.config.FFJobTags {

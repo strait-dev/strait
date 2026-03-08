@@ -2888,7 +2888,7 @@ func TestWorkflowRun_CRUD(t *testing.T) {
 	if listed[0].ID != run3.ID || listed[1].ID != run2.ID || listed[2].ID != run1.ID {
 		t.Fatalf("ListWorkflowRuns() ids = [%q, %q, %q], want [%q, %q, %q]", listed[0].ID, listed[1].ID, listed[2].ID, run3.ID, run2.ID, run1.ID)
 	}
-	
+
 	// Cursor-based pagination: use created_at of the first result as cursor to get the next page
 	cursor := listed[0].CreatedAt
 	paged, err := q.ListWorkflowRuns(ctx, workflow.ID, 1, &cursor)
@@ -5680,5 +5680,124 @@ func TestListWorkflowRunsByProject(t *testing.T) {
 	}
 	if len(empty) != 0 {
 		t.Fatalf("empty len = %d, want 0", len(empty))
+	}
+}
+
+func TestWorkflowVersionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wf-version-snapshot-basic"
+	job := mustCreateJob(t, ctx, q, projectID)
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-version", Slug: "wf-version-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	step := &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: "step-version"}
+	if err := q.CreateWorkflowStep(ctx, step); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 1); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot() error = %v", err)
+	}
+
+	steps, err := q.ListStepsByWorkflowVersion(ctx, wf.ID, 1)
+	if err != nil {
+		t.Fatalf("ListStepsByWorkflowVersion() error = %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("ListStepsByWorkflowVersion() len = %d, want 1", len(steps))
+	}
+	if steps[0].StepRef != "step-version" {
+		t.Fatalf("ListStepsByWorkflowVersion() step_ref = %q, want step-version", steps[0].StepRef)
+	}
+}
+
+func TestListTimedOutWorkflowRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-timeout-wf-runs"
+	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-timeout", Slug: "wf-timeout-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	runningExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, runningExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(runningExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, runningExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(runningExpired->running) error = %v", err)
+	}
+	_, err := testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(-2*time.Hour), runningExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at runningExpired error = %v", err)
+	}
+
+	pausedExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, pausedExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(pausedExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, pausedExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(pausedExpired->running) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, pausedExpired.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(pausedExpired->paused) error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(-1*time.Hour), pausedExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at pausedExpired error = %v", err)
+	}
+
+	runningNotExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, runningNotExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(runningNotExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, runningNotExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(runningNotExpired->running) error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(1*time.Hour), runningNotExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at runningNotExpired error = %v", err)
+	}
+
+	completedExpired := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: "manual"}
+	if err := q.CreateWorkflowRun(ctx, completedExpired); err != nil {
+		t.Fatalf("CreateWorkflowRun(completedExpired) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, completedExpired.ID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(completedExpired->running) error = %v", err)
+	}
+	if err := q.UpdateWorkflowRunStatus(ctx, completedExpired.ID, domain.WfStatusRunning, domain.WfStatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
+		t.Fatalf("UpdateWorkflowRunStatus(completedExpired->completed) error = %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, "UPDATE workflow_runs SET expires_at=$1 WHERE id=$2", time.Now().UTC().Add(-3*time.Hour), completedExpired.ID)
+	if err != nil {
+		t.Fatalf("set expires_at completedExpired error = %v", err)
+	}
+
+	runs, err := q.ListTimedOutWorkflowRuns(ctx)
+	if err != nil {
+		t.Fatalf("ListTimedOutWorkflowRuns() error = %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("ListTimedOutWorkflowRuns() len = %d, want 2", len(runs))
+	}
+	if runs[0].ID != runningExpired.ID {
+		t.Fatalf("runs[0].ID = %q, want %q", runs[0].ID, runningExpired.ID)
+	}
+	if runs[1].ID != pausedExpired.ID {
+		t.Fatalf("runs[1].ID = %q, want %q", runs[1].ID, pausedExpired.ID)
+	}
+	if runs[0].Status != domain.WfStatusRunning {
+		t.Fatalf("runs[0].status = %q, want running", runs[0].Status)
+	}
+	if runs[1].Status != domain.WfStatusPaused {
+		t.Fatalf("runs[1].status = %q, want paused", runs[1].Status)
 	}
 }

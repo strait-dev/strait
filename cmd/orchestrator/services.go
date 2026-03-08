@@ -146,8 +146,8 @@ func startCDCConsumer(gCtx context.Context, g *errgroup.Group, cfg *config.Confi
 		BaseURL:      cfg.SequinBaseURL,
 		ConsumerName: cfg.SequinConsumerName,
 		Credential:   cfg.SequinAPIToken,
-		BatchSize:    cfg.SequinBatchSize,
-		WaitTimeMs:   cfg.SequinWaitTimeMs,
+		BatchSize:    cfg.CDCBatchSize,
+		WaitTimeMs:   cfg.CDCWaitTimeMs,
 	}, slog.Default())
 
 	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
@@ -260,6 +260,7 @@ func startWorker(gCtx context.Context, g *errgroup.Group, cfg *config.Config, qu
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
 		WebhookTimeout:          cfg.WebhookTimeout,
 		WebhookIdleConnTimeout:  cfg.WebhookIdleConnTimeout,
+		WebhookDispatchTimeout:  cfg.WebhookDispatchTimeout,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 	})
 

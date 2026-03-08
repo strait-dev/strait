@@ -17,6 +17,22 @@ import (
 	"orchestrator/internal/store"
 )
 
+// decodePaginatedList decodes a PaginatedResponse body into the given slice pointer.
+func decodePaginatedList(t testing.TB, body []byte, out any) {
+	t.Helper()
+	var envelope struct {
+		Data       json.RawMessage `json:"data"`
+		HasMore    bool            `json:"has_more"`
+		NextCursor *string         `json:"next_cursor,omitempty"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatalf("invalid paginated JSON: %v\nbody: %s", err, string(body))
+	}
+	if err := json.Unmarshal(envelope.Data, out); err != nil {
+		t.Fatalf("invalid data array JSON: %v", err)
+	}
+}
+
 func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *Server {
 	t.Helper()
 	cfg := &config.Config{
@@ -296,16 +312,8 @@ func TestHandleListJobs_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 jobs, got %d", len(resp))
 	}
@@ -433,16 +441,8 @@ func TestHandleListJobGroups_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 groups, got %d", len(resp))
 	}
@@ -488,16 +488,8 @@ func TestHandleListJobsByGroup_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
 	}
@@ -523,16 +515,8 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
 	}
@@ -661,16 +645,8 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []domain.JobDependency
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 dependency, got %d", len(resp))
 	}
@@ -1267,16 +1243,8 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var runs []domain.JobRun
-	if err := json.Unmarshal(paginatedResp.Data, &runs); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &runs)
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(runs))
 	}
@@ -2027,16 +1995,8 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 environments, got %d", len(resp))
 	}
@@ -2354,16 +2314,8 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("failed to decode paginated response: %v", err)
-	}
 	var runs []domain.JobRun
-	if err := json.Unmarshal(paginatedResp.Data, &runs); err != nil {
-		t.Fatalf("failed to decode data: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &runs)
 	if len(runs) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(runs))
 	}

@@ -320,6 +320,7 @@ func TestConcurrentBulkTrigger(t *testing.T) {
 			defer wg.Done()
 			w := httptest.NewRecorder()
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body)
+			r.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", idx+1)
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusCreated {
 				errs[idx] = fmt.Errorf("goroutine %d: expected 201, got %d", idx, w.Code)

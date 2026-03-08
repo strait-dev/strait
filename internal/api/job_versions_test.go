@@ -274,16 +274,8 @@ func TestListJobVersions_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 3 {
 		t.Fatalf("expected 3 versions, got %d", len(resp))
 	}
@@ -310,16 +302,8 @@ func TestListJobVersions_Empty(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 0 {
 		t.Fatalf("expected empty array, got %d items", len(resp))
 	}
@@ -386,16 +370,8 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 jobs, got %d", len(resp))
 	}
@@ -458,16 +434,8 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(resp))
 	}
@@ -497,16 +465,8 @@ func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 versions, got %d", len(resp))
 	}

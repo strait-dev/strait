@@ -71,7 +71,7 @@ func (s *Server) routes() chi.Router {
 				r.Patch("/", s.handleUpdateJob)
 				r.Delete("/", s.handleDeleteJob)
 				r.With(httprate.LimitByIP(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", s.handleTriggerJob)
-				r.With(httprate.LimitByIP(30, time.Minute)).Post("/trigger/bulk", s.handleBulkTriggerJob)
+				r.With(httprate.LimitByIP(5, time.Minute)).Post("/trigger/bulk", s.handleBulkTriggerJob)
 				r.Post("/dependencies", s.handleCreateJobDependency)
 				r.Get("/dependencies", s.handleListJobDependencies)
 				r.Delete("/dependencies/{depID}", s.handleDeleteJobDependency)

@@ -268,7 +268,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 func (e *Executor) submitWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {
 	detached := context.WithoutCancel(ctx)
 	e.pool.Submit(detached, func() {
-		webhookCtx, wCancel := context.WithTimeout(detached, e.webhookClient.Timeout+5*time.Second)
+		webhookCtx, wCancel := context.WithTimeout(detached, e.webhookDispatchTimeout)
 		defer wCancel()
 		SendWebhookWithClient(webhookCtx, e.webhookClient, job, run, e.webhookMaxRetry)
 	})

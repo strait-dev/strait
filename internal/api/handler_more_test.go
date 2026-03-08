@@ -1321,16 +1321,8 @@ func TestHandleListRunEvents_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
 	var events []domain.RunEvent
-	if err := json.Unmarshal(paginatedResp.Data, &events); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &events)
 	if len(events) != 2 {
 		t.Errorf("len(events) = %d, want 2", len(events))
 	}
@@ -1417,16 +1409,8 @@ func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
 	var events []domain.RunEvent
-	if err := json.Unmarshal(paginatedResp.Data, &events); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &events)
 	if len(events) != 0 {
 		t.Errorf("len(events) = %d, want 0", len(events))
 	}
@@ -1452,16 +1436,8 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
 	var deliveries []domain.WebhookDelivery
-	if err := json.Unmarshal(paginatedResp.Data, &deliveries); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &deliveries)
 	if len(deliveries) != 1 {
 		t.Errorf("len = %d, want 1", len(deliveries))
 	}

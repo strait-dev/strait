@@ -187,16 +187,8 @@ func TestHandleListAPIKeys_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var paginatedResp struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &paginatedResp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
 	var resp []domain.APIKey
-	if err := json.Unmarshal(paginatedResp.Data, &resp); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 keys, got %d", len(resp))
 	}
