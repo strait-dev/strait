@@ -1,0 +1,7 @@
+ALTER TABLE workflow_runs DROP COLUMN IF EXISTS created_by;
+ALTER TABLE job_runs DROP COLUMN IF EXISTS created_by;
+ALTER TABLE workflows DROP COLUMN IF EXISTS updated_by;
+ALTER TABLE workflows DROP COLUMN IF EXISTS created_by;
+ALTER TABLE jobs DROP COLUMN IF EXISTS updated_by;
+ALTER TABLE jobs DROP COLUMN IF EXISTS created_by;
+DROP TABLE IF EXISTS known_actors;

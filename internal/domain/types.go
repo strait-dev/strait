@@ -40,6 +40,15 @@ const (
 	EventProgress    EventType = "progress"
 )
 
+// KnownActor is a lightweight cache of user info from an external auth provider.
+type KnownActor struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
+	SyncedAt  time.Time `json:"synced_at"`
+}
+
 type Job struct {
 	ID                  string            `json:"id"`
 	ProjectID           string            `json:"project_id"`
@@ -68,6 +77,8 @@ type Job struct {
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       string            `json:"environment_id,omitempty"`
 	Version             int               `json:"version"`
+	CreatedBy           string            `json:"created_by,omitempty"`
+	UpdatedBy           string            `json:"updated_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
 }
@@ -144,6 +155,7 @@ type JobRun struct {
 	DebugMode             bool              `json:"debug_mode"`
 	ContinuationOf        string            `json:"continuation_of,omitempty"`
 	LineageDepth          int               `json:"lineage_depth"`
+	CreatedBy             string            `json:"created_by,omitempty"`
 	CreatedAt             time.Time         `json:"created_at"`
 }
 
@@ -424,6 +436,8 @@ type Workflow struct {
 	Cron              string    `json:"cron,omitempty"`
 	CronTimezone      string    `json:"cron_timezone,omitempty"`
 	SkipIfRunning     bool      `json:"skip_if_running,omitempty"`
+	CreatedBy         string    `json:"created_by,omitempty"`
+	UpdatedBy         string    `json:"updated_by,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -468,6 +482,7 @@ type WorkflowRun struct {
 	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
 	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
+	CreatedBy           string            `json:"created_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
 

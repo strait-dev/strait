@@ -125,6 +125,11 @@ type APIStore interface {
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 }
 
+// ActorSyncer lazily persists actor profile information from request headers.
+type ActorSyncer interface {
+	UpsertKnownActor(ctx context.Context, id, email, name string) error
+}
+
 // Pinger checks service health.
 type Pinger interface {
 	Ping(ctx context.Context) error
@@ -167,6 +172,7 @@ type Server struct {
 	healthRegistry     *health.Registry
 	workflowCallback   WorkflowCallback
 	workflowEngine     WorkflowTrigger
+	actorSyncer        ActorSyncer
 	validate           *validator.Validate
 	maxRequestBodySize int64
 }
@@ -182,6 +188,7 @@ type ServerDeps struct {
 	HealthRegistry   *health.Registry
 	WorkflowCallback WorkflowCallback
 	WorkflowEngine   WorkflowTrigger
+	ActorSyncer      ActorSyncer
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -200,6 +207,7 @@ func NewServer(deps ServerDeps) *Server {
 		healthRegistry:     deps.HealthRegistry,
 		workflowCallback:   deps.WorkflowCallback,
 		workflowEngine:     deps.WorkflowEngine,
+		actorSyncer:        deps.ActorSyncer,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
 	}

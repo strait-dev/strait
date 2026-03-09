@@ -16,6 +16,8 @@ import (
 const ctxProjectIDKey contextKey = "project_id"
 const ctxScopesKey contextKey = "scopes"
 const ctxAPIKeyIDKey contextKey = "api_key_id"
+const ctxActorIDKey contextKey = "actor_id"
+const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -66,6 +68,32 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
 		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)
 		ctx = context.WithValue(ctx, ctxAPIKeyIDKey, apiKey.ID)
+
+		// Extract actor identity from trusted app headers.
+		// If X-Actor-Id is present, the request is on behalf of a user.
+		// Otherwise, the API key itself is the actor.
+		if actorID := r.Header.Get("X-Actor-Id"); actorID != "" {
+			ctx = context.WithValue(ctx, ctxActorIDKey, actorID)
+			ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+
+			// Lazy-sync actor profile if store supports it
+			if s.actorSyncer != nil {
+				actorEmail := r.Header.Get("X-Actor-Email")
+				actorName := r.Header.Get("X-Actor-Name")
+				syncCtx := context.WithoutCancel(ctx)
+				go func() {
+					syncCtx, cancel := context.WithTimeout(syncCtx, 2*time.Second)
+					defer cancel()
+					if err := s.actorSyncer.UpsertKnownActor(syncCtx, actorID, actorEmail, actorName); err != nil {
+						slog.Warn("failed to sync actor", "actor_id", actorID, "error", err)
+					}
+				}()
+			}
+		} else {
+			ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:"+apiKey.ID)
+			ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+		}
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -133,6 +161,13 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			slog.Info("request", attrs...)
 		}
 	})
+}
+
+func actorFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxActorIDKey).(string); ok {
+		return v
+	}
+	return ""
 }
 
 func scopesFromContext(ctx context.Context) []string {
