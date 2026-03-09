@@ -104,6 +104,29 @@ func (q *Queries) DeleteProjectRole(ctx context.Context, id string) error {
 	return nil
 }
 
+func (q *Queries) UpdateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectRole")
+	defer span.End()
+
+	query := `
+		UPDATE project_roles
+		SET name = $1, description = $2, permissions = $3, updated_at = NOW()
+		WHERE id = $4 AND is_system = FALSE
+		RETURNING updated_at`
+
+	err := q.db.QueryRow(ctx, query,
+		role.Name, role.Description, role.Permissions, role.ID,
+	).Scan(&role.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoleNotFound
+		}
+		return fmt.Errorf("update project role: %w", err)
+	}
+
+	return nil
+}
+
 // AssignMemberRole assigns (or reassigns) a user to a role in a project.
 // On conflict, the existing role is updated. Note: created_at is not
 // updated on reassignment; the table lacks an updated_at column.

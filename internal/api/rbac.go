@@ -72,6 +72,46 @@ func (s *Server) handleGetRole(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, role)
 }
 
+type updateRoleRequest struct {
+	Name        string   `json:"name" validate:"required"`
+	Description string   `json:"description"`
+	Permissions []string `json:"permissions" validate:"required,min=1"`
+}
+
+func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
+	var req updateRoleRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+	if err := domain.ValidateScopes(req.Permissions); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	roleID := chi.URLParam(r, "roleID")
+	role := &domain.ProjectRole{
+		ID:          roleID,
+		Name:        req.Name,
+		Description: req.Description,
+		Permissions: req.Permissions,
+	}
+
+	if err := s.store.UpdateProjectRole(r.Context(), role); err != nil {
+		if errors.Is(err, store.ErrRoleNotFound) {
+			respondError(w, r, http.StatusNotFound, "role not found or is a system role")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to update role")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, role)
+}
+
 func (s *Server) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	roleID := chi.URLParam(r, "roleID")
 	if err := s.store.DeleteProjectRole(r.Context(), roleID); err != nil {

@@ -22,12 +22,7 @@ func TestRequirePermission_AdminAllowsAll(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user_1")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj_1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -49,12 +44,7 @@ func TestRequirePermission_ViewerBlocksWrite(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user_1")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj_1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -76,12 +66,7 @@ func TestRequirePermission_OperatorCanTrigger(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user_1")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj_1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -117,7 +102,6 @@ func TestRequirePermission_UnknownUserDenied(t *testing.T) {
 	t.Parallel()
 
 	ms := &mockAPIStore{}
-	// GetUserPermissions returns nil (no role assigned)
 	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
 		return nil, nil
 	}
@@ -127,12 +111,7 @@ func TestRequirePermission_UnknownUserDenied(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user_unknown")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj_1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_unknown")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -151,9 +130,8 @@ func TestRequirePermission_InternalSecretAllowed(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// No actor type = internal auth
+	// No scopes = internal auth
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 

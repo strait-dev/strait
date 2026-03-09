@@ -153,6 +153,7 @@ type RBACStore interface {
 	GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error)
 	CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error
 	GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error)
+	UpdateProjectRole(ctx context.Context, role *domain.ProjectRole) error
 	ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
 	DeleteProjectRole(ctx context.Context, id string) error
 	AssignMemberRole(ctx context.Context, m *domain.ProjectMemberRole) error

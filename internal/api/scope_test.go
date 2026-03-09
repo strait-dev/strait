@@ -9,6 +9,8 @@ import (
 	"strait/internal/domain"
 )
 
+// API Key tests.
+
 func TestRequirePermission_APIKey_AllowsWildcard(t *testing.T) {
 	t.Parallel()
 
@@ -81,7 +83,6 @@ func TestRequirePermission_APIKey_EmptyScopesAllowAll(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	// Empty scopes = backwards compatible full access
 	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 	r = r.WithContext(ctx)
@@ -103,7 +104,7 @@ func TestRequirePermission_APIKey_NilScopesAllowAll(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	// nil scopes + api_key type — allow (backwards compat)
+	// nil scopes = internal secret auth shortcut
 	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "api_key")
 	r = r.WithContext(ctx)
 
@@ -136,6 +137,8 @@ func TestRequirePermission_APIKey_MultipleScopesWithMatch(t *testing.T) {
 	}
 }
 
+// Internal secret tests.
+
 func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 	t.Parallel()
 
@@ -144,7 +147,7 @@ func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// No actor type = internal secret auth
+	// No scopes in context = internal secret auth
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	w := httptest.NewRecorder()
@@ -155,6 +158,32 @@ func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Internal secret with actor headers (for audit) — should still pass
+	// because scopes are nil (shortcut fires before actor type check).
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	// No scopes — this is the signal for internal secret auth
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (internal secret + actor headers = allowed)", w.Code, http.StatusOK)
+	}
+}
+
+// Unknown actor type.
+
 func TestRequirePermission_UnknownActorType_Rejected(t *testing.T) {
 	t.Parallel()
 
@@ -164,7 +193,9 @@ func TestRequirePermission_UnknownActorType_Rejected(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "bogus")
+	// Must set scopes so the nil-scopes shortcut doesn't fire.
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "bogus")
 	r = r.WithContext(ctx)
 
 	w := httptest.NewRecorder()
@@ -173,6 +204,16 @@ func TestRequirePermission_UnknownActorType_Rejected(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d (unknown actor type should be rejected)", w.Code, http.StatusForbidden)
 	}
+}
+
+// User permission tests.
+
+func userCtx(r *http.Request, projectID, userID string) *http.Request {
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"}) // API key scopes
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+	ctx = context.WithValue(ctx, ctxActorIDKey, userID)
+	return r.WithContext(ctx)
 }
 
 func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
@@ -187,12 +228,7 @@ func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -213,12 +249,7 @@ func TestRequirePermission_User_MissingPermission(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -239,12 +270,7 @@ func TestRequirePermission_User_NoRole(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -265,12 +291,7 @@ func TestRequirePermission_User_DBError(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
-	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
-	r = r.WithContext(ctx)
-
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -288,7 +309,8 @@ func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
 	// No project ID
 	r = r.WithContext(ctx)
@@ -316,11 +338,7 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 	}))
 
 	makeReq := func() *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
-		ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
-		ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
-		r = r.WithContext(ctx)
+		r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		return w

@@ -154,6 +154,7 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateRole)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListRoles)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{roleID}", s.handleGetRole)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Patch("/{roleID}", s.handleUpdateRole)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{roleID}", s.handleDeleteRole)
 		})
 

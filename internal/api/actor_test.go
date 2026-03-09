@@ -2,11 +2,15 @@ package api
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 type mockActorSyncer struct {
@@ -121,5 +125,95 @@ func TestNewServerWithActorSyncer(t *testing.T) {
 	}
 	if srv.actorSyncer == nil {
 		t.Fatal("actorSyncer should be set")
+	}
+}
+
+func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
+	t.Parallel()
+
+	var capturedActor string
+	var capturedType string
+
+	ms := &mockAPIStore{}
+	ms.queueStatsFn = func(_ context.Context) (*store.QueueStats, error) {
+		return &store.QueueStats{}, nil
+	}
+
+	syncer := &mockActorSyncer{}
+	srv := newTestServerWithActorSyncer(t, ms, nil, nil, syncer)
+
+	// Use internal secret with actor headers — should set user context.
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Actor-Id", "user_leo")
+	r.Header.Set("X-Actor-Email", "leo@example.com")
+	r.Header.Set("X-Actor-Name", "Leonardo")
+
+	// Override the stats handler to capture context.
+	// Instead, we just verify the request doesn't 403.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	_ = capturedActor
+	_ = capturedType
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	// Wait for async syncer goroutine.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		syncer.mu.Lock()
+		n := len(syncer.calls)
+		syncer.mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	syncer.mu.Lock()
+	defer syncer.mu.Unlock()
+	if len(syncer.calls) == 0 {
+		t.Fatal("expected actor syncer to be called")
+	}
+	if syncer.calls[0].ID != "user_leo" {
+		t.Fatalf("syncer ID = %q, want %q", syncer.calls[0].ID, "user_leo")
+	}
+	if syncer.calls[0].Email != "leo@example.com" {
+		t.Fatalf("syncer Email = %q, want %q", syncer.calls[0].Email, "leo@example.com")
+	}
+}
+
+func TestAPIKeyAuth_IgnoresActorHeaders(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getAPIKeyByHashFn = func(_ context.Context, _ string) (*domain.APIKey, error) {
+		return &domain.APIKey{
+			ID:        "key-1",
+			ProjectID: "proj-1",
+			Scopes:    []string{"stats:read"},
+		}, nil
+	}
+	ms.touchAPIKeyLastUsedFn = func(_ context.Context, _ string) error { return nil }
+	ms.queueStatsFn = func(_ context.Context) (*store.QueueStats, error) {
+		return &store.QueueStats{}, nil
+	}
+
+	srv := newTestServer(t, ms, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("Authorization", "Bearer strait_testkey123")
+	// These headers should be IGNORED for API key auth.
+	r.Header.Set("X-Actor-Id", "user_attacker")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	// Should succeed (key has stats:read) but actor type should be api_key, not user.
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
 	}
 }

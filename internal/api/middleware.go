@@ -190,13 +190,23 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+
+			// Check if request came through API key auth (scopes will be set).
+			// Internal secret auth does not set scopes — those requests are
+			// always allowed regardless of actor headers (actor is for audit only).
+			scopes := scopesFromContext(ctx)
+			if scopes == nil {
+				// No scopes = internal secret auth — allow through.
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 
 			switch actorType {
 			case "api_key":
-				// API keys use scopes directly
-				scopes := scopesFromContext(ctx)
-				if scopes == nil || domain.HasScope(scopes, permission) {
+				// API keys use scopes directly.
+				if domain.HasScope(scopes, permission) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -235,10 +245,6 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 				}
 				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
 				return
-
-			case "":
-				// No actor type = internal secret auth — allow through.
-				next.ServeHTTP(w, r)
 
 			default:
 				respondError(w, r, http.StatusForbidden, "unknown actor type")

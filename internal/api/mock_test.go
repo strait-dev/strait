@@ -104,9 +104,11 @@ type mockAPIStore struct {
 	getUserPermissionsFn          func(ctx context.Context, projectID, userID string) ([]string, error)
 	createProjectRoleFn           func(ctx context.Context, role *domain.ProjectRole) error
 	getProjectRoleFn              func(ctx context.Context, id string) (*domain.ProjectRole, error)
+	updateProjectRoleFn           func(ctx context.Context, role *domain.ProjectRole) error
 	listProjectRolesFn            func(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
 	deleteProjectRoleFn           func(ctx context.Context, id string) error
 	assignMemberRoleFn            func(ctx context.Context, m *domain.ProjectMemberRole) error
+	listProjectMembersFn          func(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error)
 	removeMemberRoleFn            func(ctx context.Context, projectID, userID string) error
 }
 
@@ -824,6 +826,13 @@ func (m *mockAPIStore) GetProjectRole(ctx context.Context, id string) (*domain.P
 	return nil, nil
 }
 
+func (m *mockAPIStore) UpdateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
+	if m.updateProjectRoleFn != nil {
+		return m.updateProjectRoleFn(ctx, role)
+	}
+	return nil
+}
+
 func (m *mockAPIStore) ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error) {
 	if m.listProjectRolesFn != nil {
 		return m.listProjectRolesFn(ctx, projectID)
@@ -856,7 +865,10 @@ func (m *mockAPIStore) RemoveMemberRole(ctx context.Context, projectID, userID s
 	return nil
 }
 
-func (m *mockAPIStore) ListProjectMembers(_ context.Context, _ string) ([]domain.ProjectMemberRole, error) {
+func (m *mockAPIStore) ListProjectMembers(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error) {
+	if m.listProjectMembersFn != nil {
+		return m.listProjectMembersFn(ctx, projectID)
+	}
 	return nil, nil
 }
 

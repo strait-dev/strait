@@ -6132,3 +6132,326 @@ func TestUpdateJob_GeneratesNewVersionID(t *testing.T) {
 		t.Fatal("new VersionID should not be empty")
 	}
 }
+
+// --- Workflow version ID + created_by tests ---
+
+func TestCreateWorkflow_SetsVersionID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	w := &domain.Workflow{
+		ProjectID: "proj-wf-vid",
+		Name:      "wf-test",
+		Slug:      "wf-test",
+		Enabled:   true,
+		CreatedBy: "user-wf-creator",
+	}
+	if err := q.CreateWorkflow(ctx, w); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+	if w.VersionID == "" {
+		t.Fatal("workflow.VersionID should be set after create")
+	}
+	if w.VersionPolicy != domain.VersionPolicyPin {
+		t.Fatalf("workflow.VersionPolicy = %q, want %q", w.VersionPolicy, domain.VersionPolicyPin)
+	}
+
+	got, err := q.GetWorkflow(ctx, w.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflow() error = %v", err)
+	}
+	if got.VersionID != w.VersionID {
+		t.Fatalf("read back VersionID = %q, want %q", got.VersionID, w.VersionID)
+	}
+	if got.CreatedBy != "user-wf-creator" {
+		t.Fatalf("read back CreatedBy = %q, want %q", got.CreatedBy, "user-wf-creator")
+	}
+}
+
+func TestUpdateWorkflow_GeneratesNewVersionID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	w := &domain.Workflow{
+		ProjectID: "proj-wf-vid-upd",
+		Name:      "wf-upd",
+		Slug:      "wf-upd",
+		Enabled:   true,
+	}
+	if err := q.CreateWorkflow(ctx, w); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+	oldVersionID := w.VersionID
+
+	w.Name = "wf-updated"
+	w.UpdatedBy = "user-updater"
+	if err := q.UpdateWorkflow(ctx, w); err != nil {
+		t.Fatalf("UpdateWorkflow() error = %v", err)
+	}
+
+	if w.VersionID == oldVersionID {
+		t.Fatal("VersionID should change after update")
+	}
+	if w.VersionID == "" {
+		t.Fatal("new VersionID should not be empty")
+	}
+	if w.Version != 2 {
+		t.Fatalf("version = %d, want 2", w.Version)
+	}
+}
+
+func TestCreateJob_DefaultVersionPolicy(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "proj-vpol")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	got, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	if got.VersionPolicy != domain.VersionPolicyPin {
+		t.Fatalf("VersionPolicy = %q, want %q", got.VersionPolicy, domain.VersionPolicyPin)
+	}
+}
+
+// --- DeleteResourcePolicy sentinel test ---
+
+func TestDeleteResourcePolicy_NotFound(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	err := q.DeleteResourcePolicy(ctx, "nonexistent-policy-id")
+	if !errors.Is(err, store.ErrResourcePolicyNotFound) {
+		t.Fatalf("DeleteResourcePolicy() = %v, want ErrResourcePolicyNotFound", err)
+	}
+}
+
+// --- RemoveMemberRole sentinel test ---
+
+func TestRemoveMemberRole_NotFound(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	err := q.RemoveMemberRole(ctx, "proj-nonexistent", "user-nonexistent")
+	if !errors.Is(err, store.ErrMemberNotFound) {
+		t.Fatalf("RemoveMemberRole() = %v, want ErrMemberNotFound", err)
+	}
+}
+
+// --- UpdateProjectRole integration test ---
+
+func TestUpdateProjectRole(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-update-role",
+		Name:        "deployer",
+		Description: "Original",
+		Permissions: []string{"jobs:write"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	role.Name = "deployer-v2"
+	role.Description = "Updated"
+	role.Permissions = []string{"jobs:write", "jobs:trigger"}
+	if err := q.UpdateProjectRole(ctx, role); err != nil {
+		t.Fatalf("UpdateProjectRole() error = %v", err)
+	}
+
+	got, err := q.GetProjectRole(ctx, role.ID)
+	if err != nil {
+		t.Fatalf("GetProjectRole() error = %v", err)
+	}
+	if got.Name != "deployer-v2" {
+		t.Fatalf("Name = %q, want %q", got.Name, "deployer-v2")
+	}
+	if len(got.Permissions) != 2 {
+		t.Fatalf("len(Permissions) = %d, want 2", len(got.Permissions))
+	}
+}
+
+func TestUpdateProjectRole_SystemRoleBlocked(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-sys-update",
+		Name:        "sys-admin",
+		Permissions: []string{"*"},
+		IsSystem:    true,
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	role.Name = "hacked"
+	err := q.UpdateProjectRole(ctx, role)
+	if !errors.Is(err, store.ErrRoleNotFound) {
+		t.Fatalf("UpdateProjectRole(system) = %v, want ErrRoleNotFound", err)
+	}
+}
+
+// --- ListProjectMembers test ---
+
+func TestListProjectMembers(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-list-members",
+		Name:        "viewer",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	for _, userID := range []string{"user-a", "user-b", "user-c"} {
+		m := &domain.ProjectMemberRole{
+			ProjectID: "proj-list-members",
+			UserID:    userID,
+			RoleID:    role.ID,
+		}
+		if err := q.AssignMemberRole(ctx, m); err != nil {
+			t.Fatalf("AssignMemberRole(%s) error = %v", userID, err)
+		}
+	}
+
+	members, err := q.ListProjectMembers(ctx, "proj-list-members")
+	if err != nil {
+		t.Fatalf("ListProjectMembers() error = %v", err)
+	}
+	if len(members) != 3 {
+		t.Fatalf("len(members) = %d, want 3", len(members))
+	}
+}
+
+// --- Tags query tests ---
+
+func TestListJobsByTag_KeyOnly(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "proj-tags-key")
+	job.Tags = map[string]string{"env": "prod", "team": "backend"}
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	// Search by key only (any value)
+	jobs, err := q.ListJobsByTag(ctx, "proj-tags-key", "env", "", 50, nil)
+	if err != nil {
+		t.Fatalf("ListJobsByTag(key-only) error = %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("len(jobs) = %d, want 1", len(jobs))
+	}
+
+	// Key doesn't exist
+	jobs2, err := q.ListJobsByTag(ctx, "proj-tags-key", "missing", "", 50, nil)
+	if err != nil {
+		t.Fatalf("ListJobsByTag(missing key) error = %v", err)
+	}
+	if len(jobs2) != 0 {
+		t.Fatalf("len(jobs) = %d, want 0", len(jobs2))
+	}
+}
+
+func TestListJobsByTag_KeyValue(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job1 := baseJob(newID(), "proj-tags-kv")
+	job1.Tags = map[string]string{"env": "prod"}
+	if err := q.CreateJob(ctx, job1); err != nil {
+		t.Fatalf("CreateJob(1) error = %v", err)
+	}
+
+	job2 := baseJob(newID(), "proj-tags-kv")
+	job2.Tags = map[string]string{"env": "staging"}
+	if err := q.CreateJob(ctx, job2); err != nil {
+		t.Fatalf("CreateJob(2) error = %v", err)
+	}
+
+	jobs, err := q.ListJobsByTag(ctx, "proj-tags-kv", "env", "prod", 50, nil)
+	if err != nil {
+		t.Fatalf("ListJobsByTag() error = %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("len(jobs) = %d, want 1", len(jobs))
+	}
+	if jobs[0].ID != job1.ID {
+		t.Fatalf("got job %q, want %q", jobs[0].ID, job1.ID)
+	}
+}
+
+func TestListWorkflowsByTag(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	w := &domain.Workflow{
+		ProjectID: "proj-wf-tags",
+		Name:      "tagged-wf",
+		Slug:      "tagged-wf",
+		Enabled:   true,
+		Tags:      map[string]string{"service": "payments"},
+	}
+	if err := q.CreateWorkflow(ctx, w); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	workflows, err := q.ListWorkflowsByTag(ctx, "proj-wf-tags", "service", "payments", 50, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowsByTag() error = %v", err)
+	}
+	if len(workflows) != 1 {
+		t.Fatalf("len(workflows) = %d, want 1", len(workflows))
+	}
+
+	// Wrong value
+	workflows2, err := q.ListWorkflowsByTag(ctx, "proj-wf-tags", "service", "wrong", 50, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowsByTag(wrong value) error = %v", err)
+	}
+	if len(workflows2) != 0 {
+		t.Fatalf("len(workflows) = %d, want 0", len(workflows2))
+	}
+}
+
+func TestJobEmptyTags(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "proj-empty-tags")
+	// No tags set (nil)
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	got, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	if got.Tags != nil {
+		t.Fatalf("expected nil tags, got %v", got.Tags)
+	}
+}
