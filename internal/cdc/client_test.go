@@ -335,27 +335,40 @@ func TestClientAckAuthHeaderSent(t *testing.T) {
 
 func TestClientNackSuccess(t *testing.T) {
 	t.Parallel()
+	handlerErr := make(chan string, 1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/http_pull_consumers/consumer-nack/nack" {
-			t.Fatalf("path = %q, want %q", r.URL.Path, "/api/http_pull_consumers/consumer-nack/nack")
+			handlerErr <- "path = " + r.URL.Path
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
 		}
 		if r.Method != http.MethodPost {
-			t.Fatalf("method = %q, want %q", r.Method, http.MethodPost)
+			handlerErr <- "method = " + r.Method
+			http.Error(w, "bad method", http.StatusBadRequest)
+			return
 		}
 		if r.Header.Get("Content-Type") != "application/json" {
-			t.Fatalf("Content-Type = %q, want %q", r.Header.Get("Content-Type"), "application/json")
+			handlerErr <- "Content-Type = " + r.Header.Get("Content-Type")
+			http.Error(w, "bad content-type", http.StatusBadRequest)
+			return
 		}
 		if r.Header.Get("Authorization") != "Bearer token-nack" {
-			t.Fatalf("Authorization = %q, want %q", r.Header.Get("Authorization"), "Bearer token-nack")
+			handlerErr <- "Authorization = " + r.Header.Get("Authorization")
+			http.Error(w, "bad auth", http.StatusBadRequest)
+			return
 		}
 
 		var reqBody map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-			t.Fatalf("decode request body: %v", err)
+			handlerErr <- "decode: " + err.Error()
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
 		}
 		ackIDs, ok := reqBody["ack_ids"].([]any)
 		if !ok || len(ackIDs) != 2 {
-			t.Fatalf("ack_ids = %v, want two ids", reqBody["ack_ids"])
+			handlerErr <- "bad ack_ids"
+			http.Error(w, "bad ack_ids", http.StatusBadRequest)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -364,6 +377,11 @@ func TestClientNackSuccess(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-nack", "token-nack")
 	if err := client.Nack(context.Background(), []string{"n1", "n2"}); err != nil {
 		t.Fatalf("Nack returned error: %v", err)
+	}
+	select {
+	case msg := <-handlerErr:
+		t.Fatalf("handler error: %s", msg)
+	default:
 	}
 }
 
