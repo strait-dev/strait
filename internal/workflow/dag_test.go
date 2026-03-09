@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func TestValidateDAG(t *testing.T) {

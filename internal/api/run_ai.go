@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
 )

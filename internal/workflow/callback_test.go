@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
+	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func newTestCallback(ms *mockCallbackStore) *StepCallback {

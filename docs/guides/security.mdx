@@ -1,9 +1,9 @@
 ---
 title: "Security"
-description: "Security features and protections implemented in the orchestrator."
+description: "Security features and protections implemented in the strait."
 ---
 
-The orchestrator includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
+The strait includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
 
 ## SSRF Protection
 
@@ -27,7 +27,7 @@ To further restrict outbound traffic, only a specific set of standard and common
 
 ## Rate Limiting
 
-The orchestrator implements rate limiting at two levels using the `httprate` middleware.
+The strait implements rate limiting at two levels using the `httprate` middleware.
 
 ### Global Rate Limit
 Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This limits the total number of requests a single IP can make within the `RATE_LIMIT_WINDOW`.
@@ -62,5 +62,5 @@ The system uses a strict approach to input:
 - **Constant-Time Comparison**: Used for internal secret validation to prevent timing attacks.
 
 <Note>
-  Security is a shared responsibility. While the orchestrator provides these protections, ensure your job endpoints also implement proper authentication and input validation.
+  Security is a shared responsibility. While the strait provides these protections, ensure your job endpoints also implement proper authentication and input validation.
 </Note>

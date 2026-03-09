@@ -76,7 +76,7 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) poll(ctx context.Context) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cdc.poll")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.poll")
 	defer span.End()
 
 	messages, err := c.client.Receive(ctx, c.config.BatchSize, c.config.WaitTimeMs)

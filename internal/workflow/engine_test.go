@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
-	"orchestrator/internal/testutil"
+	"strait/internal/domain"
+	"strait/internal/store"
+	"strait/internal/testutil"
 )
 
 type mockEngineStore struct {

@@ -1,4 +1,4 @@
-// Package client provides an HTTP client for the orchestrator REST API.
+// Package client provides an HTTP client for the strait REST API.
 // It handles authentication, JSON encoding/decoding, retry with exponential
 // backoff for transient failures, and structured error responses.
 package client

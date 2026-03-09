@@ -8,7 +8,7 @@ import (
 )
 
 func (q *Queries) CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflowRunLabels")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunLabels")
 	defer span.End()
 
 	if len(labels) == 0 {
@@ -30,7 +30,7 @@ func (q *Queries) CreateWorkflowRunLabels(ctx context.Context, workflowRunID str
 }
 
 func (q *Queries) ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowRunLabels")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRunLabels")
 	defer span.End()
 
 	rows, err := q.db.Query(ctx,

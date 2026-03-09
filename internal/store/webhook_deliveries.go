@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +15,7 @@ import (
 )
 
 func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWebhookDelivery")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWebhookDelivery")
 	defer span.End()
 
 	if d.ID == "" {
@@ -34,7 +34,7 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 }
 
 func (q *Queries) UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateWebhookDelivery")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateWebhookDelivery")
 	defer span.End()
 
 	query := `
@@ -51,7 +51,7 @@ func (q *Queries) UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 }
 
 func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWebhookDelivery")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWebhookDelivery")
 	defer span.End()
 
 	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
@@ -69,7 +69,7 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.We
 }
 
 func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWebhookDeliveries")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWebhookDeliveries")
 	defer span.End()
 
 	baseQuery := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
@@ -112,7 +112,7 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status s
 }
 
 func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListPendingWebhookRetries")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListPendingWebhookRetries")
 	defer span.End()
 
 	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,

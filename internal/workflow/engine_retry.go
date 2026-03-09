@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
@@ -95,7 +95,7 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 	ctx context.Context,
 	originalRunID string,
 ) (*domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "workflow.RetryWorkflowRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.RetryWorkflowRun")
 	defer span.End()
 
 	// 1. Fetch the original workflow run.

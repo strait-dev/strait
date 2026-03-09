@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/spf13/viper"
 )

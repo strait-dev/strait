@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"

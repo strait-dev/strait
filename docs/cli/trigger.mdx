@@ -3,7 +3,7 @@ title: "Triggering Jobs"
 description: "Trigger jobs and bulk trigger jobs from the CLI."
 ---
 
-## orchestrator trigger
+## strait trigger
 
 Shortcut for `jobs trigger`. Resolves job by ID first, then by slug (requires `--project` for slug resolution).
 
@@ -18,17 +18,17 @@ Shortcut for `jobs trigger`. Resolves job by ID first, then by slug (requires `-
 
 Trigger by ID with inline payload:
 ```bash
-orchestrator trigger job_123 --payload '{"key": "value"}'
+strait trigger job_123 --payload '{"key": "value"}'
 ```
 
 Trigger by slug with payload from file:
 ```bash
-orchestrator trigger my-job-slug --project my-project --payload-file payload.json
+strait trigger my-job-slug --project my-project --payload-file payload.json
 ```
 
 Trigger with payload from stdin:
 ```bash
-echo '{"key": "value"}' | orchestrator trigger job_123 --payload -
+echo '{"key": "value"}' | strait trigger job_123 --payload -
 ```
 
 ## jobs trigger
@@ -44,7 +44,7 @@ Trigger a job with full options.
 | --idempotency-key | string | | Key to ensure the job is triggered only once |
 
 ```bash
-orchestrator jobs trigger job_123 --scheduled-at "2026-03-07T12:00:00Z"
+strait jobs trigger job_123 --scheduled-at "2026-03-07T12:00:00Z"
 ```
 
 ## jobs trigger-bulk
@@ -57,5 +57,5 @@ Trigger multiple instances of a job.
 | --items-file | string | | Path to a file containing a JSON array of payloads |
 
 ```bash
-orchestrator jobs trigger-bulk job_123 --items-file batch.json
+strait jobs trigger-bulk job_123 --items-file batch.json
 ```

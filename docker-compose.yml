@@ -4,13 +4,13 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: orchestrator
-      POSTGRES_PASSWORD: orchestrator
-      POSTGRES_DB: orchestrator
+      POSTGRES_USER: strait
+      POSTGRES_PASSWORD: strait
+      POSTGRES_DB: strait
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orchestrator"]
+      test: ["CMD-SHELL", "pg_isready -U strait"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,9 +32,9 @@ services:
     environment:
       PG_HOSTNAME: postgres
       PG_PORT: "5432"
-      PG_USERNAME: orchestrator
-      PG_PASSWORD: orchestrator
-      PG_DATABASE: orchestrator
+      PG_USERNAME: strait
+      PG_PASSWORD: strait
+      PG_DATABASE: strait
       SECRET_KEY_BASE: "tONJRnB3NMPNPSbvLsKzE/r6lklVO+04MfFNWPBzBtBt2G5H0rrn8bwdHcRXiSQ3"
       VAULT_KEY: "Gw1VfMPCshBaUeXrOvIPFTVtW/d5xlv93F7BPfVo7Ys="
     depends_on:

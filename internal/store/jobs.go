@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,7 +16,7 @@ import (
 )
 
 func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJob")
 	defer span.End()
 
 	if job.ID == "" {
@@ -82,7 +82,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 }
 
 func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJob")
 	defer span.End()
 
 	query := `
@@ -105,7 +105,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 }
 
 func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobBySlug")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobBySlug")
 	defer span.End()
 
 	query := `
@@ -128,7 +128,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 }
 
 func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobs")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobs")
 	defer span.End()
 
 	query := `
@@ -174,7 +174,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 }
 
 func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJob")
 	defer span.End()
 
 	query := `
@@ -265,7 +265,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 }
 
 func (q *Queries) DeleteJob(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJob")
 	defer span.End()
 
 	query := `DELETE FROM jobs WHERE id = $1`
@@ -278,7 +278,7 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 }
 
 func (q *Queries) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.BatchUpdateJobsEnabled")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BatchUpdateJobsEnabled")
 	defer span.End()
 
 	if len(ids) == 0 {
@@ -295,7 +295,7 @@ func (q *Queries) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enab
 }
 
 func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListCronJobs")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListCronJobs")
 	defer span.End()
 
 	query := `
@@ -330,7 +330,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 }
 
 func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetProjectQuota")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetProjectQuota")
 	defer span.End()
 
 	query := `
@@ -384,7 +384,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 }
 
 func (q *Queries) CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CountProjectQueuedRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountProjectQueuedRuns")
 	defer span.End()
 
 	query := `
@@ -401,7 +401,7 @@ func (q *Queries) CountProjectQueuedRuns(ctx context.Context, projectID string) 
 }
 
 func (q *Queries) CountProjectActiveRuns(ctx context.Context, projectID string) (int, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CountProjectActiveRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountProjectActiveRuns")
 	defer span.End()
 
 	query := `
@@ -540,7 +540,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 }
 
 func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobsByTag")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobsByTag")
 	defer span.End()
 
 	base := `

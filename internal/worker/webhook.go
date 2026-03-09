@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -191,7 +191,7 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 }
 
 func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) WebhookResult {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "webhook.Deliver")
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.Deliver")
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("webhook.run_id", run.ID),
@@ -244,7 +244,7 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 }
 
 func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun) WebhookResult {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "webhook.Deliver")
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.Deliver")
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("webhook.run_id", run.ID),

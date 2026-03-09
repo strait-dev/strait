@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/worker"
+	"strait/internal/domain"
+	"strait/internal/worker"
 )
 
 func (s *StepCallback) checkStepRetry(ctx context.Context, stepRun *domain.WorkflowStepRun, _ *domain.JobRun) (bool, time.Time, int, error) {

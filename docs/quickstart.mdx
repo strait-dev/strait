@@ -1,9 +1,9 @@
 ---
 title: "Quick Start"
-description: "Get orchestrator up and running in minutes."
+description: "Get strait up and running in minutes."
 ---
 
-Follow these steps to set up orchestrator locally and run your first job. You'll have a production-grade job orchestrator running in under 10 minutes.
+Follow these steps to set up strait locally and run your first job. You'll have a production-grade job strait running in under 10 minutes.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ Before you begin, ensure you have:
 
 <Steps>
   <Step title="Go 1.26+">
-    Required to build and run orchestrator from source. Verify with `go version`. Download from [golang.org/dl](https://golang.org/dl).
+    Required to build and run strait from source. Verify with `go version`. Download from [golang.org/dl](https://golang.org/dl).
   </Step>
   <Step title="Docker and Docker Compose">
     Required to run PostgreSQL, Redis, and Sequin locally. Verify with `docker --version` and `docker compose version`. Download from [docker.com](https://www.docker.com/products/docker-desktop).
@@ -24,13 +24,13 @@ Before you begin, ensure you have:
 ## Step 1: Clone and Start Infrastructure
 
 <Info>
-Docker Compose will start PostgreSQL 18, Redis 8, and Sequin in isolated containers. Ports exposed: PostgreSQL (5432), Redis (6379), Orchestrator API (8080).
+Docker Compose will start PostgreSQL 18, Redis 8, and Sequin in isolated containers. Ports exposed: PostgreSQL (5432), Redis (6379), Strait API (8080).
 </Info>
 
 ```bash
 # Clone the repository
-git clone https://github.com/leonardomso/orchestrator.git
-cd orchestrator
+git clone https://github.com/leonardomso/strait.git
+cd strait
 
 # Start all services
 docker compose up -d
@@ -42,7 +42,7 @@ docker compose ps
 Expected output:
 ```
 NAME              STATUS
-orchestrator      Up
+strait      Up
 postgres           Up
 redis             Up
 sequin            Up
@@ -62,15 +62,15 @@ sequin            Up
 
 ## Step 2: Set Environment Variables
 
-Configure necessary environment variables for orchestrator to connect to infrastructure.
+Configure necessary environment variables for strait to connect to infrastructure.
 
 <Info>
-The orchestrator validates required environment variables on startup. Missing variables cause a clear error message with configuration instructions.
+The strait validates required environment variables on startup. Missing variables cause a clear error message with configuration instructions.
 </Info>
 
 ```bash
 # Database connection - required
-export DATABASE_URL=postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
 
 # Redis connection - required
 export REDIS_URL=redis://localhost:6379
@@ -101,16 +101,16 @@ export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
 **Solution**: Generate a secure key with at least 32 characters: `openssl rand -base64 32` or use a password manager.
 </Troubleshoot>
 
-## Step 3: Build and Run Orchestrator
+## Step 3: Build and Run Strait
 
-Build the orchestrator binary and start it in `all` mode (API + worker combined).
+Build the strait binary and start it in `all` mode (API + worker combined).
 
 ```bash
 # Build from source
-go build -o orchestrator ./cmd/orchestrator
+go build -o strait ./cmd/strait
 
 # Run in all mode (API + worker in one process)
-./orchestrator --mode all
+./strait --mode all
 ```
 
 <Info>
@@ -166,8 +166,8 @@ Jobs are the core unit of work. They define the endpoint URL, timeout, retry str
   ```
 
   ```bash CLI
-  # Using the orchestrator CLI (recommended)
-  ./orchestrator jobs create \
+  # Using the strait CLI (recommended)
+  ./strait jobs create \
     --name "Hello World" \
     --slug "hello-world" \
     --endpoint "https://httpbin.org/post" \
@@ -194,7 +194,7 @@ Expected response:
 
 ## Step 5: Trigger a Job
 
-Trigger a run for the job you just created. The orchestrator will enqueue the run and a worker will dispatch it to the endpoint.
+Trigger a run for the job you just created. The strait will enqueue the run and a worker will dispatch it to the endpoint.
 
 ```bash
 # Trigger with a payload
@@ -203,7 +203,7 @@ curl -X POST http://localhost:8080/v1/jobs/hello-world/trigger \
   -H "Content-Type: application/json" \
   -d '{
     "payload": {
-      "greeting": "Hello from Orchestrator!"
+      "greeting": "Hello from Strait!"
     }
   }'
 ```
@@ -246,7 +246,7 @@ curl http://localhost:8080/v1/runs/run_xyz789 \
   -H "Authorization: Bearer your-secret-here"
 
 # Or use the CLI watch command
-./orchestrator runs watch run_xyz789
+./strait runs watch run_xyz789
 ```
 
 Run lifecycle states: `queued` → `dequeued` → `executing` → `completed` or `failed`.
@@ -285,7 +285,7 @@ curl -X POST http://localhost:8080/v1/workflows \
 ```
 
 <Info>
-**Workflow Execution**: When triggered, the orchestrator creates a `workflow_run`. Step `extract` executes first, then `transform` executes only after `extract` completes. The DAG engine handles fan-in automatically when multiple steps depend on the same parent.
+**Workflow Execution**: When triggered, the strait creates a `workflow_run`. Step `extract` executes first, then `transform` executes only after `extract` completes. The DAG engine handles fan-in automatically when multiple steps depend on the same parent.
 </Info>
 
 ## Troubleshooting
@@ -293,7 +293,7 @@ curl -X POST http://localhost:8080/v1/workflows \
 <Steps>
   <Step title="PostgreSQL Connection Issues">
     <Details>
-      **Symptoms**: `connection refused`, `no such host`, or timeout errors in orchestrator logs.
+      **Symptoms**: `connection refused`, `no such host`, or timeout errors in strait logs.
       **Checks**: `docker compose ps postgres`, `docker compose logs postgres`, verify `DATABASE_URL` matches container credentials.
       **Fix**: Ensure PostgreSQL container is healthy, check network connectivity, verify port 5432 is not blocked by firewall.
     </Details>
@@ -301,8 +301,8 @@ curl -X POST http://localhost:8080/v1/workflows \
   <Step title="Job Not Picked Up">
     <Details>
       **Symptoms**: Run stuck in `queued` state for extended time.
-      **Checks**: Worker pool status (`orchestrator stats`), check for worker errors in logs, verify `--mode all` includes worker.
-      **Fix**: Worker may have crashed—check logs, restart orchestrator, verify DATABASE_URL and REDIS_URL are set correctly.
+      **Checks**: Worker pool status (`strait stats`), check for worker errors in logs, verify `--mode all` includes worker.
+      **Fix**: Worker may have crashed—check logs, restart strait, verify DATABASE_URL and REDIS_URL are set correctly.
     </Details>
   </Step>
   <Step title="Endpoint Timeouts">
@@ -343,7 +343,7 @@ curl -X POST http://localhost:8080/v1/workflows \
 </Warning>
 
 <Warning>
-**Mistake 4: Not checking worker pool capacity.** Monitor queue depth with `orchestrator stats`. If jobs are queuing faster than workers can process, increase pool size via `WORKER_POOL_SIZE` environment variable.
+**Mistake 4: Not checking worker pool capacity.** Monitor queue depth with `strait stats`. If jobs are queuing faster than workers can process, increase pool size via `WORKER_POOL_SIZE` environment variable.
 </Warning>
 
 ## What's Next?

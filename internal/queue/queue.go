@@ -3,7 +3,7 @@ package queue
 import (
 	"context"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 type Queue interface {

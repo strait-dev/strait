@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,7 +19,7 @@ import (
 )
 
 func (q *Queries) CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflowStepRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowStepRun")
 	defer span.End()
 
 	if sr.ID == "" {
@@ -65,7 +65,7 @@ func (q *Queries) CreateWorkflowStepRun(ctx context.Context, sr *domain.Workflow
 }
 
 func (q *Queries) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflowStepRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowStepRun")
 	defer span.End()
 
 	query := `
@@ -86,7 +86,7 @@ func (q *Queries) GetWorkflowStepRun(ctx context.Context, id string) (*domain.Wo
 }
 
 func (q *Queries) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetStepRunByJobRunID")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetStepRunByJobRunID")
 	defer span.End()
 
 	query := `
@@ -107,7 +107,7 @@ func (q *Queries) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*d
 }
 
 func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStepRunsByWorkflowRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStepRunsByWorkflowRun")
 	defer span.End()
 
 	query := `
@@ -151,7 +151,7 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 }
 
 func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateStepRunStatus")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateStepRunStatus")
 	defer span.End()
 
 	allowedColumns := map[string]struct{}{
@@ -208,7 +208,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 }
 
 func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]StepDepResult, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.IncrementStepDeps")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.IncrementStepDeps")
 	defer span.End()
 
 	query := `
@@ -261,7 +261,7 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 }
 
 func (q *Queries) IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.IncrementStepRunAttempt")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.IncrementStepRunAttempt")
 	defer span.End()
 
 	query := `
@@ -281,7 +281,7 @@ func (q *Queries) IncrementStepRunAttempt(ctx context.Context, id string, newAtt
 }
 
 func (q *Queries) GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetStepOutputs")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetStepOutputs")
 	defer span.End()
 
 	query := `

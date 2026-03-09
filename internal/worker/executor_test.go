@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/queue"
-	orcstore "orchestrator/internal/store"
-	"orchestrator/internal/testutil"
+	"strait/internal/domain"
+	"strait/internal/queue"
+	orcstore "strait/internal/store"
+	"strait/internal/testutil"
 )
 
 type statusUpdateCall struct {

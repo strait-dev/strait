@@ -63,7 +63,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	meter := otel.Meter(serviceName)
 
 	runTransitions, err := meter.Int64Counter(
-		"orchestrator.run.transitions",
+		"strait.run.transitions",
 		metric.WithDescription("Total run status transitions"),
 		metric.WithUnit("1"),
 	)
@@ -72,7 +72,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	dequeueDuration, err := meter.Float64Histogram(
-		"orchestrator.dequeue.duration",
+		"strait.dequeue.duration",
 		metric.WithDescription("Duration of dequeue operations"),
 		metric.WithUnit("s"),
 	)
@@ -81,7 +81,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	dispatchDuration, err := meter.Float64Histogram(
-		"orchestrator.dispatch.duration",
+		"strait.dispatch.duration",
 		metric.WithDescription("Duration of HTTP dispatch operations"),
 		metric.WithUnit("s"),
 	)
@@ -90,7 +90,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	dispatchErrors, err := meter.Int64Counter(
-		"orchestrator.dispatch.errors",
+		"strait.dispatch.errors",
 		metric.WithDescription("Total dispatch errors"),
 		metric.WithUnit("1"),
 	)
@@ -99,7 +99,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	executionTraceDispatch, err := meter.Float64Histogram(
-		"orchestrator.execution.trace.dispatch_duration",
+		"strait.execution.trace.dispatch_duration",
 		metric.WithDescription("HTTP dispatch roundtrip duration from execution trace"),
 		metric.WithUnit("ms"),
 	)
@@ -108,7 +108,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	executionTraceQueueWait, err := meter.Float64Histogram(
-		"orchestrator.execution.trace.queue_wait_duration",
+		"strait.execution.trace.queue_wait_duration",
 		metric.WithDescription("Queue wait duration from execution trace"),
 		metric.WithUnit("ms"),
 	)
@@ -117,7 +117,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	poolRunning, err := meter.Int64ObservableGauge(
-		"orchestrator.pool.running_workers",
+		"strait.pool.running_workers",
 		metric.WithDescription("Number of goroutines currently executing tasks"),
 		metric.WithUnit("1"),
 	)
@@ -126,7 +126,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	poolWaiting, err := meter.Int64ObservableGauge(
-		"orchestrator.pool.waiting_tasks",
+		"strait.pool.waiting_tasks",
 		metric.WithDescription("Number of tasks waiting in the pool queue"),
 		metric.WithUnit("1"),
 	)
@@ -135,7 +135,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	poolSubmitted, err := meter.Int64ObservableCounter(
-		"orchestrator.pool.submitted_tasks",
+		"strait.pool.submitted_tasks",
 		metric.WithDescription("Total tasks submitted to the pool"),
 		metric.WithUnit("1"),
 	)
@@ -144,7 +144,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	poolCompleted, err := meter.Int64ObservableCounter(
-		"orchestrator.pool.completed_tasks",
+		"strait.pool.completed_tasks",
 		metric.WithDescription("Total tasks that finished (success or failure)"),
 		metric.WithUnit("1"),
 	)
@@ -153,7 +153,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	poolSuccessful, err := meter.Int64ObservableCounter(
-		"orchestrator.pool.successful_tasks",
+		"strait.pool.successful_tasks",
 		metric.WithDescription("Total tasks that completed without error"),
 		metric.WithUnit("1"),
 	)
@@ -162,7 +162,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	poolFailed, err := meter.Int64ObservableCounter(
-		"orchestrator.pool.failed_tasks",
+		"strait.pool.failed_tasks",
 		metric.WithDescription("Total tasks that panicked or returned error"),
 		metric.WithUnit("1"),
 	)
@@ -171,7 +171,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	poolDropped, err := meter.Int64ObservableCounter(
-		"orchestrator.pool.dropped_tasks",
+		"strait.pool.dropped_tasks",
 		metric.WithDescription("Total tasks dropped because pool was stopped"),
 		metric.WithUnit("1"),
 	)

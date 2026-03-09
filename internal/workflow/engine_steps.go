@@ -10,7 +10,7 @@ import (
 	"slices"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
@@ -22,7 +22,7 @@ func (e *WorkflowEngine) startStep(
 	wfRun *domain.WorkflowRun,
 	mergedPayload json.RawMessage,
 ) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "workflow.startStep")
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.startStep")
 	defer span.End()
 
 	now := time.Now()

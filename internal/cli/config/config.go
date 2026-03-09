@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	localConfigName = ".orchestrator.yaml"
-	serviceDirName  = "orchestrator"
+	localConfigName = ".strait.yaml"
+	serviceDirName  = "strait"
 	configFileName  = "config.yaml"
 )
 
@@ -126,7 +126,7 @@ func Resolve(input ResolveInput) Resolved {
 	normalize(cfg)
 
 	active := cfg.ActiveContext
-	if envContext := strings.TrimSpace(input.Env["ORCHESTRATOR_CONTEXT"]); envContext != "" {
+	if envContext := strings.TrimSpace(input.Env["STRAIT_CONTEXT"]); envContext != "" {
 		active = envContext
 	}
 	if input.ContextOverride != "" {
@@ -134,10 +134,10 @@ func Resolve(input ResolveInput) Resolved {
 	}
 
 	resolved := Resolved{
-		ServerURL:   strings.TrimSpace(input.Env["ORCHESTRATOR_SERVER"]),
-		Credential:  strings.TrimSpace(input.Env["ORCHESTRATOR_API_KEY"]),
-		ProjectID:   strings.TrimSpace(input.Env["ORCHESTRATOR_PROJECT"]),
-		Format:      strings.TrimSpace(input.Env["ORCHESTRATOR_FORMAT"]),
+		ServerURL:   strings.TrimSpace(input.Env["STRAIT_SERVER"]),
+		Credential:  strings.TrimSpace(input.Env["STRAIT_API_KEY"]),
+		ProjectID:   strings.TrimSpace(input.Env["STRAIT_PROJECT"]),
+		Format:      strings.TrimSpace(input.Env["STRAIT_FORMAT"]),
 		ContextName: active,
 		NoColor:     input.BoolFlags["no-color"] || strings.TrimSpace(input.Env["NO_COLOR"]) != "",
 		Quiet:       input.BoolFlags["quiet"],

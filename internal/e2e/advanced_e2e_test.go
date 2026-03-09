@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func mustCleanAdv(t *testing.T) {
@@ -220,7 +220,7 @@ func TestE2E_APIKey_CreateAndList(t *testing.T) {
 	created := advDecodeMap(t, cw)
 	keyID := created["id"].(string)
 	rawKey := created["key"].(string)
-	if keyID == "" || !strings.HasPrefix(rawKey, "orc_") {
+	if keyID == "" || !strings.HasPrefix(rawKey, "strait_") {
 		t.Fatalf("unexpected key creation response: %#v", created)
 	}
 	if _, ok := created["key_prefix"]; !ok {

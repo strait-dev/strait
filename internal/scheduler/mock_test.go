@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/queue"
+	"strait/internal/domain"
+	"strait/internal/queue"
 )
 
 var _ queue.Queue = (*mockQueue)(nil)

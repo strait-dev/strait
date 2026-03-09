@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/config"
-	"orchestrator/internal/domain"
-	"orchestrator/internal/pubsub"
-	"orchestrator/internal/store"
-	"orchestrator/internal/testutil"
+	"strait/internal/config"
+	"strait/internal/domain"
+	"strait/internal/pubsub"
+	"strait/internal/store"
+	"strait/internal/testutil"
 )
 
 // decodePaginatedList decodes a PaginatedResponse body into the given slice pointer.

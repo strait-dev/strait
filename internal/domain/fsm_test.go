@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"orchestrator/internal/testutil"
+	"strait/internal/testutil"
 )
 
 func TestValidateTransition_AllValidTransitions(t *testing.T) {

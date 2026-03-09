@@ -14,7 +14,7 @@ Start the local development environment with Docker dependencies.
 | --seed | bool | false | Seed the database with initial data |
 
 ```bash
-orchestrator dev --seed
+strait dev --seed
 ```
 
 <Note>
@@ -31,7 +31,7 @@ The `dev` command automatically sets the following environment variables:
 Run local development readiness checks to ensure all dependencies are available.
 
 ```bash
-orchestrator dev status
+strait dev status
 ```
 
 ## init
@@ -45,12 +45,12 @@ Initialize project files and directory structure.
 | --template | string | minimal | Project template (minimal, full) |
 
 ```bash
-orchestrator init --name my-project --template full
+strait init --name my-project --template full
 ```
 
 <Note>
 This command creates the following files:
-- `.orchestrator.yaml`
+- `.strait.yaml`
 - `.env`
 - `docker-compose.yml`
 - `definitions/jobs.yaml`
@@ -66,7 +66,7 @@ Create fixture data for testing.
 | --template | string | minimal | Fixture template (minimal, full) |
 
 ```bash
-orchestrator fixtures create --template full
+strait fixtures create --template full
 ```
 
 ## fixtures clean
@@ -74,7 +74,7 @@ orchestrator fixtures create --template full
 Clean up fixture data from the database.
 
 ```bash
-orchestrator fixtures clean
+strait fixtures clean
 ```
 
 ## check
@@ -88,7 +88,7 @@ Validate manifests with deep checks, including endpoint connectivity.
 | --endpoint-timeout | duration | 3s | Timeout for endpoint checks |
 
 ```bash
-orchestrator check -f definitions/jobs.yaml --check-endpoints
+strait check -f definitions/jobs.yaml --check-endpoints
 ```
 
 ## validate
@@ -100,7 +100,7 @@ Validate manifest files for syntax and schema correctness without applying chang
 | --file, -f | string[] | | Manifest files to validate |
 
 ```bash
-orchestrator validate -f definitions/workflows.yaml
+strait validate -f definitions/workflows.yaml
 ```
 
 ## apply
@@ -113,12 +113,12 @@ Apply declarative definitions to the server.
 | --dry-run | bool | false | Show changes without applying them |
 
 ```bash
-orchestrator apply -f definitions/
+strait apply -f definitions/
 ```
 
 <Tip>
 You can pipe manifests via stdin using `-f -`:
-`cat manifest.yaml | orchestrator apply -f -`
+`cat manifest.yaml | strait apply -f -`
 </Tip>
 
 ## diff
@@ -130,7 +130,7 @@ Show differences between local manifests and the current server state.
 | --file, -f | string[] | | Manifest files to diff |
 
 ```bash
-orchestrator diff -f definitions/jobs.yaml
+strait diff -f definitions/jobs.yaml
 ```
 
 ## export
@@ -146,7 +146,7 @@ Export server state as YAML manifests.
 | --force-overwrite | bool | false | Overwrite existing files |
 
 ```bash
-orchestrator export --output-dir ./backup --project my-project
+strait export --output-dir ./backup --project my-project
 ```
 
 <Note>

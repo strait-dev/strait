@@ -8,7 +8,7 @@ description: "Commands for monitoring server health, resource usage, and run lif
 Show queue statistics including queued, executing, and delayed counts.
 
 ```bash
-orchestrator stats
+strait stats
 ```
 
 ## health
@@ -20,7 +20,7 @@ Check server health status.
 | --ready | bool | false | Checks Postgres and Redis connectivity |
 
 ```bash
-orchestrator health --ready
+strait health --ready
 ```
 
 ## top
@@ -38,7 +38,7 @@ Live resource usage statistics.
 Show queue depth metrics.
 
 ```bash
-orchestrator top queue --watch
+strait top queue --watch
 ```
 
 ### top jobs
@@ -46,7 +46,7 @@ orchestrator top queue --watch
 Show job execution metrics.
 
 ```bash
-orchestrator top jobs --interval 5s
+strait top jobs --interval 5s
 ```
 
 ## tui
@@ -61,7 +61,7 @@ Interactive terminal dashboard for real-time monitoring.
 | --event-limit | int | | Maximum number of events to display |
 
 ```bash
-orchestrator tui --project my-project
+strait tui --project my-project
 ```
 
 ## verify
@@ -69,7 +69,7 @@ orchestrator tui --project my-project
 Perform post-deployment verification checks to ensure the environment is correctly configured.
 
 ```bash
-orchestrator verify
+strait verify
 ```
 
 ## diagnose
@@ -82,7 +82,7 @@ General troubleshooting diagnostics.
 | --check-readiness | bool | false | Check if the system is ready for operations |
 
 ```bash
-orchestrator diagnose --verbose
+strait diagnose --verbose
 ```
 
 ### diagnose run
@@ -100,7 +100,7 @@ Diagnose a specific run by ID.
 | --event-limit | int | 50 | Maximum number of events to show |
 
 ```bash
-orchestrator diagnose run <run_id> --follow
+strait diagnose run <run_id> --follow
 ```
 
 ## listen
@@ -114,7 +114,7 @@ Watch for new runs in real time.
 | --interval | duration | 2s | Polling interval |
 
 ```bash
-orchestrator listen --project my-project --status executing
+strait listen --project my-project --status executing
 ```
 
 ## drain
@@ -131,7 +131,7 @@ The command exits with code 0 when the count reaches 0, and exits with code 1 if
 </Note>
 
 ```bash
-orchestrator drain --timeout 10m
+strait drain --timeout 10m
 ```
 
 ## trace
@@ -145,7 +145,7 @@ ASCII timeline visualization of a run lifecycle events.
 | --event-limit | int | 50 | Maximum number of events to visualize |
 
 ```bash
-orchestrator trace <run_id> --show-payload
+strait trace <run_id> --show-payload
 ```
 
 ## logs
@@ -162,7 +162,7 @@ View events for a specific run or project.
 | --interval | duration | 2s | Refresh interval |
 
 ```bash
-orchestrator logs --run <run_id> --follow
+strait logs --run <run_id> --follow
 ```
 
 ## events
@@ -176,5 +176,5 @@ Inspect run events.
 | --type | string | | Filter by event type |
 
 ```bash
-orchestrator events --run <run_id> --level error
+strait events --run <run_id> --level error
 ```

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/config"
-	"orchestrator/internal/domain"
+	"strait/internal/config"
+	"strait/internal/domain"
 )
 
 type mockSchedulerStore struct {

@@ -168,17 +168,17 @@ func TestHistogramRecording(t *testing.T) {
 	}
 }
 
-// TestOrchestratorMetricInstruments verifies all production metric instruments
+// TestStraitMetricInstruments verifies all production metric instruments
 // can be created and record values without error.
-func TestOrchestratorMetricInstruments(t *testing.T) {
+func TestStraitMetricInstruments(t *testing.T) {
 	t.Parallel()
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer func() { _ = provider.Shutdown(context.Background()) }()
 
-	meter := provider.Meter("orchestrator")
+	meter := provider.Meter("strait")
 
-	runTransitions, err := meter.Int64Counter("orchestrator.run.transitions",
+	runTransitions, err := meter.Int64Counter("strait.run.transitions",
 		metric.WithDescription("Total run status transitions"),
 		metric.WithUnit("1"),
 	)
@@ -186,7 +186,7 @@ func TestOrchestratorMetricInstruments(t *testing.T) {
 		t.Fatalf("Int64Counter(run.transitions) error = %v", err)
 	}
 
-	dequeueDuration, err := meter.Float64Histogram("orchestrator.dequeue.duration",
+	dequeueDuration, err := meter.Float64Histogram("strait.dequeue.duration",
 		metric.WithDescription("Duration of dequeue operations"),
 		metric.WithUnit("s"),
 	)
@@ -194,7 +194,7 @@ func TestOrchestratorMetricInstruments(t *testing.T) {
 		t.Fatalf("Float64Histogram(dequeue.duration) error = %v", err)
 	}
 
-	dispatchDuration, err := meter.Float64Histogram("orchestrator.dispatch.duration",
+	dispatchDuration, err := meter.Float64Histogram("strait.dispatch.duration",
 		metric.WithDescription("Duration of HTTP dispatch operations"),
 		metric.WithUnit("s"),
 	)
@@ -202,7 +202,7 @@ func TestOrchestratorMetricInstruments(t *testing.T) {
 		t.Fatalf("Float64Histogram(dispatch.duration) error = %v", err)
 	}
 
-	dispatchErrors, err := meter.Int64Counter("orchestrator.dispatch.errors",
+	dispatchErrors, err := meter.Int64Counter("strait.dispatch.errors",
 		metric.WithDescription("Total dispatch errors"),
 		metric.WithUnit("1"),
 	)

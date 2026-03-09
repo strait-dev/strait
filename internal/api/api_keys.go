@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -37,7 +37,7 @@ func generateAPIKey() (string, error) {
 		return "", fmt.Errorf("generate api key: %w", err)
 	}
 
-	return "orc_" + hex.EncodeToString(b), nil
+	return "strait_" + hex.EncodeToString(b), nil
 }
 
 func hashAPIKey(key string) string {

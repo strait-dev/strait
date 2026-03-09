@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/config"
-	"orchestrator/internal/domain"
-	"orchestrator/internal/health"
-	"orchestrator/internal/pubsub"
-	"orchestrator/internal/queue"
-	"orchestrator/internal/store"
+	"strait/internal/config"
+	"strait/internal/domain"
+	"strait/internal/health"
+	"strait/internal/pubsub"
+	"strait/internal/queue"
+	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -359,7 +359,7 @@ func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 	htmlContent, err := scalar.ApiReferenceHTML(&scalar.Options{
 		SpecContent: string(openapiSpec),
 		CustomOptions: scalar.CustomOptions{
-			PageTitle: "Orchestrator API",
+			PageTitle: "Strait API",
 		},
 		DarkMode: true,
 	})

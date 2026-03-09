@@ -1,9 +1,9 @@
 ---
 title: "Architecture"
-description: "Deep dive into orchestrator internals, design decisions, and component interactions."
+description: "Deep dive into strait internals, design decisions, and component interactions."
 ---
 
-The orchestrator is designed as a distributed job orchestrator that uses PostgreSQL as its primary state store and message queue.
+The strait is designed as a distributed job strait that uses PostgreSQL as its primary state store and message queue.
 
 ## System Overview
 
@@ -106,11 +106,11 @@ The core logic resides in `internal/` directory, organized into specialized pack
 
 **Why This Technology:**
 
-Go is ideal for a distributed job orchestrator because it combines enterprise-grade performance with operational simplicity. The single binary distribution eliminates runtime dependency management—no Python venvs, no node_modules, no container images required. This dramatically reduces deployment complexity and attack surface.
+Go is ideal for a distributed job strait because it combines enterprise-grade performance with operational simplicity. The single binary distribution eliminates runtime dependency management—no Python venvs, no node_modules, no container images required. This dramatically reduces deployment complexity and attack surface.
 
 Go's concurrency primitives—goroutines, channels, and the sync package—provide a robust foundation for parallel job execution without external dependencies. The worker pool can spin up hundreds of concurrent goroutines with minimal overhead, each handling independent job dispatches. Channels enable elegant coordination between the executor, scheduler, and background maintenance tasks without complex distributed coordination systems.
 
-For a job orchestrator, cold start performance matters. Go compiles to native code that starts instantly, crucial for rapid worker scaling during traffic spikes. Unlike interpreted languages, there's no JIT warmup period or garbage collection tuning needed at scale.
+For a job strait, cold start performance matters. Go compiles to native code that starts instantly, crucial for rapid worker scaling during traffic spikes. Unlike interpreted languages, there's no JIT warmup period or garbage collection tuning needed at scale.
 
 The standard library provides production-ready HTTP server, JSON handling, and cryptographic primitives without external dependencies. This reduces vulnerability surface and ensures long-term stability—critical infrastructure that won't be abandoned in 3 years.
 
@@ -150,7 +150,7 @@ Prepared statements are automatically used for repeated queries, reducing parsin
 
 **Why This Technology:**
 
-Chi is a lightweight, composable HTTP router that provides excellent performance with minimal allocations in the hot request path. For a job orchestrator API handling thousands of requests per second, memory allocation efficiency translates directly to better throughput and lower GC pressure.
+Chi is a lightweight, composable HTTP router that provides excellent performance with minimal allocations in the hot request path. For a job strait API handling thousands of requests per second, memory allocation efficiency translates directly to better throughput and lower GC pressure.
 
 The middleware chain composes independently—RequestID generation, real IP extraction, OTel tracing, request logging, panic recovery, rate limiting, and authentication can each be developed, tested, and debugged separately. This modularity enables adding cross-cutting concerns without modifying route handlers.
 
@@ -158,9 +158,9 @@ The middleware chain composes independently—RequestID generation, real IP extr
 
 **Why This Technology:**
 
-The `sourcegraph/conc` library provides panic-safe goroutine pools and context-aware execution patterns. In a job orchestrator, background goroutines handle scheduling, heartbeat monitoring, webhook dispatch, and retention cleanup. If any of these goroutines panic, `conc` automatically recovers and logs the stack trace without crashing the entire process.
+The `sourcegraph/conc` library provides panic-safe goroutine pools and context-aware execution patterns. In a job strait, background goroutines handle scheduling, heartbeat monitoring, webhook dispatch, and retention cleanup. If any of these goroutines panic, `conc` automatically recovers and logs the stack trace without crashing the entire process.
 
-Context-aware pools automatically cancel all work when the parent context is canceled. This is crucial for graceful shutdown—when the orchestrator receives SIGTERM, all in-flight operations complete before the process exits. Pools also enforce size limits, preventing unbounded goroutine spawns that could exhaust process memory under error conditions.
+Context-aware pools automatically cancel all work when the parent context is canceled. This is crucial for graceful shutdown—when the strait receives SIGTERM, all in-flight operations complete before the process exits. Pools also enforce size limits, preventing unbounded goroutine spawns that could exhaust process memory under error conditions.
 
 ### alitto/pond/v2 (Worker Pool)
 
@@ -174,7 +174,7 @@ The pool exposes Prometheus metrics for active workers, queued tasks, and task c
 
 **Why This Technology:**
 
-Sequin captures Postgres Write-Ahead Log (WAL) events in real-time and streams them through Redis. This enables applications to react to data changes without polling. For a job orchestrator, this means real-time dashboards, audit trails, and trigger-based workflows without adding application-level triggers that run within transactions.
+Sequin captures Postgres Write-Ahead Log (WAL) events in real-time and streams them through Redis. This enables applications to react to data changes without polling. For a job strait, this means real-time dashboards, audit trails, and trigger-based workflows without adding application-level triggers that run within transactions.
 
 Logical replication slots provide the CDC stream without affecting transaction performance. Multiple consumers can subscribe to the same slot for different purposes—SSE streaming, cache invalidation, and external event forwarding.
 
@@ -234,7 +234,7 @@ Containers are provisioned with deterministic ports and automatically cleaned up
 
 ## Queue Mechanics
 
-The orchestrator uses PostgreSQL as a message queue to minimize operational complexity and ensure transactional consistency.
+The strait uses PostgreSQL as a message queue to minimize operational complexity and ensure transactional consistency.
 
 ### SKIP LOCKED Dequeue
 
@@ -355,7 +355,7 @@ The system implements two distinct authentication schemes:
     Worker calls `DequeueN`, claiming runs via `SKIP LOCKED` and updating status to `dequeued`. Optimistic lock ensures only one worker claims each run.
   </Step>
   <Step title="Execute">
-    Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if orchestrator process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
+    Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if strait process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
   </Step>
   <Step title="Resolve Environment">
     If FF_ENVIRONMENTS enabled and job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
@@ -629,7 +629,7 @@ Migrations run automatically on startup, checking `schema_migrations` table for 
 
 ### Single Binary, Three Modes
 
-The orchestrator compiles to a single executable that can run in three modes:
+The strait compiles to a single executable that can run in three modes:
 
 - **api**: HTTP server only, for scaling API endpoints independently
 - **worker**: Executor and scheduler only, for scaling job processing independently
@@ -639,7 +639,7 @@ This flexibility enables horizontal scaling without multiple deployment artifact
 
 ### context.WithoutCancel for In-flight Jobs
 
-When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (orchestrator shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
+When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (strait shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
 
 ### Feature Flags for Progressive Rollout
 
@@ -722,11 +722,11 @@ Spans include parent-child relationships, linking a slow job run across API serv
 
 Metrics exposed at `GET /metrics`:
 
-- `orchestrator_run_transitions_total`: Counter for each FSM state transition (labeled by from_status, to_status)
-- `orchestrator_dispatch_duration_seconds`: Histogram of HTTP dispatch latency (labeled by job_id, outcome)
-- `orchestrator_dequeue_duration_seconds`: Histogram of queue polling latency
-- `orchestrator_worker_pool_active`: Gauge of currently active worker goroutines
-- `orchestrator_worker_pool_queued`: Gauge of tasks waiting in pool buffer
+- `strait_run_transitions_total`: Counter for each FSM state transition (labeled by from_status, to_status)
+- `strait_dispatch_duration_seconds`: Histogram of HTTP dispatch latency (labeled by job_id, outcome)
+- `strait_dequeue_duration_seconds`: Histogram of queue polling latency
+- `strait_worker_pool_active`: Gauge of currently active worker goroutines
+- `strait_worker_pool_queued`: Gauge of tasks waiting in pool buffer
 
 ### Structured Logging
 

@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/pubsub"
-	"orchestrator/internal/queue"
-	"orchestrator/internal/store"
-	"orchestrator/internal/telemetry"
+	"strait/internal/domain"
+	"strait/internal/pubsub"
+	"strait/internal/queue"
+	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )

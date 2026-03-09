@@ -1,15 +1,15 @@
 ---
 title: "Contributing"
-description: "Guidelines for contributing to the orchestrator project."
+description: "Guidelines for contributing to the strait project."
 ---
 
-We welcome contributions to the orchestrator! This document provides instructions on how to set up your development environment and the standards we follow.
+We welcome contributions to the strait! This document provides instructions on how to set up your development environment and the standards we follow.
 
 ## Getting Started
 
 ### Prerequisites
 
-To build and run the orchestrator locally, you need:
+To build and run the strait locally, you need:
 
 - **Go 1.26+**
 - **Docker** (for running PostgreSQL, Redis, and Sequin)
@@ -20,8 +20,8 @@ To build and run the orchestrator locally, you need:
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/leonardomso/orchestrator.git
-   cd orchestrator
+   git clone https://github.com/leonardomso/strait.git
+   cd strait
    ```
 
 2. **Start infrastructure**:
@@ -37,11 +37,11 @@ To build and run the orchestrator locally, you need:
 
 4. **Run the application**:
    ```bash
-   export DATABASE_URL=postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+   export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
    export REDIS_URL=redis://localhost:6379
    export INTERNAL_SECRET=your-secret
    export JWT_SIGNING_KEY=your-jwt-key-at-least-32-chars-long
-   go run ./cmd/orchestrator --mode all
+   go run ./cmd/strait --mode all
    ```
 
 ## Code Style
@@ -83,7 +83,7 @@ If `lefthook` fails, you must fix the linting errors before you can commit your 
 
 ## Project Structure
 
-- `cmd/orchestrator/`: Entry point for the CLI and server. Contains command definitions.
+- `cmd/strait/`: Entry point for the CLI and server. Contains command definitions.
 - `internal/`: Private application code.
   - `api/`: HTTP handlers and routing.
   - `domain/`: Core business logic and FSM definitions.

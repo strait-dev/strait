@@ -24,7 +24,7 @@ Workflow approvals let you pause a workflow at a specific step and wait for a hu
 When creating a workflow, add a step with `type: "approval"`:
 
 ```bash
-orchestrator workflows create \
+strait workflows create \
   --name "Deploy Pipeline" \
   --slug deploy-pipeline \
   --project proj_1 \
@@ -63,7 +63,7 @@ When a workflow reaches an approval step, call the approve endpoint:
 ```bash
 # Via API
 curl -X POST http://localhost:8080/v1/workflow-runs/{workflow_run_id}/steps/{step_ref}/approve \
-  -H "Authorization: Bearer orc_..." \
+  -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{"approver": "alice"}'
 ```
@@ -170,10 +170,10 @@ List workflow runs with steps waiting for approval:
 
 ```bash
 # List running workflow runs
-orchestrator workflow-runs list --status running
+strait workflow-runs list --status running
 
 # Check step statuses for a specific run
-orchestrator workflow-runs steps wfr_abc123
+strait workflow-runs steps wfr_abc123
 ```
 
 ### Webhook Notifications

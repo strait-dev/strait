@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
@@ -16,7 +16,7 @@ type QueueStats struct {
 }
 
 func (q *Queries) QueueStats(ctx context.Context) (*QueueStats, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.QueueStats")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.QueueStats")
 	defer span.End()
 
 	query := fmt.Sprintf(`

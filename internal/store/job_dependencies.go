@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateJobDependency")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJobDependency")
 	defer span.End()
 
 	if dep.JobID == dep.DependsOnJobID {
@@ -41,7 +41,7 @@ func (q *Queries) CreateJobDependency(ctx context.Context, dep *domain.JobDepend
 }
 
 func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobDependencies")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobDependencies")
 	defer span.End()
 
 	query := `
@@ -84,7 +84,7 @@ func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit i
 }
 
 func (q *Queries) DeleteJobDependency(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteJobDependency")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJobDependency")
 	defer span.End()
 
 	query := `DELETE FROM job_dependencies WHERE id = $1`

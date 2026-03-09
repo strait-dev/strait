@@ -15,7 +15,7 @@ ARG COMMIT=none
 ARG DATE=unknown
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
-    -o /orchestrator ./cmd/orchestrator
+    -o /strait ./cmd/strait
 
 # Runtime stage
 FROM alpine:3.21
@@ -24,13 +24,13 @@ RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S app \
     && adduser -S app -G app
 
-COPY --from=builder /orchestrator /usr/local/bin/orchestrator
+COPY --from=builder /strait /usr/local/bin/strait
 
 USER app
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["orchestrator", "health", "--quiet"]
+    CMD ["strait", "health", "--quiet"]
 
-ENTRYPOINT ["orchestrator"]
+ENTRYPOINT ["strait"]

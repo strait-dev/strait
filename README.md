@@ -1,14 +1,14 @@
-# Orchestrator
+# Strait
 
-A production-grade Go job orchestrator for engineering teams and AI agents.
+A production-grade Go job strait for engineering teams and AI agents.
 
 **Everything you need in one binary.** Accept job definitions via REST API, queue runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED`, dispatch them via HTTP to your endpoints, and handle retries with intelligent strategies.
 
 ---
 
-## Why Orchestrator?
+## Why Strait?
 
-The orchestrator solves the complexity of background job processing by combining queue, state, scheduler, and executor in a single system—no external message broker required.
+The strait solves the complexity of background job processing by combining queue, state, scheduler, and executor in a single system—no external message broker required.
 
 - **Zero Dependencies**: No RabbitMQ, SQS, or Kafka. PostgreSQL handles queuing with lock-free concurrent workers.
 - **Production-Grade Concurrency**: Go goroutines provide parallel job execution with structured panic recovery and graceful shutdown.
@@ -42,8 +42,8 @@ The orchestrator solves the complexity of background job processing by combining
 
 ## Project Status
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/leonardomso/orchestrator)](https://goreportcard.com/report/github.com/leonardomso/orchestrator)
-[![Tests](https://github.com/leonardomso/orchestrator/workflows/ci.yaml/badge.svg)](https://github.com/leonardomso/orchestrator/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/leonardomso/strait)](https://goreportcard.com/report/github.com/leonardomso/strait)
+[![Tests](https://github.com/leonardomso/strait/workflows/ci.yaml/badge.svg)](https://github.com/leonardomso/strait/actions)
 
 ## License
 
@@ -51,4 +51,4 @@ The orchestrator solves the complexity of background job processing by combining
 
 ---
 
-**Ready to get started?** Follow the [Quick Start Guide](docs/quickstart) and have a production-grade job orchestrator running in minutes.
+**Ready to get started?** Follow the [Quick Start Guide](docs/quickstart) and have a production-grade job strait running in minutes.

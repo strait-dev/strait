@@ -1,9 +1,9 @@
 ---
 title: "Authentication"
-description: "Internal authentication schemes for the orchestrator API and SDK."
+description: "Internal authentication schemes for the strait API and SDK."
 ---
 
-The orchestrator supports multiple authentication mechanisms depending on the client type and the endpoint being accessed.
+The strait supports multiple authentication mechanisms depending on the client type and the endpoint being accessed.
 
 ## Authentication Schemes
 
@@ -21,20 +21,20 @@ You can provide the internal secret in two ways:
 - **Bearer Token**: `Authorization: Bearer your-secret-here`
 
 ### 2. API Keys
-Per-project API keys are the recommended way for external integrations to interact with the orchestrator.
+Per-project API keys are the recommended way for external integrations to interact with the strait.
 
-- **Format**: API keys typically start with `orc_`.
+- **Format**: API keys typically start with `strait_`.
 - **Hashing**: Keys are SHA-256 hashed before being stored in the database.
 - **Tracking**: The system tracks `last_used_at` timestamps for each key.
 - **Security**: Keys can have an `expires_at` date and can be revoked at any time.
 
 To use an API key, include it in the `Authorization` header:
 ```bash
-Authorization: Bearer orc_your_api_key_here
+Authorization: Bearer strait_your_api_key_here
 ```
 
 ### 3. JWT Run Tokens (SDK)
-When a job run is triggered, the orchestrator generates a short-lived JWT (JSON Web Token) scoped specifically to that run. This token is used by the SDK to authenticate calls to the `/sdk/v1` endpoints.
+When a job run is triggered, the strait generates a short-lived JWT (JSON Web Token) scoped specifically to that run. This token is used by the SDK to authenticate calls to the `/sdk/v1` endpoints.
 
 - **Algorithm**: HS256
 - **Subject**: The `runID`
@@ -44,7 +44,7 @@ When a job run is triggered, the orchestrator generates a short-lived JWT (JSON 
 
 Authentication is handled by a chain of middleware in `internal/api/middleware.go`:
 
-1. `apiKeyOrSecretAuth`: The entry point that determines if the request is using an API key (starts with `orc_`) or should be validated against the internal secret.
+1. `apiKeyOrSecretAuth`: The entry point that determines if the request is using an API key (starts with `strait_`) or should be validated against the internal secret.
 2. `apiKeyAuth`: Validates the API key hash, checks for revocation, expiration, and updates the `last_used_at` timestamp.
 3. `internalSecretAuth`: Performs a constant-time comparison of the provided secret against the configured `INTERNAL_SECRET`.
 4. `runTokenAuth`: Specifically for SDK endpoints, validates the JWT and ensures the `runID` in the token matches the requested resource.
@@ -53,7 +53,7 @@ Authentication is handled by a chain of middleware in `internal/api/middleware.g
 
 ### Create an API Key
 ```bash
-curl -X POST https://api.orchestrator.com/v1/api-keys \
+curl -X POST https://strait.dev/v1/api-keys \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
@@ -66,12 +66,12 @@ curl -X POST https://api.orchestrator.com/v1/api-keys \
 ### List API Keys
 ```bash
 curl -H "Authorization: Bearer $INTERNAL_SECRET" \
-  https://api.orchestrator.com/v1/api-keys?project_id=proj_123
+  https://strait.dev/v1/api-keys?project_id=proj_123
 ```
 
 ### Revoke an API Key
 ```bash
-curl -X DELETE https://api.orchestrator.com/v1/api-keys/key_123 \
+curl -X DELETE https://strait.dev/v1/api-keys/key_123 \
   -H "Authorization: Bearer $INTERNAL_SECRET"
 ```
 

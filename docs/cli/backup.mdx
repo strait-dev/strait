@@ -15,7 +15,7 @@ Create a database backup using `pg_dump`.
 | --verbose, -V | bool | false | Enable verbose output |
 
 ```bash
-orchestrator backup create --output backup.sql --format custom
+strait backup create --output backup.sql --format custom
 ```
 
 ## backup restore
@@ -31,7 +31,7 @@ Restore a database from a backup file. The format is automatically detected.
 | --yes | bool | false | Skip confirmation prompt |
 
 ```bash
-orchestrator backup restore --input backup.sql --clean --yes
+strait backup restore --input backup.sql --clean --yes
 ```
 
 ## migrate up
@@ -39,11 +39,11 @@ orchestrator backup restore --input backup.sql --clean --yes
 Apply pending database migrations.
 
 ```bash
-orchestrator migrate up
+strait migrate up
 ```
 
 <Tip>
-You can provide an optional argument to specify the number of migrations to apply (e.g., `orchestrator migrate up 2`).
+You can provide an optional argument to specify the number of migrations to apply (e.g., `strait migrate up 2`).
 </Tip>
 
 ## migrate down
@@ -55,7 +55,7 @@ Rollback database migrations.
 | --yes | bool | false | Skip confirmation prompt |
 
 ```bash
-orchestrator migrate down --yes
+strait migrate down --yes
 ```
 
 ## migrate status
@@ -63,7 +63,7 @@ orchestrator migrate down --yes
 Show the current migration version and status.
 
 ```bash
-orchestrator migrate status
+strait migrate status
 ```
 
 ## migrate create
@@ -71,7 +71,7 @@ orchestrator migrate status
 Create a new pair of up/down SQL migration files.
 
 ```bash
-orchestrator migrate create <name>
+strait migrate create <name>
 ```
 
 <Note>
@@ -87,7 +87,7 @@ Open an interactive `psql` shell.
 | --query | string | | Execute a single query and exit |
 
 ```bash
-orchestrator db shell --query "SELECT * FROM runs LIMIT 10;"
+strait db shell --query "SELECT * FROM runs LIMIT 10;"
 ```
 
 ## db stats
@@ -95,7 +95,7 @@ orchestrator db shell --query "SELECT * FROM runs LIMIT 10;"
 Show database table sizes and connection statistics.
 
 ```bash
-orchestrator db stats
+strait db stats
 ```
 
 ## cleanup
@@ -116,5 +116,5 @@ Terminal statuses include: `completed`, `failed`, `timed_out`, `crashed`, `syste
 </Note>
 
 ```bash
-orchestrator cleanup --runs-older-than 30d --status completed --yes
+strait cleanup --runs-older-than 30d --status completed --yes
 ```

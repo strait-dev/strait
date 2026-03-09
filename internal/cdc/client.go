@@ -54,7 +54,7 @@ type ackRequest struct {
 
 // Receive pulls a batch of messages from the Sequin Stream.
 func (c *Client) Receive(ctx context.Context, batchSize, waitForMs int) ([]Message, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cdc.Receive")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.Receive")
 	defer span.End()
 
 	body := receiveRequest{BatchSize: batchSize}
@@ -86,7 +86,7 @@ func (c *Client) Receive(ctx context.Context, batchSize, waitForMs int) ([]Messa
 
 // Ack acknowledges successfully processed messages.
 func (c *Client) Ack(ctx context.Context, ackIDs []string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cdc.Ack")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.Ack")
 	defer span.End()
 
 	if len(ackIDs) == 0 {
@@ -108,7 +108,7 @@ func (c *Client) Ack(ctx context.Context, ackIDs []string) error {
 
 // Nack negatively acknowledges messages, making them available for redelivery.
 func (c *Client) Nack(ctx context.Context, ackIDs []string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cdc.Nack")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.Nack")
 	defer span.End()
 
 	if len(ackIDs) == 0 {

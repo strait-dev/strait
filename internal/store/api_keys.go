@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -14,7 +14,7 @@ import (
 )
 
 func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateAPIKey")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAPIKey")
 	defer span.End()
 
 	if key.ID == "" {
@@ -37,7 +37,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 }
 
 func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetAPIKeyByHash")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAPIKeyByHash")
 	defer span.End()
 
 	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
@@ -59,7 +59,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.
 }
 
 func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListAPIKeysByProject")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAPIKeysByProject")
 	defer span.End()
 
 	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
@@ -99,7 +99,7 @@ func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, li
 }
 
 func (q *Queries) RevokeAPIKey(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.RevokeAPIKey")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RevokeAPIKey")
 	defer span.End()
 
 	query := `UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL`
@@ -115,7 +115,7 @@ func (q *Queries) RevokeAPIKey(ctx context.Context, id string) error {
 }
 
 func (q *Queries) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.TouchAPIKeyLastUsed")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.TouchAPIKeyLastUsed")
 	defer span.End()
 
 	query := `UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`

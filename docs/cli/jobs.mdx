@@ -7,7 +7,7 @@ description: "Manage and trigger jobs via the CLI."
 List jobs for a project.
 
 ```bash
-orchestrator jobs list --project proj_1
+strait jobs list --project proj_1
 ```
 
 | Flag | Type | Description |
@@ -18,15 +18,15 @@ orchestrator jobs list --project proj_1
 Get a job by ID or slug.
 
 ```bash
-orchestrator jobs get job_abc123
-orchestrator jobs get send-email
+strait jobs get job_abc123
+strait jobs get send-email
 ```
 
 ## jobs create
 Create a new job.
 
 ```bash
-orchestrator jobs create \
+strait jobs create \
   --name "Send Email" \
   --slug send-email \
   --endpoint http://localhost:3000/jobs/send-email \
@@ -50,7 +50,7 @@ orchestrator jobs create \
 Update an existing job.
 
 ```bash
-orchestrator jobs edit send-email --field timeout_secs=120
+strait jobs edit send-email --field timeout_secs=120
 ```
 
 | Flag | Type | Description |
@@ -62,7 +62,7 @@ orchestrator jobs edit send-email --field timeout_secs=120
 Disable a job by ID or slug.
 
 ```bash
-orchestrator jobs delete send-email --yes
+strait jobs delete send-email --yes
 ```
 
 | Flag | Type | Default | Description |
@@ -73,7 +73,7 @@ orchestrator jobs delete send-email --yes
 Trigger a job run.
 
 ```bash
-orchestrator jobs trigger send-email --payload '{"to": "user@example.com"}'
+strait jobs trigger send-email --payload '{"to": "user@example.com"}'
 ```
 
 | Flag | Type | Default | Description |
@@ -88,7 +88,7 @@ orchestrator jobs trigger send-email --payload '{"to": "user@example.com"}'
 Trigger multiple runs for a job.
 
 ```bash
-orchestrator jobs trigger-bulk send-email --items-file items.json
+strait jobs trigger-bulk send-email --items-file items.json
 ```
 
 | Flag | Type | Description |
@@ -100,12 +100,12 @@ orchestrator jobs trigger-bulk send-email --items-file items.json
 List version history for a job.
 
 ```bash
-orchestrator jobs versions send-email
+strait jobs versions send-email
 ```
 
 ## jobs describe
 Show rich details and recent runs for a job.
 
 ```bash
-orchestrator jobs describe send-email
+strait jobs describe send-email
 ```

@@ -7,7 +7,7 @@ description: "Monitor and manage job runs."
 List runs with optional filters.
 
 ```bash
-orchestrator runs list --status executing --limit 20
+strait runs list --status executing --limit 20
 ```
 
 | Flag | Type | Default | Description |
@@ -20,15 +20,15 @@ orchestrator runs list --status executing --limit 20
 Get a run by ID.
 
 ```bash
-orchestrator runs get run_abc123
+strait runs get run_abc123
 ```
 
 ## runs cancel
 Cancel one or more runs.
 
 ```bash
-orchestrator runs cancel run_abc123
-orchestrator runs cancel --all --status queued --yes
+strait runs cancel run_abc123
+strait runs cancel --all --status queued --yes
 ```
 
 | Flag | Type | Default | Description |
@@ -43,7 +43,7 @@ orchestrator runs cancel --all --status queued --yes
 Watch a run until it reaches a terminal state.
 
 ```bash
-orchestrator runs watch run_abc123 --timeout 10m
+strait runs watch run_abc123 --timeout 10m
 ```
 
 | Flag | Type | Default | Description |
@@ -55,7 +55,7 @@ orchestrator runs watch run_abc123 --timeout 10m
 Show run events and logs.
 
 ```bash
-orchestrator runs logs run_abc123 --follow
+strait runs logs run_abc123 --follow
 ```
 
 | Flag | Type | Default | Description |
@@ -69,7 +69,7 @@ orchestrator runs logs run_abc123 --follow
 Replay a run using its original payload.
 
 ```bash
-orchestrator runs replay run_abc123 --wait
+strait runs replay run_abc123 --wait
 ```
 
 | Flag | Type | Default | Description |
@@ -80,7 +80,7 @@ orchestrator runs replay run_abc123 --wait
 Inspect run events.
 
 ```bash
-orchestrator runs events --run run_abc123 --level error
+strait runs events --run run_abc123 --level error
 ```
 
 | Flag | Type | Description |
