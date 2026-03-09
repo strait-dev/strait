@@ -32,6 +32,7 @@ func (s *Server) handleListJobVersions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetJobVersion(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobID")
 	versionID := chi.URLParam(r, "versionID")
 
 	version, err := s.store.GetJobVersionByVersionID(r.Context(), versionID)
@@ -41,6 +42,12 @@ func (s *Server) handleGetJobVersion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to get job version")
+		return
+	}
+
+	// Ensure the version belongs to the requested job (tenant isolation).
+	if version.JobID != jobID {
+		respondError(w, r, http.StatusNotFound, "version not found")
 		return
 	}
 
