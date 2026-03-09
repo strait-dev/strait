@@ -186,6 +186,9 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 		targetStepRun.Output = trigger.ResponsePayload
 	}
 
+	// Auto-emit event if step has event_emit_key configured.
+	s.tryEmitEvent(ctx, targetStepRun)
+
 	// Fan-in and start ready children.
 	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun); err != nil {
 		s.logger.Error("failed to process event-completed step", "step_ref", targetStepRun.StepRef, "error", err)
@@ -217,6 +220,8 @@ func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string
 	if target == nil {
 		return
 	}
+
+	s.tryEmitEvent(ctx, target)
 
 	if err := s.fanInAndStartReadyChildren(ctx, target); err != nil {
 		s.logger.Error("OnStepCompleted: failed to advance workflow", "step_ref", target.StepRef, "error", err)

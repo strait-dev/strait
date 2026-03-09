@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 )
@@ -57,6 +58,7 @@ type Reaper struct {
 	longRetention         time.Duration
 	retentionEnabled      bool
 	workflowCallback      WorkflowCallback
+	metrics               *telemetry.Metrics
 	logger                *slog.Logger
 }
 
@@ -81,6 +83,12 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
 	}
+}
+
+// WithMetrics sets the telemetry metrics for the reaper.
+func (r *Reaper) WithMetrics(m *telemetry.Metrics) *Reaper {
+	r.metrics = m
+	return r
 }
 
 // WithWorkflowRetention sets the retention period for completed workflow runs.
@@ -189,6 +197,11 @@ func (r *Reaper) completeSleepTrigger(ctx context.Context, trigger *domain.Event
 		if trigger.WorkflowRunID != "" && r.workflowCallback != nil {
 			r.workflowCallback.OnStepCompleted(ctx, trigger.WorkflowRunID, trigger.WorkflowStepRunID)
 		}
+	}
+
+	if r.metrics != nil {
+		waitDuration := now.Sub(trigger.RequestedAt).Seconds()
+		r.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration)
 	}
 
 	slog.Info("sleep trigger completed", "trigger_id", trigger.ID, "step_run_id", trigger.WorkflowStepRunID)
@@ -317,6 +330,12 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 		if err := r.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusTimedOut, nil, nil, "event trigger timed out"); err != nil {
 			slog.Error("failed to mark event trigger timed out", "trigger_id", trigger.ID, "error", err)
 			continue
+		}
+
+		if r.metrics != nil {
+			r.metrics.EventTriggersTimedOut.Add(ctx, 1)
+			waitDuration := now.Sub(trigger.RequestedAt).Seconds()
+			r.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration)
 		}
 
 		switch trigger.SourceType {

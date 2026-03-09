@@ -95,6 +95,10 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.metrics != nil {
+		s.metrics.EventTriggersCreated.Add(r.Context(), 1)
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status":     "waiting",
 		"event_key":  req.EventKey,

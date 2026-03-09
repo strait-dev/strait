@@ -15,11 +15,16 @@ import (
 // DefaultMaxNestingDepth is the nesting limit when none is specified on the step.
 const DefaultMaxNestingDepth = 10
 
+// EventTriggerNotifyFunc is called after an event trigger is created, for
+// metrics and webhook notification. Must be safe to call concurrently.
+type EventTriggerNotifyFunc func(trigger *domain.EventTrigger)
+
 type WorkflowEngine struct {
 	store           EngineStore
 	queue           EngineQueue
 	logger          *slog.Logger
 	maxNestingDepth int
+	onTriggerCreate EventTriggerNotifyFunc
 }
 
 type EngineStore interface {
@@ -54,6 +59,12 @@ func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger
 		logger:          logger,
 		maxNestingDepth: DefaultMaxNestingDepth,
 	}
+}
+
+// WithOnTriggerCreate sets a callback invoked after each event trigger is created.
+func (e *WorkflowEngine) WithOnTriggerCreate(fn EventTriggerNotifyFunc) *WorkflowEngine {
+	e.onTriggerCreate = fn
+	return e
 }
 
 // WithMaxNestingDepth overrides the default sub-workflow nesting depth limit.

@@ -9,6 +9,7 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/queue"
+	"strait/internal/telemetry"
 )
 
 // SchedulerStore combines the store interfaces required by all scheduler components.
@@ -26,13 +27,27 @@ type Scheduler struct {
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
-func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger) *Scheduler {
-	return &Scheduler{
+func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger, opts ...SchedulerOption) *Scheduler {
+	sched := &Scheduler{
 		cron:   NewCronScheduler(s, q, wfTrigger),
 		poller: NewDelayedPoller(s, cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize),
+	}
+	for _, opt := range opts {
+		opt(sched)
+	}
+	return sched
+}
+
+// SchedulerOption configures a Scheduler.
+type SchedulerOption func(*Scheduler)
+
+// WithSchedulerMetrics attaches telemetry metrics to the reaper.
+func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper.WithMetrics(m)
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -169,6 +170,7 @@ type Server struct {
 	queue              queue.Queue
 	pubsub             pubsub.Publisher
 	config             *config.Config
+	metrics            *telemetry.Metrics
 	metricsHandler     http.Handler
 	pinger             Pinger
 	healthRegistry     *health.Registry
@@ -189,6 +191,7 @@ type ServerDeps struct {
 	HealthRegistry   *health.Registry
 	WorkflowCallback WorkflowCallback
 	WorkflowEngine   WorkflowTrigger
+	Metrics          *telemetry.Metrics
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -202,6 +205,7 @@ func NewServer(deps ServerDeps) *Server {
 		queue:              deps.Queue,
 		pubsub:             deps.PubSub,
 		config:             deps.Config,
+		metrics:            deps.Metrics,
 		metricsHandler:     deps.MetricsHandler,
 		pinger:             deps.Pinger,
 		healthRegistry:     deps.HealthRegistry,

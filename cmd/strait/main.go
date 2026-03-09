@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"strait/internal/config"
+	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
+	"strait/internal/webhook"
 	"strait/internal/workflow"
 
 	concpool "github.com/sourcegraph/conc/pool"
@@ -120,12 +122,22 @@ func runServe(modeOverride string) error {
 	}
 
 	g := concpool.New().WithContext(ctx).WithFailFast()
+	eventNotifier := webhook.NewEventNotifier(queries, slog.Default())
+
+	onTriggerCreate := func(trigger *domain.EventTrigger) {
+		if metrics != nil {
+			metrics.EventTriggersCreated.Add(context.Background(), 1)
+		}
+		eventNotifier.NotifyAsync(trigger)
+	}
+
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
-		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth)
+		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
+		WithOnTriggerCreate(onTriggerCreate)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
 	startCDCConsumer(g, cfg, pub)
-	startAPIServer(g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
+	startAPIServer(g, cfg, queries, q, pub, metricsHandler, metrics, stepCallback, workflowEngine)
 	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
 
 	if err := g.Wait(); err != nil {

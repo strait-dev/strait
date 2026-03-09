@@ -80,6 +80,13 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record metrics.
+	if s.metrics != nil {
+		s.metrics.EventTriggersReceived.Add(r.Context(), 1)
+		waitDuration := now.Sub(trigger.RequestedAt).Seconds()
+		s.metrics.EventTriggerWaitDuration.Record(r.Context(), waitDuration)
+	}
+
 	respondJSON(w, http.StatusOK, trigger)
 }
 
@@ -225,6 +232,15 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 		}
 
 		resolved = append(resolved, trigger)
+	}
+
+	// Record metrics for each resolved trigger.
+	if s.metrics != nil {
+		s.metrics.EventTriggersReceived.Add(r.Context(), int64(len(resolved)))
+		for _, t := range resolved {
+			waitDuration := now.Sub(t.RequestedAt).Seconds()
+			s.metrics.EventTriggerWaitDuration.Record(r.Context(), waitDuration)
+		}
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{

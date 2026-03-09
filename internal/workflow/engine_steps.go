@@ -200,6 +200,7 @@ func (e *WorkflowEngine) startWaitForEventStep(
 		TimeoutSecs:       timeoutSecs,
 		RequestedAt:       now,
 		ExpiresAt:         expiresAt,
+		NotifyURL:         step.EventNotifyURL,
 	}
 
 	if err := e.store.CreateEventTrigger(ctx, trigger); err != nil {
@@ -207,6 +208,10 @@ func (e *WorkflowEngine) startWaitForEventStep(
 			return fmt.Errorf("event key %q already in use — use a unique key pattern like {workflow_id}:{run_id}:{step_ref}: %w", renderedKey, err)
 		}
 		return fmt.Errorf("create event trigger for step %s: %w", step.StepRef, err)
+	}
+
+	if e.onTriggerCreate != nil {
+		e.onTriggerCreate(trigger)
 	}
 
 	stepRun.Status = domain.StepWaiting
@@ -222,7 +227,6 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	return nil
 }
 
-// getNestingDepth calculates how deeply nested a workflow run is by walking up the parent chain.
 // startSleepStep creates a "sleep" event trigger that the reaper will complete
 // when the expiry time is reached. No goroutine is held.
 func (e *WorkflowEngine) startSleepStep(
@@ -260,6 +264,10 @@ func (e *WorkflowEngine) startSleepStep(
 		return fmt.Errorf("create sleep trigger for step %s: %w", step.StepRef, err)
 	}
 
+	if e.onTriggerCreate != nil {
+		e.onTriggerCreate(trigger)
+	}
+
 	stepRun.Status = domain.StepWaiting
 	stepRun.StartedAt = &now
 
@@ -273,6 +281,7 @@ func (e *WorkflowEngine) startSleepStep(
 	return nil
 }
 
+// getNestingDepth calculates how deeply nested a workflow run is by walking up the parent chain.
 func (e *WorkflowEngine) getNestingDepth(ctx context.Context, wfRun *domain.WorkflowRun) (int, error) {
 	depth := 0
 	current := wfRun
