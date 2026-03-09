@@ -58,38 +58,37 @@ func (e *Executor) dispatchSandbox(ctx context.Context, job *domain.Job, run *do
 	var finalResult *sandboxv1.ExecutionResult
 
 	err := e.sandboxClient.ExecuteStream(ctx, req, func(event *sandboxv1.ExecutionEvent) error {
-
-		if event.Log != nil {
+		if logEntry := event.GetLog(); logEntry != nil {
 			e.logger.Debug("sandbox log",
 				"run_id", run.ID,
-				"level", event.Log.Level,
-				"message", event.Log.Message,
+				"level", logEntry.GetLevel(),
+				"message", logEntry.GetMessage(),
 			)
 			e.publishEvent(ctx, run, map[string]any{
 				"type":    "sandbox_log",
-				"level":   event.Log.Level,
-				"message": event.Log.Message,
+				"level":   logEntry.GetLevel(),
+				"message": logEntry.GetMessage(),
 			})
 		}
 
-		if event.Checkpoint != nil {
+		if cp := event.GetCheckpoint(); cp != nil {
 			e.logger.Debug("sandbox checkpoint",
 				"run_id", run.ID,
-				"sequence", event.Checkpoint.Sequence,
+				"sequence", cp.GetSequence(),
 			)
 		}
 
-		if event.ToolCall != nil {
+		if tc := event.GetToolCall(); tc != nil {
 			e.logger.Debug("sandbox tool call",
 				"run_id", run.ID,
-				"tool", event.ToolCall.ToolName,
-				"status", event.ToolCall.Status,
-				"duration_ms", event.ToolCall.DurationMs,
+				"tool", tc.GetToolName(),
+				"status", tc.GetStatus(),
+				"duration_ms", tc.GetDurationMs(),
 			)
 		}
 
-		if event.Result != nil {
-			finalResult = event.Result
+		if r := event.GetResult(); r != nil {
+			finalResult = r
 		}
 
 		return nil
@@ -107,20 +106,20 @@ func (e *Executor) dispatchSandbox(ctx context.Context, job *domain.Job, run *do
 		return nil, execTrace, fmt.Errorf("sandbox execution completed without result")
 	}
 
-	execTrace.DispatchMs = finalResult.DurationMs
+	execTrace.DispatchMs = finalResult.GetDurationMs()
 	if execTrace.DispatchMs == 0 {
 		execTrace.DispatchMs = durationMillisecondsAtLeastOne(time.Since(dispatchStart))
 	}
 
-	if !finalResult.Success {
+	if !finalResult.GetSuccess() {
 		return nil, execTrace, &domain.EndpointError{
 			StatusCode: 500,
-			Body:       finalResult.Error,
+			Body:       finalResult.GetError(),
 		}
 	}
 
-	if len(finalResult.Result) > 0 {
-		return json.RawMessage(finalResult.Result), execTrace, nil
+	if len(finalResult.GetResult()) > 0 {
+		return json.RawMessage(finalResult.GetResult()), execTrace, nil
 	}
 
 	return nil, execTrace, nil

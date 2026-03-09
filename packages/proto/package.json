@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "proto:gen": "bash scripts/generate.sh",
+    "proto:check": "bash scripts/check.sh",
     "lint": "buf lint proto"
   }
 }

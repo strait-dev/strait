@@ -63,6 +63,7 @@ func WithDialOptions(opts ...grpc.DialOption) ClientOption {
 // Client connects to the Forge sandbox service via gRPC.
 type Client struct {
 	conn   *grpc.ClientConn
+	rpc    sandboxv1.SandboxExecutorClient
 	addr   string
 	logger *slog.Logger
 	cfg    clientConfig
@@ -113,6 +114,7 @@ func (c *Client) Connect(_ context.Context) error {
 	c.mu.Lock()
 	old := c.conn
 	c.conn = conn
+	c.rpc = sandboxv1.NewSandboxExecutorClient(conn)
 	c.mu.Unlock()
 
 	if old != nil {
@@ -170,8 +172,6 @@ func (c *Client) WaitForReady(ctx context.Context) error {
 		if state == connectivity.Shutdown {
 			return fmt.Errorf("connection shut down")
 		}
-		// WaitForStateChange blocks until the state changes from the given
-		// state or ctx is done.
 		if !conn.WaitForStateChange(ctx, state) {
 			return ctx.Err()
 		}
@@ -198,7 +198,7 @@ type ExecuteResult struct {
 	Result     json.RawMessage
 	Error      string
 	DurationMs int64
-	Events     []sandboxv1.ExecutionEvent
+	Events     []*sandboxv1.ExecutionEvent
 }
 
 // Execute runs code in the Forge sandbox and collects all streamed events.
@@ -206,13 +206,13 @@ type ExecuteResult struct {
 // The provided context controls cancellation — canceling it will terminate
 // the sandbox execution in Forge.
 func (c *Client) Execute(ctx context.Context, req *ExecuteRequest) (*ExecuteResult, error) {
-	var events []sandboxv1.ExecutionEvent
+	var events []*sandboxv1.ExecutionEvent
 	var finalResult *sandboxv1.ExecutionResult
 
 	err := c.ExecuteStream(ctx, req, func(event *sandboxv1.ExecutionEvent) error {
-		events = append(events, *event)
-		if event.Result != nil {
-			finalResult = event.Result
+		events = append(events, event)
+		if r := event.GetResult(); r != nil {
+			finalResult = r
 		}
 		return nil
 	})
@@ -226,15 +226,15 @@ func (c *Client) Execute(ctx context.Context, req *ExecuteRequest) (*ExecuteResu
 	}
 
 	execResult := &ExecuteResult{
-		Success:    finalResult.Success,
-		DurationMs: finalResult.DurationMs,
+		Success:    finalResult.GetSuccess(),
+		DurationMs: finalResult.GetDurationMs(),
 		Events:     events,
 	}
-	if len(finalResult.Result) > 0 {
-		execResult.Result = json.RawMessage(finalResult.Result)
+	if len(finalResult.GetResult()) > 0 {
+		execResult.Result = json.RawMessage(finalResult.GetResult())
 	}
-	if finalResult.Error != "" {
-		execResult.Error = finalResult.Error
+	if finalResult.GetError() != "" {
+		execResult.Error = finalResult.GetError()
 	}
 
 	return execResult, nil
@@ -245,53 +245,34 @@ func (c *Client) Execute(ctx context.Context, req *ExecuteRequest) (*ExecuteResu
 // events as they arrive (e.g., writing to the run events store).
 func (c *Client) ExecuteStream(ctx context.Context, req *ExecuteRequest, handler EventHandler) error {
 	c.mu.RLock()
-	conn := c.conn
+	rpc := c.rpc
 	c.mu.RUnlock()
 
-	if conn == nil {
+	if rpc == nil {
 		return ErrNotConnected
 	}
 
-	// Build the gRPC request
+	// Build the protobuf request
 	grpcReq := &sandboxv1.ExecuteRequest{
-		RunID:    req.RunID,
+		RunId:    req.RunID,
 		Language: req.Language,
 		Code:     req.Code,
 		Payload:  req.Payload,
 		Env:      req.Env,
 		Limits: &sandboxv1.ResourceLimits{
-			TimeoutSecs: int32(req.Timeout.Seconds()),
-			MemoryBytes: req.MemoryMB * 1024 * 1024,
+			TimeoutSecs:    int32(req.Timeout.Seconds()),
+			MemoryBytes:    req.MemoryMB * 1024 * 1024,
+			NetworkEnabled: false,
 		},
 	}
 
-	// Use the JSON-over-gRPC approach: we serialize the request, send it,
-	// and receive streamed JSON responses. This avoids depending on protobuf
-	// codegen while maintaining the same wire format.
-	stream, err := conn.NewStream(ctx, &grpc.StreamDesc{
-		StreamName:    "Execute",
-		ServerStreams: true,
-	}, "/sandbox.v1.SandboxExecutor/Execute")
+	stream, err := rpc.Execute(ctx, grpcReq)
 	if err != nil {
 		return fmt.Errorf("open sandbox stream: %w", err)
 	}
 
-	reqBytes, err := json.Marshal(grpcReq)
-	if err != nil {
-		return fmt.Errorf("marshal execute request: %w", err)
-	}
-
-	if err := stream.SendMsg(&rawMessage{data: reqBytes}); err != nil {
-		return fmt.Errorf("send execute request: %w", err)
-	}
-
-	if err := stream.CloseSend(); err != nil {
-		return fmt.Errorf("close send: %w", err)
-	}
-
 	for {
-		var eventBytes rawMessage
-		err := stream.RecvMsg(&eventBytes)
+		event, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -299,35 +280,8 @@ func (c *Client) ExecuteStream(ctx context.Context, req *ExecuteRequest, handler
 			return fmt.Errorf("receive sandbox event: %w", err)
 		}
 
-		var event sandboxv1.ExecutionEvent
-		if err := json.Unmarshal(eventBytes.data, &event); err != nil {
-			c.logger.Warn("failed to unmarshal sandbox event", "error", err)
-			continue
-		}
-
-		if err := handler(&event); err != nil {
+		if err := handler(event); err != nil {
 			return fmt.Errorf("event handler: %w", err)
 		}
 	}
 }
-
-// rawMessage implements proto.Message for sending/receiving raw bytes over gRPC
-// streams without depending on protobuf codegen. This is used for the
-// JSON-over-gRPC approach until proper protobuf stubs are generated.
-type rawMessage struct {
-	data []byte
-}
-
-func (r *rawMessage) Marshal() ([]byte, error) {
-	return r.data, nil
-}
-
-func (r *rawMessage) Unmarshal(b []byte) error {
-	r.data = make([]byte, len(b))
-	copy(r.data, b)
-	return nil
-}
-
-func (r *rawMessage) ProtoMessage()  {}
-func (r *rawMessage) Reset()         { r.data = nil }
-func (r *rawMessage) String() string { return string(r.data) }

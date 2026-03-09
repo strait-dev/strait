@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROTO_ROOT="$(dirname "$SCRIPT_DIR")"
 REPO_ROOT="$(dirname "$(dirname "$PROTO_ROOT")")"
 
-# Go output
+# ── Go ────────────────────────────────────────────────────────────────
 GO_OUT="${REPO_ROOT}/apps/strait/internal/sandbox"
 mkdir -p "$GO_OUT"
 
@@ -20,15 +20,18 @@ protoc \
 
 echo "Go stubs generated at: $GO_OUT"
 
-# Elixir output
+# ── Elixir (optional – skipped if protoc-gen-elixir is not installed) ─
 ELIXIR_OUT="${REPO_ROOT}/apps/forge/lib/proto"
-mkdir -p "$ELIXIR_OUT"
+if command -v protoc-gen-elixir &>/dev/null; then
+  mkdir -p "$ELIXIR_OUT"
+  echo "Generating Elixir protobuf stubs..."
+  protoc \
+    --proto_path="$PROTO_ROOT" \
+    --elixir_out=plugins=grpc:"$ELIXIR_OUT" \
+    "$PROTO_ROOT/sandbox/v1/sandbox.proto"
+  echo "Elixir stubs generated at: $ELIXIR_OUT"
+else
+  echo "Skipping Elixir generation (protoc-gen-elixir not found)"
+fi
 
-echo "Generating Elixir protobuf stubs..."
-protoc \
-  --proto_path="$PROTO_ROOT" \
-  --elixir_out=plugins=grpc:"$ELIXIR_OUT" \
-  "$PROTO_ROOT/sandbox/v1/sandbox.proto"
-
-echo "Elixir stubs generated at: $ELIXIR_OUT"
 echo "Done."

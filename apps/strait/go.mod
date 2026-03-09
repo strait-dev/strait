@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/MarceloPetrucio/go-scalar-api-reference v0.0.0-20240521013641-ce5d2efe0e06
 	github.com/PaesslerAG/jsonpath v0.1.1
+	github.com/alitto/pond/v2 v2.7.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/exaring/otelpgx v0.10.0
 	github.com/gdamore/tcell/v2 v2.13.8
@@ -41,6 +42,8 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.42.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/term v0.40.0
+	google.golang.org/grpc v1.79.2
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -50,7 +53,6 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/PaesslerAG/gval v1.0.0 // indirect
-	github.com/alitto/pond/v2 v2.7.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -150,6 +152,4 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/grpc v1.79.2 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 )

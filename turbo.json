@@ -22,6 +22,10 @@
         "apps/strait/internal/sandbox/**/*.pb.go",
         "apps/forge/lib/proto/**/*.pb.ex"
       ]
+    },
+    "proto:check": {
+      "dependsOn": [],
+      "outputs": []
     }
   }
 }
