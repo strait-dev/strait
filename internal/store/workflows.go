@@ -22,16 +22,29 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		w.ID = uuid.Must(uuid.NewV7()).String()
 	}
 	w.Version = 1
+	if w.VersionID == "" {
+		w.VersionID = domain.NewVersionID()
+	}
+	if w.VersionPolicy == "" {
+		w.VersionPolicy = domain.VersionPolicyPin
+	}
+
+	tagsJSON, err := marshalJobTags(w.Tags)
+	if err != nil {
+		return fmt.Errorf("create workflow: %w", err)
+	}
 
 	query := `
 		INSERT INTO workflows (
 			id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-			max_parallel_steps, cron, cron_timezone, skip_if_running
+			max_parallel_steps, cron, cron_timezone, skip_if_running,
+			tags, version_id, version_policy, created_by, updated_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12,
+			$13::jsonb, $14, $15, $16, $17)
 		RETURNING created_at, updated_at, version`
 
-	err := q.db.QueryRow(
+	err = q.db.QueryRow(
 		ctx,
 		query,
 		w.ID,
@@ -46,6 +59,11 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		dbscan.NilIfEmptyString(w.Cron),
 		dbscan.NilIfEmptyString(w.CronTimezone),
 		w.SkipIfRunning,
+		tagsJSON,
+		w.VersionID,
+		string(w.VersionPolicy),
+		dbscan.NilIfEmptyString(w.CreatedBy),
+		dbscan.NilIfEmptyString(w.UpdatedBy),
 	).Scan(&w.CreatedAt, &w.UpdatedAt, &w.Version)
 	if err != nil {
 		return fmt.Errorf("create workflow: %w", err)
@@ -60,7 +78,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (*domain.Workflow,
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE id = $1`
 
@@ -81,7 +99,7 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1 AND slug = $2`
 
@@ -102,7 +120,7 @@ func (q *Queries) ListWorkflows(ctx context.Context, projectID string, limit int
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1`
 
@@ -144,6 +162,13 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateWorkflow")
 	defer span.End()
 
+	newVersionID := domain.NewVersionID()
+
+	tagsJSON, err := marshalJobTags(w.Tags)
+	if err != nil {
+		return fmt.Errorf("update workflow: %w", err)
+	}
+
 	query := `
 		UPDATE workflows
 		SET name = $1,
@@ -156,12 +181,15 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		    cron = $8,
 		    cron_timezone = $9,
 		    skip_if_running = $10,
+		    tags = $12::jsonb,
+		    version_id = $13,
+		    updated_by = $14,
 		    version = version + 1,
 		    updated_at = NOW()
 		WHERE id = $11
-		RETURNING updated_at, version`
+		RETURNING updated_at, version, version_id`
 
-	err := q.db.QueryRow(
+	err = q.db.QueryRow(
 		ctx,
 		query,
 		w.Name,
@@ -175,7 +203,10 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		dbscan.NilIfEmptyString(w.CronTimezone),
 		w.SkipIfRunning,
 		w.ID,
-	).Scan(&w.UpdatedAt, &w.Version)
+		tagsJSON,
+		newVersionID,
+		dbscan.NilIfEmptyString(w.UpdatedBy),
+	).Scan(&w.UpdatedAt, &w.Version, &w.VersionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrWorkflowNotFound
@@ -204,6 +235,11 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 	var description *string
 	var cron *string
 	var cronTimezone *string
+	var tagsJSON []byte
+	var versionID *string
+	var versionPolicy *string
+	var createdBy *string
+	var updatedBy *string
 
 	err := scanner.Scan(
 		&workflow.ID,
@@ -219,6 +255,11 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 		&cron,
 		&cronTimezone,
 		&workflow.SkipIfRunning,
+		&tagsJSON,
+		&versionID,
+		&versionPolicy,
+		&createdBy,
+		&updatedBy,
 		&workflow.CreatedAt,
 		&workflow.UpdatedAt,
 	)
@@ -235,6 +276,25 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 	if cronTimezone != nil {
 		workflow.CronTimezone = *cronTimezone
 	}
+	if len(tagsJSON) > 0 {
+		tags, tagErr := unmarshalJobTags(tagsJSON)
+		if tagErr != nil {
+			return nil, tagErr
+		}
+		workflow.Tags = tags
+	}
+	if versionID != nil {
+		workflow.VersionID = *versionID
+	}
+	if versionPolicy != nil {
+		workflow.VersionPolicy = domain.VersionPolicy(*versionPolicy)
+	}
+	if createdBy != nil {
+		workflow.CreatedBy = *createdBy
+	}
+	if updatedBy != nil {
+		workflow.UpdatedBy = *updatedBy
+	}
 
 	return &workflow, nil
 }
@@ -245,7 +305,7 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -278,7 +338,7 @@ func (q *Queries) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tag
 
 	base := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1`
 

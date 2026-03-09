@@ -125,6 +125,8 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Cron:              req.Cron,
 		CronTimezone:      req.CronTimezone,
 		SkipIfRunning:     req.SkipIfRunning,
+		CreatedBy:         actorFromContext(r.Context()),
+		UpdatedBy:         actorFromContext(r.Context()),
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
@@ -275,6 +277,8 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	wf.UpdatedBy = actorFromContext(r.Context())
 
 	if err := s.store.UpdateWorkflow(r.Context(), wf); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {

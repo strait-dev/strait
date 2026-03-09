@@ -149,6 +149,8 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		RetryDelaysSecs:     req.RetryDelaysSecs,
 		EnvironmentID:       req.EnvironmentID,
 		Enabled:             true,
+		CreatedBy:           actorFromContext(r.Context()),
+		UpdatedBy:           actorFromContext(r.Context()),
 	}
 
 	if err := s.store.CreateJob(r.Context(), job); err != nil {
@@ -354,6 +356,8 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	job.UpdatedBy = actorFromContext(r.Context())
 
 	if err := s.store.UpdateJob(r.Context(), job); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to update job")
