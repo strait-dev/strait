@@ -71,7 +71,7 @@ defmodule Forge.Sandbox.Runner do
   end
 
   def handle_info(:timeout, state) do
-    Logger.warn("Sandbox timeout run=#{state.run_id}")
+    Logger.warning("Sandbox timeout run=#{state.run_id}")
 
     if state.port do
       Port.close(state.port)
@@ -114,7 +114,7 @@ defmodule Forge.Sandbox.Runner do
     {:error, "unsupported language: #{lang}"}
   end
 
-  defp send_log(stream, run_id, level, message) do
+  defp send_log(stream, _run_id, level, message) do
     event = %Sandbox.V1.ExecutionEvent{
       event:
         {:log,
