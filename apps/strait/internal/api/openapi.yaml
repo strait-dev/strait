@@ -2323,6 +2323,38 @@ paths:
               schema:
                 $ref: '#/components/schemas/WorkflowRun'
 
+  /v1/workflow-runs/{workflowRunID}/compensate:
+    post:
+      tags:
+        - WorkflowRuns
+      summary: Retry failed compensation
+      description: >
+        Retries compensation for steps that failed during a previous cancel.
+        Only available when compensation_status is partial or failed.
+        Idempotent — already-completed compensation steps are skipped.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workflowRunID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Compensation retry result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  compensation_result:
+                    $ref: '#/components/schemas/CompensationResult'
+        '400':
+          description: Compensation not retryable
+        '404':
+          description: Workflow run not found
+
   /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/approve:
     post:
       tags:
@@ -3342,6 +3374,21 @@ components:
             type: integer
         environment_id:
           type: string
+        execution_mode:
+          type: string
+          enum: [http, sandbox]
+          default: http
+          description: How the job is executed — HTTP endpoint or Forge sandbox
+        sandbox_code:
+          type: string
+          description: Source code to execute in the sandbox (required when execution_mode is sandbox)
+        sandbox_language:
+          type: string
+          enum: [python]
+          description: Language runtime for sandbox execution (required when execution_mode is sandbox)
+        cancel_endpoint_url:
+          type: string
+          description: URL to POST a cancellation webhook when a run is canceled mid-flight
         version:
           type: integer
         created_at:
@@ -3572,9 +3619,37 @@ components:
           type: string
         parent_workflow_run_id:
           type: string
+        compensation_status:
+          type: string
+          enum: [none, pending, running, completed, partial, failed]
+          description: Status of Saga compensation for this workflow run
+        compensation_steps_total:
+          type: integer
+          description: Number of steps requiring compensation
+        compensation_steps_completed:
+          type: integer
+          description: Number of steps successfully compensated
         created_at:
           type: string
           format: date-time
+
+    CompensationResult:
+      type: object
+      properties:
+        compensated:
+          type: array
+          items:
+            type: string
+          description: Step refs that were successfully compensated
+        failed:
+          type: array
+          items:
+            type: string
+          description: Step refs that failed to compensate
+        status:
+          type: string
+          enum: [none, pending, running, completed, partial, failed]
+          description: Final compensation status
 
     WorkflowRunStatus:
       type: string
@@ -4199,6 +4274,9 @@ components:
           type: string
         max_nesting_depth:
           type: integer
+        compensate_step_ref:
+          type: string
+          description: Step ref to trigger as Saga compensation when this step needs to be undone
 
     TriggerWorkflowRequest:
       type: object
