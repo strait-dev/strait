@@ -116,6 +116,42 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 	return v, nil
 }
 
+// GetJobAtVersion returns the job configuration as it existed at the given version.
+// It reads from the job_versions snapshot table. If no snapshot exists for the
+// requested version (e.g., version 1 before snapshotting was enabled), it falls
+// back to the live jobs table.
+func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int) (*domain.Job, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobAtVersion")
+	defer span.End()
+
+	query := `
+		SELECT jv.job_id, COALESCE(jv.project_id, j.project_id), COALESCE(jv.group_id, j.group_id),
+		       jv.name, jv.slug, jv.description, jv.cron, jv.payload_schema,
+		       jv.tags, jv.endpoint_url, jv.fallback_endpoint_url, jv.max_attempts, jv.timeout_secs,
+		       COALESCE(jv.max_concurrency, j.max_concurrency), COALESCE(jv.execution_window_cron, j.execution_window_cron),
+		       COALESCE(jv.timezone, j.timezone),
+		       COALESCE(jv.rate_limit_max, j.rate_limit_max), COALESCE(jv.rate_limit_window_secs, j.rate_limit_window_secs),
+		       COALESCE(jv.dedup_window_secs, j.dedup_window_secs),
+		       COALESCE(jv.enabled, j.enabled), jv.webhook_url, jv.webhook_secret, jv.run_ttl_secs,
+		       COALESCE(jv.retry_strategy, j.retry_strategy), COALESCE(jv.retry_delays_secs, j.retry_delays_secs),
+		       COALESCE(jv.environment_id, j.environment_id),
+		       jv.version, jv.created_at, j.updated_at
+		FROM job_versions jv
+		JOIN jobs j ON j.id = jv.job_id
+		WHERE jv.job_id = $1 AND jv.version = $2`
+
+	job, err := scanJob(q.db.QueryRow(ctx, query, jobID, version))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No snapshot for this version — fall back to live job.
+			return q.GetJob(ctx, jobID)
+		}
+		return nil, fmt.Errorf("get job at version: %w", err)
+	}
+
+	return job, nil
+}
+
 func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	var v domain.JobVersion
 	var description, cronStr, webhookURL, webhookSecret *string

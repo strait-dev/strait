@@ -30,6 +30,7 @@ type statusUpdateCall struct {
 
 type mockExecutorStore struct {
 	getJobFn                 func(ctx context.Context, id string) (*domain.Job, error)
+	getJobAtVersionFn        func(ctx context.Context, jobID string, version int) (*domain.Job, error)
 	listSecretsFn            func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 	getWorkflowStepRunFn     func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	getWorkflowRunFn         func(ctx context.Context, id string) (*domain.WorkflowRun, error)
@@ -52,6 +53,14 @@ func (m *mockExecutorStore) GetJob(ctx context.Context, id string) (*domain.Job,
 		return nil, nil
 	}
 	return m.getJobFn(ctx, id)
+}
+
+func (m *mockExecutorStore) GetJobAtVersion(ctx context.Context, jobID string, version int) (*domain.Job, error) {
+	if m.getJobAtVersionFn != nil {
+		return m.getJobAtVersionFn(ctx, jobID, version)
+	}
+	// Fall back to GetJob for backwards compatibility with existing tests.
+	return m.GetJob(ctx, jobID)
 }
 
 func (m *mockExecutorStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
@@ -2158,5 +2167,129 @@ func TestExecutor_EnvironmentOverride_EmptyValueKeepsOriginal(t *testing.T) {
 	}
 	if calls[1].to != domain.StatusCompleted {
 		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecute_UsesVersionedJobConfig(t *testing.T) {
+	t.Parallel()
+
+	// v1 endpoint (the one the run was enqueued with)
+	v1Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"v1"}`))
+	}))
+	defer v1Server.Close()
+
+	// v2 endpoint (the current/live endpoint — should NOT be used)
+	v2Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("v2 endpoint was called — executor should have used v1")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer v2Server.Close()
+
+	store := &mockExecutorStore{}
+
+	// GetJob returns the "current" v2 config
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		return testJob(v2Server.URL, 1, 5), nil
+	}
+
+	// GetJobAtVersion returns the v1 snapshot
+	store.getJobAtVersionFn = func(_ context.Context, _ string, version int) (*domain.Job, error) {
+		if version == 1 {
+			return testJob(v1Server.URL, 1, 5), nil
+		}
+		return testJob(v2Server.URL, 1, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, v1Server.Client())
+
+	run := testRun(1)
+	run.JobVersion = 1
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecute_FallsBackToLiveJob(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+
+	// GetJob returns live config (the fallback)
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+
+	// GetJobAtVersion delegates to GetJob (simulating no snapshot exists)
+	store.getJobAtVersionFn = func(ctx context.Context, jobID string, _ int) (*domain.Job, error) {
+		return store.GetJob(ctx, jobID)
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+
+	run := testRun(1)
+	run.JobVersion = 1
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+}
+
+func TestExecute_VersionedConfig_PreservesTimeout(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+
+	// Live job has timeout=1s, versioned snapshot has timeout=300s
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 1), nil
+	}
+	store.getJobAtVersionFn = func(_ context.Context, _ string, version int) (*domain.Job, error) {
+		if version == 1 {
+			return testJob(server.URL, 1, 300), nil // original generous timeout
+		}
+		return testJob(server.URL, 1, 1), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+
+	run := testRun(1)
+	run.JobVersion = 1
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s (v1 timeout should be 300s not 1s)", calls[1].to, domain.StatusCompleted)
 	}
 }

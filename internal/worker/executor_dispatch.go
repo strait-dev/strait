@@ -22,12 +22,13 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 
 	executeStart := time.Now()
 
-	job, err := e.store.GetJob(ctx, run.JobID)
+	job, err := e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
 	if err != nil || job == nil {
 		e.logger.Error(
 			"job lookup failed",
 			"run_id", run.ID,
 			"job_id", run.JobID,
+			"job_version", run.JobVersion,
 			"error", err,
 		)
 		e.handleSystemFailure(ctx, run, "job not found")
