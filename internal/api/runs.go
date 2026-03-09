@@ -240,9 +240,12 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 		// operations. Copying the key would conflict with any active run
 		// that shares the same key (the DB unique partial index only covers
 		// non-terminal statuses).
-		JobVersion: originalRun.JobVersion,
-		ExpiresAt:  &expiresAt,
-		DebugMode:  debugMode,
+		JobVersion:   originalRun.JobVersion,
+		JobVersionID: job.VersionID,
+		Tags:         originalRun.Tags,
+		CreatedBy:    actorFromContext(r.Context()),
+		ExpiresAt:    &expiresAt,
+		DebugMode:    debugMode,
 	}
 
 	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {

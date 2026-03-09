@@ -90,7 +90,7 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -116,7 +116,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, created_at
+			       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
 			FROM workflow_runs
 			WHERE workflow_id = $1 AND created_at < $3
 			ORDER BY created_at DESC
@@ -126,7 +126,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, created_at
+			       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
 			FROM workflow_runs
 			WHERE workflow_id = $1
 			ORDER BY created_at DESC
@@ -162,7 +162,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -305,7 +305,7 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
 		ORDER BY created_at ASC`
@@ -335,12 +335,15 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	var run domain.WorkflowRun
 	var payload []byte
+	var tagsJSON []byte
 	var runError *string
 	var startedAt *time.Time
 	var finishedAt *time.Time
 	var expiresAt *time.Time
 	var retryOfRunID *string
 	var parentWorkflowRunID *string
+	var workflowVersionID *string
+	var createdBy *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -358,6 +361,9 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 		&retryOfRunID,
 		&parentWorkflowRunID,
 		&run.CreatedAt,
+		&tagsJSON,
+		&workflowVersionID,
+		&createdBy,
 	)
 	if err != nil {
 		return nil, err
@@ -378,6 +384,17 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	run.StartedAt = startedAt
 	run.FinishedAt = finishedAt
 	run.ExpiresAt = expiresAt
+	if len(tagsJSON) > 0 && string(tagsJSON) != "{}" {
+		if err := json.Unmarshal(tagsJSON, &run.Tags); err != nil {
+			return nil, err
+		}
+	}
+	if workflowVersionID != nil {
+		run.WorkflowVersionID = *workflowVersionID
+	}
+	if createdBy != nil {
+		run.CreatedBy = *createdBy
+	}
 
 	return &run, nil
 }
@@ -389,7 +406,7 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 	base := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE project_id = $1`
 

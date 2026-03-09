@@ -90,9 +90,13 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	defer span.End()
 
 	run := domain.JobRun{
-		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
-		TriggeredBy: domain.TriggerCron,
+		JobID:        job.ID,
+		ProjectID:    job.ProjectID,
+		Tags:         job.Tags,
+		TriggeredBy:  domain.TriggerCron,
+		JobVersion:   job.Version,
+		JobVersionID: job.VersionID,
+		CreatedBy:    "system:cron",
 	}
 
 	if job.RunTTLSecs > 0 {

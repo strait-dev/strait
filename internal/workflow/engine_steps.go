@@ -66,10 +66,12 @@ func (e *WorkflowEngine) startStep(
 	jobRun := &domain.JobRun{
 		JobID:               step.JobID,
 		ProjectID:           wfRun.ProjectID,
+		Tags:                wfRun.Tags,
 		Payload:             payload,
 		TriggeredBy:         domain.TriggerWorkflow,
 		WorkflowStepRunID:   stepRun.ID,
 		TimeoutSecsOverride: step.TimeoutSecsOverride,
+		CreatedBy:           "system:workflow",
 	}
 	if err := e.queue.Enqueue(ctx, jobRun); err != nil {
 		return fmt.Errorf("enqueue step job run: %w", err)
