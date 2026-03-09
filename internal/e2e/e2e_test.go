@@ -339,12 +339,8 @@ func TestE2E_DeleteJob(t *testing.T) {
 	}
 
 	w = doRequest(t, http.MethodGet, "/v1/jobs/"+jobID+"/", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("get deleted job status = %d, body = %s", w.Code, w.Body.String())
-	}
-	resp := mustDecodeObject(t, w)
-	if asBool(t, resp, "enabled") {
-		t.Fatal("expected enabled=false after delete")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("get deleted job status = %d, want 404, body = %s", w.Code, w.Body.String())
 	}
 }
 

@@ -575,9 +575,9 @@ func TestE2E_TriggerDisabledJob(t *testing.T) {
 	job := advCreateJob(t, projectID, advUnique("job-disabled"), "Disabled Job", "", 0)
 	jobID := job["id"].(string)
 
-	dw := advDoReq(t, http.MethodDelete, "/v1/jobs/"+jobID, "")
-	if dw.Code != http.StatusNoContent {
-		t.Fatalf("delete job status = %d; body = %s", dw.Code, dw.Body.String())
+	dw := advDoReq(t, http.MethodPatch, "/v1/jobs/"+jobID, `{"enabled":false}`)
+	if dw.Code != http.StatusOK {
+		t.Fatalf("disable job status = %d; body = %s", dw.Code, dw.Body.String())
 	}
 
 	tw := advDoReq(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{}`)
