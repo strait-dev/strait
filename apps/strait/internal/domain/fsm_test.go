@@ -105,6 +105,7 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 		StatusTimedOut,
 		StatusCrashed,
 		StatusSystemFailed,
+		StatusCanceling,
 		StatusCanceled,
 		StatusExpired,
 		StatusDeadLetter,

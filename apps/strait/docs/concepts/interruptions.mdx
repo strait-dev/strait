@@ -1,0 +1,125 @@
+---
+title: "Interruptions & Compensation"
+description: "Cancel workflows mid-flight and clean up allocated resources with the Saga pattern"
+---
+
+# Interruptions & Compensation
+
+Strait supports graceful workflow interruption with automatic resource cleanup using the **Saga compensation pattern**. When a workflow is canceled or a step fails, completed steps can trigger compensation actions to undo their effects.
+
+## The Problem
+
+Consider a workflow that:
+1. **Allocates a GPU instance** (step 1)
+2. **Runs AI inference** (step 2)
+3. **Releases the GPU** (step 3)
+
+If step 2 fails or the workflow is canceled, step 3 never runs — you leak the GPU. Compensation solves this.
+
+## How It Works
+
+### Compensation Steps
+
+Each workflow step can define a `compensate_step_ref` — a reference to another step that "undoes" the original step's work:
+
+```yaml
+steps:
+  - step_ref: allocate-gpu
+    job_id: job-allocate-gpu
+    compensate_step_ref: release-gpu    # ← runs on cancel/failure
+
+  - step_ref: run-inference
+    job_id: job-run-inference
+    depends_on: [allocate-gpu]
+
+  - step_ref: release-gpu
+    job_id: job-release-gpu
+    # This step is triggered automatically as compensation
+```
+
+### Cancel Flow
+
+When a workflow is canceled:
+
+1. **Active steps are canceled** — running and waiting steps are marked `canceled`
+2. **In-flight runs are interrupted** — job runs transition to `canceling` → `canceled`
+3. **Compensation runs in reverse** — completed steps with compensation refs are triggered in reverse chronological order (most recently completed first)
+4. **Workflow is marked canceled** — after compensation completes
+
+```
+Timeline:
+  allocate-gpu ✓  →  run-inference (running)  →  CANCEL
+                                                    │
+                                                    ├── cancel run-inference
+                                                    └── compensate: trigger release-gpu
+                                                         (with allocate-gpu's output as payload)
+```
+
+### Compensation Payload
+
+Compensation steps receive the **original step's output** as their payload. This lets the compensation step know what to clean up:
+
+```json
+// allocate-gpu output (becomes release-gpu input):
+{"gpu_id": "gpu-42", "region": "us-east-1"}
+```
+
+## Run Status: `canceling`
+
+A new transitional status `canceling` is used to track the cleanup phase:
+
+```
+executing → canceling → canceled
+waiting   → canceling → canceled
+```
+
+This lets you distinguish between:
+- A run that was **instantly canceled** (queued → canceled)
+- A run that is **cleaning up** (executing → canceling → canceled)
+
+## HTTP Job Cancellation
+
+For HTTP-mode jobs, you can define a `cancel_endpoint_url` on the job. When a run is canceled mid-flight, Strait sends a cancellation webhook to this URL:
+
+```json
+{
+  "name": "Long Running Task",
+  "endpoint_url": "https://api.example.com/run",
+  "cancel_endpoint_url": "https://api.example.com/cancel",
+  "execution_mode": "http"
+}
+```
+
+The cancellation webhook includes the run ID and job ID so your service can clean up.
+
+## Sandbox Cancellation
+
+For sandbox-mode jobs, cancellation is automatic. Canceling the gRPC context terminates the Forge sandbox process immediately. The BEAM supervisor handles cleanup.
+
+## Failure Policies + Compensation
+
+Compensation integrates with existing failure policies:
+
+| Policy | Behavior |
+|--------|----------|
+| `fail_workflow` | Workflow fails → compensation runs for all completed steps with compensation refs |
+| `skip_dependents` | Only downstream steps are skipped, no compensation |
+| `continue` | Workflow continues, no compensation |
+
+## API
+
+### Cancel a Workflow Run
+
+```bash
+strait workflow-runs cancel <workflow-run-id>
+```
+
+This triggers the full cancel + compensation flow.
+
+### Compensate a Failed Workflow
+
+```bash
+strait workflow-runs compensate <workflow-run-id>
+```
+
+Manually triggers compensation for a workflow that has already failed (useful if you want to retry compensation).

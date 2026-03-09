@@ -18,6 +18,7 @@ const (
 	StatusTimedOut     RunStatus = "timed_out"
 	StatusCrashed      RunStatus = "crashed"
 	StatusSystemFailed RunStatus = "system_failed"
+	StatusCanceling    RunStatus = "canceling"
 	StatusCanceled     RunStatus = "canceled"
 	StatusExpired      RunStatus = "expired"
 	StatusDeadLetter   RunStatus = "dead_letter"
@@ -52,6 +53,7 @@ type Job struct {
 	Tags                map[string]string `json:"tags,omitempty"`
 	EndpointURL         string            `json:"endpoint_url"`
 	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
+	CancelEndpointURL   string            `json:"cancel_endpoint_url,omitempty"`
 	ExecutionMode       string            `json:"execution_mode"`
 	SandboxCode         string            `json:"sandbox_code,omitempty"`
 	SandboxLanguage     string            `json:"sandbox_language,omitempty"`
@@ -303,7 +305,7 @@ func (s RunStatus) IsValid() bool {
 	switch s {
 	case StatusDelayed, StatusQueued, StatusDequeued, StatusExecuting, StatusWaiting,
 		StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed,
-		StatusCanceled, StatusExpired:
+		StatusCanceling, StatusCanceled, StatusExpired:
 		return true
 	default:
 		return false
@@ -452,6 +454,7 @@ type WorkflowStep struct {
 	OutputTransform       string             `json:"output_transform,omitempty"`
 	SubWorkflowID         string             `json:"sub_workflow_id,omitempty"`
 	MaxNestingDepth       int                `json:"max_nesting_depth,omitempty"`
+	CompensateStepRef     string             `json:"compensate_step_ref,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
