@@ -488,6 +488,10 @@ func (m *mockAPIStore) ListJobVersionsByJob(ctx context.Context, jobID string, l
 	return nil, nil
 }
 
+func (m *mockAPIStore) GetJobVersionByVersionID(_ context.Context, _ string) (*domain.JobVersion, error) {
+	return nil, store.ErrJobNotFound
+}
+
 func (m *mockAPIStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
 	if m.getAPIKeyByHashFn != nil {
 		return m.getAPIKeyByHashFn(ctx, keyHash)

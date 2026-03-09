@@ -54,6 +54,7 @@ type JobStore interface {
 	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
 	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
 	ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
+	GetJobVersionByVersionID(ctx context.Context, versionID string) (*domain.JobVersion, error)
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	CreateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error)

@@ -91,6 +91,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/dependencies", s.handleListJobDependencies)
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/dependencies/{depID}", s.handleDeleteJobDependency)
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions", s.handleListJobVersions)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions/{versionID}", s.handleGetJobVersion)
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/clone", s.handleCloneJob)
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", s.handleGetJobHealth)
 			})

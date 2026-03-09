@@ -213,3 +213,25 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	}
 	return &v, nil
 }
+
+// GetJobVersionByVersionID looks up a specific version by its nanoid version_id.
+func (q *Queries) GetJobVersionByVersionID(ctx context.Context, versionID string) (*domain.JobVersion, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobVersionByVersionID")
+	defer span.End()
+
+	query := `
+		SELECT id, job_id, version, version_id, backwards_compatible,
+		       name, slug, description, cron, payload_schema,
+		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
+		FROM job_versions
+		WHERE version_id = $1`
+
+	v, err := scanJobVersion(q.db.QueryRow(ctx, query, versionID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrJobNotFound
+		}
+		return nil, fmt.Errorf("get job version by version_id: %w", err)
+	}
+	return v, nil
+}
