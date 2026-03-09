@@ -127,6 +127,7 @@ type APIStore interface {
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 // Pinger checks service health.

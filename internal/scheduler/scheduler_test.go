@@ -98,6 +98,10 @@ func (m *mockSchedulerStore) UpdateEventTriggerStatus(ctx context.Context, id st
 	return m.reaper.UpdateEventTriggerStatus(ctx, id, status, responsePayload, receivedAt, errMsg)
 }
 
+func (m *mockSchedulerStore) CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
+	return m.reaper.CancelEventTriggersByWorkflowRun(ctx, workflowRunID)
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval: 100 * time.Millisecond,

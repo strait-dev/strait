@@ -254,6 +254,43 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID stri
 	return triggers, nil
 }
 
+// CancelEventTriggersByWorkflowRun cancels all waiting event triggers for a given workflow run.
+func (q *Queries) CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelEventTriggersByWorkflowRun")
+	defer span.End()
+
+	query := `
+		UPDATE event_triggers
+		SET status = 'canceled', error = 'workflow canceled'
+		WHERE workflow_run_id = $1
+		  AND status = 'waiting'`
+
+	tag, err := q.db.Exec(ctx, query, workflowRunID)
+	if err != nil {
+		return 0, fmt.Errorf("cancel event triggers for workflow run: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
+// CancelEventTriggerByJobRun cancels any waiting event trigger for a given job run.
+func (q *Queries) CancelEventTriggerByJobRun(ctx context.Context, jobRunID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelEventTriggerByJobRun")
+	defer span.End()
+
+	query := `
+		UPDATE event_triggers
+		SET status = 'canceled', error = 'job run canceled'
+		WHERE job_run_id = $1
+		  AND status = 'waiting'`
+
+	if _, err := q.db.Exec(ctx, query, jobRunID); err != nil {
+		return fmt.Errorf("cancel event trigger for job run: %w", err)
+	}
+
+	return nil
+}
+
 func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	var trigger domain.EventTrigger
 	var workflowRunID *string

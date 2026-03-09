@@ -224,3 +224,7 @@ func (m *mockReaperStore) UpdateEventTriggerStatus(ctx context.Context, id strin
 	}
 	return nil
 }
+
+func (m *mockReaperStore) CancelEventTriggersByWorkflowRun(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}

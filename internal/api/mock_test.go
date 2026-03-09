@@ -751,6 +751,10 @@ func (m *mockAPIStore) ListEventTriggersByProject(ctx context.Context, projectID
 	return nil, nil
 }
 
+func (m *mockAPIStore) CancelEventTriggersByWorkflowRun(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 // mockQueue implements queue.Queue for testing.
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error

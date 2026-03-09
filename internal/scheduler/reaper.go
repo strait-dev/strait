@@ -34,6 +34,7 @@ type ReaperStore interface {
 	DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 type WorkflowCallback interface {
@@ -193,6 +194,11 @@ func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
 			}); err != nil {
 				slog.Error("failed to cancel job run for timed out workflow", "job_run_id", jobRun.ID, "error", err)
 			}
+		}
+
+		// Cancel any pending event triggers for this workflow.
+		if _, cancelErr := r.store.CancelEventTriggersByWorkflowRun(ctx, wfRun.ID); cancelErr != nil {
+			slog.Error("failed to cancel event triggers for timed out workflow", "workflow_run_id", wfRun.ID, "error", cancelErr)
 		}
 	}
 }
