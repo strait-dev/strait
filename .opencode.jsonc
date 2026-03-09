@@ -1,10 +1,78 @@
 {
-  "mcpServers": {
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "anthropic/claude-opus-4-5",
+  "small_model": "anthropic/claude-haiku-4-5",
+
+  "autoupdate": true,
+
+  "instructions": [
+    "AGENT.md",
+    ".claude/CLAUDE.md",
+    ".claude/skills/golang-patterns/SKILL.md",
+    ".claude/skills/golang-pro/SKILL.md",
+    ".claude/skills/golang-testing/SKILL.md",
+    ".claude/skills/go-concurrency-patterns/SKILL.md"
+  ],
+
+  "mcp": {
+    "context7": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "@upstash/context7-mcp",
+        "--api-key",
+        "{env:CONTEXT7_API_KEY}"
+      ],
+      "enabled": true,
+      "timeout": 10000
+    },
+
+    "playwright": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "@executeautomation/playwright-mcp-server"
+      ],
+      "enabled": true
+    },
+
     "linear": {
-      "url": "https://mcp.linear.app/mcp"
+      "type": "remote",
+      "url": "https://mcp.linear.app/sse",
+      "enabled": true
+    },
+
+    "sentry": {
+      "type": "remote",
+      "url": "https://mcp.sentry.dev/mcp",
+      "oauth": {},
+      "enabled": true
+    },
+
+    "basehub": {
+      "type": "remote",
+      "url": "https://basehub.com/api/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:BASEHUB_MCP_TOKEN}"
+      }
+    },
+
+    "filesystem": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "@modelcontextprotocol/server-filesystem"
+      ],
+      "enabled": true,
+      "timeout": 10000
+    },
+
+    "shadcn": {
+      "type": "remote",
+      "url": "https://shadcn.com/api/mcp",
+      "enabled": true
     }
-  },
-  "features": {
-    "experimental_use_rmcp_client": true
   }
 }
