@@ -76,7 +76,7 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, compensation_status, compensation_steps_total, compensation_steps_completed, created_at
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -102,7 +102,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, created_at
+			       retry_of_run_id, parent_workflow_run_id, compensation_status, compensation_steps_total, compensation_steps_completed, created_at
 			FROM workflow_runs
 			WHERE workflow_id = $1 AND created_at < $3
 			ORDER BY created_at DESC
@@ -112,7 +112,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, created_at
+			       retry_of_run_id, parent_workflow_run_id, compensation_status, compensation_steps_total, compensation_steps_completed, created_at
 			FROM workflow_runs
 			WHERE workflow_id = $1
 			ORDER BY created_at DESC
@@ -148,7 +148,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, compensation_status, compensation_steps_total, compensation_steps_completed, created_at
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -291,7 +291,7 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, compensation_status, compensation_steps_total, compensation_steps_completed, created_at
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
 		ORDER BY created_at ASC`
@@ -343,6 +343,9 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 		&expiresAt,
 		&retryOfRunID,
 		&parentWorkflowRunID,
+		&run.CompensationStatus,
+		&run.CompensationStepsTotal,
+		&run.CompensationStepsCompleted,
 		&run.CreatedAt,
 	)
 	if err != nil {

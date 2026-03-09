@@ -43,9 +43,9 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 			step_type, approval_timeout_secs, approval_approvers,
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			timeout_secs_override, output_transform,
-			sub_workflow_id, max_nesting_depth
+			sub_workflow_id, max_nesting_depth, compensate_step_ref
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -70,6 +70,7 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 		step.OutputTransform,
 		dbscan.NilIfEmptyString(step.SubWorkflowID),
 		step.MaxNestingDepth,
+		dbscan.NilIfEmptyString(step.CompensateStepRef),
 	).Scan(&step.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step: %w", err)
@@ -87,7 +88,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		       step_type, approval_timeout_secs, approval_approvers,
 		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 		       timeout_secs_override, output_transform,
-		       sub_workflow_id, max_nesting_depth,
+		       sub_workflow_id, max_nesting_depth, compensate_step_ref,
 		       created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
@@ -125,7 +126,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 		       step_type, approval_timeout_secs, approval_approvers,
 		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 		       timeout_secs_override, output_transform,
-		       sub_workflow_id, max_nesting_depth,
+		       sub_workflow_id, max_nesting_depth, compensate_step_ref,
 		       created_at
 		FROM workflow_steps
 		WHERE id = $1`
@@ -165,6 +166,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	var approvalApprovers []string
 	var retryBackoff string
 	var subWorkflowID *string
+	var compensateStepRef *string
 
 	err := scanner.Scan(
 		&step.ID,
@@ -186,6 +188,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 		&step.OutputTransform,
 		&subWorkflowID,
 		&step.MaxNestingDepth,
+		&compensateStepRef,
 		&step.CreatedAt,
 	)
 	if err != nil {
@@ -208,6 +211,9 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	}
 	if subWorkflowID != nil {
 		step.SubWorkflowID = *subWorkflowID
+	}
+	if compensateStepRef != nil {
+		step.CompensateStepRef = *compensateStepRef
 	}
 
 	return &step, nil
