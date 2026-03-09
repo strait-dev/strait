@@ -143,6 +143,12 @@ func (s *Server) handleGetEventTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Scope to project when authenticated via API key (not internal secret).
+	if projectID := projectIDFromContext(r.Context()); projectID != "" && trigger.ProjectID != projectID {
+		respondError(w, r, http.StatusNotFound, "event trigger not found")
+		return
+	}
+
 	respondJSON(w, http.StatusOK, trigger)
 }
 
