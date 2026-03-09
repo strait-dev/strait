@@ -339,5 +339,27 @@ func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domai
 		return
 	}
 
+	// Update the in-memory trigger so OnEventReceived sees the correct state.
+	trigger.Status = domain.EventTriggerStatusReceived
+	trigger.ResponsePayload = stepRun.Output
+	trigger.ReceivedAt = &now
+
+	// Resume the waiting step/run — without this, the target step stays
+	// in 'waiting' until the reconciliation reaper picks it up.
+	switch trigger.SourceType {
+	case domain.EventSourceWorkflowStep:
+		if err := s.OnEventReceived(ctx, trigger); err != nil {
+			s.logger.Error("emit event: failed to resume waiting step", "event_key", emitKey, "trigger_id", trigger.ID, "error", err)
+		}
+	case domain.EventSourceJobRun:
+		if trigger.JobRunID != "" {
+			if err := s.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
+				"checkpoint_data": stepRun.Output,
+			}); err != nil {
+				s.logger.Error("emit event: failed to re-queue job run", "event_key", emitKey, "job_run_id", trigger.JobRunID, "error", err)
+			}
+		}
+	}
+
 	s.logger.Info("auto-emitted event on step completion", "step_ref", step.StepRef, "event_key", emitKey, "trigger_id", trigger.ID)
 }
