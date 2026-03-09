@@ -1377,3 +1377,55 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 
 	return runs, nil
 }
+
+func (q *Queries) ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByTag")
+	defer span.End()
+
+	base := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth
+		FROM job_runs
+		WHERE project_id = $1`
+
+	args := []any{projectID, tagKey}
+	param := 3
+	if tagValue == "" {
+		base += ` AND tags ? $2`
+	} else {
+		base += ` AND tags ->> $2 = $3`
+		args = append(args, tagValue)
+		param++
+	}
+
+	if cursor != nil {
+		base += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	base += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, base, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list runs by tag: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0)
+	for rows.Next() {
+		run, scanErr := dbscan.ScanRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list runs by tag scan: %w", scanErr)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list runs by tag rows: %w", err)
+	}
+
+	return runs, nil
+}

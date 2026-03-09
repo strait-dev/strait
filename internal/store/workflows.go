@@ -271,3 +271,54 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 
 	return workflows, nil
 }
+
+func (q *Queries) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
+	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowsByTag")
+	defer span.End()
+
+	base := `
+		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, created_at, updated_at
+		FROM workflows
+		WHERE project_id = $1`
+
+	args := []any{projectID, tagKey}
+	param := 3
+	if tagValue == "" {
+		base += ` AND tags ? $2`
+	} else {
+		base += ` AND tags ->> $2 = $3`
+		args = append(args, tagValue)
+		param++
+	}
+
+	if cursor != nil {
+		base += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	base += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, base, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list workflows by tag: %w", err)
+	}
+	defer rows.Close()
+
+	workflows := make([]domain.Workflow, 0)
+	for rows.Next() {
+		wf, scanErr := scanWorkflow(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list workflows by tag scan: %w", scanErr)
+		}
+		workflows = append(workflows, *wf)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflows by tag rows: %w", err)
+	}
+
+	return workflows, nil
+}
