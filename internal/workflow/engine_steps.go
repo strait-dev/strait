@@ -46,6 +46,30 @@ func (e *WorkflowEngine) startStep(
 		if err := e.store.CreateWorkflowStepApproval(ctx, approval); err != nil {
 			return fmt.Errorf("create workflow step approval: %w", err)
 		}
+
+		// Create a parallel event trigger for unified tracking.
+		eventKey := fmt.Sprintf("approval:%s:%s", wfRun.ID, step.StepRef)
+		timeoutSecs := step.ApprovalTimeoutSecs
+		if timeoutSecs <= 0 {
+			timeoutSecs = domain.DefaultEventTimeoutSecs
+		}
+		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
+		trigger := &domain.EventTrigger{
+			ID:                fmt.Sprintf("evt:approval:%s", stepRun.ID),
+			EventKey:          eventKey,
+			ProjectID:         wfRun.ProjectID,
+			SourceType:        "workflow_step",
+			WorkflowRunID:     wfRun.ID,
+			WorkflowStepRunID: stepRun.ID,
+			Status:            domain.EventTriggerStatusWaiting,
+			TimeoutSecs:       timeoutSecs,
+			RequestedAt:       now,
+			ExpiresAt:         expiresAt,
+		}
+		if err := e.store.CreateEventTrigger(ctx, trigger); err != nil {
+			e.logger.Warn("failed to create event trigger for approval step (non-fatal)", "step_ref", step.StepRef, "error", err)
+		}
+
 		stepRun.Status = domain.StepWaiting
 		stepRun.StartedAt = &now
 		return nil
