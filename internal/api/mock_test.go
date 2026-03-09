@@ -173,6 +173,10 @@ func (m *mockAPIStore) UpdateJobGroup(ctx context.Context, group *domain.JobGrou
 	return nil
 }
 
+func (m *mockAPIStore) DeleteJob(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockAPIStore) DeleteJobGroup(ctx context.Context, id string) error {
 	if m.deleteJobGroupFn != nil {
 		return m.deleteJobGroupFn(ctx, id)
