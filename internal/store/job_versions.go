@@ -141,7 +141,7 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       COALESCE(jv.enabled, j.enabled), jv.webhook_url, jv.webhook_secret, jv.run_ttl_secs,
 		       COALESCE(jv.retry_strategy, j.retry_strategy), COALESCE(jv.retry_delays_secs, j.retry_delays_secs),
 		       COALESCE(jv.environment_id, j.environment_id),
-		       jv.version, jv.version_id, j.version_policy, j.created_by, j.updated_by,
+		       jv.version, jv.version_id, j.version_policy, COALESCE(jv.backwards_compatible, j.backwards_compatible), j.created_by, j.updated_by,
 		       jv.created_at, j.updated_at
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id

@@ -164,7 +164,7 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, created_by, updated_by, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM jobs
 		WHERE group_id = $1`
 

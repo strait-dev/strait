@@ -38,10 +38,10 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		INSERT INTO workflows (
 			id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
 			max_parallel_steps, cron, cron_timezone, skip_if_running,
-			tags, version_id, version_policy, created_by, updated_by
+			tags, version_id, version_policy, backwards_compatible, created_by, updated_by
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12,
-			$13::jsonb, $14, $15, $16, $17)
+			$13::jsonb, $14, $15, $16, $17, $18)
 		RETURNING created_at, updated_at, version`
 
 	err = q.db.QueryRow(
@@ -62,6 +62,7 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		tagsJSON,
 		w.VersionID,
 		string(w.VersionPolicy),
+		w.BackwardsCompatible,
 		dbscan.NilIfEmptyString(w.CreatedBy),
 		dbscan.NilIfEmptyString(w.UpdatedBy),
 	).Scan(&w.CreatedAt, &w.UpdatedAt, &w.Version)
@@ -78,7 +79,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (*domain.Workflow,
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE id = $1`
 
@@ -99,7 +100,7 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1 AND slug = $2`
 
@@ -120,7 +121,7 @@ func (q *Queries) ListWorkflows(ctx context.Context, projectID string, limit int
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1`
 
@@ -175,10 +176,12 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		WITH snapshot AS (
 			INSERT INTO workflow_versions (
 				id, workflow_id, version, project_id, name, slug, description, enabled,
-				timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+				timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+				backwards_compatible
 			)
-			SELECT $15, id, version, project_id, name, slug, description, enabled,
-			       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+			SELECT $17, id, version, project_id, name, slug, description, enabled,
+			       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+			       backwards_compatible
 			FROM workflows WHERE id = $11
 			ON CONFLICT (workflow_id, version) DO NOTHING
 		)
@@ -196,6 +199,8 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		    tags = $12::jsonb,
 		    version_id = $13,
 		    updated_by = $14,
+		    version_policy = $15,
+		    backwards_compatible = $16,
 		    version = version + 1,
 		    updated_at = NOW()
 		WHERE id = $11
@@ -218,6 +223,8 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		tagsJSON,
 		newVersionID,
 		dbscan.NilIfEmptyString(w.UpdatedBy),
+		string(w.VersionPolicy),
+		w.BackwardsCompatible,
 		snapshotID,
 	).Scan(&w.UpdatedAt, &w.Version, &w.VersionID)
 	if err != nil {
@@ -271,6 +278,7 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 		&tagsJSON,
 		&versionID,
 		&versionPolicy,
+		&workflow.BackwardsCompatible,
 		&createdBy,
 		&updatedBy,
 		&workflow.CreatedAt,
@@ -318,7 +326,7 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -351,7 +359,7 @@ func (q *Queries) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tag
 
 	base := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM workflows
 		WHERE project_id = $1`
 

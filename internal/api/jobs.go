@@ -64,6 +64,7 @@ type UpdateJobRequest struct {
 	EnvironmentID       *string            `json:"environment_id,omitempty"`
 	Enabled             *bool              `json:"enabled,omitempty"`
 	VersionPolicy       *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	BackwardsCompatible *bool              `json:"backwards_compatible,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -358,6 +359,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.VersionPolicy != nil {
 		job.VersionPolicy = domain.VersionPolicy(*req.VersionPolicy)
+	}
+	if req.BackwardsCompatible != nil {
+		job.BackwardsCompatible = *req.BackwardsCompatible
 	}
 
 	if job.FallbackEndpointURL != "" {

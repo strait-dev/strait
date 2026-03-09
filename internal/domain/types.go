@@ -132,6 +132,7 @@ type Job struct {
 	Version             int               `json:"version"`
 	VersionID           string            `json:"version_id,omitempty"`
 	VersionPolicy       VersionPolicy     `json:"version_policy,omitempty"`
+	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	UpdatedBy           string            `json:"updated_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
@@ -503,26 +504,27 @@ type StepOverride struct {
 
 // Workflow represents a workflow DAG definition.
 type Workflow struct {
-	ID                string            `json:"id"`
-	ProjectID         string            `json:"project_id"`
-	Name              string            `json:"name"`
-	Slug              string            `json:"slug"`
-	Description       string            `json:"description,omitempty"`
-	Tags              map[string]string `json:"tags,omitempty"`
-	Enabled           bool              `json:"enabled"`
-	Version           int               `json:"version"`
-	TimeoutSecs       int               `json:"timeout_secs,omitempty"`
-	MaxConcurrentRuns int               `json:"max_concurrent_runs,omitempty"`
-	MaxParallelSteps  int               `json:"max_parallel_steps,omitempty"`
-	Cron              string            `json:"cron,omitempty"`
-	CronTimezone      string            `json:"cron_timezone,omitempty"`
-	SkipIfRunning     bool              `json:"skip_if_running,omitempty"`
-	VersionID         string            `json:"version_id,omitempty"`
-	VersionPolicy     VersionPolicy     `json:"version_policy,omitempty"`
-	CreatedBy         string            `json:"created_by,omitempty"`
-	UpdatedBy         string            `json:"updated_by,omitempty"`
-	CreatedAt         time.Time         `json:"created_at"`
-	UpdatedAt         time.Time         `json:"updated_at"`
+	ID                  string            `json:"id"`
+	ProjectID           string            `json:"project_id"`
+	Name                string            `json:"name"`
+	Slug                string            `json:"slug"`
+	Description         string            `json:"description,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	Enabled             bool              `json:"enabled"`
+	Version             int               `json:"version"`
+	TimeoutSecs         int               `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns   int               `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps    int               `json:"max_parallel_steps,omitempty"`
+	Cron                string            `json:"cron,omitempty"`
+	CronTimezone        string            `json:"cron_timezone,omitempty"`
+	SkipIfRunning       bool              `json:"skip_if_running,omitempty"`
+	VersionID           string            `json:"version_id,omitempty"`
+	VersionPolicy       VersionPolicy     `json:"version_policy,omitempty"`
+	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
+	CreatedBy           string            `json:"created_by,omitempty"`
+	UpdatedBy           string            `json:"updated_by,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
 // WorkflowStep represents a step (node) within a workflow DAG.
