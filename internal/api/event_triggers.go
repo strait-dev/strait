@@ -83,9 +83,12 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 	trigger.ReceivedAt = &now
 
 	// Resume the workflow step or job run that was waiting.
+	// The trigger is already marked 'received' at this point — if resumption
+	// fails, log the error but still return 200 since the event was recorded.
+	// The reconciliation reaper will pick up the inconsistency.
 	if err := s.resumeEventSource(r.Context(), trigger); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "event received but failed to resume execution")
-		return
+		slog.Error("event received but failed to resume execution",
+			"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
 	}
 
 	// Record metrics.
