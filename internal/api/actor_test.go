@@ -135,7 +135,12 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 	var capturedType string
 
 	ms := &mockAPIStore{}
-	ms.queueStatsFn = func(_ context.Context) (*store.QueueStats, error) {
+	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+		// Capture actor context set by middleware.
+		capturedActor = actorFromContext(ctx)
+		if v, ok := ctx.Value(ctxActorTypeKey).(string); ok {
+			capturedType = v
+		}
 		return &store.QueueStats{}, nil
 	}
 
@@ -149,16 +154,19 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 	r.Header.Set("X-Actor-Email", "leo@example.com")
 	r.Header.Set("X-Actor-Name", "Leonardo")
 
-	// Override the stats handler to capture context.
-	// Instead, we just verify the request doesn't 403.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 
-	_ = capturedActor
-	_ = capturedType
-
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	// Verify actor context was set on the request for downstream handlers.
+	if capturedActor != "user_leo" {
+		t.Fatalf("actorFromContext = %q, want %q", capturedActor, "user_leo")
+	}
+	if capturedType != "user" {
+		t.Fatalf("actorType = %q, want %q", capturedType, "user")
 	}
 
 	// Wait for async syncer goroutine.
@@ -189,6 +197,9 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 func TestAPIKeyAuth_IgnoresActorHeaders(t *testing.T) {
 	t.Parallel()
 
+	var capturedActor string
+	var capturedType string
+
 	ms := &mockAPIStore{}
 	ms.getAPIKeyByHashFn = func(_ context.Context, _ string) (*domain.APIKey, error) {
 		return &domain.APIKey{
@@ -198,7 +209,11 @@ func TestAPIKeyAuth_IgnoresActorHeaders(t *testing.T) {
 		}, nil
 	}
 	ms.touchAPIKeyLastUsedFn = func(_ context.Context, _ string) error { return nil }
-	ms.queueStatsFn = func(_ context.Context) (*store.QueueStats, error) {
+	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+		capturedActor = actorFromContext(ctx)
+		if v, ok := ctx.Value(ctxActorTypeKey).(string); ok {
+			capturedType = v
+		}
 		return &store.QueueStats{}, nil
 	}
 
@@ -208,12 +223,132 @@ func TestAPIKeyAuth_IgnoresActorHeaders(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer strait_testkey123")
 	// These headers should be IGNORED for API key auth.
 	r.Header.Set("X-Actor-Id", "user_attacker")
+	r.Header.Set("X-Actor-Email", "attacker@evil.com")
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 
-	// Should succeed (key has stats:read) but actor type should be api_key, not user.
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	// Verify actor is the API key, NOT the attacker headers.
+	if capturedActor != "apikey:key-1" {
+		t.Fatalf("actorFromContext = %q, want %q (should be API key, not impersonated user)", capturedActor, "apikey:key-1")
+	}
+	if capturedType != "api_key" {
+		t.Fatalf("actorType = %q, want %q", capturedType, "api_key")
+	}
+}
+
+func TestInternalSecretAuth_NoActorHeaders(t *testing.T) {
+	t.Parallel()
+
+	var capturedActor string
+
+	ms := &mockAPIStore{}
+	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+		capturedActor = actorFromContext(ctx)
+		return &store.QueueStats{}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("X-Internal-Secret", "test-secret")
+	// No X-Actor-Id header.
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if capturedActor != "" {
+		t.Fatalf("actorFromContext = %q, want empty (no actor headers)", capturedActor)
+	}
+}
+
+func TestInternalSecretAuth_EmptyActorID(t *testing.T) {
+	t.Parallel()
+
+	var capturedType string
+
+	ms := &mockAPIStore{}
+	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
+		if v, ok := ctx.Value(ctxActorTypeKey).(string); ok {
+			capturedType = v
+		}
+		return &store.QueueStats{}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Actor-Id", "") // Empty string.
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	// Empty X-Actor-Id should NOT set actor type to "user".
+	if capturedType == "user" {
+		t.Fatal("empty X-Actor-Id should not result in actor type 'user'")
+	}
+}
+
+func TestAPIKeyAuth_MissingAuthHeader(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	// No Authorization header, no X-Internal-Secret.
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAPIKeyAuth_InvalidBearerPrefix(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("Authorization", "Bearer invalid_not_strait_prefix")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestActorSyncer_NilSyncer(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.queueStatsFn = func(_ context.Context) (*store.QueueStats, error) {
+		return &store.QueueStats{}, nil
+	}
+	// Create server without ActorSyncer (nil).
+	srv := newTestServer(t, ms, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("X-Internal-Secret", "test-secret")
+	r.Header.Set("X-Actor-Id", "user_leo")
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	// Should not panic even though syncer is nil.
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (nil syncer should not panic)", w.Code, http.StatusOK)
 	}
 }

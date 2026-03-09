@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -336,5 +337,452 @@ func TestHandleRemoveMember_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+// Additional handler tests.
+
+func TestHandleCreateRole_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	req := authedRequest(http.MethodPost, "/v1/roles", "{}")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	body := `{"name":"test","permissions":[]}`
+	req := authedRequest(http.MethodPost, "/v1/roles", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleCreateRole_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	req := authedRequest(http.MethodPost, "/v1/roles", "{invalid json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleCreateRole_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.createProjectRoleFn = func(_ context.Context, _ *domain.ProjectRole) error {
+		return fmt.Errorf("database connection lost")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := `{"name":"deployer","permissions":["jobs:write"]}`
+	req := authedRequest(http.MethodPost, "/v1/roles", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleCreateRole_ResponseShape(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.createProjectRoleFn = func(_ context.Context, role *domain.ProjectRole) error {
+		role.ID = "role_resp"
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := `{"name":"deployer","description":"Deploy stuff","permissions":["jobs:write","jobs:trigger"]}`
+	req := authedRequest(http.MethodPost, "/v1/roles", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	for _, field := range []string{"id", "name", "description", "permissions"} {
+		if _, ok := resp[field]; !ok {
+			t.Errorf("response missing field %q", field)
+		}
+	}
+	if resp["name"] != "deployer" {
+		t.Errorf("name = %v, want deployer", resp["name"])
+	}
+	if resp["description"] != "Deploy stuff" {
+		t.Errorf("description = %v, want 'Deploy stuff'", resp["description"])
+	}
+}
+
+func TestHandleDeleteRole_Success(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.deleteProjectRoleFn = func(_ context.Context, _ string) error {
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodDelete, "/v1/roles/role_1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleDeleteRole_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.deleteProjectRoleFn = func(_ context.Context, _ string) error {
+		return fmt.Errorf("db down")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodDelete, "/v1/roles/role_1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleGetRole_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getProjectRoleFn = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+		return nil, fmt.Errorf("timeout")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/roles/role_1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleListRoles_Empty(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.listProjectRolesFn = func(_ context.Context, _ string) ([]domain.ProjectRole, error) {
+		return []domain.ProjectRole{}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/roles", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	body := w.Body.String()
+	// Should be "[]" not "null".
+	if body == "null\n" || body == "null" {
+		t.Fatal("empty list should return [] not null")
+	}
+}
+
+func TestHandleListRoles_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.listProjectRolesFn = func(_ context.Context, _ string) ([]domain.ProjectRole, error) {
+		return nil, fmt.Errorf("db error")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/roles", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleUpdateRole_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", "{}")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleUpdateRole_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.updateProjectRoleFn = func(_ context.Context, _ *domain.ProjectRole) error {
+		return fmt.Errorf("db error")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := `{"name":"x","permissions":["jobs:read"]}`
+	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleAssignMember_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	req := authedRequest(http.MethodPost, "/v1/members", "{}")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleAssignMember_MissingUserID(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	body := `{"role_id":"role_1"}`
+	req := authedRequest(http.MethodPost, "/v1/members", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleAssignMember_MissingRoleID(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	body := `{"user_id":"user_1"}`
+	req := authedRequest(http.MethodPost, "/v1/members", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleAssignMember_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: id}, nil
+	}
+	ms.assignMemberRoleFn = func(_ context.Context, _ *domain.ProjectMemberRole) error {
+		return fmt.Errorf("db error")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := `{"user_id":"user_1","role_id":"role_1"}`
+	req := authedRequest(http.MethodPost, "/v1/members", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleAssignMember_GetRoleStoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getProjectRoleFn = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+		return nil, fmt.Errorf("db timeout")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := `{"user_id":"user_1","role_id":"role_1"}`
+	req := authedRequest(http.MethodPost, "/v1/members", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleAssignMember_ResponseShape(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: id, Name: "admin"}, nil
+	}
+	ms.assignMemberRoleFn = func(_ context.Context, m *domain.ProjectMemberRole) error {
+		m.ID = "member_resp"
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := `{"user_id":"user_1","role_id":"role_1"}`
+	req := authedRequest(http.MethodPost, "/v1/members", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, field := range []string{"id", "user_id", "role_id"} {
+		if _, ok := resp[field]; !ok {
+			t.Errorf("response missing field %q", field)
+		}
+	}
+	if resp["user_id"] != "user_1" {
+		t.Errorf("user_id = %v, want user_1", resp["user_id"])
+	}
+}
+
+func TestHandleListMembers_Empty(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.listProjectMembersFn = func(_ context.Context, _ string) ([]domain.ProjectMemberRole, error) {
+		return []domain.ProjectMemberRole{}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/members", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	body := w.Body.String()
+	if body == "null\n" || body == "null" {
+		t.Fatal("empty members list should return [] not null")
+	}
+}
+
+func TestHandleListMembers_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.listProjectMembersFn = func(_ context.Context, _ string) ([]domain.ProjectMemberRole, error) {
+		return nil, fmt.Errorf("db error")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/members", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleRemoveMember_Success(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.removeMemberRoleFn = func(_ context.Context, _, _ string) error {
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodDelete, "/v1/members/user_1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleRemoveMember_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.removeMemberRoleFn = func(_ context.Context, _, _ string) error {
+		return fmt.Errorf("db error")
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodDelete, "/v1/members/user_1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleAssignMember_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	req := authedRequest(http.MethodPost, "/v1/members", "{broken")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleUpdateRole_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", "{broken")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }

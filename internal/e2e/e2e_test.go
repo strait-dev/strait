@@ -890,3 +890,289 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 		t.Fatalf("expected unauthorized for revoked key, got %d: %s", revokedW.Code, revokedW.Body.String())
 	}
 }
+
+// ====================================================================
+// Test hardening: E2E tests for new features
+// ====================================================================
+
+func TestE2E_ScopeEnforcement(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-scope-enforce-" + newID()
+	// Create a job first (via internal secret).
+	created := createJob(t, projectID, "Scope Test Job", "scope-test-"+newID())
+	jobID := asString(t, created, "id")
+
+	// Create API key with ONLY jobs:read (no write, no trigger).
+	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"read-only","scopes":["jobs:read"]}`, projectID)
+	kw := doRequest(t, http.MethodPost, "/v1/api-keys/", keyBody)
+	if kw.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, body = %s", kw.Code, kw.Body.String())
+	}
+	keyResp := mustDecodeObject(t, kw)
+	rawKey := asString(t, keyResp, "key")
+
+	// GET job with read-only key — should succeed.
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/jobs/"+jobID+"/", nil)
+	getReq.Header.Set("Authorization", "Bearer "+rawKey)
+	getW := httptest.NewRecorder()
+	testServer.ServeHTTP(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("GET job with jobs:read key: status = %d, body = %s", getW.Code, getW.Body.String())
+	}
+
+	// PATCH job with read-only key — should be 403.
+	patchReq := httptest.NewRequest(http.MethodPatch, "/v1/jobs/"+jobID+"/", strings.NewReader(`{"name":"Hacked"}`))
+	patchReq.Header.Set("Authorization", "Bearer "+rawKey)
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchW := httptest.NewRecorder()
+	testServer.ServeHTTP(patchW, patchReq)
+	if patchW.Code != http.StatusForbidden {
+		t.Fatalf("PATCH job with jobs:read key: status = %d, want 403, body = %s", patchW.Code, patchW.Body.String())
+	}
+
+	// POST trigger with read-only key — should be 403.
+	triggerReq := httptest.NewRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", strings.NewReader(`{}`))
+	triggerReq.Header.Set("Authorization", "Bearer "+rawKey)
+	triggerReq.Header.Set("Content-Type", "application/json")
+	triggerW := httptest.NewRecorder()
+	testServer.ServeHTTP(triggerW, triggerReq)
+	if triggerW.Code != http.StatusForbidden {
+		t.Fatalf("trigger job with jobs:read key: status = %d, want 403, body = %s", triggerW.Code, triggerW.Body.String())
+	}
+}
+
+func TestE2E_EmptyScopesFullAccess(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-empty-scopes-" + newID()
+	// Create API key with empty scopes (backwards compatible = full access).
+	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"full-access","scopes":[]}`, projectID)
+	kw := doRequest(t, http.MethodPost, "/v1/api-keys/", keyBody)
+	if kw.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, body = %s", kw.Code, kw.Body.String())
+	}
+	keyResp := mustDecodeObject(t, kw)
+	rawKey := asString(t, keyResp, "key")
+
+	// Stats should work.
+	statsReq := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	statsReq.Header.Set("Authorization", "Bearer "+rawKey)
+	statsW := httptest.NewRecorder()
+	testServer.ServeHTTP(statsW, statsReq)
+	if statsW.Code != http.StatusOK {
+		t.Fatalf("stats with empty scopes key: status = %d, body = %s", statsW.Code, statsW.Body.String())
+	}
+}
+
+func TestE2E_JobVersionID(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-vid-e2e-" + newID()
+	created := createJob(t, projectID, "VID Job", "vid-job-"+newID())
+
+	vid1 := asString(t, created, "version_id")
+	if vid1 == "" {
+		t.Fatal("expected version_id on create")
+	}
+	if !strings.HasPrefix(vid1, "ver_") {
+		t.Fatalf("version_id = %q, want prefix 'ver_'", vid1)
+	}
+
+	jobID := asString(t, created, "id")
+	// Update job — should get new version_id.
+	uw := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"VID Job Updated"}`)
+	if uw.Code != http.StatusOK {
+		t.Fatalf("update job status = %d, body = %s", uw.Code, uw.Body.String())
+	}
+	updated := mustDecodeObject(t, uw)
+	vid2 := asString(t, updated, "version_id")
+	if vid2 == "" {
+		t.Fatal("expected version_id on update")
+	}
+	if vid1 == vid2 {
+		t.Fatalf("version_id should change on update: %q == %q", vid1, vid2)
+	}
+}
+
+func TestE2E_VersionPolicyDefault(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-vpol-e2e-" + newID()
+	created := createJob(t, projectID, "VPol Job", "vpol-job-"+newID())
+
+	policy := asString(t, created, "version_policy")
+	if policy != "pin" {
+		t.Fatalf("default version_policy = %q, want 'pin'", policy)
+	}
+}
+
+func TestE2E_UpdateJobVersionIncrement(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-ver-inc-e2e-" + newID()
+	created := createJob(t, projectID, "Inc Job", "inc-job-"+newID())
+	jobID := asString(t, created, "id")
+
+	if asInt(t, created, "version") != 1 {
+		t.Fatalf("initial version = %d, want 1", asInt(t, created, "version"))
+	}
+
+	// First update.
+	uw1 := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"Inc Job v2"}`)
+	if uw1.Code != http.StatusOK {
+		t.Fatalf("update 1 status = %d", uw1.Code)
+	}
+	r1 := mustDecodeObject(t, uw1)
+	if asInt(t, r1, "version") != 2 {
+		t.Fatalf("version after 1st update = %d, want 2", asInt(t, r1, "version"))
+	}
+
+	// Second update.
+	uw2 := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"Inc Job v3"}`)
+	if uw2.Code != http.StatusOK {
+		t.Fatalf("update 2 status = %d", uw2.Code)
+	}
+	r2 := mustDecodeObject(t, uw2)
+	if asInt(t, r2, "version") != 3 {
+		t.Fatalf("version after 2nd update = %d, want 3", asInt(t, r2, "version"))
+	}
+}
+
+func TestE2E_JobCreatedBy(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-created-by-" + newID()
+	slug := "created-by-" + newID()
+	body := fmt.Sprintf(`{"project_id":"%s","name":"Created By Job","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60}`, projectID, slug, slug)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/", strings.NewReader(body))
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Actor-Id", "user_leo_123")
+	req.Header.Set("X-Actor-Email", "leo@example.com")
+	req.Header.Set("X-Actor-Name", "Leonardo")
+
+	w := httptest.NewRecorder()
+	testServer.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	resp := mustDecodeObject(t, w)
+	createdBy := asString(t, resp, "created_by")
+	if createdBy != "user_leo_123" {
+		t.Fatalf("created_by = %q, want %q", createdBy, "user_leo_123")
+	}
+}
+
+func TestE2E_RolesLifecycle(t *testing.T) {
+	mustClean(t)
+
+	// Create role.
+	createBody := `{"name":"e2e-deployer","description":"Can deploy things","permissions":["jobs:write","jobs:trigger","jobs:read"]}`
+	cw := doRequest(t, http.MethodPost, "/v1/roles", createBody)
+	if cw.Code != http.StatusCreated {
+		t.Fatalf("create role status = %d, body = %s", cw.Code, cw.Body.String())
+	}
+	created := mustDecodeObject(t, cw)
+	roleID := asString(t, created, "id")
+	if roleID == "" {
+		t.Fatal("expected role ID")
+	}
+
+	// List roles.
+	lw := doRequest(t, http.MethodGet, "/v1/roles", "")
+	if lw.Code != http.StatusOK {
+		t.Fatalf("list roles status = %d", lw.Code)
+	}
+	roles := mustDecodeList(t, lw)
+	found := false
+	for _, r := range roles {
+		if asString(t, r, "id") == roleID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("created role %q not found in list", roleID)
+	}
+
+	// Get role.
+	gw := doRequest(t, http.MethodGet, "/v1/roles/"+roleID, "")
+	if gw.Code != http.StatusOK {
+		t.Fatalf("get role status = %d, body = %s", gw.Code, gw.Body.String())
+	}
+	got := mustDecodeObject(t, gw)
+	if asString(t, got, "name") != "e2e-deployer" {
+		t.Fatalf("name = %q, want e2e-deployer", asString(t, got, "name"))
+	}
+
+	// Update role.
+	updateBody := `{"name":"e2e-deployer-v2","description":"Updated","permissions":["jobs:write","jobs:trigger","jobs:read","runs:read"]}`
+	uw := doRequest(t, http.MethodPatch, "/v1/roles/"+roleID, updateBody)
+	if uw.Code != http.StatusOK {
+		t.Fatalf("update role status = %d, body = %s", uw.Code, uw.Body.String())
+	}
+
+	// Assign member.
+	assignBody := fmt.Sprintf(`{"user_id":"e2e-user-1","role_id":"%s"}`, roleID)
+	aw := doRequest(t, http.MethodPost, "/v1/members", assignBody)
+	if aw.Code != http.StatusCreated {
+		t.Fatalf("assign member status = %d, body = %s", aw.Code, aw.Body.String())
+	}
+
+	// List members.
+	mw := doRequest(t, http.MethodGet, "/v1/members", "")
+	if mw.Code != http.StatusOK {
+		t.Fatalf("list members status = %d", mw.Code)
+	}
+
+	// Remove member.
+	rw := doRequest(t, http.MethodDelete, "/v1/members/e2e-user-1", "")
+	if rw.Code != http.StatusNoContent {
+		t.Fatalf("remove member status = %d, body = %s", rw.Code, rw.Body.String())
+	}
+
+	// Delete role.
+	dw := doRequest(t, http.MethodDelete, "/v1/roles/"+roleID, "")
+	if dw.Code != http.StatusNoContent {
+		t.Fatalf("delete role status = %d, body = %s", dw.Code, dw.Body.String())
+	}
+
+	// Verify gone.
+	gw2 := doRequest(t, http.MethodGet, "/v1/roles/"+roleID, "")
+	if gw2.Code != http.StatusNotFound {
+		t.Fatalf("get deleted role status = %d, want 404", gw2.Code)
+	}
+}
+
+func TestE2E_TagFilteringWorkflows(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-wf-tags-e2e-" + newID()
+	slug1 := "wf-tagged-1-" + newID()
+	slug2 := "wf-tagged-2-" + newID()
+
+	body1 := fmt.Sprintf(`{"project_id":"%s","name":"WF Tagged 1","slug":"%s","enabled":true,"tags":{"team":"core","env":"prod"}}`, projectID, slug1)
+	w1 := doRequest(t, http.MethodPost, "/v1/workflows/", body1)
+	if w1.Code != http.StatusCreated {
+		t.Fatalf("create wf1 status = %d, body = %s", w1.Code, w1.Body.String())
+	}
+
+	body2 := fmt.Sprintf(`{"project_id":"%s","name":"WF Tagged 2","slug":"%s","enabled":true,"tags":{"team":"ops"}}`, projectID, slug2)
+	w2 := doRequest(t, http.MethodPost, "/v1/workflows/", body2)
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("create wf2 status = %d, body = %s", w2.Code, w2.Body.String())
+	}
+
+	// Filter by team=core.
+	fw := doRequest(t, http.MethodGet, "/v1/workflows/?project_id="+projectID+"&tag_key=team&tag_value=core", "")
+	if fw.Code != http.StatusOK {
+		t.Fatalf("filter workflows status = %d, body = %s", fw.Code, fw.Body.String())
+	}
+	filtered := mustDecodeList(t, fw)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered workflow, got %d", len(filtered))
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"strait/internal/domain"
@@ -326,10 +327,10 @@ func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
 func TestRequirePermission_User_CacheHit(t *testing.T) {
 	t.Parallel()
 
-	callCount := 0
+	var callCount int32
 	ms := &mockAPIStore{}
 	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
-		callCount++
+		atomic.AddInt32(&callCount, 1)
 		return []string{domain.ScopeJobsRead}, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -349,8 +350,8 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 	if w1.Code != http.StatusOK {
 		t.Fatalf("first call status = %d, want %d", w1.Code, http.StatusOK)
 	}
-	if callCount != 1 {
-		t.Fatalf("DB calls = %d, want 1", callCount)
+	if c := atomic.LoadInt32(&callCount); c != 1 {
+		t.Fatalf("DB calls = %d, want 1", c)
 	}
 
 	// Second call — cache hit, no DB call
@@ -358,7 +359,151 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Fatalf("second call status = %d, want %d", w2.Code, http.StatusOK)
 	}
-	if callCount != 1 {
-		t.Fatalf("DB calls after cache hit = %d, want 1", callCount)
+	if c := atomic.LoadInt32(&callCount); c != 1 {
+		t.Fatalf("DB calls after cache hit = %d, want 1", c)
+	}
+}
+
+func TestRequirePermission_User_MissingActorID(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	// Deliberately NO actorID.
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (missing actor ID)", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_User_WildcardPermission(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{"*"}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	// User with wildcard should access ANY scope.
+	for _, scope := range []string{domain.ScopeJobsWrite, domain.ScopeRBACManage, domain.ScopeSecretsWrite, "anything"} {
+		handler := srv.requirePermission(scope)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("scope %q: status = %d, want %d", scope, w.Code, http.StatusOK)
+		}
+	}
+}
+
+func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
+	t.Parallel()
+
+	var callCount int32
+	ms := &mockAPIStore{}
+	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+		atomic.AddInt32(&callCount, 1)
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	makeReq := func() {
+		r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+	}
+
+	// First call populates cache.
+	makeReq()
+	if c := atomic.LoadInt32(&callCount); c != 1 {
+		t.Fatalf("DB calls = %d, want 1", c)
+	}
+
+	// Invalidate cache.
+	srv.permCache.Invalidate("proj-1", "user-1")
+
+	// Next call should hit DB again.
+	makeReq()
+	if c := atomic.LoadInt32(&callCount); c != 2 {
+		t.Fatalf("DB calls after invalidation = %d, want 2", c)
+	}
+}
+
+func TestRequirePermission_ChainedMiddleware(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil // Has read but NOT write.
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	// Chain: first requires read (pass), second requires write (fail).
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	chained := srv.requirePermission(domain.ScopeJobsRead)(
+		srv.requirePermission(domain.ScopeJobsWrite)(inner),
+	)
+
+	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
+	w := httptest.NewRecorder()
+	chained.ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("chained status = %d, want %d (second middleware should block)", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_APIKey_WildcardScopeWithUserActorType(t *testing.T) {
+	t.Parallel()
+
+	// Even if scopes contain "*" and actor type is "user", the user path fires.
+	// This verifies the middleware correctly dispatches on actor type, not scopes.
+	ms := &mockAPIStore{}
+	ms.getUserPermissionsFn = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil // User has read only.
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	// User path should fire: user has only jobs:read, so jobs:write should be denied.
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (user path should check role, not API key scopes)", w.Code, http.StatusForbidden)
 	}
 }
