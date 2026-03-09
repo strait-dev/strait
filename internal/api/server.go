@@ -255,10 +255,17 @@ func NewServer(deps ServerDeps) *Server {
 		actorSyncer:        deps.ActorSyncer,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
-		permCache:          newPermissionCache(30 * time.Second),
+		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
 	}
 	srv.router = srv.routes()
 	return srv
+}
+
+func permCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.PermissionCacheTTL > 0 {
+		return cfg.PermissionCacheTTL
+	}
+	return 30 * time.Second
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

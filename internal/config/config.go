@@ -93,6 +93,9 @@ type Config struct {
 	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
 
+	// RBAC permission cache
+	PermissionCacheTTL time.Duration `mapstructure:"PERMISSION_CACHE_TTL"`
+
 	// Worker/Executor timeouts
 	WebhookTimeout          time.Duration `mapstructure:"WEBHOOK_TIMEOUT"`
 	WebhookIdleConnTimeout  time.Duration `mapstructure:"WEBHOOK_IDLE_CONN_TIMEOUT"`
