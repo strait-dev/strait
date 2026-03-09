@@ -1,0 +1,175 @@
+---
+title: "Versioning"
+description: "How the strait tracks job and workflow versions for safe updates and exact run provenance."
+---
+
+Every job and workflow in the strait is versioned. When you update a job's configuration, the previous version is snapshotted so that in-flight runs continue to execute with the config they were enqueued under.
+
+## Dual Versioning
+
+Each job and workflow has two version identifiers:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `version` | Integer | Auto-incrementing counter (1, 2, 3, ...). Used for ordering and internal references. |
+| `version_id` | String | Globally unique nanoid (`ver_k8f2m9x1p3`). Used as the public-facing identifier. |
+
+The integer `version` is predictable and easy to reason about. The `version_id` is a 16-character string (4-char prefix + 12-char nanoid using `0-9a-z` alphabet) that's safe to expose in URLs and APIs without leaking ordering information.
+
+### Version Lifecycle
+
+```
+CreateJob → version=1, version_id=ver_abc123def456
+UpdateJob → version=2, version_id=ver_xyz789ghi012  (old config snapshotted)
+UpdateJob → version=3, version_id=ver_mno345pqr678  (old config snapshotted)
+```
+
+On each `UpdateJob`, the current configuration is snapshotted to the `job_versions` table **before** the update is applied. This means:
+
+- `job_versions` contains the full config for versions 1, 2, ... (N-1)
+- The live `jobs` table always has the **current** (latest) version
+
+## Atomic Versioning
+
+When a run is enqueued, it captures the job's current `version` and `version_id`:
+
+```
+TriggerJob(job_id=X) → run.job_version=2, run.job_version_id=ver_xyz789ghi012
+```
+
+When the executor picks up the run, it reads the job config **at that version** from the snapshot table:
+
+```go
+job, err := store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
+```
+
+This prevents a common race condition: if you update a job's endpoint URL while runs are queued, those runs still execute against the old endpoint.
+
+### Fallback Behavior
+
+If no snapshot exists for the requested version (e.g., version 1 before snapshotting was implemented), the executor falls back to reading the live `jobs` table. This ensures backwards compatibility.
+
+## Version Policy
+
+Each job and workflow has a `version_policy` that controls how queued runs interact with version updates:
+
+| Policy | Behavior | Use Case |
+|--------|----------|----------|
+| `pin` (default) | Runs execute with the version they were enqueued under | Safety-first deployments |
+| `latest` | Queued runs upgrade to the latest version at dequeue time | Fast rollouts, non-breaking changes |
+| `minor` | Upgrade only if the new version is marked `backwards_compatible` | Controlled rollouts |
+
+### `pin` (Default)
+
+The safest option. Runs always execute with the exact configuration they were enqueued under. A job update never affects already-queued runs.
+
+```
+Enqueue run (job at v2) → Update job to v3 → Dequeue → Run executes with v2 config
+```
+
+### `latest`
+
+Queued runs automatically upgrade to the current version when dequeued. Useful when you want all runs to use the latest config regardless of when they were enqueued.
+
+```
+Enqueue run (job at v2) → Update job to v3 → Dequeue → Run executes with v3 config
+```
+
+### `minor`
+
+A middle ground. Queued runs upgrade only if the new version has `backwards_compatible = true`. This lets you control which updates are safe for in-flight runs.
+
+```
+Enqueue run (job at v2) → Update job to v3 (backwards_compatible=true) → Dequeue → Run upgrades to v3
+Enqueue run (job at v2) → Update job to v3 (backwards_compatible=false) → Dequeue → Run stays at v2
+```
+
+### Setting Version Policy
+
+```bash
+curl -X POST https://strait.dev/v1/jobs \
+  -d '{
+    "name": "my-job",
+    "version_policy": "latest",
+    ...
+  }'
+```
+
+Or update an existing job:
+
+```bash
+curl -X PATCH https://strait.dev/v1/jobs/job_123 \
+  -d '{"version_policy": "latest"}'
+```
+
+<Note>
+  Version policy is currently stored but enforcement at dequeue time is planned for a future release. All runs currently behave as `pin`.
+</Note>
+
+## Version Snapshots
+
+The `job_versions` table stores a full snapshot of the job configuration at each version:
+
+- `endpoint_url`, `fallback_endpoint_url`
+- `max_attempts`, `timeout_secs`
+- `tags`, `payload_schema`
+- `max_concurrency`, `execution_window_cron`
+- `rate_limit_max`, `rate_limit_window_secs`
+- `retry_strategy`, `retry_delays_secs`
+- `environment_id`, `group_id`
+- `enabled`
+- `version_id`, `backwards_compatible`
+
+Snapshots are created automatically on `UpdateJob`. The first version (at creation time) is captured when the first update occurs.
+
+## Browsing Versions
+
+List all versions of a job:
+
+```bash
+curl https://strait.dev/v1/jobs/job_123/versions \
+  -H "Authorization: Bearer strait_..."
+```
+
+Response:
+
+```json
+[
+  {
+    "id": "ver_abc",
+    "job_id": "job_123",
+    "version": 2,
+    "version_id": "ver_xyz789ghi012",
+    "endpoint_url": "https://old.example.com/webhook",
+    "max_attempts": 3,
+    "backwards_compatible": false,
+    "created_at": "2025-01-15T10:30:00Z"
+  },
+  {
+    "id": "ver_def",
+    "job_id": "job_123",
+    "version": 1,
+    "version_id": "ver_abc123def456",
+    "endpoint_url": "https://original.example.com/webhook",
+    "max_attempts": 5,
+    "backwards_compatible": false,
+    "created_at": "2025-01-10T08:00:00Z"
+  }
+]
+```
+
+## Run Provenance
+
+Every run records which version it was enqueued under:
+
+```json
+{
+  "id": "run_123",
+  "job_id": "job_456",
+  "job_version": 2,
+  "job_version_id": "ver_xyz789ghi012",
+  "status": "completed"
+}
+```
+
+This gives you exact traceability: you can always determine which configuration a run executed with, even if the job has been updated many times since.

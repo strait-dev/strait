@@ -38,6 +38,10 @@ The `Job` struct (defined in `internal/domain/types.go`) contains the following 
 | `retry_delays_secs` | `[]int` | Array of delays for the `custom` retry strategy. |
 | `environment_id` | `string` | The environment (e.g., Staging, Production) this job is bound to. |
 | `version` | `int` | Auto-incrementing version number (starts at 1). |
+| `version_id` | `string` | Unique nanoid for this version (`ver_k8f2m9x1p3`). Changes on every update. |
+| `version_policy` | `string` | How queued runs interact with updates: `pin` (default), `latest`, or `minor`. See [Versioning](/docs/concepts/versioning). |
+| `created_by` | `string` | Actor ID who created the job (user ID or `apikey:<id>`). |
+| `updated_by` | `string` | Actor ID who last updated the job. |
 | `created_at` | `time.Time` | Timestamp when the job was created. |
 | `updated_at` | `time.Time` | Timestamp of the last update. |
 

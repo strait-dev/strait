@@ -1,5 +1,15 @@
 # Implementation Plan: Versioning, RBAC, Tags & Audit
 
+> **Status: All 7 phases implemented.** See [NEXT_STEPS.md](./NEXT_STEPS.md) for remaining gaps and improvements.
+>
+> - [x] Phase 1: Atomic versioning (migration 049, `GetJobAtVersion`, executor wired)
+> - [x] Phase 2: API key scopes (14 scopes, `requirePermission` middleware, all routes)
+> - [x] Phase 3: Actor identity (migration 050, `known_actors`, audit columns, async sync)
+> - [x] Phase 4: RBAC (migration 051, 4 system roles, custom roles, member management, permission cache)
+> - [x] Phase 5: Version IDs (migration 052, nanoid `ver_` prefix, unique per update)
+> - [x] Phase 6: Version policy (migration 053, pin/latest/minor stored — enforcement at dequeue pending)
+> - [x] Phase 7: Tags everywhere (migration 054, JSONB + GIN indexes on workflows/runs)
+
 ## On Casdoor
 
 **Skip it.** Casdoor is a full IAM server (identity + OAuth + RBAC + admin UI). It's designed to be the *sole* auth provider — it replaces Better Auth, not complements it. If you used Casdoor, you'd be running a separate Java/Go service with its own Postgres database, its own session management, its own UI. You'd have the same "two databases" problem plus a heavy dependency you don't control.

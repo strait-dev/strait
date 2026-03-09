@@ -33,6 +33,10 @@ The strait solves the complexity of background job processing by combining queue
 - **13-State FSM** — Robust lifecycle management with queued, executing, completed, failed, timed_out, dead_letter
 - **Workflow DAGs** — Fan-in/fan-out, step conditions, template variables, and sub-workflow nesting
 - **Smart Retry** — Exponential, linear, fixed, or custom per-attempt delays with ±20% jitter
+- **RBAC & Scoped API Keys** — Project roles (admin, operator, viewer, custom), API key scopes, and actor identity tracking
+- **Atomic Versioning** — Version snapshots, unique version IDs (nanoid), and configurable version policies (pin/latest/minor)
+- **Tags Everywhere** — Key-value tags on jobs, workflows, and runs with GIN-indexed filtering
+- **Audit Trail** — Every mutation records `created_by`/`updated_by` with actor identity from your auth provider
 - **Cost Budgets** — Per-run and daily project limits with AI model usage tracking
 - **Real-Time CDC** — Postgres WAL change capture via Sequin for instant event notifications
 - **SDK Endpoints** — Specialized endpoints for logging, heartbeats, progress, and continuation

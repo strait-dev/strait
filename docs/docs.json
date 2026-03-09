@@ -31,6 +31,7 @@
               "concepts/retry-strategies",
               "concepts/webhooks",
               "concepts/environments",
+              "concepts/versioning",
               "concepts/cost-budgets",
               "concepts/cdc"
             ]
