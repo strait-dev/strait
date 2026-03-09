@@ -996,7 +996,10 @@ func TestIdempotency_ConcurrentRequestsMixedHitMiss(t *testing.T) {
 
 // Idempotency + replay flow.
 
-func TestIdempotency_ReplayPreservesIdempotencyKey(t *testing.T) {
+func TestIdempotency_ReplayDoesNotCopyIdempotencyKey(t *testing.T) {
+	// Replays should NOT carry the original idempotency key because:
+	// 1. Replays are independent operations
+	// 2. Copying the key could conflict with active runs sharing the same key
 	t.Parallel()
 	var enqueued *domain.JobRun
 	ms := &mockAPIStore{
@@ -1032,8 +1035,8 @@ func TestIdempotency_ReplayPreservesIdempotencyKey(t *testing.T) {
 	if enqueued == nil {
 		t.Fatal("expected run to be enqueued")
 	}
-	if enqueued.IdempotencyKey != "my-idem-key" {
-		t.Fatalf("expected idempotency key to be preserved on replay, got %q", enqueued.IdempotencyKey)
+	if enqueued.IdempotencyKey != "" {
+		t.Fatalf("expected replay to NOT carry idempotency key, got %q", enqueued.IdempotencyKey)
 	}
 }
 
@@ -1560,11 +1563,9 @@ func TestIdempotency_BulkTriggerHeaderIgnored(t *testing.T) {
 // Replay with idempotency key that already has an active run should fail
 // at the DB level (unique constraint).
 
-func TestIdempotency_ReplayWithActiveRunSameKey_DBRejects(t *testing.T) {
-	// When replaying a run that has an idempotency key, and the original run
-	// is still active (non-terminal), the DB unique index should prevent the
-	// replay from inserting a duplicate. This test documents that the replay
-	// code copies the idempotency key and relies on the DB constraint.
+func TestIdempotency_ReplayGeneratesNewRunID(t *testing.T) {
+	// Replayed runs get a new ID and do NOT carry the original idempotency
+	// key, so they never conflict with the original or other active runs.
 	t.Parallel()
 	var enqueued *domain.JobRun
 	ms := &mockAPIStore{
@@ -1600,11 +1601,9 @@ func TestIdempotency_ReplayWithActiveRunSameKey_DBRejects(t *testing.T) {
 	if enqueued == nil {
 		t.Fatal("expected enqueued run")
 	}
-	if enqueued.IdempotencyKey != "replay-idem" {
-		t.Fatalf("expected replay to carry idempotency key, got %q", enqueued.IdempotencyKey)
+	if enqueued.IdempotencyKey != "" {
+		t.Fatalf("expected replay to NOT carry idempotency key, got %q", enqueued.IdempotencyKey)
 	}
-	// The enqueued run has a NEW ID but SAME idempotency key.
-	// If the original run were still active, the DB unique index would reject this.
 	if enqueued.ID == "run-active" {
 		t.Fatal("replay should generate a new run ID")
 	}
@@ -1747,10 +1746,11 @@ func TestIdempotency_HitSkipsAllDownstreamWork(t *testing.T) {
 	if enqueueCalled {
 		t.Error("enqueue should be skipped on idempotency hit")
 	}
-	// Note: quota/cost checks happen BEFORE idempotency, so quotaCalled
-	// might be true depending on feature flags. We don't assert on it here
-	// since FF is disabled by default.
-	_ = quotaCalled
+	// Quota/cost checks happen AFTER idempotency, so quotaCalled should
+	// be false when idempotency hits (FF is disabled by default anyway).
+	if quotaCalled {
+		t.Error("quota should be skipped on idempotency hit")
+	}
 }
 
 // Idempotency key + context cancellation: verify the handler respects context.

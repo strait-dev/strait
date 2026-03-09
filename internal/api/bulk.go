@@ -104,16 +104,18 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, item := range req.Items {
+		itemIdx := len(results)
+
 		if s.config.FFPayloadValidation {
 			if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
-				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", created, err))
+				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
 				return
 			}
 		}
 
 		payload, _, payloadErr := canonicalizePayload(item.Payload)
 		if payloadErr != nil {
-			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", created, payloadErr))
+			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", itemIdx, payloadErr))
 			return
 		}
 
@@ -206,7 +208,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to sign run token for item %d", created))
+			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to sign run token for item %d", itemIdx))
 			return
 		}
 
@@ -260,7 +262,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
-			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", created))
+			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", itemIdx))
 			return
 		}
 
