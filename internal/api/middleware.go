@@ -69,30 +69,11 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)
 		ctx = context.WithValue(ctx, ctxAPIKeyIDKey, apiKey.ID)
 
-		// Extract actor identity from trusted app headers.
-		// If X-Actor-Id is present, the request is on behalf of a user.
-		// Otherwise, the API key itself is the actor.
-		if actorID := r.Header.Get("X-Actor-Id"); actorID != "" {
-			ctx = context.WithValue(ctx, ctxActorIDKey, actorID)
-			ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
-
-			// Lazy-sync actor profile if store supports it
-			if s.actorSyncer != nil {
-				actorEmail := r.Header.Get("X-Actor-Email")
-				actorName := r.Header.Get("X-Actor-Name")
-				syncCtx := context.WithoutCancel(ctx)
-				go func() {
-					syncCtx, cancel := context.WithTimeout(syncCtx, 2*time.Second)
-					defer cancel()
-					if err := s.actorSyncer.UpsertKnownActor(syncCtx, actorID, actorEmail, actorName); err != nil {
-						slog.Warn("failed to sync actor", "actor_id", actorID, "error", err)
-					}
-				}()
-			}
-		} else {
-			ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:"+apiKey.ID)
-			ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
-		}
+		// Actor identity: API key requests are always attributed to the key itself.
+		// User-level actor context is only set via internal secret auth (see below)
+		// to prevent API key holders from impersonating users via X-Actor-Id headers.
+		ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:"+apiKey.ID)
+		ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -117,6 +98,31 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
+
+		ctx := r.Context()
+
+		// Internal secret is trusted — extract actor identity from headers.
+		// Only internal services (the app) can set X-Actor-Id to act on behalf of users.
+		if actorID := r.Header.Get("X-Actor-Id"); actorID != "" {
+			ctx = context.WithValue(ctx, ctxActorIDKey, actorID)
+			ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+
+			if s.actorSyncer != nil {
+				actorEmail := r.Header.Get("X-Actor-Email")
+				actorName := r.Header.Get("X-Actor-Name")
+				syncCtx := context.WithoutCancel(ctx)
+				go func() {
+					syncCtx2, cancel := context.WithTimeout(syncCtx, 2*time.Second)
+					defer cancel()
+					if err := s.actorSyncer.UpsertKnownActor(syncCtx2, actorID, actorEmail, actorName); err != nil {
+						slog.Warn("failed to sync actor", "actor_id", actorID, "error", err)
+					}
+				}()
+			}
+
+			r = r.WithContext(ctx)
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -177,28 +183,6 @@ func scopesFromContext(ctx context.Context) []string {
 	return nil
 }
 
-// requireScope returns a middleware that checks whether the authenticated
-// caller has the given scope. Empty scopes or wildcard are treated as full
-// access for backwards compatibility with pre-existing API keys.
-// Requests authenticated via internal secret (no scopes in context) are always allowed.
-func requireScope(scope string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			scopes := scopesFromContext(r.Context())
-			// nil scopes means internal secret auth (no API key) — allow through
-			if scopes == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if !domain.HasScope(scopes, scope) {
-				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+scope)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // requirePermission returns a middleware that checks authorization based on
 // the actor type. For API keys, it checks scopes. For users, it loads their
 // role permissions from the database.
@@ -252,9 +236,12 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
 				return
 
-			default:
-				// Internal secret or unknown — allow (internal secret has no scopes)
+			case "":
+				// No actor type = internal secret auth — allow through.
 				next.ServeHTTP(w, r)
+
+			default:
+				respondError(w, r, http.StatusForbidden, "unknown actor type")
 			}
 		})
 	}

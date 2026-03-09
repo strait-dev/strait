@@ -200,8 +200,9 @@ func (q *Queries) ListProjectMembers(ctx context.Context, projectID string) ([]d
 	return members, rows.Err()
 }
 
-// GetUserPermissions returns the merged permissions for a user in a project:
-// role permissions + any resource-specific policies.
+// GetUserPermissions returns the role-based permissions for a user in a project.
+// Returns nil if the user has no role assigned. Resource-level policies are
+// queried separately via GetResourcePolicies.
 func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetUserPermissions")
 	defer span.End()

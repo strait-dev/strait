@@ -43,7 +43,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			$27, $28, $29, $30)
 		RETURNING created_at, updated_at, version`
 
-	tagsJSON, err := marshalJobTags(job.Tags)
+	tagsJSON, err := marshalTags(job.Tags)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
 	}
@@ -236,7 +236,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		WHERE id = $25
 		RETURNING updated_at, version, version_id`
 
-	tagsJSON, err := marshalJobTags(job.Tags)
+	tagsJSON, err := marshalTags(job.Tags)
 	if err != nil {
 		return fmt.Errorf("update job: %w", err)
 	}
@@ -519,7 +519,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		job.PayloadSchema = json.RawMessage(payloadSchema)
 	}
 	if len(tagsJSON) > 0 {
-		tags, err := unmarshalJobTags(tagsJSON)
+		tags, err := unmarshalTags(tagsJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -633,7 +633,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 	return jobs, nil
 }
 
-func marshalJobTags(tags map[string]string) ([]byte, error) {
+func marshalTags(tags map[string]string) ([]byte, error) {
 	if len(tags) == 0 {
 		return []byte(`{}`), nil
 	}
@@ -645,7 +645,7 @@ func marshalJobTags(tags map[string]string) ([]byte, error) {
 	return encoded, nil
 }
 
-func unmarshalJobTags(raw []byte) (map[string]string, error) {
+func unmarshalTags(raw []byte) (map[string]string, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}

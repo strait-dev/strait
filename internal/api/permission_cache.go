@@ -26,20 +26,26 @@ func newPermissionCache(ttl time.Duration) *permissionCache {
 }
 
 func (c *permissionCache) key(projectID, userID string) string {
-	return projectID + ":" + userID
+	// Use \x00 as separator — cannot appear in UUIDs or user IDs,
+	// preventing collisions like ("a:", "b") vs ("a", ":b").
+	return projectID + "\x00" + userID
 }
 
 // Get returns cached permissions if they exist and haven't expired.
 // Returns (permissions, true) on hit, (nil, false) on miss.
+// Expired entries are evicted on access to prevent unbounded growth.
 func (c *permissionCache) Get(projectID, userID string) ([]string, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	k := c.key(projectID, userID)
 
-	entry, ok := c.entries[c.key(projectID, userID)]
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	entry, ok := c.entries[k]
 	if !ok {
 		return nil, false
 	}
 	if time.Since(entry.cachedAt) > c.ttl {
+		delete(c.entries, k)
 		return nil, false
 	}
 	return entry.permissions, true

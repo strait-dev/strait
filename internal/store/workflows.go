@@ -29,7 +29,7 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		w.VersionPolicy = domain.VersionPolicyPin
 	}
 
-	tagsJSON, err := marshalJobTags(w.Tags)
+	tagsJSON, err := marshalTags(w.Tags)
 	if err != nil {
 		return fmt.Errorf("create workflow: %w", err)
 	}
@@ -164,7 +164,7 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 
 	newVersionID := domain.NewVersionID()
 
-	tagsJSON, err := marshalJobTags(w.Tags)
+	tagsJSON, err := marshalTags(w.Tags)
 	if err != nil {
 		return fmt.Errorf("update workflow: %w", err)
 	}
@@ -277,7 +277,7 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 		workflow.CronTimezone = *cronTimezone
 	}
 	if len(tagsJSON) > 0 {
-		tags, tagErr := unmarshalJobTags(tagsJSON)
+		tags, tagErr := unmarshalTags(tagsJSON)
 		if tagErr != nil {
 			return nil, tagErr
 		}

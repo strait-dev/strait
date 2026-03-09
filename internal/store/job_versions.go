@@ -19,9 +19,9 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 	defer span.End()
 
 	query := `
-		INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
+		INSERT INTO job_versions (id, job_id, version, version_id, backwards_compatible, name, slug, description, cron, payload_schema,
 			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING created_at`
 
 	var desc, cronStr, webhookURL, webhookSecret *string
@@ -46,13 +46,14 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 		runTTL = &v.RunTTLSecs
 	}
 
-	tagsJSON, err := marshalJobTags(v.Tags)
+	tagsJSON, err := marshalTags(v.Tags)
 	if err != nil {
 		return fmt.Errorf("create job version: %w", err)
 	}
 
 	return q.db.QueryRow(ctx, query,
-		v.ID, v.JobID, v.Version, v.Name, v.Slug, desc, cronStr, payloadSchema,
+		v.ID, v.JobID, v.Version, dbscan.NilIfEmptyString(v.VersionID), v.BackwardsCompatible,
+		v.Name, v.Slug, desc, cronStr, payloadSchema,
 		tagsJSON, v.EndpointURL, dbscan.NilIfEmptyString(v.FallbackEndpointURL), v.MaxAttempts, v.TimeoutSecs, webhookURL, webhookSecret, runTTL,
 	).Scan(&v.CreatedAt)
 }
@@ -62,7 +63,8 @@ func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string, limit 
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, version, name, slug, description, cron, payload_schema,
+		SELECT id, job_id, version, version_id, backwards_compatible,
+		       name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
 		FROM job_versions
 		WHERE job_id = $1`
@@ -101,7 +103,8 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, version, name, slug, description, cron, payload_schema,
+		SELECT id, job_id, version, version_id, backwards_compatible,
+		       name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
 		FROM job_versions
 		WHERE job_id = $1 AND version = $2`
@@ -155,6 +158,7 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 
 func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	var v domain.JobVersion
+	var versionID *string
 	var description, cronStr, webhookURL, webhookSecret *string
 	var fallbackEndpointURL *string
 	var payloadSchema []byte
@@ -162,7 +166,8 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	var runTTLSecs *int
 
 	err := scanner.Scan(
-		&v.ID, &v.JobID, &v.Version, &v.Name, &v.Slug,
+		&v.ID, &v.JobID, &v.Version, &versionID, &v.BackwardsCompatible,
+		&v.Name, &v.Slug,
 		&description, &cronStr, &payloadSchema,
 		&tagsJSON, &v.EndpointURL, &fallbackEndpointURL, &v.MaxAttempts, &v.TimeoutSecs,
 		&webhookURL, &webhookSecret, &runTTLSecs,
@@ -170,6 +175,9 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+	if versionID != nil {
+		v.VersionID = *versionID
 	}
 	if description != nil {
 		v.Description = *description
@@ -181,7 +189,7 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 		v.PayloadSchema = json.RawMessage(payloadSchema)
 	}
 	if len(tagsJSON) > 0 {
-		tags, unmarshalErr := unmarshalJobTags(tagsJSON)
+		tags, unmarshalErr := unmarshalTags(tagsJSON)
 		if unmarshalErr != nil {
 			return nil, unmarshalErr
 		}

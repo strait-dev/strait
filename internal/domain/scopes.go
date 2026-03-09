@@ -16,6 +16,7 @@ const (
 	ScopeSecretsRead      = "secrets:read"
 	ScopeSecretsWrite     = "secrets:write"
 	ScopeAPIKeysManage    = "api-keys:manage"
+	ScopeRBACManage       = "rbac:manage"
 	ScopeStatsRead        = "stats:read"
 )
 
@@ -33,6 +34,7 @@ var ValidScopes = map[string]bool{
 	ScopeSecretsRead:      true,
 	ScopeSecretsWrite:     true,
 	ScopeAPIKeysManage:    true,
+	ScopeRBACManage:       true,
 	ScopeStatsRead:        true,
 }
 
