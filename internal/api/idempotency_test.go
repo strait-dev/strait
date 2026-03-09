@@ -696,33 +696,25 @@ func TestIdempotency_WithDifferentPayloads(t *testing.T) {
 
 // Edge cases.
 
-func TestIdempotency_VeryLongKey(t *testing.T) {
+func TestIdempotency_VeryLongKey_Rejected(t *testing.T) {
+	// Keys longer than 256 characters are rejected to protect the DB index.
 	t.Parallel()
 	longKey := strings.Repeat("a", 1024)
-	var capturedKey string
 
 	ms := &mockAPIStore{
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
 		},
-		getRunByIdempotencyKeyFn: func(_ context.Context, _, key string) (*domain.JobRun, error) {
-			capturedKey = key
-			return nil, nil
-		},
 	}
-	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
 
-	srv := newTestServer(t, ms, mq, nil)
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", longKey)
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedKey != longKey {
-		t.Fatalf("expected long key to be passed through, len=%d vs %d", len(capturedKey), len(longKey))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for very long key, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -2118,6 +2110,104 @@ func TestIdempotency_WorksWithAPIKeyAuth(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	if resp["id"] != "run-api-key" {
 		t.Fatalf("expected run-api-key, got %v", resp["id"])
+	}
+}
+
+// Key length validation.
+
+func TestIdempotency_KeyTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", strings.Repeat("a", 257))
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for key too long, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "256 characters") {
+		t.Fatalf("expected error about 256 characters, got %s", w.Body.String())
+	}
+}
+
+func TestIdempotency_KeyExactlyMaxLength_Succeeds(t *testing.T) {
+	t.Parallel()
+	var capturedKey string
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, key string) (*domain.JobRun, error) {
+			capturedKey = key
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	exactKey := strings.Repeat("b", 256)
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", exactKey)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for key at max length, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedKey != exactKey {
+		t.Fatalf("expected key of length 256, got length %d", len(capturedKey))
+	}
+}
+
+func TestIdempotency_BulkKeyTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	longKey := strings.Repeat("c", 257)
+	body := fmt.Sprintf(`{"items":[{"payload":{},"idempotency_key":"%s"}]}`, longKey)
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for bulk key too long, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "256 characters") {
+		t.Fatalf("expected error about 256 characters, got %s", w.Body.String())
+	}
+}
+
+func TestIdempotency_BulkKeyExactlyMaxLength_Succeeds(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	exactKey := strings.Repeat("d", 256)
+	body := fmt.Sprintf(`{"items":[{"payload":{},"idempotency_key":"%s"}]}`, exactKey)
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for bulk key at max length, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

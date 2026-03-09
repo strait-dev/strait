@@ -121,12 +121,24 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 		// Per-item idempotency check.
 		if item.IdempotencyKey != "" {
+			if len(item.IdempotencyKey) > maxIdempotencyKeyLength {
+				respondError(w, r, http.StatusBadRequest,
+					fmt.Sprintf("idempotency key for item %d must be %d characters or fewer", itemIdx, maxIdempotencyKeyLength))
+				return
+			}
+
 			existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
 			if idempErr != nil {
-				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key for item %d", len(results)))
+				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key for item %d", itemIdx))
 				return
 			}
 			if existingRun != nil {
+				slog.Info("idempotency hit",
+					"job_id", job.ID,
+					"idempotency_key", item.IdempotencyKey,
+					"existing_run_id", existingRun.ID,
+					"existing_run_status", existingRun.Status,
+					"item_index", itemIdx)
 				results = append(results, BulkTriggerResult{
 					ID:     existingRun.ID,
 					Status: string(existingRun.Status),
@@ -251,16 +263,30 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, queue.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
 				existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
 				if retryErr != nil {
-					respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key after conflict for item %d", len(results)))
+					slog.Error("idempotency conflict retry failed",
+						"job_id", job.ID,
+						"idempotency_key", item.IdempotencyKey,
+						"item_index", itemIdx,
+						"error", retryErr)
+					respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
 					return
 				}
 				if existingRun != nil {
+					slog.Warn("idempotency conflict resolved",
+						"job_id", job.ID,
+						"idempotency_key", item.IdempotencyKey,
+						"winning_run_id", existingRun.ID,
+						"item_index", itemIdx)
 					results = append(results, BulkTriggerResult{
 						ID:     existingRun.ID,
 						Status: string(existingRun.Status),
 					})
 					continue
 				}
+				slog.Error("idempotency conflict retry returned nil",
+					"job_id", job.ID,
+					"idempotency_key", item.IdempotencyKey,
+					"item_index", itemIdx)
 			}
 			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", itemIdx))
 			return

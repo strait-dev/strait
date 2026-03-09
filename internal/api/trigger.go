@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -19,6 +20,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 )
+
+// maxIdempotencyKeyLength is the maximum allowed length for idempotency keys.
+// Keys exceeding this limit are rejected with 400 to protect the DB index.
+const maxIdempotencyKeyLength = 256
 
 type TriggerRequest struct {
 	Payload     json.RawMessage `json:"payload,omitempty"`
@@ -90,12 +95,23 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		idempotencyKey = r.Header.Get("Idempotency-Key")
 	}
 	if idempotencyKey != "" {
+		if len(idempotencyKey) > maxIdempotencyKeyLength {
+			respondError(w, r, http.StatusBadRequest,
+				fmt.Sprintf("idempotency key must be %d characters or fewer", maxIdempotencyKeyLength))
+			return
+		}
+
 		existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
 		if idempErr != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key")
 			return
 		}
 		if existingRun != nil {
+			slog.Info("idempotency hit",
+				"job_id", job.ID,
+				"idempotency_key", idempotencyKey,
+				"existing_run_id", existingRun.ID,
+				"existing_run_status", existingRun.Status)
 			respondJSON(w, http.StatusCreated, map[string]any{
 				"id":     existingRun.ID,
 				"status": existingRun.Status,
@@ -247,16 +263,27 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, queue.ErrIdempotencyConflict) && idempotencyKey != "" {
 			existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
 			if retryErr != nil {
+				slog.Error("idempotency conflict retry failed",
+					"job_id", job.ID,
+					"idempotency_key", idempotencyKey,
+					"error", retryErr)
 				respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key after conflict")
 				return
 			}
 			if existingRun != nil {
+				slog.Warn("idempotency conflict resolved",
+					"job_id", job.ID,
+					"idempotency_key", idempotencyKey,
+					"winning_run_id", existingRun.ID)
 				respondJSON(w, http.StatusCreated, map[string]any{
 					"id":     existingRun.ID,
 					"status": existingRun.Status,
 				})
 				return
 			}
+			slog.Error("idempotency conflict retry returned nil",
+				"job_id", job.ID,
+				"idempotency_key", idempotencyKey)
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to enqueue run")
 		return

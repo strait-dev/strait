@@ -231,6 +231,9 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
 		if errors.Is(err, queue.ErrIdempotencyConflict) {
+			slog.Warn("replay idempotency conflict",
+				"original_run_id", runID,
+				"replay_run_id", replayRun.ID)
 			respondError(w, r, http.StatusConflict, "idempotency key conflict: a run with this key is already active")
 			return
 		}
