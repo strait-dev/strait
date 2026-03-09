@@ -11,6 +11,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -47,6 +48,10 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 		trigger.ExpiresAt,
 		dbscan.NilIfEmptyString(trigger.Error),
 	); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("event key %q already exists: %w", trigger.EventKey, ErrEventKeyConflict)
+		}
 		return fmt.Errorf("create event trigger: %w", err)
 	}
 

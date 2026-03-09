@@ -1,11 +1,13 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -85,6 +87,10 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.CreateEventTrigger(r.Context(), trigger); err != nil {
 		// Rollback status.
 		_ = s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusWaiting, domain.StatusExecuting, nil)
+		if errors.Is(err, store.ErrEventKeyConflict) {
+			respondError(w, r, http.StatusConflict, "event key already in use")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to create event trigger")
 		return
 	}

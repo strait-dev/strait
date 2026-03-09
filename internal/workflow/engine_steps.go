@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"go.opentelemetry.io/otel"
 )
@@ -197,6 +199,9 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	}
 
 	if err := e.store.CreateEventTrigger(ctx, trigger); err != nil {
+		if errors.Is(err, store.ErrEventKeyConflict) {
+			return fmt.Errorf("event key %q already in use — use a unique key pattern like {workflow_id}:{run_id}:{step_ref}: %w", renderedKey, err)
+		}
 		return fmt.Errorf("create event trigger for step %s: %w", step.StepRef, err)
 	}
 
