@@ -1736,6 +1736,19 @@ paths:
           schema:
             type: string
             enum: [waiting, received, timed_out, canceled]
+        - name: workflow_run_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter triggers by workflow run ID.
+        - name: source_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [workflow_step, job_run]
+          description: Filter triggers by source type.
         - name: limit
           in: query
           required: false

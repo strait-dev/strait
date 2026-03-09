@@ -104,7 +104,7 @@ type mockAPIStore struct {
 	createEventTriggerFn           func(ctx context.Context, trigger *domain.EventTrigger) error
 	getEventTriggerByEventKeyFn    func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn     func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	listEventTriggersByProjectFn   func(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	listEventTriggersByProjectFn   func(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 	listEventTriggersByKeyPrefixFn func(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
 }
 
@@ -745,9 +745,9 @@ func (m *mockAPIStore) UpdateEventTriggerStatus(ctx context.Context, id string, 
 	return nil
 }
 
-func (m *mockAPIStore) ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+func (m *mockAPIStore) ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
 	if m.listEventTriggersByProjectFn != nil {
-		return m.listEventTriggersByProjectFn(ctx, projectID, status, limit, cursor)
+		return m.listEventTriggersByProjectFn(ctx, projectID, status, workflowRunID, sourceType, limit, cursor)
 	}
 	return nil, nil
 }

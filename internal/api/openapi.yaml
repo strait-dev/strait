@@ -2748,7 +2748,7 @@ paths:
       tags:
         - EventTriggers
       summary: List event triggers for a project
-      description: Returns a paginated list of event triggers, optionally filtered by status.
+      description: Returns a paginated list of event triggers, optionally filtered by status, workflow run, or source type.
       parameters:
         - name: project_id
           in: query
@@ -2761,6 +2761,19 @@ paths:
           schema:
             type: string
             enum: [waiting, received, timed_out, canceled]
+        - name: workflow_run_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter triggers by workflow run ID.
+        - name: source_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [workflow_step, job_run]
+          description: Filter triggers by source type.
         - name: limit
           in: query
           required: false

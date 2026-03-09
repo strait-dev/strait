@@ -225,7 +225,7 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 
 	now := time.Now()
 	ms := &mockAPIStore{
-		listEventTriggersByProjectFn: func(_ context.Context, projectID string, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		listEventTriggersByProjectFn: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			if projectID == "proj-1" {
 				return []domain.EventTrigger{
 					{ID: "evt-1", EventKey: "aml:app-1", ProjectID: "proj-1", Status: domain.EventTriggerStatusWaiting, RequestedAt: now},

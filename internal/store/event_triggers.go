@@ -215,8 +215,9 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 	return triggers, nil
 }
 
-// ListEventTriggersByProject returns event triggers for a project, optionally filtered by status.
-func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+// ListEventTriggersByProject returns event triggers for a project, optionally filtered by status,
+// workflow run ID, and/or source type.
+func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventTriggersByProject")
 	defer span.End()
 
@@ -235,6 +236,18 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID stri
 	if status != "" {
 		query += fmt.Sprintf(" AND status = $%d", argIdx)
 		args = append(args, status)
+		argIdx++
+	}
+
+	if workflowRunID != "" {
+		query += fmt.Sprintf(" AND workflow_run_id = $%d", argIdx)
+		args = append(args, workflowRunID)
+		argIdx++
+	}
+
+	if sourceType != "" {
+		query += fmt.Sprintf(" AND source_type = $%d", argIdx)
+		args = append(args, sourceType)
 		argIdx++
 	}
 

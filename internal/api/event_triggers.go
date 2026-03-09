@@ -176,7 +176,9 @@ func (s *Server) handleListEventTriggers(w http.ResponseWriter, r *http.Request)
 	}
 
 	status := r.URL.Query().Get("status")
-	triggers, err := s.store.ListEventTriggersByProject(r.Context(), projectID, status, limit+1, cursor)
+	workflowRunID := r.URL.Query().Get("workflow_run_id")
+	sourceType := r.URL.Query().Get("source_type")
+	triggers, err := s.store.ListEventTriggersByProject(r.Context(), projectID, status, workflowRunID, sourceType, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list event triggers")
 		return
