@@ -1798,6 +1798,45 @@ paths:
         '409':
           description: Trigger already received or timed out
 
+  /v1/events/prefix/{prefix}/send:
+    post:
+      tags:
+        - EventTriggers
+      summary: Send an event to all waiting triggers matching a prefix
+      parameters:
+        - name: prefix
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload:
+                  type: object
+                  nullable: true
+      responses:
+        '200':
+          description: Events resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resolved:
+                    type: integer
+                  triggers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventTrigger'
+        '400':
+          description: Invalid or empty prefix
+
   /sdk/v1/runs/{runID}/wait-for-event:
     post:
       tags:
