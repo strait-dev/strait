@@ -442,3 +442,110 @@ func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
 		t.Fatal("expected error from update step run status")
 	}
 }
+
+func TestOnStepCompleted_AdvancesWorkflow(t *testing.T) {
+	t.Parallel()
+
+	var incrementedRef string
+
+	ms := &mockCallbackStore{
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-1", StepRef: "step-a", WorkflowRunID: "wr-1", Status: domain.StepCompleted},
+				{ID: "sr-2", StepRef: "step-b", WorkflowRunID: "wr-1", Status: domain.StepWaiting},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "step-a"},
+				{StepRef: "step-b", DependsOn: []string{"step-a"}},
+			}, nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, completedRef string) ([]store.StepDepResult, error) {
+			incrementedRef = completedRef
+			return []store.StepDepResult{}, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	cb.OnStepCompleted(context.Background(), "wr-1", "sr-1")
+
+	if incrementedRef != "step-a" {
+		t.Fatalf("expected fanIn for step-a, got %q", incrementedRef)
+	}
+}
+
+func TestOnStepCompleted_StepNotFound(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-other", StepRef: "step-b", WorkflowRunID: "wr-1", Status: domain.StepCompleted},
+			}, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	// Should return cleanly without panic when step ID doesn't match.
+	cb.OnStepCompleted(context.Background(), "wr-1", "sr-nonexistent")
+}
+
+func TestOnStepFailed_RespectsOnFailureContinue(t *testing.T) {
+	t.Parallel()
+
+	var workflowFailed bool
+
+	ms := &mockCallbackStore{
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-1", StepRef: "step-a", WorkflowRunID: "wr-1", Status: domain.StepFailed},
+				{ID: "sr-2", StepRef: "step-b", WorkflowRunID: "wr-1", Status: domain.StepCompleted},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "step-a", OnFailure: domain.Continue},
+				{StepRef: "step-b"},
+			}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, to domain.WorkflowRunStatus, _ map[string]any) error {
+			if to == domain.WfStatusFailed {
+				workflowFailed = true
+			}
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return []store.StepDepResult{}, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	cb.OnStepFailed(context.Background(), "wr-1", "sr-1")
+
+	if workflowFailed {
+		t.Fatal("workflow should NOT fail when on_failure is 'continue'")
+	}
+}
+
+func TestOnStepFailed_StepNotFound(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-other", StepRef: "step-b", WorkflowRunID: "wr-1", Status: domain.StepRunning},
+			}, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	// Should return cleanly without panic when step ID doesn't match.
+	cb.OnStepFailed(context.Background(), "wr-1", "sr-nonexistent")
+}
