@@ -35,13 +35,24 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		run.WorkflowVersion = 1
 	}
 
+	tagsJSON := []byte("{}")
+	if len(run.Tags) > 0 {
+		var marshalErr error
+		tagsJSON, marshalErr = json.Marshal(run.Tags)
+		if marshalErr != nil {
+			return fmt.Errorf("create workflow run: marshal tags: %w", marshalErr)
+		}
+	}
+
 	query := `
 		INSERT INTO workflow_runs (
 			id, workflow_id, project_id, status, triggered_by, payload,
 			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			retry_of_run_id, parent_workflow_run_id
+			retry_of_run_id, parent_workflow_run_id,
+			tags, workflow_version_id, created_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+			$15::jsonb, $16, $17)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -61,6 +72,9 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		run.ExpiresAt,
 		dbscan.NilIfEmptyString(run.RetryOfRunID),
 		dbscan.NilIfEmptyString(run.ParentWorkflowRunID),
+		tagsJSON,
+		dbscan.NilIfEmptyString(run.WorkflowVersionID),
+		dbscan.NilIfEmptyString(run.CreatedBy),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow run: %w", err)

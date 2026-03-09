@@ -440,6 +440,12 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "failed to trigger workflow")
 		return
 	}
+
+	// Stamp audit field — engine doesn't have access to actor context.
+	if actor := actorFromContext(r.Context()); actor != "" {
+		run.CreatedBy = actor
+	}
+
 	if len(req.Labels) > 0 {
 		if err := s.store.CreateWorkflowRunLabels(r.Context(), run.ID, req.Labels); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to persist workflow run labels")

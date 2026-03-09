@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"time"
 
@@ -245,10 +246,15 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			status = domain.StatusDelayed
 		}
 
+		// Inherit job tags for each bulk-triggered run.
+		runTags := make(map[string]string, len(job.Tags))
+		maps.Copy(runTags, job.Tags)
+
 		run := &domain.JobRun{
 			ID:             runID,
 			JobID:          job.ID,
 			ProjectID:      job.ProjectID,
+			Tags:           runTags,
 			Status:         status,
 			Attempt:        1,
 			Payload:        payload,
@@ -257,6 +263,8 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			Priority:       item.Priority,
 			IdempotencyKey: item.IdempotencyKey,
 			JobVersion:     job.Version,
+			JobVersionID:   job.VersionID,
+			CreatedBy:      actorFromContext(r.Context()),
 			ExpiresAt:      &expiresAt,
 		}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"strait/internal/domain"
@@ -155,12 +156,21 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		triggeredBy = domain.TriggerManual
 	}
 
+	// Inherit workflow tags onto the run.
+	var runTags map[string]string
+	if len(wf.Tags) > 0 {
+		runTags = make(map[string]string, len(wf.Tags))
+		maps.Copy(runTags, wf.Tags)
+	}
+
 	wfRun := &domain.WorkflowRun{
 		WorkflowID:          workflowID,
 		ProjectID:           projectID,
+		Tags:                runTags,
 		Status:              domain.WfStatusPending,
 		TriggeredBy:         triggeredBy,
 		WorkflowVersion:     wf.Version,
+		WorkflowVersionID:   wf.VersionID,
 		MaxParallelSteps:    wf.MaxParallelSteps,
 		Payload:             payload,
 		ParentWorkflowRunID: parentWorkflowRunID,
