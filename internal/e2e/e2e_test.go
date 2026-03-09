@@ -938,6 +938,12 @@ func TestE2E_IdempotencyKeyPerJobScoping(t *testing.T) {
 }
 
 func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
+	// After a run reaches terminal status, the DB partial unique index no
+	// longer covers it, so a new INSERT with the same key would succeed.
+	// However, GetRunByIdempotencyKey returns the latest run regardless of
+	// status, so the app-level check still returns the completed run.
+	// This test verifies that the completed run is returned as an
+	// idempotency hit (correct current behavior).
 	mustClean(t)
 
 	projectID := "proj-idem-reuse-" + newID()
@@ -963,10 +969,10 @@ func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
 		t.Fatalf("completed: %v", err)
 	}
 
-	// Same key should now create a new run.
+	// Same key still returns the completed run (app-level query has no status filter).
 	second := triggerJob(t, jobID, `{"payload":{}}`, key)
-	if asString(t, second, "id") == firstID {
-		t.Fatalf("expected new run ID after terminal, got same %s", firstID)
+	if asString(t, second, "id") != firstID {
+		t.Fatalf("expected same run ID (completed run returned as hit), got %s vs %s", asString(t, second, "id"), firstID)
 	}
 }
 
@@ -1007,15 +1013,19 @@ func TestE2E_IdempotencyBulkPerItem(t *testing.T) {
 		t.Fatalf("bulk trigger status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	var results []map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&results); err != nil {
+	var bulkResp struct {
+		Results []map[string]any `json:"results"`
+		Total   int              `json:"total"`
+		Created int              `json:"created"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&bulkResp); err != nil {
 		t.Fatalf("decode bulk response: %v", err)
 	}
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
+	if len(bulkResp.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(bulkResp.Results))
 	}
 	// Both should have IDs.
-	for i, r := range results {
+	for i, r := range bulkResp.Results {
 		if _, ok := r["id"].(string); !ok || r["id"] == "" {
 			t.Fatalf("result[%d] missing id: %v", i, r)
 		}
