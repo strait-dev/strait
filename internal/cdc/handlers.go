@@ -162,6 +162,53 @@ func (h *WorkflowStepRunHandler) Handle(ctx context.Context, msg Message) error 
 	}, fmt.Sprintf("cdc:workflow_run:%s:steps", record.WorkflowRunID))
 }
 
+type EventTriggerHandler struct {
+	publisher EventPublisher
+	logger    *slog.Logger
+}
+
+func NewEventTriggerHandler(pub EventPublisher, logger *slog.Logger) *EventTriggerHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	return &EventTriggerHandler{publisher: pub, logger: logger}
+}
+
+func (h *EventTriggerHandler) Table() string { return "event_triggers" }
+
+func (h *EventTriggerHandler) Handle(ctx context.Context, msg Message) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.HandleEventTrigger")
+	defer span.End()
+
+	var record struct {
+		ID        string `json:"id"`
+		EventKey  string `json:"event_key"`
+		ProjectID string `json:"project_id"`
+		Status    string `json:"status"`
+	}
+
+	if err := json.Unmarshal(msg.Record, &record); err != nil {
+		return fmt.Errorf("decode event_trigger record: %w", err)
+	}
+
+	h.logger.Info("cdc event_trigger change",
+		"action", msg.Action,
+		"trigger_id", record.ID,
+		"event_key", record.EventKey,
+		"project_id", record.ProjectID,
+		"status", record.Status,
+	)
+
+	return publishChangeEvent(ctx, h.publisher, h.logger, ChangeEvent{
+		Table:     h.Table(),
+		Action:    msg.Action,
+		Record:    msg.Record,
+		Changes:   msg.Changes,
+		Timestamp: msg.Metadata.CommitTimestamp,
+	}, fmt.Sprintf("cdc:project:%s:event_triggers", record.ProjectID))
+}
+
 func publishChangeEvent(ctx context.Context, publisher EventPublisher, logger *slog.Logger, event ChangeEvent, channel string) error {
 	if publisher == nil {
 		return nil

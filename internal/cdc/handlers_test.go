@@ -413,3 +413,139 @@ func newBufferedLogger() (*slog.Logger, *bytes.Buffer) {
 	buf := &bytes.Buffer{}
 	return slog.New(slog.NewJSONHandler(buf, nil)), buf
 }
+
+func TestEventTriggerHandlerTable(t *testing.T) {
+	t.Parallel()
+	h := NewEventTriggerHandler(nil, nil)
+	if got := h.Table(); got != "event_triggers" {
+		t.Fatalf("Table() = %q, want %q", got, "event_triggers")
+	}
+}
+
+func TestEventTriggerHandlerHandlePublishes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		action Action
+	}{
+		{name: "insert", action: ActionInsert},
+		{name: "update", action: ActionUpdate},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pub := &mockPublisher{}
+			logger, logs := newBufferedLogger()
+			h := NewEventTriggerHandler(pub, logger)
+
+			msg := Message{
+				Action:  tt.action,
+				Record:  json.RawMessage(`{"id":"evt_1","event_key":"aml:app-1","project_id":"proj_1","status":"waiting"}`),
+				Changes: json.RawMessage(`{"status":"waiting"}`),
+				Metadata: Metadata{
+					TableName:       "event_triggers",
+					CommitTimestamp: "2026-01-01T00:00:00Z",
+				},
+				AckID: "ack-1",
+			}
+
+			if err := h.Handle(context.Background(), msg); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+
+			if len(pub.calls) != 1 {
+				t.Fatalf("publish calls = %d, want 1", len(pub.calls))
+			}
+			if pub.calls[0].channel != "cdc:project:proj_1:event_triggers" {
+				t.Fatalf("channel = %q, want %q", pub.calls[0].channel, "cdc:project:proj_1:event_triggers")
+			}
+
+			var event ChangeEvent
+			if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
+				t.Fatalf("unmarshal published event: %v", err)
+			}
+			if event.Table != "event_triggers" {
+				t.Fatalf("event.Table = %q, want %q", event.Table, "event_triggers")
+			}
+			if event.Action != tt.action {
+				t.Fatalf("event.Action = %q, want %q", event.Action, tt.action)
+			}
+
+			logOutput := logs.String()
+			if !strings.Contains(logOutput, "cdc event_trigger change") {
+				t.Fatalf("expected log to contain 'cdc event_trigger change', got: %s", logOutput)
+			}
+			if !strings.Contains(logOutput, "aml:app-1") {
+				t.Fatalf("expected log to contain event key, got: %s", logOutput)
+			}
+		})
+	}
+}
+
+func TestEventTriggerHandlerBadRecord(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{}
+	h := NewEventTriggerHandler(pub, slog.Default())
+
+	msg := Message{
+		Action: ActionInsert,
+		Record: json.RawMessage(`{invalid`),
+	}
+
+	if err := h.Handle(context.Background(), msg); err == nil {
+		t.Fatal("expected error for bad record")
+	}
+
+	if len(pub.calls) != 0 {
+		t.Fatalf("publish calls = %d, want 0", len(pub.calls))
+	}
+}
+
+func TestEventTriggerHandlerNilPublisher(t *testing.T) {
+	t.Parallel()
+	h := NewEventTriggerHandler(nil, nil)
+
+	msg := Message{
+		Action: ActionInsert,
+		Record: json.RawMessage(`{"id":"evt_1","event_key":"key","project_id":"proj_1","status":"waiting"}`),
+		Metadata: Metadata{
+			TableName:       "event_triggers",
+			CommitTimestamp: "2026-01-01T00:00:00Z",
+		},
+	}
+
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("Handle() with nil publisher should not error, got: %v", err)
+	}
+}
+
+func TestEventTriggerHandlerPublishError(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{
+		publishFn: func(_ context.Context, _ string, _ []byte) error {
+			return errors.New("redis down")
+		},
+	}
+	logger, logs := newBufferedLogger()
+	h := NewEventTriggerHandler(pub, logger)
+
+	msg := Message{
+		Action: ActionUpdate,
+		Record: json.RawMessage(`{"id":"evt_1","event_key":"key","project_id":"proj_1","status":"received"}`),
+		Metadata: Metadata{
+			TableName:       "event_triggers",
+			CommitTimestamp: "2026-01-01T00:00:00Z",
+		},
+	}
+
+	// Should not return error (publish errors are logged, not returned)
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("Handle() should not return publish error, got: %v", err)
+	}
+
+	logOutput := logs.String()
+	if !strings.Contains(logOutput, "failed to publish cdc event") {
+		t.Fatalf("expected log about publish failure, got: %s", logOutput)
+	}
+}

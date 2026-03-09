@@ -155,6 +155,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
+	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 
 	g.Go(func(ctx context.Context) error {
 		cdcConsumer.Run(ctx)
