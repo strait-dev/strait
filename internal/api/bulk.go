@@ -22,10 +22,11 @@ type BulkTriggerRequest struct {
 }
 
 type BulkTriggerItem struct {
-	Payload        json.RawMessage `json:"payload,omitempty"`
-	ScheduledAt    *time.Time      `json:"scheduled_at,omitempty"`
-	Priority       int             `json:"priority,omitempty"`
-	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	Payload        json.RawMessage   `json:"payload,omitempty"`
+	ScheduledAt    *time.Time        `json:"scheduled_at,omitempty"`
+	Priority       int               `json:"priority,omitempty"`
+	IdempotencyKey string            `json:"idempotency_key,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
 }
 
 type BulkTriggerResult struct {
@@ -106,6 +107,13 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	for _, item := range req.Items {
 		itemIdx := len(results)
+
+		if len(item.Tags) > 0 {
+			if err := validateTags(item.Tags); err != nil {
+				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid tags for item %d: %v", itemIdx, err))
+				return
+			}
+		}
 
 		if s.config.FFPayloadValidation {
 			if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
@@ -246,9 +254,10 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			status = domain.StatusDelayed
 		}
 
-		// Inherit job tags for each bulk-triggered run.
-		runTags := make(map[string]string, len(job.Tags))
+		// Inherit job tags, then overlay per-item tags.
+		runTags := make(map[string]string, len(job.Tags)+len(item.Tags))
 		maps.Copy(runTags, job.Tags)
+		maps.Copy(runTags, item.Tags)
 
 		run := &domain.JobRun{
 			ID:             runID,
