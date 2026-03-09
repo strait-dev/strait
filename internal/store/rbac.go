@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"strait/internal/domain"
 
@@ -61,17 +62,28 @@ func (q *Queries) GetProjectRole(ctx context.Context, id string) (*domain.Projec
 	return role, nil
 }
 
-func (q *Queries) ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error) {
+func (q *Queries) ListProjectRoles(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectRole, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectRoles")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, name, description, permissions, is_system, created_at, updated_at
 		FROM project_roles
-		WHERE project_id = $1
-		ORDER BY is_system DESC, name ASC`
+		WHERE project_id = $1`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list project roles: %w", err)
 	}
@@ -194,17 +206,28 @@ func (q *Queries) RemoveMemberRole(ctx context.Context, projectID, userID string
 	return nil
 }
 
-func (q *Queries) ListProjectMembers(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error) {
+func (q *Queries) ListProjectMembers(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectMemberRole, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectMembers")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, user_id, role_id, granted_by, created_at
 		FROM project_member_roles
-		WHERE project_id = $1
-		ORDER BY created_at ASC`
+		WHERE project_id = $1`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	args := []any{projectID}
+	param := 2
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list project members: %w", err)
 	}

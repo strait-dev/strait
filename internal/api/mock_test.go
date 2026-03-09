@@ -849,7 +849,7 @@ func (m *mockAPIStore) UpdateProjectRole(ctx context.Context, role *domain.Proje
 	return nil
 }
 
-func (m *mockAPIStore) ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error) {
+func (m *mockAPIStore) ListProjectRoles(ctx context.Context, projectID string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
 	if m.listProjectRolesFn != nil {
 		return m.listProjectRolesFn(ctx, projectID)
 	}
@@ -881,7 +881,7 @@ func (m *mockAPIStore) RemoveMemberRole(ctx context.Context, projectID, userID s
 	return nil
 }
 
-func (m *mockAPIStore) ListProjectMembers(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error) {
+func (m *mockAPIStore) ListProjectMembers(ctx context.Context, projectID string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
 	if m.listProjectMembersFn != nil {
 		return m.listProjectMembersFn(ctx, projectID)
 	}

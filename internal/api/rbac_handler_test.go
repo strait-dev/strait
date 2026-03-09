@@ -253,9 +253,7 @@ func TestHandleListMembers(t *testing.T) {
 	}
 
 	var members []domain.ProjectMemberRole
-	if err := json.NewDecoder(w.Body).Decode(&members); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	decodePaginatedList(t, w.Body.Bytes(), &members)
 	if len(members) != 2 {
 		t.Fatalf("len(members) = %d, want 2", len(members))
 	}
@@ -509,10 +507,10 @@ func TestHandleListRoles_Empty(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	body := w.Body.String()
-	// Should be "[]" not "null".
-	if body == "null\n" || body == "null" {
-		t.Fatal("empty list should return [] not null")
+	var roles []domain.ProjectRole
+	decodePaginatedList(t, w.Body.Bytes(), &roles)
+	if len(roles) != 0 {
+		t.Fatalf("expected empty roles list, got %d", len(roles))
 	}
 }
 
@@ -701,9 +699,10 @@ func TestHandleListMembers_Empty(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	body := w.Body.String()
-	if body == "null\n" || body == "null" {
-		t.Fatal("empty members list should return [] not null")
+	var members []domain.ProjectMemberRole
+	decodePaginatedList(t, w.Body.Bytes(), &members)
+	if len(members) != 0 {
+		t.Fatalf("expected empty members list, got %d", len(members))
 	}
 }
 

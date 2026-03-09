@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -50,12 +51,21 @@ func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListRoles(w http.ResponseWriter, r *http.Request) {
 	projectID := projectIDFromContext(r.Context())
-	roles, err := s.store.ListProjectRoles(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	roles, err := s.store.ListProjectRoles(r.Context(), projectID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list roles")
 		return
 	}
-	respondJSON(w, http.StatusOK, roles)
+
+	respondJSON(w, http.StatusOK, paginatedResult(roles, limit, func(role domain.ProjectRole) string {
+		return role.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleGetRole(w http.ResponseWriter, r *http.Request) {
@@ -170,12 +180,21 @@ func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	projectID := projectIDFromContext(r.Context())
-	members, err := s.store.ListProjectMembers(r.Context(), projectID)
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	members, err := s.store.ListProjectMembers(r.Context(), projectID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list members")
 		return
 	}
-	respondJSON(w, http.StatusOK, members)
+
+	respondJSON(w, http.StatusOK, paginatedResult(members, limit, func(m domain.ProjectMemberRole) string {
+		return m.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +227,7 @@ func (s *Server) handleSeedSystemRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roles, err := s.store.ListProjectRoles(r.Context(), projectID)
+	roles, err := s.store.ListProjectRoles(r.Context(), projectID, 100, nil)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list roles after seeding")
 		return

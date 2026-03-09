@@ -157,12 +157,12 @@ type RBACStore interface {
 	CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error
 	GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error)
 	UpdateProjectRole(ctx context.Context, role *domain.ProjectRole) error
-	ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
+	ListProjectRoles(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectRole, error)
 	DeleteProjectRole(ctx context.Context, id string) error
 	AssignMemberRole(ctx context.Context, m *domain.ProjectMemberRole) error
 	GetMemberRole(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error)
 	RemoveMemberRole(ctx context.Context, projectID, userID string) error
-	ListProjectMembers(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error)
+	ListProjectMembers(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectMemberRole, error)
 	SeedProjectSystemRoles(ctx context.Context, projectID string) error
 	CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error
 	GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error)
