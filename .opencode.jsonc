@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "linear": {
+      "url": "https://mcp.linear.app/mcp"
+    }
+  },
+  "features": {
+    "experimental_use_rmcp_client": true
+  }
+}
