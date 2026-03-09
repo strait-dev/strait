@@ -190,7 +190,9 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		e.metrics.ExecutionTraceQueueWait.Record(ctx, float64(execTrace.QueueWaitMs))
 	}
 	if err != nil {
-		if job.FallbackEndpointURL != "" {
+		// HTTP fallback only applies to HTTP-dispatched jobs. Sandbox jobs
+		// execute code in Forge and have no meaningful HTTP fallback target.
+		if job.ExecutionMode != "sandbox" && job.FallbackEndpointURL != "" {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
 				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, nil)

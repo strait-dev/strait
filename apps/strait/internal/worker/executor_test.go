@@ -810,6 +810,47 @@ func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
 	}
 }
 
+func TestExecutor_Fallback_SandboxJobSkipsFallback(t *testing.T) {
+	t.Parallel()
+
+	fallbackCalled := atomic.Int32{}
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fallbackCalled.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"source":"fallback"}`))
+	}))
+	defer fallback.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob("", 1, 5)
+		job.ExecutionMode = "sandbox"
+		job.SandboxLanguage = "python"
+		job.SandboxCode = "print('hello')"
+		job.FallbackEndpointURL = fallback.URL
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, nil)
+	// sandboxClient is nil, so dispatchSandbox will fail
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if fallbackCalled.Load() != 0 {
+		t.Fatalf("fallback should not be called for sandbox jobs, but was called %d times", fallbackCalled.Load())
+	}
+
+	calls := store.statusUpdates()
+	if len(calls) < 2 {
+		t.Fatalf("status update calls = %d, want >= 2", len(calls))
+	}
+	// Should fail, not succeed via fallback
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusFailed {
+		t.Fatalf("final status = %s, want %s", last.to, domain.StatusFailed)
+	}
+}
+
 func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
