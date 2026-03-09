@@ -10,6 +10,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
@@ -243,6 +244,16 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 					next.ServeHTTP(w, r)
 					return
 				}
+
+				// Fallback: check resource-level policies.
+				if resType, resID := resourceFromRequest(r); resType != "" && resID != "" {
+					actions, rpErr := s.store.GetResourcePolicies(ctx, resType, resID, actorID)
+					if rpErr == nil && domain.HasScope(actions, permission) {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+
 				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
 				return
 
@@ -251,6 +262,30 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 			}
 		})
 	}
+}
+
+// resourceFromRequest extracts the resource type and ID from the chi route context.
+// Returns empty strings if the request doesn't target a specific resource.
+func resourceFromRequest(r *http.Request) (string, string) {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil {
+		return "", ""
+	}
+
+	params := rctx.URLParams
+	for i, key := range params.Keys {
+		switch key {
+		case "jobID":
+			return "job", params.Values[i]
+		case "workflowID":
+			return "workflow", params.Values[i]
+		case "runID":
+			return "run", params.Values[i]
+		case "workflowRunID":
+			return "workflow_run", params.Values[i]
+		}
+	}
+	return "", ""
 }
 
 // apiVersionHeader injects X-API-Version into every response.

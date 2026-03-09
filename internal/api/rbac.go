@@ -193,3 +193,82 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	s.permCache.Invalidate(projectID, userID)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// Resource Policies.
+
+type createResourcePolicyRequest struct {
+	ProjectID    string   `json:"project_id" validate:"required"`
+	ResourceType string   `json:"resource_type" validate:"required"`
+	ResourceID   string   `json:"resource_id" validate:"required"`
+	UserID       string   `json:"user_id" validate:"required"`
+	Actions      []string `json:"actions" validate:"required,min=1"`
+}
+
+func (s *Server) handleCreateResourcePolicy(w http.ResponseWriter, r *http.Request) {
+	var req createResourcePolicyRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+
+	for _, action := range req.Actions {
+		if !domain.ValidScopes[action] {
+			respondError(w, r, http.StatusBadRequest, "invalid action: "+action)
+			return
+		}
+	}
+
+	policy := &domain.ResourcePolicy{
+		ProjectID:    req.ProjectID,
+		ResourceType: req.ResourceType,
+		ResourceID:   req.ResourceID,
+		UserID:       req.UserID,
+		Actions:      req.Actions,
+	}
+
+	if err := s.store.CreateResourcePolicy(r.Context(), policy); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to create resource policy")
+		return
+	}
+
+	// Invalidate cache for the affected user.
+	s.permCache.Invalidate(req.ProjectID, req.UserID)
+
+	respondJSON(w, http.StatusCreated, policy)
+}
+
+func (s *Server) handleListResourcePolicies(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	resourceType := query.Get("resource_type")
+	resourceID := query.Get("resource_id")
+	if resourceType == "" || resourceID == "" {
+		respondError(w, r, http.StatusBadRequest, "resource_type and resource_id are required")
+		return
+	}
+
+	policies, err := s.store.ListResourcePolicies(r.Context(), resourceType, resourceID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list resource policies")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, policies)
+}
+
+func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
+	policyID := chi.URLParam(r, "policyID")
+
+	if err := s.store.DeleteResourcePolicy(r.Context(), policyID); err != nil {
+		if errors.Is(err, store.ErrResourcePolicyNotFound) {
+			respondError(w, r, http.StatusNotFound, "resource policy not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to delete resource policy")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
