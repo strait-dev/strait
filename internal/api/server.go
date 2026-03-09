@@ -123,6 +123,21 @@ type APIStore interface {
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+
+	// RBAC
+	GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error)
+	CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error
+	GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error)
+	ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
+	DeleteProjectRole(ctx context.Context, id string) error
+	AssignMemberRole(ctx context.Context, m *domain.ProjectMemberRole) error
+	GetMemberRole(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error)
+	RemoveMemberRole(ctx context.Context, projectID, userID string) error
+	ListProjectMembers(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error)
+	CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error
+	GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error)
+	DeleteResourcePolicy(ctx context.Context, id string) error
+	ListResourcePolicies(ctx context.Context, resourceType, resourceID string) ([]domain.ResourcePolicy, error)
 }
 
 // ActorSyncer lazily persists actor profile information from request headers.

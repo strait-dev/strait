@@ -101,6 +101,7 @@ type mockAPIStore struct {
 	listRunLineageFn              func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	sumRunCostMicrousdFn          func(ctx context.Context, runID string) (int64, error)
 	sumProjectDailyCostMicrousdFn func(ctx context.Context, projectID string, timezone string) (int64, error)
+	getUserPermissionsFn          func(ctx context.Context, projectID, userID string) ([]string, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -789,4 +790,60 @@ type mockPinger struct {
 
 func (m *mockPinger) Ping(_ context.Context) error {
 	return m.err
+}
+
+// RBAC mock methods.
+func (m *mockAPIStore) GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error) {
+	if m.getUserPermissionsFn != nil {
+		return m.getUserPermissionsFn(ctx, projectID, userID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateProjectRole(_ context.Context, _ *domain.ProjectRole) error {
+	return nil
+}
+
+func (m *mockAPIStore) GetProjectRole(_ context.Context, _ string) (*domain.ProjectRole, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListProjectRoles(_ context.Context, _ string) ([]domain.ProjectRole, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteProjectRole(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAPIStore) AssignMemberRole(_ context.Context, _ *domain.ProjectMemberRole) error {
+	return nil
+}
+
+func (m *mockAPIStore) GetMemberRole(_ context.Context, _, _ string) (*domain.ProjectMemberRole, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) RemoveMemberRole(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *mockAPIStore) ListProjectMembers(_ context.Context, _ string) ([]domain.ProjectMemberRole, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateResourcePolicy(_ context.Context, _ *domain.ResourcePolicy) error {
+	return nil
+}
+
+func (m *mockAPIStore) GetResourcePolicies(_ context.Context, _, _, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteResourcePolicy(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAPIStore) ListResourcePolicies(_ context.Context, _, _ string) ([]domain.ResourcePolicy, error) {
+	return nil, nil
 }

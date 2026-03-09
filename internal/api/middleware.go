@@ -199,6 +199,58 @@ func requireScope(scope string) func(http.Handler) http.Handler {
 	}
 }
 
+// requirePermission returns a middleware that checks authorization based on
+// the actor type. For API keys, it checks scopes. For users, it loads their
+// role permissions from the database.
+func (s *Server) requirePermission(permission string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			actorType, _ := ctx.Value(ctxActorTypeKey).(string)
+
+			switch actorType {
+			case "api_key":
+				// API keys use scopes directly
+				scopes := scopesFromContext(ctx)
+				if scopes == nil || domain.HasScope(scopes, permission) {
+					next.ServeHTTP(w, r)
+					return
+				}
+				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
+				return
+
+			case "user":
+				// Users: check role permissions from DB
+				projectID := projectIDFromContext(ctx)
+				actorID := actorFromContext(ctx)
+				if projectID == "" || actorID == "" {
+					respondError(w, r, http.StatusForbidden, "missing project or actor context")
+					return
+				}
+				perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+				if err != nil {
+					respondError(w, r, http.StatusInternalServerError, "failed to load permissions")
+					return
+				}
+				if perms == nil {
+					respondError(w, r, http.StatusForbidden, "no role assigned in this project")
+					return
+				}
+				if domain.HasScope(perms, permission) {
+					next.ServeHTTP(w, r)
+					return
+				}
+				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
+				return
+
+			default:
+				// Internal secret or unknown — allow (internal secret has no scopes)
+				next.ServeHTTP(w, r)
+			}
+		})
+	}
+}
+
 // apiVersionHeader injects X-API-Version into every response.
 func apiVersionHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

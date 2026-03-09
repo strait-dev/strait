@@ -40,6 +40,59 @@ const (
 	EventProgress    EventType = "progress"
 )
 
+// ProjectRole defines a named set of permissions within a project.
+type ProjectRole struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Permissions []string  `json:"permissions"`
+	IsSystem    bool      `json:"is_system"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ProjectMemberRole links a user (from external auth) to a role within a project.
+type ProjectMemberRole struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	UserID    string    `json:"user_id"`
+	RoleID    string    `json:"role_id"`
+	GrantedBy string    `json:"granted_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ResourcePolicy grants specific actions on a specific resource to a user,
+// overriding or extending their role-based permissions.
+type ResourcePolicy struct {
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	ResourceType string    `json:"resource_type"`
+	ResourceID   string    `json:"resource_id"`
+	UserID       string    `json:"user_id"`
+	Actions      []string  `json:"actions"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// SystemRolePermissions defines the default permission sets for system roles.
+var SystemRolePermissions = map[string][]string{
+	"admin": {"*"},
+	"operator": {
+		ScopeJobsRead, ScopeJobsWrite, ScopeJobsTrigger,
+		ScopeRunsRead, ScopeRunsWrite,
+		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
+		ScopeSecretsRead, ScopeStatsRead,
+	},
+	"viewer": {
+		ScopeJobsRead, ScopeRunsRead, ScopeWorkflowsRead, ScopeStatsRead,
+	},
+	"triggerer": {
+		ScopeJobsRead, ScopeJobsTrigger,
+		ScopeRunsRead,
+		ScopeWorkflowsRead, ScopeWorkflowsTrigger,
+	},
+}
+
 // KnownActor is a lightweight cache of user info from an external auth provider.
 type KnownActor struct {
 	ID        string    `json:"id"`
