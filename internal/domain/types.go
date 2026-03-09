@@ -131,6 +131,7 @@ type Job struct {
 	EnvironmentID       string            `json:"environment_id,omitempty"`
 	Version             int               `json:"version"`
 	VersionID           string            `json:"version_id,omitempty"`
+	VersionPolicy       VersionPolicy     `json:"version_policy,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	UpdatedBy           string            `json:"updated_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
@@ -339,6 +340,7 @@ type JobVersion struct {
 	JobID               string            `json:"job_id"`
 	Version             int               `json:"version"`
 	VersionID           string            `json:"version_id,omitempty"`
+	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
 	Name                string            `json:"name"`
 	Slug                string            `json:"slug"`
 	Description         string            `json:"description,omitempty"`
@@ -464,6 +466,27 @@ const (
 	ApprovalStatusRejected = "rejected"
 )
 
+// VersionPolicy controls how queued runs handle new job/workflow deployments.
+type VersionPolicy string
+
+const (
+	// VersionPolicyPin keeps the run on the version it was enqueued with (default, safest).
+	VersionPolicyPin VersionPolicy = "pin"
+	// VersionPolicyLatest upgrades queued runs to the latest version at dequeue time.
+	VersionPolicyLatest VersionPolicy = "latest"
+	// VersionPolicyMinor upgrades only if the new version is marked backwards_compatible.
+	VersionPolicyMinor VersionPolicy = "minor"
+)
+
+func (p VersionPolicy) IsValid() bool {
+	switch p {
+	case VersionPolicyPin, VersionPolicyLatest, VersionPolicyMinor:
+		return true
+	default:
+		return false
+	}
+}
+
 type RetryBackoffPolicy string
 
 const (
@@ -479,24 +502,25 @@ type StepOverride struct {
 
 // Workflow represents a workflow DAG definition.
 type Workflow struct {
-	ID                string    `json:"id"`
-	ProjectID         string    `json:"project_id"`
-	Name              string    `json:"name"`
-	Slug              string    `json:"slug"`
-	Description       string    `json:"description,omitempty"`
-	Enabled           bool      `json:"enabled"`
-	Version           int       `json:"version"`
-	TimeoutSecs       int       `json:"timeout_secs,omitempty"`
-	MaxConcurrentRuns int       `json:"max_concurrent_runs,omitempty"`
-	MaxParallelSteps  int       `json:"max_parallel_steps,omitempty"`
-	Cron              string    `json:"cron,omitempty"`
-	CronTimezone      string    `json:"cron_timezone,omitempty"`
-	SkipIfRunning     bool      `json:"skip_if_running,omitempty"`
-	VersionID         string    `json:"version_id,omitempty"`
-	CreatedBy         string    `json:"created_by,omitempty"`
-	UpdatedBy         string    `json:"updated_by,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                string        `json:"id"`
+	ProjectID         string        `json:"project_id"`
+	Name              string        `json:"name"`
+	Slug              string        `json:"slug"`
+	Description       string        `json:"description,omitempty"`
+	Enabled           bool          `json:"enabled"`
+	Version           int           `json:"version"`
+	TimeoutSecs       int           `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns int           `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps  int           `json:"max_parallel_steps,omitempty"`
+	Cron              string        `json:"cron,omitempty"`
+	CronTimezone      string        `json:"cron_timezone,omitempty"`
+	SkipIfRunning     bool          `json:"skip_if_running,omitempty"`
+	VersionID         string        `json:"version_id,omitempty"`
+	VersionPolicy     VersionPolicy `json:"version_policy,omitempty"`
+	CreatedBy         string        `json:"created_by,omitempty"`
+	UpdatedBy         string        `json:"updated_by,omitempty"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
 }
 
 // WorkflowStep represents a step (node) within a workflow DAG.
