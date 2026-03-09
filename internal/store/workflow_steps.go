@@ -44,9 +44,9 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			timeout_secs_override, output_transform,
 			sub_workflow_id, max_nesting_depth,
-			event_key, event_timeout_secs
+			event_key, event_timeout_secs, event_notify_url
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -73,6 +73,7 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 		step.MaxNestingDepth,
 		dbscan.NilIfEmptyString(step.EventKey),
 		step.EventTimeoutSecs,
+		dbscan.NilIfEmptyString(step.EventNotifyURL),
 	).Scan(&step.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step: %w", err)
@@ -91,7 +92,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 		       timeout_secs_override, output_transform,
 		       sub_workflow_id, max_nesting_depth,
-		       event_key, event_timeout_secs,
+		       event_key, event_timeout_secs, event_notify_url,
 		       created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
@@ -130,7 +131,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 		       timeout_secs_override, output_transform,
 		       sub_workflow_id, max_nesting_depth,
-		       event_key, event_timeout_secs,
+		       event_key, event_timeout_secs, event_notify_url,
 		       created_at
 		FROM workflow_steps
 		WHERE id = $1`
@@ -171,6 +172,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	var retryBackoff string
 	var subWorkflowID *string
 	var eventKey *string
+	var eventNotifyURL *string
 
 	err := scanner.Scan(
 		&step.ID,
@@ -194,6 +196,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 		&step.MaxNestingDepth,
 		&eventKey,
 		&step.EventTimeoutSecs,
+		&eventNotifyURL,
 		&step.CreatedAt,
 	)
 	if err != nil {
@@ -219,6 +222,9 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	}
 	if eventKey != nil {
 		step.EventKey = *eventKey
+	}
+	if eventNotifyURL != nil {
+		step.EventNotifyURL = *eventNotifyURL
 	}
 
 	return &step, nil

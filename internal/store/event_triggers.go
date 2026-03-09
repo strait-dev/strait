@@ -25,9 +25,10 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 			id, event_key, project_id, source_type,
 			workflow_run_id, workflow_step_run_id, job_run_id,
 			status, request_payload, response_payload,
-			timeout_secs, requested_at, received_at, expires_at, error
+			timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`
 
 	if _, err := q.db.Exec(
 		ctx,
@@ -47,6 +48,8 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 		trigger.ReceivedAt,
 		trigger.ExpiresAt,
 		dbscan.NilIfEmptyString(trigger.Error),
+		dbscan.NilIfEmptyString(trigger.NotifyURL),
+		dbscan.NilIfEmptyString(trigger.NotifyStatus),
 	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -67,7 +70,8 @@ func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string
 		SELECT id, event_key, project_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
-		       timeout_secs, requested_at, received_at, expires_at, error
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status
 		FROM event_triggers
 		WHERE event_key = $1`
 
@@ -91,7 +95,8 @@ func (q *Queries) GetEventTriggerByStepRunID(ctx context.Context, stepRunID stri
 		SELECT id, event_key, project_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
-		       timeout_secs, requested_at, received_at, expires_at, error
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status
 		FROM event_triggers
 		WHERE workflow_step_run_id = $1`
 
@@ -115,7 +120,8 @@ func (q *Queries) GetEventTriggerByJobRunID(ctx context.Context, jobRunID string
 		SELECT id, event_key, project_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
-		       timeout_secs, requested_at, received_at, expires_at, error
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status
 		FROM event_triggers
 		WHERE job_run_id = $1`
 
@@ -178,7 +184,8 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 		SELECT id, event_key, project_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
-		       timeout_secs, requested_at, received_at, expires_at, error
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status
 		FROM event_triggers
 		WHERE status = 'waiting' AND expires_at <= NOW()
 		ORDER BY expires_at ASC`
@@ -214,7 +221,8 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID stri
 		SELECT id, event_key, project_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
-		       timeout_secs, requested_at, received_at, expires_at, error
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status
 		FROM event_triggers
 		WHERE project_id = $1`
 
@@ -351,6 +359,22 @@ func (q *Queries) CancelEventTriggerByJobRun(ctx context.Context, jobRunID strin
 	return nil
 }
 
+// UpdateEventTriggerNotifyStatus updates only the notify_status field of an event trigger.
+func (q *Queries) UpdateEventTriggerNotifyStatus(ctx context.Context, id string, notifyStatus string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateEventTriggerNotifyStatus")
+	defer span.End()
+
+	query := `UPDATE event_triggers SET notify_status = $1 WHERE id = $2`
+	tag, err := q.db.Exec(ctx, query, notifyStatus, id)
+	if err != nil {
+		return fmt.Errorf("update event trigger notify status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("event trigger not found: %s", id)
+	}
+	return nil
+}
+
 // DeleteEventTriggersFinishedBefore deletes terminal event triggers older than the given time.
 func (q *Queries) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEventTriggersFinishedBefore")
@@ -381,6 +405,8 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	var requestPayload []byte
 	var responsePayload []byte
 	var errText *string
+	var notifyURL *string
+	var notifyStatus *string
 
 	err := scanner.Scan(
 		&trigger.ID,
@@ -398,6 +424,8 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 		&trigger.ReceivedAt,
 		&trigger.ExpiresAt,
 		&errText,
+		&notifyURL,
+		&notifyStatus,
 	)
 	if err != nil {
 		return nil, err
@@ -420,6 +448,12 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	}
 	if errText != nil {
 		trigger.Error = *errText
+	}
+	if notifyURL != nil {
+		trigger.NotifyURL = *notifyURL
+	}
+	if notifyStatus != nil {
+		trigger.NotifyStatus = *notifyStatus
 	}
 
 	return &trigger, nil

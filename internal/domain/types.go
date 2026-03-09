@@ -469,6 +469,7 @@ type WorkflowStep struct {
 	MaxNestingDepth       int                `json:"max_nesting_depth,omitempty"`
 	EventKey              string             `json:"event_key,omitempty"`
 	EventTimeoutSecs      int                `json:"event_timeout_secs,omitempty"`
+	EventNotifyURL        string             `json:"event_notify_url,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
@@ -540,4 +541,6 @@ type EventTrigger struct {
 	ReceivedAt        *time.Time      `json:"received_at,omitempty"`
 	ExpiresAt         time.Time       `json:"expires_at"`
 	Error             string          `json:"error,omitempty"`
+	NotifyURL         string          `json:"notify_url,omitempty"`    // optional webhook URL to call on creation
+	NotifyStatus      string          `json:"notify_status,omitempty"` // pending, sent, failed
 }
