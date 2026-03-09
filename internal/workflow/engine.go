@@ -70,8 +70,9 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	payload json.RawMessage,
 	triggeredBy string,
 	stepOverrides []domain.StepOverride,
+	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", stepOverrides)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", stepOverrides, extraTags)
 }
 
 // TriggerSubWorkflow triggers a workflow as a child of another workflow run.
@@ -82,7 +83,7 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	triggeredBy string,
 	parentWorkflowRunID string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, nil)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, nil, nil)
 }
 
 func (e *WorkflowEngine) triggerWorkflowInternal(
@@ -92,6 +93,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	triggeredBy string,
 	parentWorkflowRunID string,
 	stepOverrides []domain.StepOverride,
+	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
@@ -156,11 +158,12 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		triggeredBy = domain.TriggerManual
 	}
 
-	// Inherit workflow tags onto the run.
+	// Inherit workflow tags onto the run, then overlay any trigger-time tags.
 	var runTags map[string]string
-	if len(wf.Tags) > 0 {
-		runTags = make(map[string]string, len(wf.Tags))
+	if len(wf.Tags) > 0 || len(extraTags) > 0 {
+		runTags = make(map[string]string, len(wf.Tags)+len(extraTags))
 		maps.Copy(runTags, wf.Tags)
+		maps.Copy(runTags, extraTags)
 	}
 
 	wfRun := &domain.WorkflowRun{

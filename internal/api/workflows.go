@@ -89,6 +89,7 @@ type triggerWorkflowRequest struct {
 	Payload       json.RawMessage       `json:"payload,omitempty"`
 	TriggeredBy   string                `json:"triggered_by,omitempty"`
 	Labels        map[string]string     `json:"labels,omitempty"`
+	Tags          map[string]string     `json:"tags,omitempty"`
 	StepOverrides []domain.StepOverride `json:"step_overrides,omitempty"`
 }
 
@@ -429,12 +430,19 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Tags) > 0 {
+		if err := validateTags(req.Tags); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	triggeredBy := req.TriggeredBy
 	if triggeredBy == "" {
 		triggeredBy = domain.TriggerManual
 	}
 
-	run, err := s.workflowEngine.TriggerWorkflow(r.Context(), workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides)
+	run, err := s.workflowEngine.TriggerWorkflow(r.Context(), workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides, req.Tags)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
 			respondError(w, r, http.StatusNotFound, "workflow not found")

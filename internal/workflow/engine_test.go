@@ -191,7 +191,7 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", json.RawMessage(`{"k":"v"}`), "manual", nil)
+		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", json.RawMessage(`{"k":"v"}`), "manual", nil, nil)
 		if err != nil {
 			t.Fatalf("TriggerWorkflow() error = %v", err)
 		}
@@ -217,7 +217,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "disabled") {
 			t.Fatalf("expected disabled error, got %v", err)
 		}
@@ -234,7 +234,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "at least one step") {
 			t.Fatalf("expected empty steps error, got %v", err)
 		}
@@ -248,7 +248,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-b", nil, "", nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-b", nil, "", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "does not belong") {
 			t.Fatalf("expected project mismatch error, got %v", err)
 		}
@@ -262,7 +262,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "get workflow") {
 			t.Fatalf("expected get workflow error, got %v", err)
 		}
@@ -279,7 +279,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "list workflow steps by version") {
 			t.Fatalf("expected list steps error, got %v", err)
 		}
@@ -306,7 +306,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "create step run") {
 			t.Fatalf("expected create step run error, got %v", err)
 		}
@@ -3195,7 +3195,7 @@ func TestStartSubWorkflowStep(t *testing.T) {
 		}}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", json.RawMessage(`{"hello":"world"}`), "manual", nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", json.RawMessage(`{"hello":"world"}`), "manual", nil, nil)
 		if err != nil {
 			t.Fatalf("TriggerWorkflow() error = %v", err)
 		}
@@ -3291,7 +3291,7 @@ func TestStartSubWorkflowStep(t *testing.T) {
 		}
 
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "disabled") {
 			t.Fatalf("expected disabled workflow error, got %v", err)
 		}
@@ -3339,7 +3339,7 @@ func TestGetNestingDepth(t *testing.T) {
 		}}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil)
+		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
 		if err != nil {
 			t.Fatalf("expected depth 0 to succeed, got %v", err)
 		}
@@ -4244,6 +4244,7 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 			json.RawMessage(`{"k":"v"}`),
 			"manual",
 			[]domain.StepOverride{{StepRef: "b", Enabled: false}},
+			nil,
 		)
 		if err != nil {
 			t.Fatalf("TriggerWorkflow() error = %v", err)
@@ -4284,6 +4285,7 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 			nil,
 			"manual",
 			[]domain.StepOverride{{StepRef: "nonexistent", Enabled: false}},
+			nil,
 		)
 		if err == nil {
 			t.Fatal("expected error for unknown override step_ref")
