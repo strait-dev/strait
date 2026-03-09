@@ -7,7 +7,7 @@
   "autoupdate": true,
 
   "instructions": [
-    "AGENT.md",
+    "AGENTS.md",
     ".claude/CLAUDE.md",
     ".claude/skills/golang-patterns/SKILL.md",
     ".claude/skills/golang-pro/SKILL.md",
