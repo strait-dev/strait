@@ -14,9 +14,13 @@ env:
   GO_VERSION: "1.26"
 
 jobs:
-  lint:
+  lint-strait:
+    name: Lint Strait (Go)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/strait
     steps:
       - uses: actions/checkout@v4
 
@@ -24,22 +28,56 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: |
-            go.sum
+          cache-dependency-path: apps/strait/go.sum
 
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11.1
           args: --timeout=5m ./...
+          working-directory: apps/strait
 
       - name: Publish lint summary
         if: always()
         run: |
           pkg_count=$(go list ./... | wc -l | tr -d ' ')
           {
-            echo "## Lint Metrics"
+            echo "## Strait Lint Metrics"
             echo ""
             echo "- Packages linted: **${pkg_count}**"
-            echo "- Tests executed in this action: **0**"
-            echo "- Notes: test counts and per-package coverage are published by the Test workflow."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  lint-forge:
+    name: Lint Forge (Elixir)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/forge
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile (warnings as errors)
+        run: mix compile --warnings-as-errors
+
+      - name: Credo
+        run: mix credo --strict
+
+  lint-proto:
+    name: Lint Proto
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: Lint protobuf
+        run: buf lint packages/proto

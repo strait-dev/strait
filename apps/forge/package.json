@@ -1,0 +1,10 @@
+{
+  "name": "@strait/forge",
+  "private": true,
+  "scripts": {
+    "build": "mix compile",
+    "test": "mix test",
+    "lint": "mix credo --strict",
+    "dev": "mix run --no-halt"
+  }
+}

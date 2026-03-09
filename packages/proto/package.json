@@ -1,0 +1,8 @@
+{
+  "name": "@strait/proto",
+  "private": true,
+  "scripts": {
+    "proto:gen": "bash scripts/generate.sh",
+    "lint": "buf lint proto"
+  }
+}

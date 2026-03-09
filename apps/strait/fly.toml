@@ -2,7 +2,7 @@ app = "strait"
 primary_region = "iad"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "apps/strait/Dockerfile"
 
 [env]
   MODE = "all"

@@ -1,5 +1,4 @@
 # Binaries
-/orchestrator
 *.exe
 *.exe~
 *.dll
@@ -36,3 +35,21 @@ Thumbs.db
 /bin/
 /dist/
 /tmp/
+
+# Go
+apps/strait/bin/
+
+# Elixir
+apps/forge/_build/
+apps/forge/deps/
+apps/forge/*.ez
+apps/forge/cover/
+
+# Node / Turborepo
+node_modules/
+.turbo/
+bun.lock
+
+# Proto generated
+apps/strait/internal/sandbox/v1/*.pb.go
+apps/forge/lib/proto/

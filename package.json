@@ -1,0 +1,16 @@
+{
+  "name": "strait",
+  "private": true,
+  "packageManager": "bun@1.3.10",
+  "workspaces": ["apps/*", "packages/*"],
+  "devDependencies": {
+    "turbo": "^2.5.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "dev": "turbo run dev",
+    "proto:gen": "turbo run proto:gen"
+  }
+}

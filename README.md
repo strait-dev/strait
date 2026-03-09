@@ -1,54 +1,121 @@
 # Strait
 
-A production-grade Go job strait for engineering teams and AI agents.
+Durable workflow orchestrator with secure sandboxed code execution.
 
-**Everything you need in one binary.** Accept job definitions via REST API, queue runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED`, dispatch them via HTTP to your endpoints, and handle retries with intelligent strategies.
+## Architecture
 
----
+Strait is a monorepo containing two services:
 
-## Why Strait?
+| App | Language | Purpose |
+|-----|----------|---------|
+| [**Strait**](apps/strait/) | Go | Workflow orchestrator — manages jobs, workflows, queues, retries, and execution lifecycle |
+| [**Forge**](apps/forge/) | Elixir | Sandbox executor — runs user code in isolated environments via gRPC |
 
-The strait solves the complexity of background job processing by combining queue, state, scheduler, and executor in a single system—no external message broker required.
+Communication between Strait and Forge happens over **gRPC**, defined in [`packages/proto/`](packages/proto/).
 
-- **Zero Dependencies**: No RabbitMQ, SQS, or Kafka. PostgreSQL handles queuing with lock-free concurrent workers.
-- **Production-Grade Concurrency**: Go goroutines provide parallel job execution with structured panic recovery and graceful shutdown.
-- **Built for AI**: SDK endpoints for logging, heartbeats, progress checkpoints, continuation, and child job spawning. Cost budgets with micro-USD precision.
-- **Workflow Orchestration**: Complex DAGs with step conditions, output transforms, template variables, and human approval gates.
-- **Observability First**: OpenTelemetry tracing, Prometheus metrics, structured JSON logging, and real-time SSE streaming.
+```
+strait/
+├── apps/
+│   ├── strait/              # Go orchestrator
+│   └── forge/               # Elixir sandbox service
+├── packages/
+│   └── proto/               # Shared protobuf definitions
+├── turbo.json               # Turborepo pipeline config
+├── docker-compose.yml       # Full local stack
+└── package.json             # Bun workspace root
+```
 
-## Quick Links
+## Prerequisites
 
-| Documentation | Description |
-|---------------|-------------|
-| [Introduction](docs/introduction) | Product overview, key features, and getting started |
-| [Quick Start](docs/quickstart) | Set up and run your first job in 10 minutes |
-| [Architecture](docs/architecture) | Deep dive into internals, queue mechanics, and technology choices |
-| [CLI Reference](docs/cli/overview) | 48+ commands, TUI dashboard, and shell completion |
-| [API Reference](docs/api-reference/overview) | REST API endpoints for job and workflow management |
-| [Concepts](docs/concepts/jobs) | Jobs, runs, workflows, scheduling, retry strategies, and cost budgets |
-| [Guides](docs/guides/authentication) | Authentication, deployment, security, and production patterns |
+- [Go](https://go.dev/) 1.26+
+- [Elixir](https://elixir-lang.org/) 1.17+ / OTP 27+
+- [Bun](https://bun.sh/) 1.3+
+- [Docker](https://www.docker.com/) (for local infra)
+- [protoc](https://grpc.io/docs/protoc-installation/) (for proto codegen)
 
-## Key Features
+## Getting Started
 
-- **13-State FSM** — Robust lifecycle management with queued, executing, completed, failed, timed_out, dead_letter
-- **Workflow DAGs** — Fan-in/fan-out, step conditions, template variables, and sub-workflow nesting
-- **Smart Retry** — Exponential, linear, fixed, or custom per-attempt delays with ±20% jitter
-- **Cost Budgets** — Per-run and daily project limits with AI model usage tracking
-- **Real-Time CDC** — Postgres WAL change capture via Sequin for instant event notifications
-- **SDK Endpoints** — Specialized endpoints for logging, heartbeats, progress, and continuation
-- **Webhooks** — HMAC-SHA256 signed webhooks with automatic retries and dead letter queue
-- **Health Scoring** — Aggregate metrics for success rate, timeout rate, and latency stability
-- **Dead Letter Queue** — Isolate permanently failed runs for inspection and replay
+### Install dependencies
 
-## Project Status
+```bash
+bun install
+```
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/leonardomso/strait)](https://goreportcard.com/report/github.com/leonardomso/strait)
-[![Tests](https://github.com/leonardomso/strait/workflows/ci.yaml/badge.svg)](https://github.com/leonardomso/strait/actions)
+### Start local infrastructure
+
+```bash
+docker compose up -d postgres redis sequin
+```
+
+### Run everything
+
+```bash
+# Build all apps
+bun run build
+
+# Test all apps
+bun run test
+
+# Lint all apps
+bun run lint
+```
+
+### Run individual apps
+
+```bash
+# Strait (Go orchestrator)
+bun run --filter=@strait/orchestrator dev
+
+# Forge (Elixir sandbox)
+bun run --filter=@strait/forge dev
+```
+
+### Run with Docker Compose
+
+```bash
+# Start the full stack (Postgres + Redis + Sequin + Strait + Forge)
+docker compose up
+```
+
+## Protobuf
+
+Shared gRPC definitions live in `packages/proto/`. After modifying `.proto` files:
+
+```bash
+bun run proto:gen
+```
+
+This generates:
+- Go stubs in `apps/strait/internal/sandbox/`
+- Elixir stubs in `apps/forge/lib/proto/`
+
+## Development
+
+### Turborepo
+
+This repo uses [Turborepo](https://turbo.build/) with [Bun](https://bun.sh/) workspaces. Each app has a `package.json` that wraps native build commands so Turborepo can orchestrate them.
+
+```bash
+# Run a task for a specific app
+bun run --filter=@strait/orchestrator test
+bun run --filter=@strait/forge test
+
+# Run all tasks
+bun run test
+```
+
+### Testing
+
+- **Strait**: `cd apps/strait && go test -race ./...`
+- **Forge**: `cd apps/forge && mix test`
+- **Integration tests (Strait)**: `cd apps/strait && go test -tags=integration ./internal/store ./internal/queue ./internal/pubsub ./internal/e2e`
+
+### CI
+
+CI runs on GitHub Actions with separate jobs for:
+- **Lint**: Go (golangci-lint), Elixir (credo), Proto (buf)
+- **Test**: Go unit + race + coverage, Go integration, Elixir tests
 
 ## License
 
-[MIT License](LICENSE)
-
----
-
-**Ready to get started?** Follow the [Quick Start Guide](docs/quickstart) and have a production-grade job strait running in minutes.
+See [LICENSE](apps/strait/LICENSE).

@@ -4,7 +4,11 @@
 pre-commit:
   parallel: true
   commands:
-    lint:
-      run: golangci-lint run --timeout=5m ./...
-      glob: "*.go"
+    lint-strait:
+      run: cd apps/strait && golangci-lint run --timeout=5m ./...
+      glob: "apps/strait/**/*.go"
       fail_text: "golangci-lint failed — fix lint errors before committing"
+    lint-forge:
+      run: cd apps/forge && mix credo --strict
+      glob: "apps/forge/**/*.ex"
+      fail_text: "credo failed — fix lint errors before committing"

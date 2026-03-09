@@ -49,5 +49,28 @@ services:
       retries: 5
       start_period: 30s
 
+  strait:
+    build:
+      context: .
+      dockerfile: apps/strait/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: "postgres://strait:strait@postgres:5432/strait?sslmode=disable"
+      FORGE_GRPC_ADDR: "forge:50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  forge:
+    build:
+      context: .
+      dockerfile: apps/forge/Dockerfile
+    ports:
+      - "50051:50051"
+    environment:
+      GRPC_PORT: "50051"
+      MAX_SANDBOXES: "50"
+
 volumes:
   pgdata:

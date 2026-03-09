@@ -1,0 +1,12 @@
+{
+  "name": "@strait/orchestrator",
+  "private": true,
+  "scripts": {
+    "build": "go build -o bin/strait ./cmd/strait",
+    "test": "go test -race -timeout=60s ./...",
+    "test:integration": "go test -race -tags=integration -timeout=20m ./internal/store ./internal/queue ./internal/pubsub ./internal/e2e",
+    "test:coverage": "go test -cover ./internal/...",
+    "lint": "golangci-lint run --timeout=5m ./...",
+    "dev": "go run ./cmd/strait server"
+  }
+}

@@ -1,0 +1,21 @@
+app = "forge"
+primary_region = "iad"
+
+[build]
+  dockerfile = "apps/forge/Dockerfile"
+
+[env]
+  GRPC_PORT = "50051"
+  MAX_SANDBOXES = "50"
+
+[[services]]
+  internal_port = 50051
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 50051
+
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "5s"

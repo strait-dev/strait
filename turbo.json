@@ -1,0 +1,27 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["bin/**", "_build/**"]
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "outputs": []
+    },
+    "lint": {
+      "dependsOn": [],
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "proto:gen": {
+      "outputs": [
+        "apps/strait/internal/sandbox/**/*.pb.go",
+        "apps/forge/lib/proto/**/*.pb.ex"
+      ]
+    }
+  }
+}

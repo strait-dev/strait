@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package sandbox.v1;
+
+option go_package = "strait/internal/sandbox/v1;sandboxv1";
+
+// SandboxExecutor provides secure code execution in isolated environments.
+// The orchestrator (Strait) calls this service to run user code in Forge.
+service SandboxExecutor {
+  // Execute runs code in a sandbox and streams execution events back.
+  // The stream stays open until execution completes, fails, or is canceled.
+  // Canceling the RPC context triggers immediate sandbox termination.
+  rpc Execute(ExecuteRequest) returns (stream ExecutionEvent);
+}
+
+// ExecuteRequest contains the code and configuration for a sandbox execution.
+message ExecuteRequest {
+  // Unique run ID from the orchestrator for tracing and correlation.
+  string run_id = 1;
+
+  // Language runtime to use (e.g. "python", "javascript").
+  string language = 2;
+
+  // Source code to execute.
+  string code = 3;
+
+  // JSON-encoded payload passed to the code as input.
+  bytes payload = 4;
+
+  // Environment variables injected into the sandbox.
+  map<string, string> env = 5;
+
+  // Resource limits for the execution.
+  ResourceLimits limits = 6;
+}
+
+// ResourceLimits defines constraints for sandbox execution.
+message ResourceLimits {
+  // Maximum execution time in seconds.
+  int32 timeout_secs = 1;
+
+  // Maximum memory in bytes (0 = default).
+  int64 memory_bytes = 2;
+
+  // Whether outbound network access is allowed.
+  bool network_enabled = 3;
+}
+
+// ExecutionEvent is a streamed event from a running sandbox.
+message ExecutionEvent {
+  oneof event {
+    LogEntry log = 1;
+    Checkpoint checkpoint = 2;
+    ToolCall tool_call = 3;
+    ExecutionResult result = 4;
+  }
+}
+
+// LogEntry is a log line emitted by the sandbox.
+message LogEntry {
+  string level = 1;
+  string message = 2;
+  int64 timestamp_ms = 3;
+}
+
+// Checkpoint is an intermediate state snapshot persisted during execution.
+message Checkpoint {
+  int32 sequence = 1;
+  bytes state = 2;
+}
+
+// ToolCall records an external tool invocation made by the sandbox.
+message ToolCall {
+  string tool_name = 1;
+  bytes input = 2;
+  bytes output = 3;
+  int32 duration_ms = 4;
+  string status = 5;
+}
+
+// ExecutionResult is the terminal event sent when execution finishes.
+message ExecutionResult {
+  bool success = 1;
+  bytes result = 2;
+  string error = 3;
+  int64 duration_ms = 4;
+}
