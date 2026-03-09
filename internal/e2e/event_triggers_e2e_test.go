@@ -212,8 +212,8 @@ func TestE2E_WaitForEventStep_ChainedDependencies(t *testing.T) {
 	if waitStep.Status != domain.StepWaiting {
 		t.Fatalf("expected wait_step waiting, got %s", waitStep.Status)
 	}
-	if jobStep.Status != domain.StepPending {
-		t.Fatalf("expected job_step pending, got %s", jobStep.Status)
+	if jobStep.Status != domain.StepWaiting {
+		t.Fatalf("expected job_step waiting (deps unmet), got %s", jobStep.Status)
 	}
 
 	// Get event key from trigger.
