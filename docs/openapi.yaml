@@ -1863,6 +1863,10 @@ paths:
                 timeout_sec:
                   type: integer
                   default: 3600
+                notify_url:
+                  type: string
+                  format: uri
+                  description: Optional webhook URL to notify when the event trigger is created.
       responses:
         '200':
           description: Run paused, waiting for event

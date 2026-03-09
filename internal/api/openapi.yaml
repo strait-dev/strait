@@ -3576,6 +3576,10 @@ components:
           type: integer
           default: 3600
           description: Timeout in seconds before the trigger expires.
+        notify_url:
+          type: string
+          format: uri
+          description: Optional webhook URL to notify when the event trigger is created.
 
     Job:
       type: object

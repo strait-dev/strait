@@ -20,6 +20,7 @@ import (
 type SDKWaitForEventRequest struct {
 	EventKey   string `json:"event_key" validate:"required"`
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
+	NotifyURL  string `json:"notify_url,omitempty"`
 }
 
 // handleSDKWaitForEvent pauses a run to wait for an external event.
@@ -90,6 +91,7 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		TimeoutSecs: timeoutSecs,
 		RequestedAt: now,
 		ExpiresAt:   expiresAt,
+		NotifyURL:   req.NotifyURL,
 	}
 
 	if err := s.store.CreateEventTrigger(r.Context(), trigger); err != nil {
