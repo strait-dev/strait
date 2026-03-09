@@ -14,7 +14,9 @@ import (
 	sandboxv1 "strait/internal/sandbox/v1"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 var (
@@ -25,32 +27,85 @@ var (
 	ErrNoResult = fmt.Errorf("sandbox execution completed without a result event")
 )
 
+// Default keepalive parameters for the gRPC connection.
+const (
+	defaultKeepaliveTime    = 10 * time.Second // ping every 10s when idle
+	defaultKeepaliveTimeout = 3 * time.Second  // wait 3s for ping ack
+)
+
+// ClientOption configures optional client behaviour.
+type ClientOption func(*clientConfig)
+
+type clientConfig struct {
+	keepaliveTime    time.Duration
+	keepaliveTimeout time.Duration
+	extraDialOpts    []grpc.DialOption
+}
+
+// WithKeepaliveInterval sets how often the client pings the server when idle.
+// Default: 10 seconds.
+func WithKeepaliveInterval(d time.Duration) ClientOption {
+	return func(c *clientConfig) { c.keepaliveTime = d }
+}
+
+// WithKeepaliveTimeout sets how long the client waits for a keepalive ping
+// acknowledgment before considering the connection dead. Default: 3 seconds.
+func WithKeepaliveTimeout(d time.Duration) ClientOption {
+	return func(c *clientConfig) { c.keepaliveTimeout = d }
+}
+
+// WithDialOptions appends additional gRPC dial options. These are passed
+// directly to grpc.NewClient when Connect is called.
+func WithDialOptions(opts ...grpc.DialOption) ClientOption {
+	return func(c *clientConfig) { c.extraDialOpts = append(c.extraDialOpts, opts...) }
+}
+
 // Client connects to the Forge sandbox service via gRPC.
 type Client struct {
 	conn   *grpc.ClientConn
 	addr   string
 	logger *slog.Logger
+	cfg    clientConfig
 	mu     sync.RWMutex
 }
 
 // NewClient creates a new sandbox client. Call Connect() before use.
-func NewClient(addr string, logger *slog.Logger) *Client {
+func NewClient(addr string, logger *slog.Logger, opts ...ClientOption) *Client {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	cfg := clientConfig{
+		keepaliveTime:    defaultKeepaliveTime,
+		keepaliveTimeout: defaultKeepaliveTimeout,
+	}
+	for _, o := range opts {
+		o(&cfg)
 	}
 	return &Client{
 		addr:   addr,
 		logger: logger,
+		cfg:    cfg,
 	}
 }
 
 // Connect establishes the gRPC connection to Forge. If a previous connection
 // exists, it is closed first to prevent resource leaks.
+//
+// The connection uses keepalive pings so that dead connections (e.g. Forge
+// restarts) are detected quickly rather than waiting for TCP timeouts.
 func (c *Client) Connect(_ context.Context) error {
-	conn, err := grpc.NewClient(
-		c.addr,
+	dialOpts := make([]grpc.DialOption, 0, 2+len(c.cfg.extraDialOpts))
+	dialOpts = append(dialOpts,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                c.cfg.keepaliveTime,
+			Timeout:             c.cfg.keepaliveTimeout,
+			PermitWithoutStream: true, // ping even with no active RPCs
+		}),
 	)
+	dialOpts = append(dialOpts, c.cfg.extraDialOpts...)
+
+	conn, err := grpc.NewClient(c.addr, dialOpts...)
 	if err != nil {
 		return fmt.Errorf("connect to forge at %s: %w", c.addr, err)
 	}
@@ -78,6 +133,49 @@ func (c *Client) Close() error {
 		return c.conn.Close()
 	}
 	return nil
+}
+
+// IsConnected reports whether the gRPC connection is in a usable state
+// (Ready or Idle). Returns false if Connect has not been called or if the
+// underlying transport has failed.
+func (c *Client) IsConnected() bool {
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if conn == nil {
+		return false
+	}
+	state := conn.GetState()
+	return state == connectivity.Ready || state == connectivity.Idle
+}
+
+// WaitForReady blocks until the gRPC connection reaches the Ready state or
+// the context expires. This is useful at startup to ensure Forge is reachable
+// before accepting work.
+func (c *Client) WaitForReady(ctx context.Context) error {
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if conn == nil {
+		return ErrNotConnected
+	}
+
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			return nil
+		}
+		if state == connectivity.Shutdown {
+			return fmt.Errorf("connection shut down")
+		}
+		// WaitForStateChange blocks until the state changes from the given
+		// state or ctx is done.
+		if !conn.WaitForStateChange(ctx, state) {
+			return ctx.Err()
+		}
+	}
 }
 
 // EventHandler is called for each streamed event during sandbox execution.
