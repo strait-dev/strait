@@ -16,13 +16,68 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// resolveJobForRun loads the job configuration for a run, applying version
+// policy rules. For "pin" (default), returns the enqueue-time version. For
+// "latest", upgrades to the current version. For "minor", upgrades only if
+// the current version is marked backwards_compatible.
+func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
+	// Always load the current job to check version_policy.
+	current, err := e.store.GetJob(ctx, run.JobID)
+	if err != nil {
+		return nil, fmt.Errorf("load current job: %w", err)
+	}
+
+	// If the run is already at the current version, no policy check needed.
+	if current.Version == run.JobVersion {
+		return current, nil
+	}
+
+	switch current.VersionPolicy {
+	case domain.VersionPolicyLatest:
+		e.logger.Info("version policy upgrade",
+			"run_id", run.ID,
+			"policy", "latest",
+			"from_version", run.JobVersion,
+			"to_version", current.Version,
+		)
+		run.JobVersion = current.Version
+		run.JobVersionID = current.VersionID
+		return current, nil
+
+	case domain.VersionPolicyMinor:
+		if current.BackwardsCompatible {
+			e.logger.Info("version policy upgrade",
+				"run_id", run.ID,
+				"policy", "minor",
+				"from_version", run.JobVersion,
+				"to_version", current.Version,
+			)
+			run.JobVersion = current.Version
+			run.JobVersionID = current.VersionID
+			return current, nil
+		}
+		e.logger.Info("version policy: minor upgrade skipped (not backwards compatible)",
+			"run_id", run.ID,
+			"from_version", run.JobVersion,
+			"current_version", current.Version,
+		)
+		// Fall through to load the enqueue-time version.
+
+	case domain.VersionPolicyPin, "":
+		// Pin: use the enqueue-time version. Fall through.
+	}
+
+	// Load the versioned snapshot.
+	return e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
+}
+
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.Execute")
 	defer span.End()
 
 	executeStart := time.Now()
 
-	job, err := e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
+	job, err := e.resolveJobForRun(ctx, run)
 	if err != nil || job == nil {
 		e.logger.Error(
 			"job lookup failed",

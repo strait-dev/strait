@@ -2293,3 +2293,142 @@ func TestExecute_VersionedConfig_PreservesTimeout(t *testing.T) {
 		t.Fatalf("final status = %s, want %s (v1 timeout should be 300s not 1s)", calls[1].to, domain.StatusCompleted)
 	}
 }
+
+func TestResolveJobForRun_Pin(t *testing.T) {
+	t.Parallel()
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: 3, VersionID: "ver_v3", VersionPolicy: domain.VersionPolicyPin,
+				EndpointURL: "https://v3.example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+		getJobAtVersionFn: func(_ context.Context, _ string, v int) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: v, VersionID: "ver_v1",
+				EndpointURL: "https://v1.example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+	}
+	e := newTestExecutor(t, ms, nil, 0, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
+
+	job, err := e.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.EndpointURL != "https://v1.example.com" {
+		t.Fatalf("expected v1 endpoint, got %s", job.EndpointURL)
+	}
+	if run.JobVersion != 1 {
+		t.Fatalf("expected run version to stay 1, got %d", run.JobVersion)
+	}
+}
+
+func TestResolveJobForRun_Latest(t *testing.T) {
+	t.Parallel()
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: 3, VersionID: "ver_v3", VersionPolicy: domain.VersionPolicyLatest,
+				EndpointURL: "https://v3.example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+	}
+	e := newTestExecutor(t, ms, nil, 0, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
+
+	job, err := e.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.EndpointURL != "https://v3.example.com" {
+		t.Fatalf("expected v3 endpoint, got %s", job.EndpointURL)
+	}
+	if run.JobVersion != 3 {
+		t.Fatalf("expected run version upgraded to 3, got %d", run.JobVersion)
+	}
+	if run.JobVersionID != "ver_v3" {
+		t.Fatalf("expected run version_id upgraded to ver_v3, got %s", run.JobVersionID)
+	}
+}
+
+func TestResolveJobForRun_Minor_Compatible(t *testing.T) {
+	t.Parallel()
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: 3, VersionID: "ver_v3", VersionPolicy: domain.VersionPolicyMinor,
+				BackwardsCompatible: true,
+				EndpointURL:         "https://v3.example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+	}
+	e := newTestExecutor(t, ms, nil, 0, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
+
+	job, err := e.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.EndpointURL != "https://v3.example.com" {
+		t.Fatalf("expected v3 endpoint, got %s", job.EndpointURL)
+	}
+	if run.JobVersion != 3 {
+		t.Fatalf("expected run version upgraded to 3, got %d", run.JobVersion)
+	}
+}
+
+func TestResolveJobForRun_Minor_Incompatible(t *testing.T) {
+	t.Parallel()
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: 3, VersionID: "ver_v3", VersionPolicy: domain.VersionPolicyMinor,
+				BackwardsCompatible: false,
+				EndpointURL:         "https://v3.example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+		getJobAtVersionFn: func(_ context.Context, _ string, v int) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: v, VersionID: "ver_v1",
+				EndpointURL: "https://v1.example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+	}
+	e := newTestExecutor(t, ms, nil, 0, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
+
+	job, err := e.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.EndpointURL != "https://v1.example.com" {
+		t.Fatalf("expected v1 endpoint (no upgrade), got %s", job.EndpointURL)
+	}
+	if run.JobVersion != 1 {
+		t.Fatalf("expected run version to stay 1, got %d", run.JobVersion)
+	}
+}
+
+func TestResolveJobForRun_SameVersion(t *testing.T) {
+	t.Parallel()
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: 2, VersionID: "ver_v2", VersionPolicy: domain.VersionPolicyLatest,
+				EndpointURL: "https://v2.example.com", MaxAttempts: 3, TimeoutSecs: 30,
+			}, nil
+		},
+	}
+	e := newTestExecutor(t, ms, nil, 0, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 2, Status: domain.StatusDequeued}
+
+	job, err := e.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.EndpointURL != "https://v2.example.com" {
+		t.Fatalf("expected current endpoint, got %s", job.EndpointURL)
+	}
+}
