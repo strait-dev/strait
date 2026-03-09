@@ -273,7 +273,7 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 }
 
 func (q *Queries) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowsByTag")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowsByTag")
 	defer span.End()
 
 	base := `

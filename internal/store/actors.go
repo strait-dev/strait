@@ -12,7 +12,7 @@ import (
 )
 
 func (q *Queries) UpsertKnownActor(ctx context.Context, id, email, name string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpsertKnownActor")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertKnownActor")
 	defer span.End()
 
 	query := `
@@ -32,7 +32,7 @@ func (q *Queries) UpsertKnownActor(ctx context.Context, id, email, name string) 
 }
 
 func (q *Queries) GetKnownActor(ctx context.Context, id string) (*domain.KnownActor, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetKnownActor")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetKnownActor")
 	defer span.End()
 
 	query := `SELECT id, email, name, avatar_url, synced_at FROM known_actors WHERE id = $1`

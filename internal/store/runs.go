@@ -1379,7 +1379,7 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 }
 
 func (q *Queries) ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByTag")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByTag")
 	defer span.End()
 
 	base := `

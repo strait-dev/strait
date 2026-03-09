@@ -369,7 +369,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 }
 
 func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowRunsByTag")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRunsByTag")
 	defer span.End()
 
 	base := `

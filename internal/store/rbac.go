@@ -18,7 +18,7 @@ var (
 )
 
 func (q *Queries) CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateProjectRole")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateProjectRole")
 	defer span.End()
 
 	if role.ID == "" {
@@ -41,7 +41,7 @@ func (q *Queries) CreateProjectRole(ctx context.Context, role *domain.ProjectRol
 }
 
 func (q *Queries) GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetProjectRole")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetProjectRole")
 	defer span.End()
 
 	query := `
@@ -61,7 +61,7 @@ func (q *Queries) GetProjectRole(ctx context.Context, id string) (*domain.Projec
 }
 
 func (q *Queries) ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListProjectRoles")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectRoles")
 	defer span.End()
 
 	query := `
@@ -89,7 +89,7 @@ func (q *Queries) ListProjectRoles(ctx context.Context, projectID string) ([]dom
 }
 
 func (q *Queries) DeleteProjectRole(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteProjectRole")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteProjectRole")
 	defer span.End()
 
 	query := `DELETE FROM project_roles WHERE id = $1 AND is_system = FALSE`
@@ -104,7 +104,7 @@ func (q *Queries) DeleteProjectRole(ctx context.Context, id string) error {
 }
 
 func (q *Queries) AssignMemberRole(ctx context.Context, m *domain.ProjectMemberRole) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.AssignMemberRole")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.AssignMemberRole")
 	defer span.End()
 
 	if m.ID == "" {
@@ -126,7 +126,7 @@ func (q *Queries) AssignMemberRole(ctx context.Context, m *domain.ProjectMemberR
 }
 
 func (q *Queries) GetMemberRole(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetMemberRole")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetMemberRole")
 	defer span.End()
 
 	query := `
@@ -153,7 +153,7 @@ func (q *Queries) GetMemberRole(ctx context.Context, projectID, userID string) (
 }
 
 func (q *Queries) RemoveMemberRole(ctx context.Context, projectID, userID string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.RemoveMemberRole")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RemoveMemberRole")
 	defer span.End()
 
 	query := `DELETE FROM project_member_roles WHERE project_id = $1 AND user_id = $2`
@@ -168,7 +168,7 @@ func (q *Queries) RemoveMemberRole(ctx context.Context, projectID, userID string
 }
 
 func (q *Queries) ListProjectMembers(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListProjectMembers")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectMembers")
 	defer span.End()
 
 	query := `
@@ -202,7 +202,7 @@ func (q *Queries) ListProjectMembers(ctx context.Context, projectID string) ([]d
 // GetUserPermissions returns the merged permissions for a user in a project:
 // role permissions + any resource-specific policies.
 func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetUserPermissions")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetUserPermissions")
 	defer span.End()
 
 	query := `
@@ -224,7 +224,7 @@ func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID stri
 }
 
 func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateResourcePolicy")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateResourcePolicy")
 	defer span.End()
 
 	if p.ID == "" {
@@ -246,7 +246,7 @@ func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePo
 }
 
 func (q *Queries) GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetResourcePolicies")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetResourcePolicies")
 	defer span.End()
 
 	query := `
@@ -267,7 +267,7 @@ func (q *Queries) GetResourcePolicies(ctx context.Context, resourceType, resourc
 }
 
 func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteResourcePolicy")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteResourcePolicy")
 	defer span.End()
 
 	query := `DELETE FROM resource_policies WHERE id = $1`
@@ -282,7 +282,7 @@ func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) error {
 }
 
 func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resourceID string) ([]domain.ResourcePolicy, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListResourcePolicies")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListResourcePolicies")
 	defer span.End()
 
 	query := `

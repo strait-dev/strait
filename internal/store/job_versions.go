@@ -121,7 +121,7 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 // requested version (e.g., version 1 before snapshotting was enabled), it falls
 // back to the live jobs table.
 func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int) (*domain.Job, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobAtVersion")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobAtVersion")
 	defer span.End()
 
 	query := `
