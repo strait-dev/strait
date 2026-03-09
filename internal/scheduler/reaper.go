@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -183,8 +184,15 @@ func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
 // completeSleepTrigger handles expired sleep triggers by completing the step
 // rather than failing it — the sleep duration has elapsed successfully.
 func (r *Reaper) completeSleepTrigger(ctx context.Context, trigger *domain.EventTrigger, now time.Time) {
+	// Build sleep output metadata for downstream steps.
+	sleptSecs := now.Sub(trigger.RequestedAt).Seconds()
+	sleepOutput := json.RawMessage(fmt.Sprintf(
+		`{"slept_for_secs":%.1f,"completed_at":%q}`,
+		sleptSecs, now.UTC().Format(time.RFC3339),
+	))
+
 	receivedAt := now
-	if err := r.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, nil, &receivedAt, ""); err != nil {
+	if err := r.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, sleepOutput, &receivedAt, ""); err != nil {
 		slog.Error("failed to complete sleep trigger", "trigger_id", trigger.ID, "error", err)
 		return
 	}
@@ -192,6 +200,7 @@ func (r *Reaper) completeSleepTrigger(ctx context.Context, trigger *domain.Event
 	if trigger.WorkflowStepRunID != "" {
 		if err := r.store.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
 			"finished_at": now,
+			"output":      sleepOutput,
 		}); err != nil {
 			slog.Error("failed to complete sleep step", "trigger_id", trigger.ID, "step_run_id", trigger.WorkflowStepRunID, "error", err)
 			return
