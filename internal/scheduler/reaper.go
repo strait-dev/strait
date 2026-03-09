@@ -10,6 +10,8 @@ import (
 	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -201,8 +203,13 @@ func (r *Reaper) completeSleepTrigger(ctx context.Context, trigger *domain.Event
 	}
 
 	if r.metrics != nil {
+		attrs := metric.WithAttributes(
+			attribute.String("source_type", trigger.SourceType),
+			attribute.String("project_id", trigger.ProjectID),
+			attribute.String("trigger_type", trigger.TriggerType),
+		)
 		waitDuration := now.Sub(trigger.RequestedAt).Seconds()
-		r.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration)
+		r.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration, attrs)
 	}
 
 	slog.Info("sleep trigger completed", "trigger_id", trigger.ID, "step_run_id", trigger.WorkflowStepRunID)
@@ -341,9 +348,13 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 		}
 
 		if r.metrics != nil {
-			r.metrics.EventTriggersTimedOut.Add(ctx, 1)
+			attrs := metric.WithAttributes(
+				attribute.String("source_type", trigger.SourceType),
+				attribute.String("project_id", trigger.ProjectID),
+			)
+			r.metrics.EventTriggersTimedOut.Add(ctx, 1, attrs)
 			waitDuration := now.Sub(trigger.RequestedAt).Seconds()
-			r.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration)
+			r.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration, attrs)
 		}
 
 		switch trigger.SourceType {

@@ -18,6 +18,8 @@ import (
 	"strait/internal/workflow"
 
 	concpool "github.com/sourcegraph/conc/pool"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var version = "dev"
@@ -126,7 +128,12 @@ func runServe(modeOverride string) error {
 
 	onTriggerCreate := func(trigger *domain.EventTrigger) {
 		if metrics != nil {
-			metrics.EventTriggersCreated.Add(context.Background(), 1)
+			attrs := otelmetric.WithAttributes(
+				otelattr.String("source_type", trigger.SourceType),
+				otelattr.String("project_id", trigger.ProjectID),
+				otelattr.String("trigger_type", trigger.TriggerType),
+			)
+			metrics.EventTriggersCreated.Add(context.Background(), 1, attrs)
 		}
 		eventNotifier.NotifyAsync(trigger)
 	}

@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // SendEventRequest is the payload for POST /v1/events/{eventKey}/send.
@@ -88,9 +90,13 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 
 	// Record metrics.
 	if s.metrics != nil {
-		s.metrics.EventTriggersReceived.Add(r.Context(), 1)
+		attrs := metric.WithAttributes(
+			attribute.String("source_type", trigger.SourceType),
+			attribute.String("project_id", trigger.ProjectID),
+		)
+		s.metrics.EventTriggersReceived.Add(r.Context(), 1, attrs)
 		waitDuration := now.Sub(trigger.RequestedAt).Seconds()
-		s.metrics.EventTriggerWaitDuration.Record(r.Context(), waitDuration)
+		s.metrics.EventTriggerWaitDuration.Record(r.Context(), waitDuration, attrs)
 	}
 
 	respondJSON(w, http.StatusOK, trigger)
@@ -254,10 +260,14 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 
 	// Record metrics for each resolved trigger.
 	if s.metrics != nil {
-		s.metrics.EventTriggersReceived.Add(ctx, int64(len(resolved)))
 		for _, t := range resolved {
+			attrs := metric.WithAttributes(
+				attribute.String("source_type", t.SourceType),
+				attribute.String("project_id", t.ProjectID),
+			)
+			s.metrics.EventTriggersReceived.Add(ctx, 1, attrs)
 			waitDuration := now.Sub(t.RequestedAt).Seconds()
-			s.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration)
+			s.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration, attrs)
 		}
 	}
 

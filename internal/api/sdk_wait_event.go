@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // SDKWaitForEventRequest is the payload for POST /sdk/v1/runs/{runID}/wait-for-event.
@@ -108,7 +110,11 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.metrics != nil {
-		s.metrics.EventTriggersCreated.Add(r.Context(), 1)
+		attrs := metric.WithAttributes(
+			attribute.String("source_type", trigger.SourceType),
+			attribute.String("project_id", trigger.ProjectID),
+		)
+		s.metrics.EventTriggersCreated.Add(r.Context(), 1, attrs)
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
