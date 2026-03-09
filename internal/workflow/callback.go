@@ -233,6 +233,35 @@ func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string
 	}
 }
 
+// OnStepFailed handles workflow progression after a step fails, delegating to
+// handleFailedStep which respects the step's on_failure policy.
+func (s *StepCallback) OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnStepFailed")
+	defer span.End()
+
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 500, nil)
+	if err != nil {
+		s.logger.Error("OnStepFailed: failed to list step runs", "workflow_run_id", workflowRunID, "error", err)
+		return
+	}
+
+	var target *domain.WorkflowStepRun
+	for i := range stepRuns {
+		if stepRuns[i].ID == stepRunID {
+			target = &stepRuns[i]
+			break
+		}
+	}
+	if target == nil {
+		s.logger.Warn("OnStepFailed: step run not found", "step_run_id", stepRunID)
+		return
+	}
+
+	if err := s.handleFailedStep(ctx, target); err != nil {
+		s.logger.Error("OnStepFailed: failed to handle step failure", "step_ref", target.StepRef, "error", err)
+	}
+}
+
 func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[string]any) {
 	fields := make(map[string]any)
 
@@ -276,7 +305,7 @@ func (s *StepCallback) tryEmitEvent(ctx context.Context, stepRun *domain.Workflo
 
 	for i := range steps {
 		if steps[i].StepRef == stepRun.StepRef {
-			s.emitEventIfConfigured(ctx, stepRun, &steps[i])
+			s.emitEventIfConfigured(ctx, stepRun, &steps[i], wfRun)
 			return
 		}
 	}
@@ -284,14 +313,20 @@ func (s *StepCallback) tryEmitEvent(ctx context.Context, stepRun *domain.Workflo
 
 // emitEventIfConfigured checks if a step has event_emit_key set and if so,
 // auto-resolves a matching waiting trigger with the step's output.
-func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domain.WorkflowStepRun, step *domain.WorkflowStep) {
+// The event_emit_key is template-rendered using the workflow run payload.
+func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domain.WorkflowStepRun, step *domain.WorkflowStep, wfRun *domain.WorkflowRun) {
 	if step == nil || step.EventEmitKey == "" {
 		return
 	}
 
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, step.EventEmitKey)
+	emitKey := renderStringTemplate(step.EventEmitKey, wfRun.Payload)
+	if emitKey == "" {
+		return
+	}
+
+	trigger, err := s.store.GetEventTriggerByEventKey(ctx, emitKey)
 	if err != nil {
-		s.logger.Error("emit event: failed to get trigger", "event_key", step.EventEmitKey, "error", err)
+		s.logger.Error("emit event: failed to get trigger", "event_key", emitKey, "error", err)
 		return
 	}
 	if trigger == nil || trigger.Status != domain.EventTriggerStatusWaiting {
@@ -300,9 +335,9 @@ func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domai
 
 	now := time.Now()
 	if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, stepRun.Output, &now, ""); err != nil {
-		s.logger.Error("emit event: failed to resolve trigger", "event_key", step.EventEmitKey, "trigger_id", trigger.ID, "error", err)
+		s.logger.Error("emit event: failed to resolve trigger", "event_key", emitKey, "trigger_id", trigger.ID, "error", err)
 		return
 	}
 
-	s.logger.Info("auto-emitted event on step completion", "step_ref", step.StepRef, "event_key", step.EventEmitKey, "trigger_id", trigger.ID)
+	s.logger.Info("auto-emitted event on step completion", "step_ref", step.StepRef, "event_key", emitKey, "trigger_id", trigger.ID)
 }

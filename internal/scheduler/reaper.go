@@ -45,6 +45,7 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
 	OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string)
+	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 }
 
 type Reaper struct {
@@ -350,17 +351,23 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 				slog.Error("failed to mark event trigger step failed", "trigger_id", trigger.ID, "step_run_id", trigger.WorkflowStepRunID, "error", err)
 			}
 
+			// Delegate to the workflow callback, which respects on_failure policy
+			// (continue, skip_dependents, fail_workflow). Falls back to directly
+			// failing the workflow run when the callback is nil.
 			if trigger.WorkflowRunID != "" {
-				if err := r.store.UpdateWorkflowRunStatus(ctx, trigger.WorkflowRunID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
-					"finished_at": now,
-					"error":       "event trigger timed out",
-				}); err != nil {
-					// Also try from paused state, like approval reaper.
-					if errPaused := r.store.UpdateWorkflowRunStatus(ctx, trigger.WorkflowRunID, domain.WfStatusPaused, domain.WfStatusFailed, map[string]any{
+				if r.workflowCallback != nil {
+					r.workflowCallback.OnStepFailed(ctx, trigger.WorkflowRunID, trigger.WorkflowStepRunID)
+				} else {
+					if err := r.store.UpdateWorkflowRunStatus(ctx, trigger.WorkflowRunID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
 						"finished_at": now,
 						"error":       "event trigger timed out",
-					}); errPaused != nil {
-						slog.Error("failed to fail workflow on event trigger timeout", "trigger_id", trigger.ID, "workflow_run_id", trigger.WorkflowRunID, "error", errPaused)
+					}); err != nil {
+						if errPaused := r.store.UpdateWorkflowRunStatus(ctx, trigger.WorkflowRunID, domain.WfStatusPaused, domain.WfStatusFailed, map[string]any{
+							"finished_at": now,
+							"error":       "event trigger timed out",
+						}); errPaused != nil {
+							slog.Error("failed to fail workflow on event trigger timeout", "trigger_id", trigger.ID, "workflow_run_id", trigger.WorkflowRunID, "error", errPaused)
+						}
 					}
 				}
 			}

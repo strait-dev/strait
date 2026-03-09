@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -90,8 +91,14 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateEventTrigger(r.Context(), trigger); err != nil {
-		// Rollback status.
-		_ = s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusWaiting, domain.StatusExecuting, nil)
+		// Rollback status. Note: there is a theoretical race window between the
+		// executing→waiting transition and this rollback where the reaper could
+		// act on the waiting run. The window is milliseconds vs the reaper's 10s+
+		// interval, so the risk is negligible. Log failures rather than ignoring.
+		if rbErr := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusWaiting, domain.StatusExecuting, nil); rbErr != nil {
+			slog.Warn("failed to rollback run status after trigger creation failure",
+				"run_id", run.ID, "error", rbErr)
+		}
 		if errors.Is(err, store.ErrEventKeyConflict) {
 			respondError(w, r, http.StatusConflict, "event key already in use")
 			return
