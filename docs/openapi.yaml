@@ -1781,6 +1781,28 @@ paths:
           description: Event trigger details
         '404':
           description: Event trigger not found
+    delete:
+      tags:
+        - EventTriggers
+      summary: Cancel a waiting event trigger
+      description: |
+        Cancels a waiting event trigger by key. The associated workflow step is failed
+        (respecting on_failure policy) or the job run is canceled.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event trigger canceled
+        '403':
+          description: Trigger does not belong to project
+        '404':
+          description: Event trigger not found
+        '409':
+          description: Event trigger is not in waiting state
 
   /v1/events/{eventKey}/send:
     post:

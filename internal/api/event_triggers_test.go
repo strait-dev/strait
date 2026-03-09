@@ -544,3 +544,88 @@ func TestPayloadsMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleCancelEventTrigger(t *testing.T) {
+	t.Parallel()
+
+	var canceledTriggerStatus string
+	var failedStepRunID string
+	var onStepFailedCalled bool
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, eventKey string) (*domain.EventTrigger, error) {
+			if eventKey == "cancel-me" {
+				return &domain.EventTrigger{
+					ID:                "evt-cancel",
+					EventKey:          "cancel-me",
+					ProjectID:         "proj-1",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					RequestedAt:       time.Now(),
+				}, nil
+			}
+			return nil, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			canceledTriggerStatus = status
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, _ domain.StepRunStatus, _ map[string]any) error {
+			failedStepRunID = id
+			return nil
+		},
+	}
+
+	wfCallback := &mockWorkflowTrigger{
+		onStepFailedFn: func(_ context.Context, _ string, _ string) {
+			onStepFailedCalled = true
+		},
+	}
+	srv := newEventTriggersTestServer(t, ms, wfCallback)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/events/cancel-me", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if canceledTriggerStatus != domain.EventTriggerStatusCanceled {
+		t.Fatalf("trigger status = %q, want %q", canceledTriggerStatus, domain.EventTriggerStatusCanceled)
+	}
+	if failedStepRunID != "wsr-1" {
+		t.Fatalf("failed step run = %q, want %q", failedStepRunID, "wsr-1")
+	}
+	if !onStepFailedCalled {
+		t.Fatal("expected OnStepFailed to be called")
+	}
+}
+
+func TestHandleCancelEventTrigger_NotWaiting(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-done",
+				EventKey:  "already-received",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusReceived,
+			}, nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, &mockWorkflowTrigger{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/events/already-received", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusConflict, rr.Body.String())
+	}
+}

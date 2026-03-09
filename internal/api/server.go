@@ -141,6 +141,7 @@ type Pinger interface {
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
+	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
 	SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error

@@ -161,6 +161,77 @@ func (s *Server) handleGetEventTrigger(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, trigger)
 }
 
+// handleCancelEventTrigger cancels a waiting event trigger by key.
+func (s *Server) handleCancelEventTrigger(w http.ResponseWriter, r *http.Request) {
+	eventKey := chi.URLParam(r, "eventKey")
+	if eventKey == "" {
+		respondError(w, r, http.StatusBadRequest, "event key is required")
+		return
+	}
+
+	trigger, err := s.store.GetEventTriggerByEventKey(r.Context(), eventKey)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger")
+		return
+	}
+	if trigger == nil {
+		respondError(w, r, http.StatusNotFound, "event trigger not found")
+		return
+	}
+
+	if projectID := projectIDFromContext(r.Context()); projectID != "" && trigger.ProjectID != projectID {
+		respondError(w, r, http.StatusForbidden, "event trigger does not belong to this project")
+		return
+	}
+
+	if trigger.Status != domain.EventTriggerStatusWaiting {
+		respondError(w, r, http.StatusConflict, "event trigger is not in waiting state")
+		return
+	}
+
+	now := time.Now()
+	if err := s.store.UpdateEventTriggerStatus(
+		r.Context(), trigger.ID, domain.EventTriggerStatusCanceled, nil, nil, "canceled by user",
+	); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to cancel event trigger")
+		return
+	}
+
+	trigger.Status = domain.EventTriggerStatusCanceled
+	trigger.Error = "canceled by user"
+
+	// Drive step/run progression for the cancellation.
+	switch trigger.SourceType {
+	case domain.EventSourceWorkflowStep:
+		if trigger.WorkflowStepRunID != "" {
+			if stepErr := s.store.UpdateStepRunStatus(r.Context(), trigger.WorkflowStepRunID, domain.StepFailed, map[string]any{
+				"finished_at": now,
+				"error":       "event trigger canceled by user",
+			}); stepErr != nil {
+				slog.Error("failed to fail step after trigger cancel", "step_run_id", trigger.WorkflowStepRunID, "error", stepErr)
+			} else if trigger.WorkflowRunID != "" && s.workflowCallback != nil {
+				s.workflowCallback.OnStepFailed(r.Context(), trigger.WorkflowRunID, trigger.WorkflowStepRunID)
+			}
+		}
+	case domain.EventSourceJobRun:
+		if trigger.JobRunID != "" {
+			if runErr := s.store.UpdateRunStatus(r.Context(), trigger.JobRunID, domain.StatusWaiting, domain.StatusCanceled, nil); runErr != nil {
+				slog.Error("failed to cancel job run after trigger cancel", "job_run_id", trigger.JobRunID, "error", runErr)
+			}
+		}
+	}
+
+	if s.metrics != nil {
+		attrs := metric.WithAttributes(
+			attribute.String("source_type", trigger.SourceType),
+			attribute.String("project_id", trigger.ProjectID),
+		)
+		s.metrics.EventTriggersTimedOut.Add(r.Context(), 1, attrs)
+	}
+
+	respondJSON(w, http.StatusOK, trigger)
+}
+
 // handleListEventTriggers lists event triggers for the authenticated project.
 func (s *Server) handleListEventTriggers(w http.ResponseWriter, r *http.Request) {
 	projectID := projectIDFromContext(r.Context())
