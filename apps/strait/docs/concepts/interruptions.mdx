@@ -106,20 +106,66 @@ Compensation integrates with existing failure policies:
 | `skip_dependents` | Only downstream steps are skipped, no compensation |
 | `continue` | Workflow continues, no compensation |
 
+## Compensation Status Tracking
+
+Strait tracks compensation progress on the workflow run with three fields:
+
+| Field | Description |
+|-------|-------------|
+| `compensation_status` | Current status: `none`, `pending`, `running`, `completed`, `partial`, `failed` |
+| `compensation_steps_total` | Number of steps that need compensation |
+| `compensation_steps_completed` | Number of steps successfully compensated |
+
+### Status Lifecycle
+
+```
+none → pending → running → completed
+                        ↘ partial (some steps compensated, some failed)
+                        ↘ failed  (all compensation steps failed)
+```
+
+- **`partial`** — Some compensation steps succeeded but others failed. Check `compensation_steps_completed` vs `compensation_steps_total` for progress.
+- **`failed`** — All compensation steps failed. Requires manual intervention.
+
+### Handling Partial Failures
+
+When compensation partially fails, you can retry only the failed steps:
+
+```bash
+# Retry only steps that haven't been compensated yet
+POST /v1/workflow-runs/{id}/compensate
+```
+
+`RetryFailedCompensation` is **idempotent** — it skips already-completed compensation steps and only retries failed or unprocessed ones.
+
+### CompensationResult
+
+Both cancel and retry endpoints return a `CompensationResult`:
+
+```json
+{
+  "compensation_result": {
+    "compensated": ["step-a", "step-b"],
+    "failed": ["step-c"],
+    "status": "partial"
+  }
+}
+```
+
 ## API
 
 ### Cancel a Workflow Run
 
-```bash
-strait workflow-runs cancel <workflow-run-id>
+```
+DELETE /v1/workflow-runs/{id}
 ```
 
-This triggers the full cancel + compensation flow.
+Triggers the full cancel + compensation flow. Returns the updated workflow run and compensation result.
 
-### Compensate a Failed Workflow
+### Retry Failed Compensation
 
-```bash
-strait workflow-runs compensate <workflow-run-id>
+```
+POST /v1/workflow-runs/{id}/compensate
 ```
 
-Manually triggers compensation for a workflow that has already failed (useful if you want to retry compensation).
+Retries compensation for steps that failed during a previous cancel attempt. Only available when `compensation_status` is `partial` or `failed`.
