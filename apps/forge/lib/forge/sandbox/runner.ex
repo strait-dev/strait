@@ -10,7 +10,7 @@ defmodule Forge.Sandbox.Runner do
 
   require Logger
 
-  defstruct [:run_id, :language, :code, :payload, :env, :timeout_ms, :memory_bytes, :network_enabled, :stream, :port, :timer_ref, :output]
+  defstruct [:run_id, :language, :code, :payload, :env, :timeout_ms, :memory_bytes, :network_enabled, :stream, :port, :timer_ref, :output, :started_at, :code_path]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
@@ -37,11 +37,12 @@ defmodule Forge.Sandbox.Runner do
   @impl true
   def handle_continue(:execute, state) do
     timer_ref = Process.send_after(self(), :timeout, state.timeout_ms)
-    state = %{state | timer_ref: timer_ref}
+    started_at = System.monotonic_time(:millisecond)
+    state = %{state | timer_ref: timer_ref, started_at: started_at}
 
     case start_runtime(state) do
-      {:ok, port} ->
-        {:noreply, %{state | port: port}}
+      {:ok, port, code_path} ->
+        {:noreply, %{state | port: port, code_path: code_path}}
 
       {:error, reason} ->
         send_error(state.stream, state.run_id, "failed to start runtime: #{inspect(reason)}")
@@ -58,15 +59,19 @@ defmodule Forge.Sandbox.Runner do
 
   def handle_info({port, {:exit_status, 0}}, %{port: port} = state) do
     cancel_timer(state.timer_ref)
+    cleanup_temp(state.code_path)
+    duration = elapsed_ms(state.started_at)
     output = state.output |> Enum.reverse() |> Enum.join("\n")
-    send_result(state.stream, state.run_id, true, output, nil)
+    send_result(state.stream, state.run_id, true, output, nil, duration)
     {:stop, :normal, state}
   end
 
   def handle_info({port, {:exit_status, code}}, %{port: port} = state) do
     cancel_timer(state.timer_ref)
+    cleanup_temp(state.code_path)
+    duration = elapsed_ms(state.started_at)
     output = state.output |> Enum.reverse() |> Enum.join("\n")
-    send_result(state.stream, state.run_id, false, output, "process exited with code #{code}")
+    send_result(state.stream, state.run_id, false, output, "process exited with code #{code}", duration)
     {:stop, :normal, state}
   end
 
@@ -77,7 +82,9 @@ defmodule Forge.Sandbox.Runner do
       Port.close(state.port)
     end
 
-    send_result(state.stream, state.run_id, false, nil, "execution timed out")
+    cleanup_temp(state.code_path)
+    duration = elapsed_ms(state.started_at)
+    send_result(state.stream, state.run_id, false, nil, "execution timed out", duration)
     {:stop, :normal, state}
   end
 
@@ -105,7 +112,7 @@ defmodule Forge.Sandbox.Runner do
         ]
       )
 
-    {:ok, port}
+    {:ok, port, code_path}
   rescue
     e -> {:error, e}
   end
@@ -130,7 +137,7 @@ defmodule Forge.Sandbox.Runner do
     _ -> :ok
   end
 
-  defp send_result(stream, _run_id, success, result, error) do
+  defp send_result(stream, _run_id, success, result, error, duration_ms) do
     event = %Sandbox.V1.ExecutionEvent{
       event:
         {:result,
@@ -138,7 +145,7 @@ defmodule Forge.Sandbox.Runner do
            success: success,
            result: (result && result) || "",
            error: error || "",
-           duration_ms: 0
+           duration_ms: duration_ms
          }}
     }
 
@@ -148,9 +155,19 @@ defmodule Forge.Sandbox.Runner do
   end
 
   defp send_error(stream, _run_id, error) do
-    send_result(stream, nil, false, nil, error)
+    send_result(stream, nil, false, nil, error, 0)
   end
 
   defp cancel_timer(nil), do: :ok
   defp cancel_timer(ref), do: Process.cancel_timer(ref)
+
+  defp cleanup_temp(nil), do: :ok
+  defp cleanup_temp(path) do
+    File.rm(path)
+  rescue
+    _ -> :ok
+  end
+
+  defp elapsed_ms(nil), do: 0
+  defp elapsed_ms(started_at), do: System.monotonic_time(:millisecond) - started_at
 end
