@@ -1,0 +1,307 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"strait/internal/dbscan"
+	"strait/internal/domain"
+
+	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel"
+)
+
+// CreateEventTrigger inserts a new event trigger row.
+func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateEventTrigger")
+	defer span.End()
+
+	query := `
+		INSERT INTO event_triggers (
+			id, event_key, project_id, source_type,
+			workflow_run_id, workflow_step_run_id, job_run_id,
+			status, request_payload, response_payload,
+			timeout_secs, requested_at, received_at, expires_at, error
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+
+	if _, err := q.db.Exec(
+		ctx,
+		query,
+		trigger.ID,
+		trigger.EventKey,
+		trigger.ProjectID,
+		trigger.SourceType,
+		dbscan.NilIfEmptyString(trigger.WorkflowRunID),
+		dbscan.NilIfEmptyString(trigger.WorkflowStepRunID),
+		dbscan.NilIfEmptyString(trigger.JobRunID),
+		trigger.Status,
+		dbscan.NilIfEmptyRawMessage(trigger.RequestPayload),
+		dbscan.NilIfEmptyRawMessage(trigger.ResponsePayload),
+		trigger.TimeoutSecs,
+		trigger.RequestedAt,
+		trigger.ReceivedAt,
+		trigger.ExpiresAt,
+		dbscan.NilIfEmptyString(trigger.Error),
+	); err != nil {
+		return fmt.Errorf("create event trigger: %w", err)
+	}
+
+	return nil
+}
+
+// GetEventTriggerByEventKey retrieves an event trigger by its unique event key.
+func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByEventKey")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error
+		FROM event_triggers
+		WHERE event_key = $1`
+
+	trigger, err := scanEventTrigger(q.db.QueryRow(ctx, query, eventKey))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get event trigger by event key: %w", err)
+	}
+
+	return trigger, nil
+}
+
+// GetEventTriggerByStepRunID retrieves an event trigger by its workflow step run ID.
+func (q *Queries) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByStepRunID")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error
+		FROM event_triggers
+		WHERE workflow_step_run_id = $1`
+
+	trigger, err := scanEventTrigger(q.db.QueryRow(ctx, query, stepRunID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get event trigger by step run id: %w", err)
+	}
+
+	return trigger, nil
+}
+
+// GetEventTriggerByJobRunID retrieves an event trigger by its job run ID.
+func (q *Queries) GetEventTriggerByJobRunID(ctx context.Context, jobRunID string) (*domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByJobRunID")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error
+		FROM event_triggers
+		WHERE job_run_id = $1`
+
+	trigger, err := scanEventTrigger(q.db.QueryRow(ctx, query, jobRunID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get event trigger by job run id: %w", err)
+	}
+
+	return trigger, nil
+}
+
+// UpdateEventTriggerStatus updates the status and related fields of an event trigger.
+func (q *Queries) UpdateEventTriggerStatus(
+	ctx context.Context,
+	id string,
+	status string,
+	responsePayload json.RawMessage,
+	receivedAt *time.Time,
+	errMsg string,
+) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateEventTriggerStatus")
+	defer span.End()
+
+	query := `
+		UPDATE event_triggers
+		SET status = $1,
+		    response_payload = $2,
+		    received_at = $3,
+		    error = $4
+		WHERE id = $5`
+
+	tag, err := q.db.Exec(
+		ctx,
+		query,
+		status,
+		dbscan.NilIfEmptyRawMessage(responsePayload),
+		receivedAt,
+		dbscan.NilIfEmptyString(errMsg),
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("update event trigger status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("event trigger not found: %s", id)
+	}
+
+	return nil
+}
+
+// ListExpiredEventTriggers returns all event triggers in waiting status whose expires_at has passed.
+func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListExpiredEventTriggers")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error
+		FROM event_triggers
+		WHERE status = 'waiting' AND expires_at <= NOW()
+		ORDER BY expires_at ASC`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list expired event triggers: %w", err)
+	}
+	defer rows.Close()
+
+	triggers := make([]domain.EventTrigger, 0, 8)
+	for rows.Next() {
+		trigger, scanErr := scanEventTrigger(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan expired event trigger: %w", scanErr)
+		}
+		triggers = append(triggers, *trigger)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list expired event triggers rows: %w", err)
+	}
+
+	return triggers, nil
+}
+
+// ListEventTriggersByProject returns event triggers for a project, optionally filtered by status.
+func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventTriggersByProject")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error
+		FROM event_triggers
+		WHERE project_id = $1`
+
+	args := []any{projectID}
+	argIdx := 2
+
+	if status != "" {
+		query += fmt.Sprintf(" AND status = $%d", argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND requested_at < $%d", argIdx)
+		args = append(args, *cursor)
+		argIdx++
+	}
+
+	query += " ORDER BY requested_at DESC"
+	query += fmt.Sprintf(" LIMIT $%d", argIdx)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list event triggers by project: %w", err)
+	}
+	defer rows.Close()
+
+	triggers := make([]domain.EventTrigger, 0, limit)
+	for rows.Next() {
+		trigger, scanErr := scanEventTrigger(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan event trigger: %w", scanErr)
+		}
+		triggers = append(triggers, *trigger)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list event triggers by project rows: %w", err)
+	}
+
+	return triggers, nil
+}
+
+func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
+	var trigger domain.EventTrigger
+	var workflowRunID *string
+	var workflowStepRunID *string
+	var jobRunID *string
+	var requestPayload []byte
+	var responsePayload []byte
+	var errText *string
+
+	err := scanner.Scan(
+		&trigger.ID,
+		&trigger.EventKey,
+		&trigger.ProjectID,
+		&trigger.SourceType,
+		&workflowRunID,
+		&workflowStepRunID,
+		&jobRunID,
+		&trigger.Status,
+		&requestPayload,
+		&responsePayload,
+		&trigger.TimeoutSecs,
+		&trigger.RequestedAt,
+		&trigger.ReceivedAt,
+		&trigger.ExpiresAt,
+		&errText,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if workflowRunID != nil {
+		trigger.WorkflowRunID = *workflowRunID
+	}
+	if workflowStepRunID != nil {
+		trigger.WorkflowStepRunID = *workflowStepRunID
+	}
+	if jobRunID != nil {
+		trigger.JobRunID = *jobRunID
+	}
+	if requestPayload != nil {
+		trigger.RequestPayload = json.RawMessage(requestPayload)
+	}
+	if responsePayload != nil {
+		trigger.ResponsePayload = json.RawMessage(responsePayload)
+	}
+	if errText != nil {
+		trigger.Error = *errText
+	}
+
+	return &trigger, nil
+}

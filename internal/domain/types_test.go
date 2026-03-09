@@ -51,3 +51,41 @@ func TestStepRunStatus_IsTerminal(t *testing.T) {
 	}
 	testutil.AssertEqual(t, got, want)
 }
+
+func TestEventTriggerStatusConstants(t *testing.T) {
+	t.Parallel()
+
+	testutil.AssertEqual(t, EventTriggerStatusWaiting, "waiting")
+	testutil.AssertEqual(t, EventTriggerStatusReceived, "received")
+	testutil.AssertEqual(t, EventTriggerStatusTimedOut, "timed_out")
+	testutil.AssertEqual(t, EventTriggerStatusCanceled, "canceled")
+}
+
+func TestWorkflowStepTypeWaitForEvent(t *testing.T) {
+	t.Parallel()
+
+	testutil.AssertEqual(t, string(WorkflowStepTypeWaitForEvent), "wait_for_event")
+
+	// Verify it is distinct from existing step types.
+	types := []WorkflowStepType{
+		WorkflowStepTypeJob,
+		WorkflowStepTypeApproval,
+		WorkflowStepTypeSubWorkflow,
+		WorkflowStepTypeWaitForEvent,
+	}
+	seen := make(map[WorkflowStepType]struct{}, len(types))
+	for _, st := range types {
+		if _, dup := seen[st]; dup {
+			t.Fatalf("duplicate step type: %s", st)
+		}
+		seen[st] = struct{}{}
+	}
+}
+
+func TestDefaultEventTimeoutSecs(t *testing.T) {
+	t.Parallel()
+
+	if DefaultEventTimeoutSecs != 3600 {
+		t.Fatalf("DefaultEventTimeoutSecs = %d, want 3600", DefaultEventTimeoutSecs)
+	}
+}

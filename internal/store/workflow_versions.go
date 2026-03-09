@@ -60,7 +60,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			step_type, approval_timeout_secs, approval_approvers,
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			timeout_secs_override, output_transform,
-			sub_workflow_id, max_nesting_depth
+			sub_workflow_id, max_nesting_depth,
+			event_key, event_timeout_secs
 		)
 		SELECT
 			$1 || ':' || step_ref,
@@ -81,7 +82,9 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			timeout_secs_override,
 			output_transform,
 			sub_workflow_id,
-			max_nesting_depth
+			max_nesting_depth,
+			event_key,
+			event_timeout_secs
 		FROM workflow_steps
 		WHERE workflow_id = $2`
 
@@ -117,6 +120,8 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 			wvs.output_transform,
 			wvs.sub_workflow_id,
 			wvs.max_nesting_depth,
+			wvs.event_key,
+			wvs.event_timeout_secs,
 			wvs.created_at
 		FROM workflow_version_steps wvs
 		JOIN workflow_versions wv ON wv.id = wvs.workflow_version_id

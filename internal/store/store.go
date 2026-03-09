@@ -225,6 +225,16 @@ type WorkflowStepRunStore interface {
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 }
 
+type EventTriggerStore interface {
+	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
+	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	GetEventTriggerByJobRunID(ctx context.Context, jobRunID string) (*domain.EventTrigger, error)
+	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
+	ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+}
+
 type Store interface {
 	JobStore
 	JobGroupStore
@@ -239,6 +249,7 @@ type Store interface {
 	WorkflowStepStore
 	WorkflowRunStore
 	WorkflowStepRunStore
+	EventTriggerStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

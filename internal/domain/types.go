@@ -384,9 +384,10 @@ const (
 type WorkflowStepType string
 
 const (
-	WorkflowStepTypeJob         WorkflowStepType = "job"
-	WorkflowStepTypeApproval    WorkflowStepType = "approval"
-	WorkflowStepTypeSubWorkflow WorkflowStepType = "sub_workflow"
+	WorkflowStepTypeJob          WorkflowStepType = "job"
+	WorkflowStepTypeApproval     WorkflowStepType = "approval"
+	WorkflowStepTypeSubWorkflow  WorkflowStepType = "sub_workflow"
+	WorkflowStepTypeWaitForEvent WorkflowStepType = "wait_for_event"
 )
 
 // ApprovalStatus constants for workflow step approvals.
@@ -395,6 +396,17 @@ const (
 	ApprovalStatusApproved = "approved"
 	ApprovalStatusRejected = "rejected"
 )
+
+// EventTriggerStatus constants for event triggers.
+const (
+	EventTriggerStatusWaiting  = "waiting"
+	EventTriggerStatusReceived = "received"
+	EventTriggerStatusTimedOut = "timed_out"
+	EventTriggerStatusCanceled = "canceled"
+)
+
+// DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
+const DefaultEventTimeoutSecs = 3600
 
 type RetryBackoffPolicy string
 
@@ -449,6 +461,8 @@ type WorkflowStep struct {
 	OutputTransform       string             `json:"output_transform,omitempty"`
 	SubWorkflowID         string             `json:"sub_workflow_id,omitempty"`
 	MaxNestingDepth       int                `json:"max_nesting_depth,omitempty"`
+	EventKey              string             `json:"event_key,omitempty"`
+	EventTimeoutSecs      int                `json:"event_timeout_secs,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
@@ -500,4 +514,24 @@ type WorkflowStepApproval struct {
 	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	Error             string     `json:"error,omitempty"`
+}
+
+// EventTrigger represents a durable wait for an external event signal.
+// Used by wait_for_event workflow steps and SDK wait-for-event on job runs.
+type EventTrigger struct {
+	ID                string          `json:"id"`
+	EventKey          string          `json:"event_key"`
+	ProjectID         string          `json:"project_id"`
+	SourceType        string          `json:"source_type"`                    // "workflow_step" or "job_run"
+	WorkflowRunID     string          `json:"workflow_run_id,omitempty"`      // set if source_type = workflow_step
+	WorkflowStepRunID string          `json:"workflow_step_run_id,omitempty"` // set if source_type = workflow_step
+	JobRunID          string          `json:"job_run_id,omitempty"`           // set if source_type = job_run
+	Status            string          `json:"status"`                         // waiting, received, timed_out, canceled
+	RequestPayload    json.RawMessage `json:"request_payload,omitempty"`
+	ResponsePayload   json.RawMessage `json:"response_payload,omitempty"`
+	TimeoutSecs       int             `json:"timeout_secs"`
+	RequestedAt       time.Time       `json:"requested_at"`
+	ReceivedAt        *time.Time      `json:"received_at,omitempty"`
+	ExpiresAt         time.Time       `json:"expires_at"`
+	Error             string          `json:"error,omitempty"`
 }
