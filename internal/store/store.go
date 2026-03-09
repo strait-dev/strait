@@ -236,6 +236,7 @@ type EventTriggerStore interface {
 	ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	CancelEventTriggerByJobRun(ctx context.Context, jobRunID string) error
+	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 }
 
 type Store interface {

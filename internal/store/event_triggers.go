@@ -259,6 +259,61 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID stri
 	return triggers, nil
 }
 
+// ListReceivedEventTriggersWithStaleSteps returns triggers that are marked 'received' but whose
+// associated step run or job run is still in a non-terminal 'waiting' state. This indicates
+// a crash between the trigger update and step/run completion (reconciliation target).
+func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListReceivedEventTriggersWithStaleSteps")
+	defer span.End()
+
+	query := `
+		SELECT et.id, et.event_key, et.project_id, et.source_type,
+		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
+		       et.status, et.request_payload, et.response_payload,
+		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error
+		FROM event_triggers et
+		JOIN workflow_step_runs wsr ON wsr.id = et.workflow_step_run_id
+		WHERE et.status = 'received'
+		  AND et.source_type = 'workflow_step'
+		  AND wsr.status = 'waiting'
+		  AND et.received_at < NOW() - INTERVAL '30 seconds'
+
+		UNION ALL
+
+		SELECT et.id, et.event_key, et.project_id, et.source_type,
+		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
+		       et.status, et.request_payload, et.response_payload,
+		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error
+		FROM event_triggers et
+		JOIN runs r ON r.id = et.job_run_id
+		WHERE et.status = 'received'
+		  AND et.source_type = 'job_run'
+		  AND r.status = 'waiting'
+		  AND et.received_at < NOW() - INTERVAL '30 seconds'
+	`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list received event triggers with stale steps: %w", err)
+	}
+	defer rows.Close()
+
+	triggers := make([]domain.EventTrigger, 0, 4)
+	for rows.Next() {
+		trigger, scanErr := scanEventTrigger(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan stale event trigger: %w", scanErr)
+		}
+		triggers = append(triggers, *trigger)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list received event triggers with stale steps rows: %w", err)
+	}
+
+	return triggers, nil
+}
+
 // CancelEventTriggersByWorkflowRun cancels all waiting event triggers for a given workflow run.
 func (q *Queries) CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelEventTriggersByWorkflowRun")

@@ -35,10 +35,12 @@ type ReaperStore interface {
 	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
+	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 }
 
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
+	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
 }
 
 type Reaper struct {
@@ -112,6 +114,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapTimedOutWorkflows(loopCtx)
 		r.reapExpiredApprovals(loopCtx)
 		r.reapExpiredEventTriggers(loopCtx)
+		r.reapInconsistentEventTriggers(loopCtx)
 		r.reapOldWorkflowRuns(loopCtx)
 		if r.retentionEnabled {
 			r.reapTerminalRetention(loopCtx)
@@ -302,6 +305,46 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 				"error":       "event trigger timed out",
 			}); err != nil {
 				slog.Error("failed to timeout job run for event trigger", "trigger_id", trigger.ID, "job_run_id", trigger.JobRunID, "error", err)
+			}
+		}
+	}
+}
+
+// reapInconsistentEventTriggers finds triggers marked 'received' whose associated
+// step run or job run is still 'waiting'. This happens when the process crashes
+// between the trigger status update and the step/run completion. The 30-second
+// grace period in the query prevents interfering with in-flight operations.
+func (r *Reaper) reapInconsistentEventTriggers(ctx context.Context) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapInconsistentEventTriggers")
+	defer span.End()
+
+	triggers, err := r.store.ListReceivedEventTriggersWithStaleSteps(ctx)
+	if err != nil {
+		slog.Error("failed to list inconsistent event triggers", "error", err)
+		return
+	}
+
+	for _, trigger := range triggers {
+		switch trigger.SourceType {
+		case domain.EventSourceWorkflowStep:
+			if r.workflowCallback != nil {
+				if err := r.workflowCallback.OnEventReceived(ctx, &trigger); err != nil {
+					slog.Error("failed to reconcile event trigger step completion", "trigger_id", trigger.ID, "error", err)
+				} else {
+					slog.Info("reconciled inconsistent event trigger", "trigger_id", trigger.ID, "source_type", trigger.SourceType)
+				}
+			}
+
+		case domain.EventSourceJobRun:
+			if trigger.JobRunID == "" {
+				continue
+			}
+			if err := r.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
+				"checkpoint_data": trigger.ResponsePayload,
+			}); err != nil {
+				slog.Error("failed to reconcile event trigger job run", "trigger_id", trigger.ID, "job_run_id", trigger.JobRunID, "error", err)
+			} else {
+				slog.Info("reconciled inconsistent event trigger", "trigger_id", trigger.ID, "source_type", trigger.SourceType)
 			}
 		}
 	}

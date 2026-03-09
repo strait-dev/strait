@@ -102,6 +102,10 @@ func (m *mockSchedulerStore) CancelEventTriggersByWorkflowRun(ctx context.Contex
 	return m.reaper.CancelEventTriggersByWorkflowRun(ctx, workflowRunID)
 }
 
+func (m *mockSchedulerStore) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error) {
+	return m.reaper.ListReceivedEventTriggersWithStaleSteps(ctx)
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval: 100 * time.Millisecond,
