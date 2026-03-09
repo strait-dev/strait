@@ -150,6 +150,19 @@ func (s *Server) routes() chi.Router {
 
 		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", s.handleStats)
 
+		r.Route("/roles", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Post("/", s.handleCreateRole)
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", s.handleListRoles)
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/{roleID}", s.handleGetRole)
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Delete("/{roleID}", s.handleDeleteRole)
+		})
+
+		r.Route("/members", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Post("/", s.handleAssignMember)
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", s.handleListMembers)
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Delete("/{userID}", s.handleRemoveMember)
+		})
+
 		r.Route("/workflows", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", s.handleCreateWorkflow)
 			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListWorkflows)

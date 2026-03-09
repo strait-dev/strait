@@ -102,6 +102,12 @@ type mockAPIStore struct {
 	sumRunCostMicrousdFn          func(ctx context.Context, runID string) (int64, error)
 	sumProjectDailyCostMicrousdFn func(ctx context.Context, projectID string, timezone string) (int64, error)
 	getUserPermissionsFn          func(ctx context.Context, projectID, userID string) ([]string, error)
+	createProjectRoleFn           func(ctx context.Context, role *domain.ProjectRole) error
+	getProjectRoleFn              func(ctx context.Context, id string) (*domain.ProjectRole, error)
+	listProjectRolesFn            func(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
+	deleteProjectRoleFn           func(ctx context.Context, id string) error
+	assignMemberRoleFn            func(ctx context.Context, m *domain.ProjectMemberRole) error
+	removeMemberRoleFn            func(ctx context.Context, projectID, userID string) error
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -800,23 +806,38 @@ func (m *mockAPIStore) GetUserPermissions(ctx context.Context, projectID, userID
 	return nil, nil
 }
 
-func (m *mockAPIStore) CreateProjectRole(_ context.Context, _ *domain.ProjectRole) error {
+func (m *mockAPIStore) CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
+	if m.createProjectRoleFn != nil {
+		return m.createProjectRoleFn(ctx, role)
+	}
 	return nil
 }
 
-func (m *mockAPIStore) GetProjectRole(_ context.Context, _ string) (*domain.ProjectRole, error) {
+func (m *mockAPIStore) GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error) {
+	if m.getProjectRoleFn != nil {
+		return m.getProjectRoleFn(ctx, id)
+	}
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListProjectRoles(_ context.Context, _ string) ([]domain.ProjectRole, error) {
+func (m *mockAPIStore) ListProjectRoles(ctx context.Context, projectID string) ([]domain.ProjectRole, error) {
+	if m.listProjectRolesFn != nil {
+		return m.listProjectRolesFn(ctx, projectID)
+	}
 	return nil, nil
 }
 
-func (m *mockAPIStore) DeleteProjectRole(_ context.Context, _ string) error {
+func (m *mockAPIStore) DeleteProjectRole(ctx context.Context, id string) error {
+	if m.deleteProjectRoleFn != nil {
+		return m.deleteProjectRoleFn(ctx, id)
+	}
 	return nil
 }
 
-func (m *mockAPIStore) AssignMemberRole(_ context.Context, _ *domain.ProjectMemberRole) error {
+func (m *mockAPIStore) AssignMemberRole(ctx context.Context, m2 *domain.ProjectMemberRole) error {
+	if m.assignMemberRoleFn != nil {
+		return m.assignMemberRoleFn(ctx, m2)
+	}
 	return nil
 }
 
@@ -824,7 +845,10 @@ func (m *mockAPIStore) GetMemberRole(_ context.Context, _, _ string) (*domain.Pr
 	return nil, nil
 }
 
-func (m *mockAPIStore) RemoveMemberRole(_ context.Context, _, _ string) error {
+func (m *mockAPIStore) RemoveMemberRole(ctx context.Context, projectID, userID string) error {
+	if m.removeMemberRoleFn != nil {
+		return m.removeMemberRoleFn(ctx, projectID, userID)
+	}
 	return nil
 }
 
