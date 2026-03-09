@@ -5833,7 +5833,7 @@ func TestListProjectRoles(t *testing.T) {
 		}
 	}
 
-	roles, err := q.ListProjectRoles(ctx, "proj-list-roles")
+	roles, err := q.ListProjectRoles(ctx, "proj-list-roles", 100, nil)
 	if err != nil {
 		t.Fatalf("ListProjectRoles() error = %v", err)
 	}
@@ -6332,7 +6332,7 @@ func TestListProjectMembers(t *testing.T) {
 		}
 	}
 
-	members, err := q.ListProjectMembers(ctx, "proj-list-members")
+	members, err := q.ListProjectMembers(ctx, "proj-list-members", 100, nil)
 	if err != nil {
 		t.Fatalf("ListProjectMembers() error = %v", err)
 	}
@@ -6652,7 +6652,7 @@ func TestListProjectRoles_EmptyProject(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	roles, err := q.ListProjectRoles(ctx, "proj-no-roles")
+	roles, err := q.ListProjectRoles(ctx, "proj-no-roles", 100, nil)
 	if err != nil {
 		t.Fatalf("ListProjectRoles() error = %v", err)
 	}
