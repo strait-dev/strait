@@ -268,6 +268,45 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID stri
 	return triggers, nil
 }
 
+// ListEventTriggersByKeyPrefix returns all waiting triggers whose event_key starts with the given prefix.
+// Uses the text_pattern_ops index for efficient prefix matching.
+func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix string) ([]domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventTriggersByKeyPrefix")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status, trigger_type
+		FROM event_triggers
+		WHERE event_key LIKE $1 || '%'
+		  AND status = 'waiting'
+		ORDER BY requested_at ASC`
+
+	rows, err := q.db.Query(ctx, query, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("list event triggers by key prefix: %w", err)
+	}
+	defer rows.Close()
+
+	var triggers []domain.EventTrigger
+	for rows.Next() {
+		trigger, scanErr := scanEventTrigger(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan event trigger by key prefix: %w", scanErr)
+		}
+		triggers = append(triggers, *trigger)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list event triggers by key prefix rows: %w", err)
+	}
+
+	return triggers, nil
+}
+
 // ListReceivedEventTriggersWithStaleSteps returns triggers that are marked 'received' but whose
 // associated step run or job run is still in a non-terminal 'waiting' state. This indicates
 // a crash between the trigger update and step/run completion (reconciliation target).
@@ -279,7 +318,8 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		SELECT et.id, et.event_key, et.project_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
-		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error
+		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
+		       et.notify_url, et.notify_status, et.trigger_type
 		FROM event_triggers et
 		JOIN workflow_step_runs wsr ON wsr.id = et.workflow_step_run_id
 		WHERE et.status = 'received'
@@ -292,7 +332,8 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		SELECT et.id, et.event_key, et.project_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
-		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error
+		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
+		       et.notify_url, et.notify_status, et.trigger_type
 		FROM event_triggers et
 		JOIN runs r ON r.id = et.job_run_id
 		WHERE et.status = 'received'

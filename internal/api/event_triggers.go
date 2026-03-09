@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -172,4 +173,62 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	ea, _ := json.Marshal(va)
 	eb, _ := json.Marshal(vb)
 	return string(ea) == string(eb)
+}
+
+// SendEventByPrefixRequest is the payload for POST /v1/events/prefix/{prefix}/send.
+type SendEventByPrefixRequest struct {
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// handleSendEventByPrefix delivers an event to all waiting triggers matching a prefix.
+func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request) {
+	prefix := chi.URLParam(r, "prefix")
+	if prefix == "" {
+		respondError(w, r, http.StatusBadRequest, "prefix is required")
+		return
+	}
+
+	var req SendEventByPrefixRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, r, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	triggers, err := s.store.ListEventTriggersByKeyPrefix(r.Context(), prefix)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list triggers by prefix")
+		return
+	}
+
+	if len(triggers) == 0 {
+		respondJSON(w, http.StatusOK, map[string]any{"resolved": 0, "triggers": []any{}})
+		return
+	}
+
+	now := time.Now()
+	resolved := make([]domain.EventTrigger, 0, len(triggers))
+
+	for _, trigger := range triggers {
+		if err := s.store.UpdateEventTriggerStatus(r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+			slog.Error("failed to resolve trigger by prefix", "trigger_id", trigger.ID, "error", err)
+			continue
+		}
+		trigger.Status = domain.EventTriggerStatusReceived
+		trigger.ReceivedAt = &now
+
+		// Resume the source.
+		trigger.ResponsePayload = req.Payload
+		if err := s.resumeEventSource(r.Context(), &trigger); err != nil {
+			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "error", err)
+		}
+
+		resolved = append(resolved, trigger)
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"resolved": len(resolved),
+		"triggers": resolved,
+	})
 }
