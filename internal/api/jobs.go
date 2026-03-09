@@ -383,23 +383,21 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
-	job, err := s.store.GetJob(r.Context(), jobID)
-	if err != nil {
+
+	if err := s.store.DeleteJob(r.Context(), jobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
-	}
-
-	job.Enabled = false
-	if err := s.store.UpdateJob(r.Context(), job); err != nil {
+		if errors.Is(err, store.ErrJobHasActiveRuns) {
+			respondError(w, r, http.StatusConflict, "job has active runs — cancel them first or wait for completion")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to delete job")
 		return
 	}
 
-	respondJSON(w, http.StatusNoContent, nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type CloneJobRequest struct {

@@ -813,22 +813,12 @@ func TestHandleCancelRun_Success(t *testing.T) {
 	}
 }
 
-func TestHandleDeleteJob_SoftDelete(t *testing.T) {
+func TestHandleDeleteJob_Success(t *testing.T) {
 	t.Parallel()
-	var updatedJob *domain.Job
+	var deletedID string
 	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{
-				ID:          id,
-				ProjectID:   "proj-1",
-				Name:        "Test",
-				Slug:        "test",
-				EndpointURL: "https://example.com",
-				Enabled:     true,
-			}, nil
-		},
-		updateJobFn: func(_ context.Context, job *domain.Job) error {
-			updatedJob = job
+		deleteJobFn: func(_ context.Context, id string) error {
+			deletedID = id
 			return nil
 		},
 	}
@@ -840,11 +830,25 @@ func TestHandleDeleteJob_SoftDelete(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
-	if updatedJob == nil {
-		t.Fatal("UpdateJob was not called")
+	if deletedID != "job-123" {
+		t.Fatalf("expected DeleteJob called with job-123, got %s", deletedID)
 	}
-	if updatedJob.Enabled {
-		t.Fatal("expected job to be disabled after soft delete")
+}
+
+func TestHandleDeleteJob_ActiveRuns(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		deleteJobFn: func(_ context.Context, _ string) error {
+			return store.ErrJobHasActiveRuns
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-123", ""))
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

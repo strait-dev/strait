@@ -22,6 +22,7 @@ type mockAPIStore struct {
 	getJobGroupFn                 func(ctx context.Context, id string) (*domain.JobGroup, error)
 	listJobGroupsFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error)
 	updateJobGroupFn              func(ctx context.Context, group *domain.JobGroup) error
+	deleteJobFn                   func(ctx context.Context, id string) error
 	deleteJobGroupFn              func(ctx context.Context, id string) error
 	listJobsByGroupFn             func(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	createEnvironmentFn           func(ctx context.Context, env *domain.Environment) error
@@ -175,7 +176,10 @@ func (m *mockAPIStore) UpdateJobGroup(ctx context.Context, group *domain.JobGrou
 	return nil
 }
 
-func (m *mockAPIStore) DeleteJob(_ context.Context, _ string) error {
+func (m *mockAPIStore) DeleteJob(_ context.Context, id string) error {
+	if m.deleteJobFn != nil {
+		return m.deleteJobFn(context.Background(), id)
+	}
 	return nil
 }
 
