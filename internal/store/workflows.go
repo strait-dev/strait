@@ -177,11 +177,11 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 			INSERT INTO workflow_versions (
 				id, workflow_id, version, project_id, name, slug, description, enabled,
 				timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-				backwards_compatible
+				backwards_compatible, created_by, updated_by
 			)
 			SELECT $17, id, version, project_id, name, slug, description, enabled,
 			       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-			       backwards_compatible
+			       backwards_compatible, created_by, updated_by
 			FROM workflows WHERE id = $11
 			ON CONFLICT (workflow_id, version) DO NOTHING
 		)
