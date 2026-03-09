@@ -183,6 +183,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newDBCommand())
 	cmd.AddCommand(newRunCommand(state))
 	cmd.AddCommand(newSendCommand(state))
+	cmd.AddCommand(newTriggersCommand(state))
 	cmd.AddCommand(newSecretsCommand(state))
 	cmd.AddCommand(newFixturesCommand(state))
 	cmd.AddCommand(newExtensionCommand(state))

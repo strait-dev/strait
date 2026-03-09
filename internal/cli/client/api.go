@@ -305,3 +305,37 @@ func (c *Client) Stats(ctx context.Context) (*QueueStats, error) {
 	}
 	return &out, nil
 }
+
+func (c *Client) ListEventTriggers(ctx context.Context, projectID, status string) ([]domain.EventTrigger, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+	if status != "" {
+		query.Set("status", status)
+	}
+
+	var out []domain.EventTrigger
+	if err := c.doListJSON(ctx, "/v1/events", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetEventTrigger(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	var out domain.EventTrigger
+	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/events", eventKey), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) SendEvent(ctx context.Context, eventKey string, payload map[string]any) (*domain.EventTrigger, error) {
+	body := map[string]any{}
+	if payload != nil {
+		body["payload"] = payload
+	}
+	var out domain.EventTrigger
+	if err := c.doJSON(ctx, http.MethodPost, path.Join("/v1/events", eventKey, "send"), nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

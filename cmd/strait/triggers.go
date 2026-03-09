@@ -1,0 +1,140 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/spf13/cobra"
+)
+
+func newTriggersCommand(state *appState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "triggers",
+		Short: "Manage event triggers",
+	}
+
+	cmd.AddCommand(newTriggersListCommand(state))
+	cmd.AddCommand(newTriggersGetCommand(state))
+	cmd.AddCommand(newTriggersSendCommand(state))
+
+	return cmd
+}
+
+func newTriggersListCommand(state *appState) *cobra.Command {
+	var projectID, status string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List event triggers for a project",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if projectID == "" {
+				return fmt.Errorf("--project is required")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			triggers, err := cli.ListEventTriggers(cmd.Context(), projectID, status)
+			if err != nil {
+				return err
+			}
+
+			rows := make([]map[string]any, 0, len(triggers))
+			for _, t := range triggers {
+				rows = append(rows, map[string]any{
+					"id":           t.ID,
+					"event_key":    t.EventKey,
+					"status":       t.Status,
+					"source_type":  t.SourceType,
+					"requested_at": t.RequestedAt,
+					"expires_at":   t.ExpiresAt,
+				})
+			}
+
+			return printData(state, rows)
+		},
+	}
+
+	cmd.Flags().StringVar(&projectID, "project", "", "project ID (required)")
+	cmd.Flags().StringVar(&status, "status", "", "filter by status (waiting, received, timed_out, canceled)")
+
+	return cmd
+}
+
+func newTriggersGetCommand(state *appState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get <event-key>",
+		Short: "Get event trigger by key",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			trigger, err := cli.GetEventTrigger(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{
+				"id":                   trigger.ID,
+				"event_key":            trigger.EventKey,
+				"project_id":           trigger.ProjectID,
+				"source_type":          trigger.SourceType,
+				"workflow_run_id":      trigger.WorkflowRunID,
+				"workflow_step_run_id": trigger.WorkflowStepRunID,
+				"job_run_id":           trigger.JobRunID,
+				"status":               trigger.Status,
+				"timeout_secs":         trigger.TimeoutSecs,
+				"requested_at":         trigger.RequestedAt,
+				"received_at":          trigger.ReceivedAt,
+				"expires_at":           trigger.ExpiresAt,
+				"error":                trigger.Error,
+			})
+		},
+	}
+
+	return cmd
+}
+
+func newTriggersSendCommand(state *appState) *cobra.Command {
+	var payload string
+
+	cmd := &cobra.Command{
+		Use:   "send <event-key>",
+		Short: "Send an event to a waiting trigger",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			var payloadMap map[string]any
+			if payload != "" {
+				if err := json.Unmarshal([]byte(payload), &payloadMap); err != nil {
+					return fmt.Errorf("invalid --payload JSON: %w", err)
+				}
+			}
+
+			trigger, err := cli.SendEvent(cmd.Context(), args[0], payloadMap)
+			if err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{
+				"id":        trigger.ID,
+				"event_key": trigger.EventKey,
+				"status":    trigger.Status,
+				"sent":      true,
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&payload, "payload", "", "JSON payload to send with the event")
+
+	return cmd
+}
