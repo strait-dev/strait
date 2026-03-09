@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"strait/internal/dbscan"
@@ -268,24 +269,57 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID stri
 	return triggers, nil
 }
 
+// escapeLikePattern escapes LIKE wildcards (%, _, \) in a user-supplied string
+// to prevent SQL LIKE pattern injection.
+func escapeLikePattern(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // ListEventTriggersByKeyPrefix returns all waiting triggers whose event_key starts with the given prefix.
 // Uses the text_pattern_ops index for efficient prefix matching.
-func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix string) ([]domain.EventTrigger, error) {
+// When projectID is non-empty, results are scoped to that project.
+func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventTriggersByKeyPrefix")
 	defer span.End()
 
-	query := `
-		SELECT id, event_key, project_id, source_type,
-		       workflow_run_id, workflow_step_run_id, job_run_id,
-		       status, request_payload, response_payload,
-		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status, trigger_type
-		FROM event_triggers
-		WHERE event_key LIKE $1 || '%'
-		  AND status = 'waiting'
-		ORDER BY requested_at ASC`
+	escapedPrefix := escapeLikePattern(prefix) + "%"
 
-	rows, err := q.db.Query(ctx, query, prefix)
+	var query string
+	var args []any
+
+	if projectID != "" {
+		query = `
+			SELECT id, event_key, project_id, source_type,
+			       workflow_run_id, workflow_step_run_id, job_run_id,
+			       status, request_payload, response_payload,
+			       timeout_secs, requested_at, received_at, expires_at, error,
+			       notify_url, notify_status, trigger_type
+			FROM event_triggers
+			WHERE event_key LIKE $1 ESCAPE '\'
+			  AND status = 'waiting'
+			  AND project_id = $2
+			ORDER BY requested_at ASC
+			LIMIT 1000`
+		args = []any{escapedPrefix, projectID}
+	} else {
+		query = `
+			SELECT id, event_key, project_id, source_type,
+			       workflow_run_id, workflow_step_run_id, job_run_id,
+			       status, request_payload, response_payload,
+			       timeout_secs, requested_at, received_at, expires_at, error,
+			       notify_url, notify_status, trigger_type
+			FROM event_triggers
+			WHERE event_key LIKE $1 ESCAPE '\'
+			  AND status = 'waiting'
+			ORDER BY requested_at ASC
+			LIMIT 1000`
+		args = []any{escapedPrefix}
+	}
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list event triggers by key prefix: %w", err)
 	}

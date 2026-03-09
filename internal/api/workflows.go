@@ -456,6 +456,9 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 			if step.EventKey == "" {
 				return errors.New("wait_for_event steps require event_key")
 			}
+			if len(step.EventKey) > 512 {
+				return errors.New("event_key must be at most 512 characters")
+			}
 		}
 		if step.StepType == domain.WorkflowStepTypeSleep {
 			if step.SleepDurationSecs <= 0 {

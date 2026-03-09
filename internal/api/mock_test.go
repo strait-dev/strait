@@ -752,7 +752,7 @@ func (m *mockAPIStore) ListEventTriggersByProject(ctx context.Context, projectID
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListEventTriggersByKeyPrefix(ctx context.Context, prefix string) ([]domain.EventTrigger, error) {
+func (m *mockAPIStore) ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error) {
 	if m.listEventTriggersByKeyPrefixFn != nil {
 		return m.listEventTriggersByKeyPrefixFn(ctx, prefix)
 	}

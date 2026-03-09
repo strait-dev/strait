@@ -45,6 +45,12 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Scope to project when authenticated via API key (not internal secret).
+	if projectID := projectIDFromContext(r.Context()); projectID != "" && trigger.ProjectID != projectID {
+		respondError(w, r, http.StatusForbidden, "event trigger does not belong to this project")
+		return
+	}
+
 	if trigger.Status != domain.EventTriggerStatusWaiting {
 		// Idempotent re-send: if already received with the same payload, return 200.
 		if trigger.Status == domain.EventTriggerStatusReceived && payloadsMatch(trigger.ResponsePayload, req.Payload) {
@@ -182,28 +188,30 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	return string(ea) == string(eb)
 }
 
-// SendEventByPrefixRequest is the payload for POST /v1/events/prefix/{prefix}/send.
-type SendEventByPrefixRequest struct {
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
-
 // handleSendEventByPrefix delivers an event to all waiting triggers matching a prefix.
 func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	prefix := chi.URLParam(r, "prefix")
 	if prefix == "" {
 		respondError(w, r, http.StatusBadRequest, "prefix is required")
 		return
 	}
+	if len(prefix) > 512 {
+		respondError(w, r, http.StatusBadRequest, "prefix must be at most 512 characters")
+		return
+	}
 
-	var req SendEventByPrefixRequest
+	var req SendEventRequest
 	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := s.decodeJSON(r, &req); err != nil {
 			respondError(w, r, http.StatusBadRequest, "invalid request body")
 			return
 		}
 	}
 
-	triggers, err := s.store.ListEventTriggersByKeyPrefix(r.Context(), prefix)
+	projectID := projectIDFromContext(ctx)
+
+	triggers, err := s.store.ListEventTriggersByKeyPrefix(ctx, prefix, projectID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list triggers by prefix")
 		return
@@ -218,7 +226,7 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 	resolved := make([]domain.EventTrigger, 0, len(triggers))
 
 	for _, trigger := range triggers {
-		if err := s.store.UpdateEventTriggerStatus(r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+		if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
 			slog.Error("failed to resolve trigger by prefix", "trigger_id", trigger.ID, "error", err)
 			continue
 		}
@@ -227,7 +235,7 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 
 		// Resume the source.
 		trigger.ResponsePayload = req.Payload
-		if err := s.resumeEventSource(r.Context(), &trigger); err != nil {
+		if err := s.resumeEventSource(ctx, &trigger); err != nil {
 			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "error", err)
 		}
 
@@ -236,10 +244,10 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 
 	// Record metrics for each resolved trigger.
 	if s.metrics != nil {
-		s.metrics.EventTriggersReceived.Add(r.Context(), int64(len(resolved)))
+		s.metrics.EventTriggersReceived.Add(ctx, int64(len(resolved)))
 		for _, t := range resolved {
 			waitDuration := now.Sub(t.RequestedAt).Seconds()
-			s.metrics.EventTriggerWaitDuration.Record(r.Context(), waitDuration)
+			s.metrics.EventTriggerWaitDuration.Record(ctx, waitDuration)
 		}
 	}
 

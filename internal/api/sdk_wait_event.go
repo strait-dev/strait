@@ -43,6 +43,11 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.EventKey) > 512 {
+		respondError(w, r, http.StatusBadRequest, "event_key must be at most 512 characters")
+		return
+	}
+
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get run")
