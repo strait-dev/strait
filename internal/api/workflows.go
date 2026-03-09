@@ -52,6 +52,7 @@ type createWorkflowRequest struct {
 	Cron              string                `json:"cron,omitempty"`
 	CronTimezone      string                `json:"cron_timezone,omitempty"`
 	SkipIfRunning     bool                  `json:"skip_if_running,omitempty"`
+	VersionPolicy     string                `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	Steps             []workflowStepRequest `json:"steps,omitempty"`
 }
 
@@ -67,6 +68,7 @@ type updateWorkflowRequest struct {
 	Cron              *string                `json:"cron,omitempty"`
 	CronTimezone      *string                `json:"cron_timezone,omitempty"`
 	SkipIfRunning     *bool                  `json:"skip_if_running,omitempty"`
+	VersionPolicy     *string                `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	Steps             *[]workflowStepRequest `json:"steps,omitempty"`
 }
 
@@ -135,8 +137,13 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Cron:              req.Cron,
 		CronTimezone:      req.CronTimezone,
 		SkipIfRunning:     req.SkipIfRunning,
+		VersionPolicy:     domain.VersionPolicyPin,
 		CreatedBy:         actorFromContext(r.Context()),
 		UpdatedBy:         actorFromContext(r.Context()),
+	}
+
+	if req.VersionPolicy != "" {
+		wf.VersionPolicy = domain.VersionPolicy(req.VersionPolicy)
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
@@ -302,6 +309,9 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		wf.Tags = *req.Tags
+	}
+	if req.VersionPolicy != nil {
+		wf.VersionPolicy = domain.VersionPolicy(*req.VersionPolicy)
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
