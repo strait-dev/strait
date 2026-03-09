@@ -49,8 +49,8 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 		trigger.ExpiresAt,
 		dbscan.NilIfEmptyString(trigger.Error),
 		dbscan.NilIfEmptyString(trigger.NotifyURL),
-		dbscan.NilIfEmptyString(trigger.NotifyStatus),
-		dbscan.NilIfEmptyString(trigger.TriggerType),
+		defaultIfEmpty(trigger.NotifyStatus, ""),
+		defaultIfEmpty(trigger.TriggerType, "event"),
 	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -504,4 +504,11 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	}
 
 	return &trigger, nil
+}
+
+func defaultIfEmpty(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
