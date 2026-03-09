@@ -25,7 +25,7 @@ CREATE TABLE event_triggers (
     error                 TEXT
 );
 
-CREATE INDEX idx_event_triggers_event_key ON event_triggers(event_key);
+-- Note: event_key already has a UNIQUE constraint which creates an implicit index.
 CREATE INDEX idx_event_triggers_status_expires ON event_triggers(status, expires_at)
     WHERE status = 'waiting' AND expires_at IS NOT NULL;
 CREATE INDEX idx_event_triggers_step_run ON event_triggers(workflow_step_run_id)

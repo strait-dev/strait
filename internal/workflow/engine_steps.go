@@ -58,7 +58,7 @@ func (e *WorkflowEngine) startStep(
 			ID:                fmt.Sprintf("evt:approval:%s", stepRun.ID),
 			EventKey:          eventKey,
 			ProjectID:         wfRun.ProjectID,
-			SourceType:        "workflow_step",
+			SourceType:        domain.EventSourceWorkflowStep,
 			WorkflowRunID:     wfRun.ID,
 			WorkflowStepRunID: stepRun.ID,
 			Status:            domain.EventTriggerStatusWaiting,
@@ -166,14 +166,15 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	wfRun *domain.WorkflowRun,
 	now time.Time,
 ) error {
-	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
-		return fmt.Errorf("set wait_for_event step waiting: %w", err)
-	}
-
-	// Render event key template against workflow payload.
+	// Render event key template against workflow payload BEFORE any status changes,
+	// so we fail fast without leaving the step in a stuck waiting state.
 	renderedKey := renderStringTemplate(step.EventKey, wfRun.Payload)
 	if renderedKey == "" {
 		return fmt.Errorf("event_key is empty for step %s", step.StepRef)
+	}
+
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("set wait_for_event step waiting: %w", err)
 	}
 
 	timeoutSecs := step.EventTimeoutSecs
@@ -186,7 +187,7 @@ func (e *WorkflowEngine) startWaitForEventStep(
 		ID:                fmt.Sprintf("evt:%s", stepRun.ID),
 		EventKey:          renderedKey,
 		ProjectID:         wfRun.ProjectID,
-		SourceType:        "workflow_step",
+		SourceType:        domain.EventSourceWorkflowStep,
 		WorkflowRunID:     wfRun.ID,
 		WorkflowStepRunID: stepRun.ID,
 		Status:            domain.EventTriggerStatusWaiting,

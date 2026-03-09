@@ -144,13 +144,14 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnEventReceived")
 	defer span.End()
 
-	if trigger == nil || trigger.SourceType != "workflow_step" || trigger.WorkflowStepRunID == "" {
+	if trigger == nil || trigger.SourceType != domain.EventSourceWorkflowStep || trigger.WorkflowStepRunID == "" {
 		return nil
 	}
 
-	// Find the step run for this event trigger.
+	// Find the step run for this event trigger via the step runs list.
+	// We filter to a small window since we only need the one matching step run.
 	var targetStepRun *domain.WorkflowStepRun
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, trigger.WorkflowRunID, 1000, nil)
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, trigger.WorkflowRunID, 500, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs for event trigger: %w", err)
 	}

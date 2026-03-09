@@ -253,7 +253,7 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 		}
 
 		switch trigger.SourceType {
-		case "workflow_step":
+		case domain.EventSourceWorkflowStep:
 			if trigger.WorkflowStepRunID == "" {
 				continue
 			}
@@ -279,7 +279,7 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 				}
 			}
 
-		case "job_run":
+		case domain.EventSourceJobRun:
 			if trigger.JobRunID == "" {
 				continue
 			}

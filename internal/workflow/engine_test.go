@@ -4508,8 +4508,10 @@ func TestStartStep_WaitForEvent_StoreError(t *testing.T) {
 func TestStartStep_WaitForEvent_EmptyEventKey(t *testing.T) {
 	t.Parallel()
 
+	var stepStatusUpdated bool
 	ms := &mockEngineStore{
 		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			stepStatusUpdated = true
 			return nil
 		},
 	}
@@ -4530,6 +4532,10 @@ func TestStartStep_WaitForEvent_EmptyEventKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "event_key is empty") {
 		t.Fatalf("expected 'event_key is empty' error, got: %v", err)
+	}
+	// Step status should NOT have been updated — fail fast before DB writes.
+	if stepStatusUpdated {
+		t.Fatal("step status should not be updated when event key is empty")
 	}
 }
 

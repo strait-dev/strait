@@ -74,7 +74,7 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		EventKey:    req.EventKey,
 		ProjectID:   run.ProjectID,
-		SourceType:  "job_run",
+		SourceType:  domain.EventSourceJobRun,
 		JobRunID:    run.ID,
 		Status:      domain.EventTriggerStatusWaiting,
 		TimeoutSecs: timeoutSecs,

@@ -25,6 +25,8 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req SendEventRequest
+	// Decode body if present. ContentLength == 0 means explicitly empty;
+	// ContentLength == -1 means unknown (chunked), which we should still try.
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := s.decodeJSON(r, &req); err != nil {
 			respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -60,15 +62,17 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update the in-memory trigger before passing to resumeEventSource,
+	// so the callback sees the correct payload and status.
+	trigger.Status = domain.EventTriggerStatusReceived
+	trigger.ResponsePayload = req.Payload
+	trigger.ReceivedAt = &now
+
 	// Resume the workflow step or job run that was waiting.
 	if err := s.resumeEventSource(r.Context(), trigger); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "event received but failed to resume execution")
 		return
 	}
-
-	trigger.Status = domain.EventTriggerStatusReceived
-	trigger.ResponsePayload = req.Payload
-	trigger.ReceivedAt = &now
 
 	respondJSON(w, http.StatusOK, trigger)
 }
@@ -76,24 +80,18 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 // resumeEventSource resumes the workflow step or job run that was waiting on the event.
 func (s *Server) resumeEventSource(ctx context.Context, trigger *domain.EventTrigger) error {
 	switch trigger.SourceType {
-	case "workflow_step":
+	case domain.EventSourceWorkflowStep:
 		if trigger.WorkflowStepRunID == "" {
 			return nil
 		}
-		// Mark the step run as completed with the event payload as output.
-		if err := s.store.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
-			"finished_at": time.Now(),
-			"output":      trigger.ResponsePayload,
-		}); err != nil {
-			return err
-		}
-		// Trigger workflow progression via callback.
+		// Trigger workflow progression via callback — OnEventReceived handles
+		// both the step completion and fan-in/progression in one place.
 		if s.workflowCallback != nil {
 			return s.workflowCallback.OnEventReceived(ctx, trigger)
 		}
 		return nil
 
-	case "job_run":
+	case domain.EventSourceJobRun:
 		if trigger.JobRunID == "" {
 			return nil
 		}

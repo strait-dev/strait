@@ -306,6 +306,7 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	t.Parallel()
 
 	var callbackCalled bool
+	var stepRunStatusUpdatedDirectly bool
 
 	ms := &mockAPIStore{
 		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
@@ -323,6 +324,7 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 			return nil
 		},
 		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			stepRunStatusUpdatedDirectly = true
 			return nil
 		},
 	}
@@ -348,5 +350,10 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	}
 	if !callbackCalled {
 		t.Fatal("expected workflow callback to be called for workflow_step source")
+	}
+	// Step status should NOT be updated directly by the handler —
+	// that's the callback's responsibility (avoids double-update).
+	if stepRunStatusUpdatedDirectly {
+		t.Fatal("step run status should not be updated directly by handler; callback handles it")
 	}
 }

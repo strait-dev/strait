@@ -405,6 +405,12 @@ const (
 	EventTriggerStatusCanceled = "canceled"
 )
 
+// Event trigger source types.
+const (
+	EventSourceWorkflowStep = "workflow_step"
+	EventSourceJobRun       = "job_run"
+)
+
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
 const DefaultEventTimeoutSecs = 3600
 
