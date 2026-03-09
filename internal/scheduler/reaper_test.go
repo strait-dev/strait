@@ -1511,3 +1511,44 @@ func TestReapExpiredEventTriggers_JobRunAlreadyTerminal(t *testing.T) {
 		t.Fatal("should not update already-terminal job run")
 	}
 }
+
+func TestReapExpiredEventTriggers_SleepCompletesStep(t *testing.T) {
+	t.Parallel()
+
+	var updatedTriggerStatus string
+	var updatedStepStatus domain.StepRunStatus
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "slp:sr-1",
+					EventKey:          "sleep:wr-1:wait-step",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeSleep,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			updatedTriggerStatus = status
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
+			updatedStepStatus = status
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if updatedTriggerStatus != domain.EventTriggerStatusReceived {
+		t.Fatalf("expected trigger status=received, got %s", updatedTriggerStatus)
+	}
+	if updatedStepStatus != domain.StepCompleted {
+		t.Fatalf("expected step status=completed, got %s", updatedStepStatus)
+	}
+}

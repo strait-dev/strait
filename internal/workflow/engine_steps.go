@@ -81,6 +81,10 @@ func (e *WorkflowEngine) startStep(
 		return e.startWaitForEventStep(ctx, stepRun, step, wfRun, now)
 	}
 
+	if step.StepType == domain.WorkflowStepTypeSleep {
+		return e.startSleepStep(ctx, stepRun, step, wfRun, now)
+	}
+
 	if step.StepType == domain.WorkflowStepTypeSubWorkflow {
 		return e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
 	}
@@ -219,6 +223,56 @@ func (e *WorkflowEngine) startWaitForEventStep(
 }
 
 // getNestingDepth calculates how deeply nested a workflow run is by walking up the parent chain.
+// startSleepStep creates a "sleep" event trigger that the reaper will complete
+// when the expiry time is reached. No goroutine is held.
+func (e *WorkflowEngine) startSleepStep(
+	ctx context.Context,
+	stepRun *domain.WorkflowStepRun,
+	step *domain.WorkflowStep,
+	wfRun *domain.WorkflowRun,
+	now time.Time,
+) error {
+	durationSecs := step.SleepDurationSecs
+	if durationSecs <= 0 {
+		durationSecs = 60 // default 1 minute
+	}
+	expiresAt := now.Add(time.Duration(durationSecs) * time.Second)
+
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("set sleep step waiting: %w", err)
+	}
+
+	trigger := &domain.EventTrigger{
+		ID:                fmt.Sprintf("slp:%s", stepRun.ID),
+		EventKey:          fmt.Sprintf("sleep:%s:%s", wfRun.ID, step.StepRef),
+		ProjectID:         wfRun.ProjectID,
+		SourceType:        domain.EventSourceWorkflowStep,
+		WorkflowRunID:     wfRun.ID,
+		WorkflowStepRunID: stepRun.ID,
+		Status:            domain.EventTriggerStatusWaiting,
+		TriggerType:       domain.TriggerTypeSleep,
+		TimeoutSecs:       durationSecs,
+		RequestedAt:       now,
+		ExpiresAt:         expiresAt,
+	}
+
+	if err := e.store.CreateEventTrigger(ctx, trigger); err != nil {
+		return fmt.Errorf("create sleep trigger for step %s: %w", step.StepRef, err)
+	}
+
+	stepRun.Status = domain.StepWaiting
+	stepRun.StartedAt = &now
+
+	e.logger.Info("sleep step started",
+		"workflow_run_id", wfRun.ID,
+		"step_ref", step.StepRef,
+		"duration_secs", durationSecs,
+		"expires_at", expiresAt,
+	)
+
+	return nil
+}
+
 func (e *WorkflowEngine) getNestingDepth(ctx context.Context, wfRun *domain.WorkflowRun) (int, error) {
 	depth := 0
 	current := wfRun

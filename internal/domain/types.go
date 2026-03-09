@@ -388,6 +388,7 @@ const (
 	WorkflowStepTypeApproval     WorkflowStepType = "approval"
 	WorkflowStepTypeSubWorkflow  WorkflowStepType = "sub_workflow"
 	WorkflowStepTypeWaitForEvent WorkflowStepType = "wait_for_event"
+	WorkflowStepTypeSleep        WorkflowStepType = "sleep"
 )
 
 // ApprovalStatus constants for workflow step approvals.
@@ -409,6 +410,12 @@ const (
 const (
 	EventSourceWorkflowStep = "workflow_step"
 	EventSourceJobRun       = "job_run"
+)
+
+// Trigger type constants.
+const (
+	TriggerTypeEvent = "event"
+	TriggerTypeSleep = "sleep"
 )
 
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
@@ -470,6 +477,7 @@ type WorkflowStep struct {
 	EventKey              string             `json:"event_key,omitempty"`
 	EventTimeoutSecs      int                `json:"event_timeout_secs,omitempty"`
 	EventNotifyURL        string             `json:"event_notify_url,omitempty"`
+	SleepDurationSecs     int                `json:"sleep_duration_secs,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
@@ -543,4 +551,5 @@ type EventTrigger struct {
 	Error             string          `json:"error,omitempty"`
 	NotifyURL         string          `json:"notify_url,omitempty"`    // optional webhook URL to call on creation
 	NotifyStatus      string          `json:"notify_status,omitempty"` // pending, sent, failed
+	TriggerType       string          `json:"trigger_type,omitempty"`  // "event" (default) or "sleep"
 }

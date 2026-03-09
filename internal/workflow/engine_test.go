@@ -4855,3 +4855,47 @@ func TestApproveStep_NoEventTrigger_StillSucceeds(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.EventTrigger
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+			captured = trigger
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, nil, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:           "sleep-step",
+		StepType:          domain.WorkflowStepTypeSleep,
+		SleepDurationSecs: 300,
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-sleep-1", StepRef: "sleep-step"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"}
+
+	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured == nil {
+		t.Fatal("expected event trigger to be created")
+	}
+	if captured.TriggerType != domain.TriggerTypeSleep {
+		t.Fatalf("expected trigger_type=sleep, got %s", captured.TriggerType)
+	}
+	if captured.TimeoutSecs != 300 {
+		t.Fatalf("expected timeout=300, got %d", captured.TimeoutSecs)
+	}
+	if stepRun.Status != domain.StepWaiting {
+		t.Fatalf("expected step status=waiting, got %s", stepRun.Status)
+	}
+}

@@ -43,6 +43,7 @@ type ReaperStore interface {
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
+	OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string)
 }
 
 type Reaper struct {
@@ -168,6 +169,31 @@ func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
 	}
 }
 
+// completeSleepTrigger handles expired sleep triggers by completing the step
+// rather than failing it — the sleep duration has elapsed successfully.
+func (r *Reaper) completeSleepTrigger(ctx context.Context, trigger *domain.EventTrigger, now time.Time) {
+	receivedAt := now
+	if err := r.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, nil, &receivedAt, ""); err != nil {
+		slog.Error("failed to complete sleep trigger", "trigger_id", trigger.ID, "error", err)
+		return
+	}
+
+	if trigger.WorkflowStepRunID != "" {
+		if err := r.store.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
+			"finished_at": now,
+		}); err != nil {
+			slog.Error("failed to complete sleep step", "trigger_id", trigger.ID, "step_run_id", trigger.WorkflowStepRunID, "error", err)
+			return
+		}
+
+		if trigger.WorkflowRunID != "" && r.workflowCallback != nil {
+			r.workflowCallback.OnStepCompleted(ctx, trigger.WorkflowRunID, trigger.WorkflowStepRunID)
+		}
+	}
+
+	slog.Info("sleep trigger completed", "trigger_id", trigger.ID, "step_run_id", trigger.WorkflowStepRunID)
+}
+
 func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapTimedOutWorkflows")
 	defer span.End()
@@ -282,6 +308,12 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 
 	now := time.Now()
 	for _, trigger := range triggers {
+		// Sleep triggers: expiry means completion (success), not timeout.
+		if trigger.TriggerType == domain.TriggerTypeSleep {
+			r.completeSleepTrigger(ctx, &trigger, now)
+			continue
+		}
+
 		if err := r.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusTimedOut, nil, nil, "event trigger timed out"); err != nil {
 			slog.Error("failed to mark event trigger timed out", "trigger_id", trigger.ID, "error", err)
 			continue

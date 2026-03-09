@@ -26,9 +26,9 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 			workflow_run_id, workflow_step_run_id, job_run_id,
 			status, request_payload, response_payload,
 			timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status
+		       notify_url, notify_status, trigger_type
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`
 
 	if _, err := q.db.Exec(
 		ctx,
@@ -50,6 +50,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 		dbscan.NilIfEmptyString(trigger.Error),
 		dbscan.NilIfEmptyString(trigger.NotifyURL),
 		dbscan.NilIfEmptyString(trigger.NotifyStatus),
+		dbscan.NilIfEmptyString(trigger.TriggerType),
 	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -71,7 +72,7 @@ func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status
+		       notify_url, notify_status, trigger_type
 		FROM event_triggers
 		WHERE event_key = $1`
 
@@ -96,7 +97,7 @@ func (q *Queries) GetEventTriggerByStepRunID(ctx context.Context, stepRunID stri
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status
+		       notify_url, notify_status, trigger_type
 		FROM event_triggers
 		WHERE workflow_step_run_id = $1`
 
@@ -121,7 +122,7 @@ func (q *Queries) GetEventTriggerByJobRunID(ctx context.Context, jobRunID string
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status
+		       notify_url, notify_status, trigger_type
 		FROM event_triggers
 		WHERE job_run_id = $1`
 
@@ -185,7 +186,7 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status
+		       notify_url, notify_status, trigger_type
 		FROM event_triggers
 		WHERE status = 'waiting' AND expires_at <= NOW()
 		ORDER BY expires_at ASC`
@@ -222,7 +223,7 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID stri
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status
+		       notify_url, notify_status, trigger_type
 		FROM event_triggers
 		WHERE project_id = $1`
 
@@ -407,6 +408,7 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	var errText *string
 	var notifyURL *string
 	var notifyStatus *string
+	var triggerType *string
 
 	err := scanner.Scan(
 		&trigger.ID,
@@ -426,6 +428,7 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 		&errText,
 		&notifyURL,
 		&notifyStatus,
+		&triggerType,
 	)
 	if err != nil {
 		return nil, err
@@ -454,6 +457,9 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	}
 	if notifyStatus != nil {
 		trigger.NotifyStatus = *notifyStatus
+	}
+	if triggerType != nil {
+		trigger.TriggerType = *triggerType
 	}
 
 	return &trigger, nil

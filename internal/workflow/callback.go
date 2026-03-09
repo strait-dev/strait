@@ -191,6 +191,39 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	return s.checkWorkflowCompletion(ctx, targetStepRun.WorkflowRunID)
 }
 
+// OnStepCompleted handles workflow progression after a step is externally completed
+// (e.g., by the reaper for sleep triggers). The step must already be in a terminal state.
+func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnStepCompleted")
+	defer span.End()
+
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 500, nil)
+	if err != nil {
+		s.logger.Error("OnStepCompleted: failed to list step runs", "workflow_run_id", workflowRunID, "error", err)
+		return
+	}
+
+	var target *domain.WorkflowStepRun
+	for i := range stepRuns {
+		if stepRuns[i].ID == stepRunID {
+			target = &stepRuns[i]
+			break
+		}
+	}
+	if target == nil {
+		return
+	}
+
+	if err := s.fanInAndStartReadyChildren(ctx, target); err != nil {
+		s.logger.Error("OnStepCompleted: failed to advance workflow", "step_ref", target.StepRef, "error", err)
+		return
+	}
+
+	if err := s.checkWorkflowCompletion(ctx, workflowRunID); err != nil {
+		s.logger.Error("OnStepCompleted: failed to check workflow completion", "workflow_run_id", workflowRunID, "error", err)
+	}
+}
+
 func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[string]any) {
 	fields := make(map[string]any)
 
