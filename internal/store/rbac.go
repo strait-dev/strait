@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	ErrRoleNotFound   = fmt.Errorf("role not found")
-	ErrMemberNotFound = fmt.Errorf("member not found")
+	ErrRoleNotFound           = errors.New("role not found")
+	ErrMemberNotFound         = errors.New("member not found")
+	ErrResourcePolicyNotFound = errors.New("resource policy not found")
 )
 
 func (q *Queries) CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
@@ -276,7 +277,7 @@ func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) error {
 		return fmt.Errorf("delete resource policy: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("resource policy not found")
+		return ErrResourcePolicyNotFound
 	}
 	return nil
 }
