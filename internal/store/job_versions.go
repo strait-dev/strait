@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateJobVersion")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJobVersion")
 	defer span.End()
 
 	query := `
@@ -58,7 +58,7 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 }
 
 func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobVersionsByJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobVersionsByJob")
 	defer span.End()
 
 	query := `
@@ -97,7 +97,7 @@ func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string, limit 
 }
 
 func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) (*domain.JobVersion, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobVersion")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobVersion")
 	defer span.End()
 
 	query := `

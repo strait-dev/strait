@@ -8,7 +8,7 @@ description: "Utility commands for configuration, aliases, contexts, and system 
 Set a command alias. Aliases expand the first argument before parsing.
 
 ```bash
-orchestrator alias set st stats
+strait alias set st stats
 ```
 
 ## alias list
@@ -16,7 +16,7 @@ orchestrator alias set st stats
 List all configured aliases.
 
 ```bash
-orchestrator alias list
+strait alias list
 ```
 
 ## alias delete
@@ -24,7 +24,7 @@ orchestrator alias list
 Delete a command alias.
 
 ```bash
-orchestrator alias delete st
+strait alias delete st
 ```
 
 ## context create
@@ -39,7 +39,7 @@ Create or update a named context for connecting to different servers or projects
 | --api-key | string | | API key (stored securely in keychain) |
 
 ```bash
-orchestrator context create production --server https://api.orchestrator.io --project main
+strait context create production --server https://strait.dev --project main
 ```
 
 ## context use
@@ -47,7 +47,7 @@ orchestrator context create production --server https://api.orchestrator.io --pr
 Set the active context.
 
 ```bash
-orchestrator context use production
+strait context use production
 ```
 
 ## context list
@@ -55,7 +55,7 @@ orchestrator context use production
 List all available contexts.
 
 ```bash
-orchestrator context list
+strait context list
 ```
 
 ## context current
@@ -63,7 +63,7 @@ orchestrator context list
 Show the settings of the currently active context.
 
 ```bash
-orchestrator context current
+strait context current
 ```
 
 ## profile
@@ -77,7 +77,7 @@ Capture a `pprof` profile from the running server.
 | --type | string | cpu | Profile type (cpu, heap, goroutine, allocs, block, mutex, threadcreate) |
 
 ```bash
-orchestrator profile --type heap --output heap.prof
+strait profile --type heap --output heap.prof
 ```
 
 ## api
@@ -90,19 +90,19 @@ Call raw API endpoints directly.
 | --field | string[] | | Request body fields |
 
 ```bash
-orchestrator api POST /v1/runs --field project=default --field job=my-job
+strait api POST /v1/runs --field project=default --field job=my-job
 ```
 
 ## run
 
-Run a command with orchestrator context environment variables injected.
+Run a command with strait context environment variables injected.
 
 ```bash
-orchestrator run -- env | grep ORCHESTRATOR
+strait run -- env | grep STRAIT
 ```
 
 <Note>
-Injected variables include `ORCHESTRATOR_SERVER`, `ORCHESTRATOR_API_KEY`, and others from the active context.
+Injected variables include `STRAIT_SERVER`, `STRAIT_API_KEY`, and others from the active context.
 </Note>
 
 ## send
@@ -114,7 +114,7 @@ Send a raw event payload to the server.
 | --data | json | | Event payload data |
 
 ```bash
-orchestrator send my-event --data '{"key": "value"}'
+strait send my-event --data '{"key": "value"}'
 ```
 
 ## wait run
@@ -128,7 +128,7 @@ Wait for a specific run to reach a certain condition.
 | --interval | duration | 2s | Check interval |
 
 ```bash
-orchestrator wait run <run_id> --for status=failed
+strait wait run <run_id> --for status=failed
 ```
 
 ## wait queue
@@ -142,7 +142,7 @@ Wait for the queue to reach a specific state.
 | --interval | duration | 2s | Check interval |
 
 ```bash
-orchestrator wait queue --empty
+strait wait queue --empty
 ```
 
 ## version
@@ -157,7 +157,7 @@ Print version information.
 | --check-update | bool | false | Check for CLI updates |
 
 ```bash
-orchestrator version --check-server
+strait version --check-server
 ```
 
 ## completion
@@ -165,7 +165,7 @@ orchestrator version --check-server
 Generate shell completion scripts.
 
 ```bash
-orchestrator completion zsh > ~/.zshrc.d/_orchestrator
+strait completion zsh > ~/.zshrc.d/_strait
 ```
 
 <Note>
@@ -182,7 +182,7 @@ Generate CLI documentation.
 | --markdown | bool | false | Generate Markdown documentation |
 
 ```bash
-orchestrator docs --markdown
+strait docs --markdown
 ```
 
 ## upgrade
@@ -190,7 +190,7 @@ orchestrator docs --markdown
 Upgrade the CLI to the latest version.
 
 ```bash
-orchestrator upgrade
+strait upgrade
 ```
 
 ## extension list
@@ -198,7 +198,7 @@ orchestrator upgrade
 List discovered CLI extensions.
 
 ```bash
-orchestrator extension list
+strait extension list
 ```
 
 ## extension run
@@ -206,9 +206,9 @@ orchestrator extension list
 Run a CLI extension.
 
 ```bash
-orchestrator extension run my-ext
+strait extension run my-ext
 ```
 
 <Note>
-Extensions are executables named `orchestrator-<name>` found in your `PATH`.
+Extensions are executables named `strait-<name>` found in your `PATH`.
 </Note>

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
-	"orchestrator/internal/workflow"
+	"strait/internal/domain"
+	"strait/internal/store"
+	"strait/internal/workflow"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/robfig/cron/v3"

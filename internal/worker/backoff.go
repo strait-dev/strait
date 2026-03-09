@@ -4,7 +4,7 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 // Retry strategies.

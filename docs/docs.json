@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "Orchestrator",
+  "name": "Strait",
   "theme": "quill",
   "colors": {
     "primary": "#2563EB",

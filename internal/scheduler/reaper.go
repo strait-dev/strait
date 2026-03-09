@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
@@ -116,7 +116,7 @@ func (r *Reaper) Run(ctx context.Context) {
 }
 
 func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapOldWorkflowRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapOldWorkflowRuns")
 	defer span.End()
 
 	if r.workflowRetention <= 0 {
@@ -135,7 +135,7 @@ func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
 }
 
 func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapTimedOutWorkflows")
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapTimedOutWorkflows")
 	defer span.End()
 
 	runs, err := r.store.ListTimedOutWorkflowRuns(ctx)
@@ -194,7 +194,7 @@ func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
 }
 
 func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapExpiredApprovals")
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapExpiredApprovals")
 	defer span.End()
 
 	approvals, err := r.store.ListExpiredWorkflowStepApprovals(ctx)
@@ -232,7 +232,7 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 }
 
 func (r *Reaper) reapStale(ctx context.Context) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapStale")
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapStale")
 	defer span.End()
 
 	runs, err := r.store.ListStaleRuns(ctx, r.staleThreshold)
@@ -258,7 +258,7 @@ func (r *Reaper) reapStale(ctx context.Context) {
 }
 
 func (r *Reaper) reapExpired(ctx context.Context) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapExpired")
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapExpired")
 	defer span.End()
 
 	runs, err := r.store.ListExpiredRuns(ctx)
@@ -284,7 +284,7 @@ func (r *Reaper) reapExpired(ctx context.Context) {
 }
 
 func (r *Reaper) reapStaleDequeued(ctx context.Context) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapStaleDequeued")
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapStaleDequeued")
 	defer span.End()
 
 	runs, err := r.store.ListStaleDequeued(ctx, r.staleThreshold)
@@ -307,7 +307,7 @@ func (r *Reaper) reapStaleDequeued(ctx context.Context) {
 }
 
 func (r *Reaper) reapTerminalRetention(ctx context.Context) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "reaper.ReapTerminalRetention")
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapTerminalRetention")
 	defer span.End()
 
 	deleted, err := r.store.DeleteTerminalRunsPastRetention(ctx, r.shortRetention, r.longRetention)

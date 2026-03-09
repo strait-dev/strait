@@ -8,8 +8,8 @@ import (
 	"maps"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -17,7 +17,7 @@ import (
 )
 
 func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateEnvironment")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateEnvironment")
 	defer span.End()
 
 	if env.ID == "" {
@@ -52,7 +52,7 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 }
 
 func (q *Queries) GetEnvironment(ctx context.Context, id string) (*domain.Environment, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetEnvironment")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEnvironment")
 	defer span.End()
 
 	query := `
@@ -72,7 +72,7 @@ func (q *Queries) GetEnvironment(ctx context.Context, id string) (*domain.Enviro
 }
 
 func (q *Queries) ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEnvironments")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEnvironments")
 	defer span.End()
 
 	query := `
@@ -115,7 +115,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, projectID string, limit 
 }
 
 func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateEnvironment")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateEnvironment")
 	defer span.End()
 
 	variablesJSON, err := marshalEnvironmentVariables(env.Variables)
@@ -153,7 +153,7 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 }
 
 func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteEnvironment")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEnvironment")
 	defer span.End()
 
 	query := `DELETE FROM environments WHERE id = $1`
@@ -169,7 +169,7 @@ func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
 }
 
 func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetResolvedEnvironmentVariables")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetResolvedEnvironmentVariables")
 	defer span.End()
 
 	const maxDepth = 10

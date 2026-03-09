@@ -64,10 +64,10 @@ func TestResolvePrecedence(t *testing.T) {
 			},
 		},
 		Env: map[string]string{
-			"ORCHESTRATOR_SERVER":  "https://env.example",
-			"ORCHESTRATOR_PROJECT": "proj-env",
-			"ORCHESTRATOR_FORMAT":  "table",
-			"ORCHESTRATOR_TIMEOUT": "60s",
+			"STRAIT_SERVER":  "https://env.example",
+			"STRAIT_PROJECT": "proj-env",
+			"STRAIT_FORMAT":  "table",
+			"STRAIT_TIMEOUT": "60s",
 		},
 	})
 

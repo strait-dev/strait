@@ -18,7 +18,7 @@ List environments for a project.
 | --project | string | | Project ID |
 
 ```bash
-orchestrator environments list --project my-project
+strait environments list --project my-project
 ```
 
 ## environments get
@@ -26,7 +26,7 @@ orchestrator environments list --project my-project
 Get environment details by ID.
 
 ```bash
-orchestrator environments get <env-id>
+strait environments get <env-id>
 ```
 
 ## environments create
@@ -39,7 +39,7 @@ Create a new environment.
 | --project | string | | Project ID |
 
 ```bash
-orchestrator environments create --name staging --project my-project
+strait environments create --name staging --project my-project
 ```
 
 ## environments update
@@ -47,7 +47,7 @@ orchestrator environments create --name staging --project my-project
 Update an existing environment.
 
 ```bash
-orchestrator environments update <env-id> --name production
+strait environments update <env-id> --name production
 ```
 
 ## environments delete
@@ -55,7 +55,7 @@ orchestrator environments update <env-id> --name production
 Delete an environment.
 
 ```bash
-orchestrator environments delete <env-id>
+strait environments delete <env-id>
 ```
 
 ## environments variables
@@ -63,5 +63,5 @@ orchestrator environments delete <env-id>
 Manage environment variables for an environment.
 
 ```bash
-orchestrator environments variables <env-id>
+strait environments variables <env-id>
 ```

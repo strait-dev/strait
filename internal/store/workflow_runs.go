@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,7 +19,7 @@ import (
 )
 
 func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflowRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRun")
 	defer span.End()
 
 	if run.ID == "" {
@@ -70,7 +70,7 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 }
 
 func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflowRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowRun")
 	defer span.End()
 
 	query := `
@@ -92,7 +92,7 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 }
 
 func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRuns")
 	defer span.End()
 
 	var rows pgx.Rows
@@ -142,7 +142,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 }
 
 func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflowRunsByProject")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRunsByProject")
 	defer span.End()
 
 	baseQuery := `
@@ -193,7 +193,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 }
 
 func (q *Queries) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteWorkflowRunsFinishedBefore")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteWorkflowRunsFinishedBefore")
 	defer span.End()
 
 	if limit <= 0 {
@@ -223,7 +223,7 @@ func (q *Queries) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before t
 }
 
 func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateWorkflowRunStatus")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateWorkflowRunStatus")
 	defer span.End()
 
 	if err := domain.ValidateWorkflowTransition(from, to); err != nil {
@@ -285,7 +285,7 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, 
 
 // GetWorkflowRunsByParent returns all child workflow runs for a given parent workflow run.
 func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflowRunsByParent")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowRunsByParent")
 	defer span.End()
 
 	query := `

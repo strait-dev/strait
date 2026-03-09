@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +15,7 @@ import (
 )
 
 func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflow")
 	defer span.End()
 
 	if w.ID == "" {
@@ -55,7 +55,7 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 }
 
 func (q *Queries) GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflow")
 	defer span.End()
 
 	query := `
@@ -76,7 +76,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (*domain.Workflow,
 }
 
 func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflowBySlug")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowBySlug")
 	defer span.End()
 
 	query := `
@@ -97,7 +97,7 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 }
 
 func (q *Queries) ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListWorkflows")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflows")
 	defer span.End()
 
 	query := `
@@ -141,7 +141,7 @@ func (q *Queries) ListWorkflows(ctx context.Context, projectID string, limit int
 }
 
 func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateWorkflow")
 	defer span.End()
 
 	query := `
@@ -187,7 +187,7 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 }
 
 func (q *Queries) DeleteWorkflow(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteWorkflow")
 	defer span.End()
 
 	query := `DELETE FROM workflows WHERE id = $1`
@@ -240,7 +240,7 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 }
 
 func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListCronWorkflows")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListCronWorkflows")
 	defer span.End()
 
 	query := `

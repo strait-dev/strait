@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func TestEvaluateCondition(t *testing.T) {

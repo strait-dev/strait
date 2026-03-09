@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.InsertEvent")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.InsertEvent")
 	defer span.End()
 
 	if event.ID == "" {
@@ -44,7 +44,7 @@ func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error
 }
 
 func (q *Queries) ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEvents")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEvents")
 	defer span.End()
 
 	query := `
@@ -107,7 +107,7 @@ func (q *Queries) ListEvents(ctx context.Context, runID string, limit int, curso
 }
 
 func (q *Queries) ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListEventsByRunFiltered")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventsByRunFiltered")
 	defer span.End()
 
 	baseQuery := `

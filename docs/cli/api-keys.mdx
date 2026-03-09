@@ -18,7 +18,7 @@ The raw API key is returned only once upon creation. Ensure you store it safely.
 </Warning>
 
 ```bash
-orchestrator api-keys create --project my-project --name "CI/CD Key" --scopes "jobs:read,jobs:write"
+strait api-keys create --project my-project --name "CI/CD Key" --scopes "jobs:read,jobs:write"
 ```
 
 ## api-keys list
@@ -30,7 +30,7 @@ List API keys for a project.
 | --project | string | | Project ID |
 
 ```bash
-orchestrator api-keys list --project my-project
+strait api-keys list --project my-project
 ```
 
 ## api-keys revoke
@@ -38,7 +38,7 @@ orchestrator api-keys list --project my-project
 Revoke an API key by its ID.
 
 ```bash
-orchestrator api-keys revoke <key-id>
+strait api-keys revoke <key-id>
 ```
 
 ## api-keys rotate
@@ -50,7 +50,7 @@ Create a new API key and revoke the old one.
 | --name | string | | Name for the new API key |
 
 ```bash
-orchestrator api-keys rotate <key-id> --name "New CI/CD Key"
+strait api-keys rotate <key-id> --name "New CI/CD Key"
 ```
 
 <Note>

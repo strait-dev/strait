@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 // ValidateDAG validates that workflow steps form a valid directed acyclic graph.

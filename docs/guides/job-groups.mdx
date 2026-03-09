@@ -22,7 +22,7 @@ A **Job Group** consists of:
 
 ### Create a Job Group
 ```bash
-curl -X POST https://api.orchestrator.com/v1/job-groups \
+curl -X POST https://strait.dev/v1/job-groups \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -36,12 +36,12 @@ curl -X POST https://api.orchestrator.com/v1/job-groups \
 ### List Job Groups
 ```bash
 curl -H "Authorization: Bearer $API_KEY" \
-  https://api.orchestrator.com/v1/job-groups?project_id=proj_123
+  https://strait.dev/v1/job-groups?project_id=proj_123
 ```
 
 ### Update a Job Group
 ```bash
-curl -X PATCH https://api.orchestrator.com/v1/job-groups/{groupID} \
+curl -X PATCH https://strait.dev/v1/job-groups/{groupID} \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -51,7 +51,7 @@ curl -X PATCH https://api.orchestrator.com/v1/job-groups/{groupID} \
 
 ### Delete a Job Group
 ```bash
-curl -X DELETE https://api.orchestrator.com/v1/job-groups/{groupID} \
+curl -X DELETE https://strait.dev/v1/job-groups/{groupID} \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -60,7 +60,7 @@ curl -X DELETE https://api.orchestrator.com/v1/job-groups/{groupID} \
 When creating or updating a job, you can assign it to a group by providing the `group_id`:
 
 ```bash
-curl -X POST https://api.orchestrator.com/v1/jobs \
+curl -X POST https://strait.dev/v1/jobs \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -78,7 +78,7 @@ To see all jobs assigned to a specific group:
 
 ```bash
 curl -H "Authorization: Bearer $API_KEY" \
-  https://api.orchestrator.com/v1/job-groups/{groupID}/jobs
+  https://strait.dev/v1/job-groups/{groupID}/jobs
 ```
 
 <Tip>

@@ -1,11 +1,11 @@
 ---
 title: "API Reference Overview"
-description: "Authentication, error formats, and common patterns for the Orchestrator API."
+description: "Authentication, error formats, and common patterns for the Strait API."
 ---
 
 ## Authentication
 
-The Orchestrator API supports three authentication methods depending on the client and use case.
+The Strait API supports three authentication methods depending on the client and use case.
 
 ### Internal Secret
 Used for administrative tasks and internal service-to-service communication.
@@ -13,8 +13,8 @@ Used for administrative tasks and internal service-to-service communication.
 - **Bearer Token**: `Authorization: Bearer <your-secret>`
 
 ### API Keys
-Used for project-specific operations. API keys are prefixed with `orc_`.
-- **Header**: `Authorization: Bearer orc_...`
+Used for project-specific operations. API keys are prefixed with `strait_`.
+- **Header**: `Authorization: Bearer strait_...`
 
 ### JWT Run Tokens
 Used by the SDK within a job run context to authenticate heartbeats, logs, and checkpoints.
@@ -60,7 +60,7 @@ Rate limits are applied per IP address:
 ## Example Request
 
 ```bash
-curl -X GET "https://api.orchestrator.com/v1/jobs?project_id=proj_1" \
-     -H "Authorization: Bearer orc_live_abc123" \
+curl -X GET "https://strait.dev/v1/jobs?project_id=proj_1" \
+     -H "Authorization: Bearer strait_live_abc123" \
      -H "Content-Type: application/json"
 ```

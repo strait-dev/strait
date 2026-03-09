@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"orchestrator/internal/config"
+	"strait/internal/config"
 )
 
 func TestCORS_AllowedOrigin(t *testing.T) {

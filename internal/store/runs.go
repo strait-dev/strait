@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,7 +19,7 @@ import (
 )
 
 func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRun")
 	defer span.End()
 
 	if run.ID == "" {
@@ -90,7 +90,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 }
 
 func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRun")
 	defer span.End()
 
 	query := `
@@ -112,7 +112,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 }
 
 func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetRunByIdempotencyKey")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunByIdempotencyKey")
 	defer span.End()
 
 	query := `
@@ -136,7 +136,7 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 }
 
 func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.FindRecentRunByPayload")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.FindRecentRunByPayload")
 	defer span.End()
 
 	query := `
@@ -162,7 +162,7 @@ func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payl
 }
 
 func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CountRunsForJobSince")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunsForJobSince")
 	defer span.End()
 
 	query := `
@@ -181,7 +181,7 @@ func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since 
 
 // GetJobHealthStats returns aggregated health metrics for a job's runs over a given window.
 func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*JobHealthStats, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobHealthStats")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobHealthStats")
 	defer span.End()
 
 	query := `
@@ -246,7 +246,7 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 }
 
 func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRunCheckpoint")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunCheckpoint")
 	defer span.End()
 
 	if checkpoint.ID == "" {
@@ -282,7 +282,7 @@ func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.Ru
 }
 
 func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunCheckpoints")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunCheckpoints")
 	defer span.End()
 
 	if limit <= 0 {
@@ -329,7 +329,7 @@ func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit in
 }
 
 func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRunUsage")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsage")
 	defer span.End()
 
 	if usage.ID == "" {
@@ -373,7 +373,7 @@ func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) er
 }
 
 func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunUsage")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunUsage")
 	defer span.End()
 
 	if limit <= 0 {
@@ -420,7 +420,7 @@ func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cur
 }
 
 func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateRunToolCall")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCall")
 	defer span.End()
 
 	if call.ID == "" {
@@ -454,7 +454,7 @@ func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCal
 }
 
 func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunToolCalls")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunToolCalls")
 	defer span.End()
 
 	if limit <= 0 {
@@ -501,7 +501,7 @@ func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int,
 }
 
 func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpsertRunOutput")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertRunOutput")
 	defer span.End()
 
 	if output.ID == "" {
@@ -532,7 +532,7 @@ func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput)
 }
 
 func (q *Queries) ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunOutputs")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunOutputs")
 	defer span.End()
 
 	query := `
@@ -575,7 +575,7 @@ func (q *Queries) ListRunOutputs(ctx context.Context, runID string, limit int, c
 }
 
 func (q *Queries) AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.AreAllDescendantsTerminal")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.AreAllDescendantsTerminal")
 	defer span.End()
 
 	query := `
@@ -623,7 +623,7 @@ func (q *Queries) lookupPricing(ctx context.Context, provider, model string) (in
 
 // SumRunCostMicrousd returns the total cost of all usage records for a single run.
 func (q *Queries) SumRunCostMicrousd(ctx context.Context, runID string) (int64, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.SumRunCostMicrousd")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunCostMicrousd")
 	defer span.End()
 
 	query := `SELECT COALESCE(SUM(cost_microusd), 0) FROM run_usage WHERE run_id = $1`
@@ -636,7 +636,7 @@ func (q *Queries) SumRunCostMicrousd(ctx context.Context, runID string) (int64, 
 
 // SumProjectDailyCostMicrousd returns the total cost of all usage records for a project today.
 func (q *Queries) SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.SumProjectDailyCostMicrousd")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumProjectDailyCostMicrousd")
 	defer span.End()
 
 	tz := timezone
@@ -729,7 +729,7 @@ func scanRunOutput(scanner scanTarget) (*domain.RunOutput, error) {
 }
 
 func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByJob")
 	defer span.End()
 
 	query := `
@@ -764,7 +764,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 }
 
 func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunsByProject")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByProject")
 	defer span.End()
 
 	baseQuery := `
@@ -827,7 +827,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 }
 
 func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListDeadLetterRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListDeadLetterRuns")
 	defer span.End()
 
 	if limit <= 0 {
@@ -876,7 +876,7 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 }
 
 func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ReplayDeadLetterRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayDeadLetterRun")
 	defer span.End()
 
 	run, err := q.GetRun(ctx, runID)
@@ -909,7 +909,7 @@ func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domai
 }
 
 func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateRunStatus")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunStatus")
 	defer span.End()
 
 	if err := domain.ValidateTransition(from, to); err != nil {
@@ -1001,7 +1001,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 }
 
 func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateRunMetadata")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunMetadata")
 	defer span.End()
 
 	encoded, err := json.Marshal(annotations)
@@ -1027,7 +1027,7 @@ func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations 
 }
 
 func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateHeartbeat")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateHeartbeat")
 	defer span.End()
 
 	query := `UPDATE job_runs SET heartbeat_at = NOW() WHERE id = $1`
@@ -1045,7 +1045,7 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 }
 
 func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStaleRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStaleRuns")
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -1079,7 +1079,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 }
 
 func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListDueRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListDueRuns")
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -1113,7 +1113,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 }
 
 func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListExpiredRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListExpiredRuns")
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -1149,7 +1149,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 }
 
 func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListChildRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListChildRuns")
 	defer span.End()
 
 	query := `
@@ -1194,7 +1194,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string, limit i
 }
 
 func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStaleDequeued")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStaleDequeued")
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -1228,7 +1228,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 }
 
 func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteTerminalRunsPastRetention")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteTerminalRunsPastRetention")
 	defer span.End()
 
 	shortCutoff := time.Now().Add(-shortRetention)
@@ -1252,7 +1252,7 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 }
 
 func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetDebugBundle")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetDebugBundle")
 	defer span.End()
 
 	run, err := q.GetRun(ctx, runID)
@@ -1296,7 +1296,7 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 }
 
 func (q *Queries) UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateRunDebugMode")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunDebugMode")
 	defer span.End()
 
 	query := `UPDATE job_runs SET debug_mode = $1 WHERE id = $2`
@@ -1314,7 +1314,7 @@ func (q *Queries) UpdateRunDebugMode(ctx context.Context, runID string, debugMod
 }
 
 func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _ *time.Time) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListRunLineage")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunLineage")
 	defer span.End()
 
 	// Walk backward to find the root of the lineage chain.

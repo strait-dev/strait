@@ -52,7 +52,7 @@ func TestInit_ServiceName(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	serviceNames := []string{
-		"orchestrator",
+		"strait",
 		"test-service",
 		"my-app",
 	}

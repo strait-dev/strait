@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -25,7 +25,7 @@ func NewPostgresQueue(db store.DBTX) *PostgresQueue {
 }
 
 func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.Enqueue")
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Enqueue")
 	defer span.End()
 
 	if run.ID == "" {
@@ -94,7 +94,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 }
 
 func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.Dequeue")
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Dequeue")
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -135,7 +135,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 }
 
 func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.DequeueN")
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueN")
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -194,7 +194,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 }
 
 func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "queue.DequeueNByProject")
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
 	defer span.End()
 
 	query := fmt.Sprintf(`

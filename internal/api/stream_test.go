@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/pubsub"
-	"orchestrator/internal/store"
+	"strait/internal/domain"
+	"strait/internal/pubsub"
+	"strait/internal/store"
 )
 
 func TestHandleRunStream_RunNotFound(t *testing.T) {

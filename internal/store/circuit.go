@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) GetEndpointCircuitState(ctx context.Context, endpointURL string) (*domain.EndpointCircuitState, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetEndpointCircuitState")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEndpointCircuitState")
 	defer span.End()
 
 	const sql = `
@@ -43,7 +43,7 @@ func (q *Queries) GetEndpointCircuitState(ctx context.Context, endpointURL strin
 }
 
 func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CanDispatchEndpoint")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CanDispatchEndpoint")
 	defer span.End()
 
 	if _, err := q.db.Exec(ctx, `
@@ -84,7 +84,7 @@ func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, n
 }
 
 func (q *Queries) RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.RecordEndpointCircuitFailure")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RecordEndpointCircuitFailure")
 	defer span.End()
 
 	if threshold < 1 {
@@ -131,7 +131,7 @@ func (q *Queries) RecordEndpointCircuitFailure(ctx context.Context, endpointURL 
 }
 
 func (q *Queries) RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.RecordEndpointCircuitSuccess")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RecordEndpointCircuitSuccess")
 	defer span.End()
 
 	if _, err := q.db.Exec(ctx, `

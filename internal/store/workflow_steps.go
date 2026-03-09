@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +15,7 @@ import (
 )
 
 func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflowStep")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowStep")
 	defer span.End()
 
 	if step.ID == "" {
@@ -79,7 +79,7 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 }
 
 func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStepsByWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStepsByWorkflow")
 	defer span.End()
 
 	query := `
@@ -117,7 +117,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 }
 
 func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.WorkflowStep, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflowStep")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowStep")
 	defer span.End()
 
 	query := `
@@ -142,7 +142,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 }
 
 func (q *Queries) DeleteStepsByWorkflow(ctx context.Context, workflowID string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteStepsByWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteStepsByWorkflow")
 	defer span.End()
 
 	query := `DELETE FROM workflow_steps WHERE workflow_id = $1`

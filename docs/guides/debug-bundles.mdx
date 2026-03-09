@@ -24,7 +24,7 @@ A Debug Bundle includes:
 You can enable or disable debug mode for a specific run at any time:
 
 ```bash
-curl -X POST https://api.orchestrator.com/v1/runs/{runID}/debug \
+curl -X POST https://strait.dev/v1/runs/{runID}/debug \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -38,7 +38,7 @@ To retrieve the full bundle for a run:
 
 ```bash
 curl -H "Authorization: Bearer $API_KEY" \
-  https://api.orchestrator.com/v1/runs/{runID}/debug-bundle
+  https://strait.dev/v1/runs/{runID}/debug-bundle
 ```
 
 ## Use Cases

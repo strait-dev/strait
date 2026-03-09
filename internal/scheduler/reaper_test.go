@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func TestReaper_ReapStale(t *testing.T) {

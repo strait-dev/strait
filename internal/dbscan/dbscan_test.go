@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func TestNilIfEmptyString(t *testing.T) {

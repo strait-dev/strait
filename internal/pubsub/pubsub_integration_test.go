@@ -11,8 +11,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"orchestrator/internal/pubsub"
-	"orchestrator/internal/testutil"
+	"strait/internal/pubsub"
+	"strait/internal/testutil"
 )
 
 var testRedis *testutil.TestRedis

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -16,7 +16,7 @@ import (
 )
 
 func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleSuccess")
+	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
 
 	now := time.Now()
@@ -109,7 +109,7 @@ func shouldUseFallbackForClass(errClass string) bool {
 }
 
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleFailure")
+	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleFailure")
 	defer span.End()
 
 	errMsg := err.Error()
@@ -198,7 +198,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleTimeout")
+	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
 
 	if e.circuitBreaker {
@@ -275,7 +275,7 @@ func (e *Executor) submitWebhook(ctx context.Context, job *domain.Job, run *doma
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.HandleSystemFailure")
+	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
 
 	now := time.Now()

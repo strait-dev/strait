@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func TestHandleCreateSecret_Success(t *testing.T) {

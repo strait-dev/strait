@@ -26,7 +26,7 @@ func (s *Server) routes() chi.Router {
 
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
-	r.Use(otelchi.Middleware("orchestrator", otelchi.WithChiRoutes(r)))
+	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(apiVersionHeader)

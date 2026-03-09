@@ -1,22 +1,22 @@
 ---
 title: "Server Runtime"
-description: "Commands for starting and managing the orchestrator server components."
+description: "Commands for starting and managing the strait server components."
 ---
 
 ## serve
 
-Start the orchestrator server components.
+Start the strait server components.
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | --mode | string | all | Component mode (api, worker, all) |
 
 ```bash
-orchestrator serve --mode all
+strait serve --mode all
 ```
 
 <Note>
-Running the `orchestrator` binary with no subcommand is equivalent to running `orchestrator serve`.
+Running the `strait` binary with no subcommand is equivalent to running `strait serve`.
 </Note>
 
 ## server start
@@ -28,12 +28,12 @@ Equivalent to the `serve` command.
 | --mode | string | all | Component mode (api, worker, all) |
 
 ```bash
-orchestrator server start --mode api
+strait server start --mode api
 ```
 
 ## Server Modes
 
-The orchestrator can be run in different modes to allow for independent scaling of components:
+The strait can be run in different modes to allow for independent scaling of components:
 
 - **api**: Handles HTTP requests, API endpoints, and webhooks. Use this mode for scaling the web-facing layer.
 - **worker**: Executes jobs and workflows. Use this mode for scaling the processing power of the system.

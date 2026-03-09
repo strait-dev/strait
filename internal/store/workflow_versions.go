@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
@@ -14,7 +14,7 @@ func workflowVersionSnapshotID(workflowID string, version int) string {
 }
 
 func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflowVersionSnapshot")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowVersionSnapshot")
 	defer span.End()
 
 	versionID := workflowVersionSnapshotID(workflowID, version)
@@ -93,7 +93,7 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 }
 
 func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListStepsByWorkflowVersion")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStepsByWorkflowVersion")
 	defer span.End()
 
 	query := `
@@ -147,7 +147,7 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 }
 
 func (q *Queries) CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CountRunningWorkflowRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunningWorkflowRuns")
 	defer span.End()
 
 	var count int
@@ -163,7 +163,7 @@ func (q *Queries) CountRunningWorkflowRuns(ctx context.Context, workflowID strin
 }
 
 func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListTimedOutWorkflowRuns")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListTimedOutWorkflowRuns")
 	defer span.End()
 
 	query := `

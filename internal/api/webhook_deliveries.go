@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {

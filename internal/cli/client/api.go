@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func (c *Client) ListJobs(ctx context.Context, projectID string) ([]domain.Job, error) {

@@ -1,4 +1,4 @@
-app = "orchestrator"
+app = "strait"
 primary_region = "iad"
 
 [build]

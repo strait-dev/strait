@@ -1,9 +1,9 @@
 ---
 title: "CLI Overview"
-description: "Installation, configuration, and global usage of the Orchestrator CLI."
+description: "Installation, configuration, and global usage of the Strait CLI."
 ---
 
-The Orchestrator CLI is a powerful tool for managing jobs, runs, workflows, and server operations from your terminal.
+The Strait CLI is a powerful tool for managing jobs, runs, workflows, and server operations from your terminal.
 
 ## Installation
 
@@ -11,17 +11,17 @@ Build from source or install to your GOPATH:
 
 ```bash
 # Build from source
-go build -o orchestrator ./cmd/orchestrator
+go build -o strait ./cmd/strait
 
 # Or install to GOPATH/bin
-go install ./cmd/orchestrator
+go install ./cmd/strait
 ```
 
 ## Configuration
 
 The CLI reads configuration from a YAML file, searching in this order:
-1. `.orchestrator.yaml` in the current directory.
-2. `~/.config/orchestrator/config.yaml`.
+1. `.strait.yaml` in the current directory.
+2. `~/.config/strait/config.yaml`.
 3. Explicit path via the `--config` flag.
 
 ### Contexts
@@ -29,13 +29,13 @@ Contexts allow you to switch between different environments (e.g., development, 
 
 ```bash
 # Create a context
-orchestrator context create prod --server https://api.prod.com --project prod-app
+strait context create prod --server https://api.prod.com --project prod-app
 
 # Switch context
-orchestrator context use prod
+strait context use prod
 
 # List contexts
-orchestrator context list
+strait context list
 ```
 
 ## Authentication
@@ -44,10 +44,10 @@ Authenticate using your API key. Keys are stored securely in the system keychain
 
 ```bash
 # Interactive login
-orchestrator login
+strait login
 
 # Provide key directly
-orchestrator login --api-key orc_live_abc123
+strait login --api-key strait_live_abc123
 ```
 
 ## Output Formats
@@ -85,11 +85,11 @@ Generate completion scripts for your shell:
 
 ```bash
 # Bash
-orchestrator completion bash > /etc/bash_completion.d/orchestrator
+strait completion bash > /etc/bash_completion.d/strait
 
 # Zsh
-orchestrator completion zsh > "${fpath[1]}/_orchestrator"
+strait completion zsh > "${fpath[1]}/_strait"
 
 # Fish
-orchestrator completion fish > ~/.config/fish/completions/orchestrator.fish
+strait completion fish > ~/.config/fish/completions/strait.fish
 ```

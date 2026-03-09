@@ -3,7 +3,7 @@ title: "Database"
 description: "Configuration and management of the PostgreSQL and Redis data stores."
 ---
 
-The orchestrator relies on PostgreSQL for persistent storage and job queuing, and Redis for real-time pub/sub and CDC event streaming.
+The strait relies on PostgreSQL for persistent storage and job queuing, and Redis for real-time pub/sub and CDC event streaming.
 
 ## PostgreSQL
 
@@ -19,7 +19,7 @@ DATABASE_URL=postgres://username:password@localhost:5432/database_name?sslmode=d
 
 ### Connection Pool Tuning
 
-The orchestrator uses `pgx/v5` for high-performance connection pooling. You can tune the pool using the following variables:
+The strait uses `pgx/v5` for high-performance connection pooling. You can tune the pool using the following variables:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -47,7 +47,7 @@ Key indexes are implemented to support high-throughput operations:
 
 ### Connection Retries
 
-The orchestrator implements an exponential backoff strategy for database connection failures:
+The strait implements an exponential backoff strategy for database connection failures:
 
 - **Strategy**: Exponential backoff.
 - **Delays**: 1s, 2s, 4s, 8s, 16s.

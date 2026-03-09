@@ -11,13 +11,13 @@ import (
 	"net/http/httptrace"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.Execute")
+	ctx, span := otel.Tracer("strait").Start(ctx, "executor.Execute")
 	defer span.End()
 
 	executeStart := time.Now()
@@ -267,7 +267,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 }
 
 func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "executor.Dispatch")
+	ctx, span := otel.Tracer("strait").Start(ctx, "executor.Dispatch")
 	defer span.End()
 	start := time.Now()
 	defer func() {

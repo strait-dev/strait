@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 // ========== 2.23 Run DLQ ==========

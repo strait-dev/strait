@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/queue"
-	"orchestrator/internal/store"
-	"orchestrator/internal/testutil"
+	"strait/internal/domain"
+	"strait/internal/queue"
+	"strait/internal/store"
+	"strait/internal/testutil"
 
 	"github.com/google/uuid"
 )
