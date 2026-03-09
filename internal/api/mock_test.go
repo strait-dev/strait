@@ -888,6 +888,10 @@ func (m *mockAPIStore) ListProjectMembers(ctx context.Context, projectID string)
 	return nil, nil
 }
 
+func (m *mockAPIStore) SeedProjectSystemRoles(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockAPIStore) CreateResourcePolicy(_ context.Context, _ *domain.ResourcePolicy) error {
 	return nil
 }

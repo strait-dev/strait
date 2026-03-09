@@ -353,3 +353,29 @@ func scanProjectRole(scanner scanTarget) (*domain.ProjectRole, error) {
 	}
 	return &role, nil
 }
+
+// SeedProjectSystemRoles idempotently creates the 4 system roles for a project.
+func (q *Queries) SeedProjectSystemRoles(ctx context.Context, projectID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SeedProjectSystemRoles")
+	defer span.End()
+
+	for name, perms := range domain.SystemRolePermissions {
+		role := &domain.ProjectRole{
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			ProjectID:   projectID,
+			Name:        name,
+			Description: "System role: " + name,
+			Permissions: perms,
+			IsSystem:    true,
+		}
+		query := `
+			INSERT INTO project_roles (id, project_id, name, description, permissions, is_system)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (project_id, name) DO NOTHING`
+		if _, err := q.db.Exec(ctx, query, role.ID, role.ProjectID, role.Name, role.Description, role.Permissions, role.IsSystem); err != nil {
+			return fmt.Errorf("seed system role %s: %w", name, err)
+		}
+	}
+
+	return nil
+}

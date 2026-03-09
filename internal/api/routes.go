@@ -164,6 +164,8 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{userID}", s.handleRemoveMember)
 		})
 
+		r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/seed-roles", s.handleSeedSystemRoles)
+
 		r.Route("/resource-policies", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateResourcePolicy)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListResourcePolicies)

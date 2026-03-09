@@ -194,6 +194,29 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// System Roles.
+
+func (s *Server) handleSeedSystemRoles(w http.ResponseWriter, r *http.Request) {
+	projectID := projectIDFromContext(r.Context())
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	if err := s.store.SeedProjectSystemRoles(r.Context(), projectID); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to seed system roles")
+		return
+	}
+
+	roles, err := s.store.ListProjectRoles(r.Context(), projectID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list roles after seeding")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, roles)
+}
+
 // Resource Policies.
 
 type createResourcePolicyRequest struct {
