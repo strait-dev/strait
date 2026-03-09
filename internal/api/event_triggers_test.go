@@ -245,7 +245,7 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)

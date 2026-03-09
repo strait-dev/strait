@@ -155,6 +155,10 @@ func (s *Server) handleGetEventTrigger(w http.ResponseWriter, r *http.Request) {
 // handleListEventTriggers lists event triggers for the authenticated project.
 func (s *Server) handleListEventTriggers(w http.ResponseWriter, r *http.Request) {
 	projectID := projectIDFromContext(r.Context())
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project context is required — authenticate with an API key")
+		return
+	}
 
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
