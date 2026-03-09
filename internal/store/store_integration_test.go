@@ -5767,3 +5767,368 @@ func TestListTimedOutWorkflowRuns(t *testing.T) {
 		t.Fatalf("runs[1].status = %q, want paused", runs[1].Status)
 	}
 }
+
+// --- RBAC integration tests ---
+
+func TestCreateProjectRole(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-rbac",
+		Name:        "deployer",
+		Description: "Can deploy jobs",
+		Permissions: []string{"jobs:write", "jobs:trigger"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+	if role.ID == "" {
+		t.Fatal("role.ID should be set")
+	}
+	if role.CreatedAt.IsZero() {
+		t.Fatal("role.CreatedAt should be set")
+	}
+}
+
+func TestCreateProjectRole_DuplicateName(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-rbac-dup",
+		Name:        "viewer",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("first CreateProjectRole() error = %v", err)
+	}
+
+	role2 := &domain.ProjectRole{
+		ProjectID:   "proj-rbac-dup",
+		Name:        "viewer",
+		Permissions: []string{"runs:read"},
+	}
+	err := q.CreateProjectRole(ctx, role2)
+	if err == nil {
+		t.Fatal("expected error for duplicate role name, got nil")
+	}
+}
+
+func TestListProjectRoles(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	for _, name := range []string{"admin", "viewer", "deployer"} {
+		role := &domain.ProjectRole{
+			ProjectID:   "proj-list-roles",
+			Name:        name,
+			Permissions: []string{"jobs:read"},
+		}
+		if err := q.CreateProjectRole(ctx, role); err != nil {
+			t.Fatalf("CreateProjectRole(%s) error = %v", name, err)
+		}
+	}
+
+	roles, err := q.ListProjectRoles(ctx, "proj-list-roles")
+	if err != nil {
+		t.Fatalf("ListProjectRoles() error = %v", err)
+	}
+	if len(roles) != 3 {
+		t.Fatalf("len(roles) = %d, want 3", len(roles))
+	}
+}
+
+func TestDeleteProjectRole_SystemProtected(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-sys-role",
+		Name:        "system-admin",
+		Permissions: []string{"*"},
+		IsSystem:    true,
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	err := q.DeleteProjectRole(ctx, role.ID)
+	if !errors.Is(err, store.ErrRoleNotFound) {
+		t.Fatalf("DeleteProjectRole(system) = %v, want ErrRoleNotFound", err)
+	}
+}
+
+func TestAssignMemberRole_Upsert(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role1 := &domain.ProjectRole{
+		ProjectID:   "proj-assign",
+		Name:        "viewer",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, role1); err != nil {
+		t.Fatalf("CreateProjectRole(viewer) error = %v", err)
+	}
+
+	role2 := &domain.ProjectRole{
+		ProjectID:   "proj-assign",
+		Name:        "admin",
+		Permissions: []string{"*"},
+	}
+	if err := q.CreateProjectRole(ctx, role2); err != nil {
+		t.Fatalf("CreateProjectRole(admin) error = %v", err)
+	}
+
+	m := &domain.ProjectMemberRole{
+		ProjectID: "proj-assign",
+		UserID:    "user-1",
+		RoleID:    role1.ID,
+		GrantedBy: "setup",
+	}
+	if err := q.AssignMemberRole(ctx, m); err != nil {
+		t.Fatalf("AssignMemberRole() error = %v", err)
+	}
+
+	// Upsert: reassign to admin.
+	m2 := &domain.ProjectMemberRole{
+		ProjectID: "proj-assign",
+		UserID:    "user-1",
+		RoleID:    role2.ID,
+		GrantedBy: "admin",
+	}
+	if err := q.AssignMemberRole(ctx, m2); err != nil {
+		t.Fatalf("AssignMemberRole(upsert) error = %v", err)
+	}
+
+	got, err := q.GetMemberRole(ctx, "proj-assign", "user-1")
+	if err != nil {
+		t.Fatalf("GetMemberRole() error = %v", err)
+	}
+	if got.RoleID != role2.ID {
+		t.Fatalf("after upsert, RoleID = %q, want %q", got.RoleID, role2.ID)
+	}
+}
+
+func TestGetUserPermissions(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-perms",
+		Name:        "operator",
+		Permissions: []string{"jobs:read", "jobs:write", "runs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	m := &domain.ProjectMemberRole{
+		ProjectID: "proj-perms",
+		UserID:    "user-perms",
+		RoleID:    role.ID,
+	}
+	if err := q.AssignMemberRole(ctx, m); err != nil {
+		t.Fatalf("AssignMemberRole() error = %v", err)
+	}
+
+	perms, err := q.GetUserPermissions(ctx, "proj-perms", "user-perms")
+	if err != nil {
+		t.Fatalf("GetUserPermissions() error = %v", err)
+	}
+	if len(perms) != 3 {
+		t.Fatalf("len(perms) = %d, want 3", len(perms))
+	}
+}
+
+func TestGetUserPermissions_NoRole(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	perms, err := q.GetUserPermissions(ctx, "proj-no-role", "unknown-user")
+	if err != nil {
+		t.Fatalf("GetUserPermissions() error = %v", err)
+	}
+	if perms != nil {
+		t.Fatalf("perms = %v, want nil", perms)
+	}
+}
+
+func TestResourcePolicy_CRUD(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	p := &domain.ResourcePolicy{
+		ProjectID:    "proj-policy",
+		ResourceType: "job",
+		ResourceID:   "job-123",
+		UserID:       "user-pol",
+		Actions:      []string{"trigger", "read"},
+	}
+	if err := q.CreateResourcePolicy(ctx, p); err != nil {
+		t.Fatalf("CreateResourcePolicy() error = %v", err)
+	}
+	if p.ID == "" {
+		t.Fatal("policy.ID should be set")
+	}
+
+	actions, err := q.GetResourcePolicies(ctx, "job", "job-123", "user-pol")
+	if err != nil {
+		t.Fatalf("GetResourcePolicies() error = %v", err)
+	}
+	if len(actions) != 2 {
+		t.Fatalf("len(actions) = %d, want 2", len(actions))
+	}
+
+	policies, err := q.ListResourcePolicies(ctx, "job", "job-123")
+	if err != nil {
+		t.Fatalf("ListResourcePolicies() error = %v", err)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("len(policies) = %d, want 1", len(policies))
+	}
+
+	if err := q.DeleteResourcePolicy(ctx, p.ID); err != nil {
+		t.Fatalf("DeleteResourcePolicy() error = %v", err)
+	}
+
+	actions2, err := q.GetResourcePolicies(ctx, "job", "job-123", "user-pol")
+	if err != nil {
+		t.Fatalf("GetResourcePolicies() after delete error = %v", err)
+	}
+	if actions2 != nil {
+		t.Fatalf("actions after delete = %v, want nil", actions2)
+	}
+}
+
+// --- Actor integration tests ---
+
+func TestUpsertKnownActor(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	if err := q.UpsertKnownActor(ctx, "actor-1", "alice@example.com", "Alice"); err != nil {
+		t.Fatalf("UpsertKnownActor() error = %v", err)
+	}
+
+	actor, err := q.GetKnownActor(ctx, "actor-1")
+	if err != nil {
+		t.Fatalf("GetKnownActor() error = %v", err)
+	}
+	if actor == nil {
+		t.Fatal("actor should not be nil")
+	}
+	if actor.Email != "alice@example.com" {
+		t.Fatalf("actor.Email = %q, want %q", actor.Email, "alice@example.com")
+	}
+	if actor.Name != "Alice" {
+		t.Fatalf("actor.Name = %q, want %q", actor.Name, "Alice")
+	}
+}
+
+func TestUpsertKnownActor_PreservesExisting(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	if err := q.UpsertKnownActor(ctx, "actor-2", "bob@example.com", "Bob"); err != nil {
+		t.Fatalf("first upsert error = %v", err)
+	}
+
+	// Second upsert with empty name should keep "Bob".
+	if err := q.UpsertKnownActor(ctx, "actor-2", "bob-new@example.com", ""); err != nil {
+		t.Fatalf("second upsert error = %v", err)
+	}
+
+	actor, err := q.GetKnownActor(ctx, "actor-2")
+	if err != nil {
+		t.Fatalf("GetKnownActor() error = %v", err)
+	}
+	if actor.Name != "Bob" {
+		t.Fatalf("actor.Name = %q, want %q (should be preserved)", actor.Name, "Bob")
+	}
+	if actor.Email != "bob-new@example.com" {
+		t.Fatalf("actor.Email = %q, want %q (should be updated)", actor.Email, "bob-new@example.com")
+	}
+}
+
+func TestGetKnownActor_NotFound(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	actor, err := q.GetKnownActor(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("GetKnownActor() error = %v", err)
+	}
+	if actor != nil {
+		t.Fatalf("actor = %v, want nil", actor)
+	}
+}
+
+// --- Version ID + created_by integration tests ---
+
+func TestCreateJob_SetsVersionID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "proj-vid")
+	job.CreatedBy = "user-creator"
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	if job.VersionID == "" {
+		t.Fatal("job.VersionID should be set after create")
+	}
+	if job.CreatedBy != "user-creator" {
+		t.Fatalf("job.CreatedBy = %q, want %q", job.CreatedBy, "user-creator")
+	}
+
+	// Read back.
+	got, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	if got.VersionID != job.VersionID {
+		t.Fatalf("read back VersionID = %q, want %q", got.VersionID, job.VersionID)
+	}
+	if got.CreatedBy != "user-creator" {
+		t.Fatalf("read back CreatedBy = %q, want %q", got.CreatedBy, "user-creator")
+	}
+}
+
+func TestUpdateJob_GeneratesNewVersionID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "proj-vid-upd")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	oldVersionID := job.VersionID
+
+	job.Name = "updated-name"
+	job.UpdatedBy = "user-updater"
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob() error = %v", err)
+	}
+
+	if job.VersionID == oldVersionID {
+		t.Fatal("VersionID should change after update")
+	}
+	if job.VersionID == "" {
+		t.Fatal("new VersionID should not be empty")
+	}
+}
