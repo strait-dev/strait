@@ -7,10 +7,12 @@ import (
 
 // permissionCache is a short-lived, concurrency-safe cache for user permissions.
 // Avoids hitting the database on every request for the same user+project pair.
+// A background goroutine sweeps expired entries every 2×TTL to bound memory.
 type permissionCache struct {
 	mu      sync.RWMutex
 	entries map[string]permCacheEntry
 	ttl     time.Duration
+	stop    chan struct{}
 }
 
 type permCacheEntry struct {
@@ -19,9 +21,49 @@ type permCacheEntry struct {
 }
 
 func newPermissionCache(ttl time.Duration) *permissionCache {
-	return &permissionCache{
+	c := &permissionCache{
 		entries: make(map[string]permCacheEntry),
 		ttl:     ttl,
+		stop:    make(chan struct{}),
+	}
+	go c.sweepLoop()
+	return c
+}
+
+// sweepLoop periodically removes expired entries to prevent unbounded growth.
+func (c *permissionCache) sweepLoop() {
+	interval := max(c.ttl*2, time.Second)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.sweep()
+		case <-c.stop:
+			return
+		}
+	}
+}
+
+func (c *permissionCache) sweep() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for k, entry := range c.entries {
+		if now.Sub(entry.cachedAt) > c.ttl {
+			delete(c.entries, k)
+		}
+	}
+}
+
+// Stop terminates the background sweep goroutine.
+func (c *permissionCache) Stop() {
+	select {
+	case <-c.stop:
+	default:
+		close(c.stop)
 	}
 }
 
