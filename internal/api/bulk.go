@@ -196,9 +196,10 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			}
 			if existingRun != nil {
 				results = append(results, BulkTriggerResult{
-					ID:       existingRun.ID,
-					Status:   string(existingRun.Status),
-					RunToken: "",
+					ID:             existingRun.ID,
+					Status:         string(existingRun.Status),
+					RunToken:       "",
+					IdempotencyHit: false,
 				})
 				continue
 			}

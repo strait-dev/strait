@@ -462,18 +462,28 @@ paths:
         content:
           application/json:
             schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/TriggerJobRequest'
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/BulkTriggerItem'
       responses:
-        '202':
-          description: Runs triggered
+        '201':
+          description: Runs triggered (with per-item idempotency deduplication)
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/JobRun'
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TriggerJobResponse'
+                  total:
+                    type: integer
+                  created:
+                    type: integer
 
   /v1/jobs/{jobID}/versions:
     get:
@@ -4038,15 +4048,14 @@ components:
 
     TriggerJobRequest:
       type: object
+      description: >
+        Request body for triggering a job run. For single triggers, idempotency
+        keys must be provided via the X-Idempotency-Key or Idempotency-Key HTTP
+        headers (not in the body). For bulk triggers, use BulkTriggerItem with
+        per-item idempotency_key fields.
       properties:
         payload:
           type: object
-        idempotency_key:
-          type: string
-          maxLength: 256
-          description: >
-            Idempotency key for deduplication. For single triggers, prefer the
-            X-Idempotency-Key header. For bulk triggers, set per-item keys here.
         priority:
           type: integer
         dry_run:
@@ -4055,6 +4064,24 @@ components:
           type: object
           additionalProperties:
             type: string
+
+    BulkTriggerItem:
+      type: object
+      properties:
+        payload:
+          type: object
+        idempotency_key:
+          type: string
+          maxLength: 256
+          description: >
+            Per-item idempotency key for bulk trigger deduplication. If a
+            non-terminal run with this key exists for the job, the existing
+            run is returned instead of creating a new one.
+        priority:
+          type: integer
+        scheduled_at:
+          type: string
+          format: date-time
 
     TriggerJobResponse:
       type: object

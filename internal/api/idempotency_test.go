@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -297,15 +298,15 @@ func TestIdempotency_MissResponseShape(t *testing.T) {
 }
 
 func TestIdempotency_HitReturnsCurrentStatus(t *testing.T) {
+	// GetRunByIdempotencyKey now only returns non-terminal runs, so we test
+	// that the handler correctly passes through the status for each one.
 	t.Parallel()
 	statuses := []domain.RunStatus{
 		domain.StatusQueued,
 		domain.StatusDequeued,
 		domain.StatusExecuting,
 		domain.StatusWaiting,
-		domain.StatusCompleted,
-		domain.StatusFailed,
-		domain.StatusTimedOut,
+		domain.StatusDelayed,
 	}
 
 	for _, status := range statuses {
@@ -1455,7 +1456,7 @@ func TestIdempotency_BulkTriggerPerItemIdempotencyHit(t *testing.T) {
 		},
 		getRunByIdempotencyKeyFn: func(_ context.Context, _, key string) (*domain.JobRun, error) {
 			if key == "existing-key" {
-				return &domain.JobRun{ID: "run-existing", Status: domain.StatusCompleted}, nil
+				return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
 			}
 			return nil, nil
 		},
@@ -1489,8 +1490,8 @@ func TestIdempotency_BulkTriggerPerItemIdempotencyHit(t *testing.T) {
 	if first["id"] != "run-existing" {
 		t.Errorf("first item: expected cached run ID, got %v", first["id"])
 	}
-	if first["status"] != "completed" {
-		t.Errorf("first item: expected completed status, got %v", first["status"])
+	if first["status"] != "queued" {
+		t.Errorf("first item: expected queued status, got %v", first["status"])
 	}
 	// First item (hit) should have idempotency_hit=true
 	if hit, ok := first["idempotency_hit"].(bool); !ok || !hit {
@@ -1626,7 +1627,10 @@ func TestIdempotency_ReplayGeneratesNewRunID(t *testing.T) {
 // Idempotency key with all terminal statuses should still return the cached
 // run (the query returns the most recent run regardless of status).
 
-func TestIdempotency_HitOnTerminalStatuses(t *testing.T) {
+func TestIdempotency_TerminalRunAllowsKeyReuse(t *testing.T) {
+	// After a run reaches a terminal status, GetRunByIdempotencyKey (with
+	// the status filter) returns nil, allowing a new run to be created
+	// with the same key. This matches the DB partial unique index semantics.
 	t.Parallel()
 	terminalStatuses := []domain.RunStatus{
 		domain.StatusCompleted,
@@ -1647,7 +1651,9 @@ func TestIdempotency_HitOnTerminalStatuses(t *testing.T) {
 					return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
 				},
 				getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
-					return &domain.JobRun{ID: "run-terminal", Status: status}, nil
+					// Store now filters by non-terminal statuses, so terminal
+					// runs are not returned — the lookup returns nil (miss).
+					return nil, nil
 				},
 			}
 			mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
@@ -1664,17 +1670,63 @@ func TestIdempotency_HitOnTerminalStatuses(t *testing.T) {
 			if w.Code != http.StatusCreated {
 				t.Fatalf("expected 201, got %d", w.Code)
 			}
+			// A new run should be enqueued since the terminal run is no
+			// longer returned by the idempotency lookup.
+			if !enqueued {
+				t.Fatal("should enqueue new run when previous run is terminal")
+			}
+		})
+	}
+}
+
+func TestIdempotency_NonTerminalRunStillReturnsHit(t *testing.T) {
+	// Non-terminal runs should still return idempotency hits.
+	t.Parallel()
+	nonTerminalStatuses := []domain.RunStatus{
+		domain.StatusQueued,
+		domain.StatusDequeued,
+		domain.StatusExecuting,
+		domain.StatusDelayed,
+		domain.StatusWaiting,
+	}
+
+	for _, status := range nonTerminalStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			enqueued := false
+			ms := &mockAPIStore{
+				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+					return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+				},
+				getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+					return &domain.JobRun{ID: "run-active", Status: status}, nil
+				},
+			}
+			mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+				enqueued = true
+				return nil
+			}}
+
+			srv := newTestServer(t, ms, mq, nil)
+			w := httptest.NewRecorder()
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+			r.Header.Set("X-Idempotency-Key", "active-"+string(status))
+			srv.ServeHTTP(w, r)
+
+			if w.Code != http.StatusCreated {
+				t.Fatalf("expected 201, got %d", w.Code)
+			}
 			if enqueued {
-				t.Fatal("should NOT enqueue when store returns a terminal run")
+				t.Fatal("should NOT enqueue when store returns a non-terminal run")
 			}
 
 			var resp map[string]any
 			mustUnmarshal(t, w.Body.Bytes(), &resp)
-			if resp["id"] != "run-terminal" {
-				t.Fatalf("expected cached terminal run, got %v", resp["id"])
+			if resp["id"] != "run-active" {
+				t.Fatalf("expected cached active run, got %v", resp["id"])
 			}
-			if resp["status"] != string(status) {
-				t.Fatalf("expected status %s, got %v", status, resp["status"])
+			if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
+				t.Fatalf("expected idempotency_hit=true, got %v", resp["idempotency_hit"])
 			}
 		})
 	}
@@ -2087,7 +2139,7 @@ func TestIdempotency_HitAlwaysReturns201(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
 		},
 		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
 		},
 	}
 
@@ -2230,6 +2282,229 @@ func TestIdempotency_BulkKeyExactlyMaxLength_Succeeds(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201 for bulk key at max length, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Dedup response shape consistency.
+
+func TestIdempotency_DedupResponseIncludesIdempotencyHitFalse(t *testing.T) {
+	// When payload deduplication returns an existing run, the response
+	// should include idempotency_hit=false for consistent response shape.
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Enabled: true,
+				TimeoutSecs: 60, DedupWindowSecs: 300,
+			}, nil
+		},
+		findRecentRunByPayloadFn: func(_ context.Context, _ string, _ json.RawMessage, _ time.Time) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-deduped", Status: domain.StatusQueued}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"x":1}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	mustUnmarshal(t, w.Body.Bytes(), &resp)
+	if hit, ok := resp["idempotency_hit"].(bool); !ok || hit {
+		t.Fatalf("expected idempotency_hit=false on dedup response, got %v", resp["idempotency_hit"])
+	}
+}
+
+// Body field idempotency_key is rejected for single trigger.
+
+func TestIdempotency_BodyFieldIdempotencyKeyRejected(t *testing.T) {
+	// TriggerRequest uses DisallowUnknownFields, so "idempotency_key" in the
+	// body is rejected as an unknown field. Idempotency keys for single
+	// triggers MUST be sent via HTTP headers (X-Idempotency-Key or
+	// Idempotency-Key), not the request body.
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	// Body has idempotency_key — rejected by strict JSON decoding.
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"idempotency_key":"body-key"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown body field, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestIdempotency_BodyFieldOmittedNoHeader_NoLookup(t *testing.T) {
+	// When no idempotency key is provided (neither header nor body),
+	// the lookup should not be called and a new run is created.
+	t.Parallel()
+	lookupCalled := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			lookupCalled = true
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		if run.IdempotencyKey != "" {
+			t.Errorf("expected empty idempotency key on run, got %q", run.IdempotencyKey)
+		}
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if lookupCalled {
+		t.Fatal("idempotency lookup should NOT be called when no header is set")
+	}
+}
+
+// Intra-request bulk dedup (same key twice in one request).
+
+func TestIdempotency_BulkSameKeyTwiceInOneRequest(t *testing.T) {
+	// When a single bulk request has two items with the same idempotency
+	// key, the first gets enqueued and the second should hit the app-level
+	// check and return the first item's run.
+	t.Parallel()
+	var enqueueCount int
+	var enqueuedRunID string
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, key string) (*domain.JobRun, error) {
+			// After first enqueue, lookup should find the enqueued run.
+			if enqueueCount > 0 && key == "dupe-key" {
+				return &domain.JobRun{ID: enqueuedRunID, Status: domain.StatusQueued}, nil
+			}
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		enqueueCount++
+		enqueuedRunID = run.ID
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	body := `{"items":[{"payload":{},"idempotency_key":"dupe-key"},{"payload":{},"idempotency_key":"dupe-key"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueueCount != 1 {
+		t.Fatalf("expected 1 enqueue (second item should hit), got %d", enqueueCount)
+	}
+
+	var resp map[string]any
+	mustUnmarshal(t, w.Body.Bytes(), &resp)
+	results := resp["results"].([]any)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	first := results[0].(map[string]any)
+	second := results[1].(map[string]any)
+
+	// Both should return the same run ID.
+	if first["id"] != second["id"] {
+		t.Fatalf("expected same run ID for duplicate key, got %v vs %v", first["id"], second["id"])
+	}
+	// First should be miss, second should be hit.
+	if hit, ok := first["idempotency_hit"].(bool); !ok || hit {
+		t.Errorf("first item: expected idempotency_hit=false, got %v", first["idempotency_hit"])
+	}
+	if hit, ok := second["idempotency_hit"].(bool); !ok || !hit {
+		t.Errorf("second item: expected idempotency_hit=true, got %v", second["idempotency_hit"])
+	}
+}
+
+// Workflow trigger does not support idempotency.
+
+// mockWorkflowEngineForIdem implements WorkflowTrigger for testing.
+type mockWorkflowEngineForIdem struct {
+	triggerFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
+}
+
+func (m *mockWorkflowEngineForIdem) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
+	if m.triggerFn != nil {
+		return m.triggerFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
+	}
+	return nil, nil
+}
+
+func (m *mockWorkflowEngineForIdem) RetryWorkflowRun(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+	return nil, nil
+}
+
+func newTestServerWithWorkflowEngine(t *testing.T, s APIStore, q *mockQueue, wf WorkflowTrigger) *Server {
+	t.Helper()
+	cfg := &config.Config{
+		InternalSecret: "test-secret",
+		JWTSigningKey:  "01234567890123456789012345678901",
+	}
+	return NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          s,
+		Queue:          q,
+		WorkflowEngine: wf,
+	})
+}
+
+func TestIdempotency_WorkflowTriggerIgnoresIdempotencyHeader(t *testing.T) {
+	// Workflow trigger endpoint does NOT support idempotency keys.
+	// The X-Idempotency-Key header should be ignored.
+	t.Parallel()
+
+	wfID := "wf-1"
+	ms := &mockAPIStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+		},
+	}
+
+	// Use a mock workflow engine that records triggers.
+	triggerCount := 0
+	mockWFEngine := &mockWorkflowEngineForIdem{
+		triggerFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
+			triggerCount++
+			return &domain.WorkflowRun{ID: "wfrun-1", WorkflowID: wfID, Status: domain.WfStatusPending}, nil
+		},
+	}
+
+	srv := newTestServerWithWorkflowEngine(t, ms, &mockQueue{}, mockWFEngine)
+	// First trigger with idempotency key.
+	w1 := httptest.NewRecorder()
+	r1 := authedRequest(http.MethodPost, "/v1/workflows/"+wfID+"/trigger", `{"payload":{}}`)
+	r1.Header.Set("X-Idempotency-Key", "wf-key-1")
+	srv.ServeHTTP(w1, r1)
+
+	// Second trigger with same idempotency key.
+	w2 := httptest.NewRecorder()
+	r2 := authedRequest(http.MethodPost, "/v1/workflows/"+wfID+"/trigger", `{"payload":{}}`)
+	r2.Header.Set("X-Idempotency-Key", "wf-key-1")
+	srv.ServeHTTP(w2, r2)
+
+	// Both should trigger (header is ignored, no dedup).
+	if triggerCount != 2 {
+		t.Fatalf("expected 2 workflow triggers (idempotency not supported), got %d", triggerCount)
 	}
 }
 

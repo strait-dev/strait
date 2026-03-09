@@ -193,9 +193,10 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		if existingRun != nil {
 			respondJSON(w, http.StatusCreated, map[string]any{
-				"id":           existingRun.ID,
-				"status":       existingRun.Status,
-				"payload_hash": payloadHash,
+				"id":              existingRun.ID,
+				"status":          existingRun.Status,
+				"payload_hash":    payloadHash,
+				"idempotency_hit": false,
 			})
 			return
 		}

@@ -938,12 +938,9 @@ func TestE2E_IdempotencyKeyPerJobScoping(t *testing.T) {
 }
 
 func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
-	// After a run reaches terminal status, the DB partial unique index no
-	// longer covers it, so a new INSERT with the same key would succeed.
-	// However, GetRunByIdempotencyKey returns the latest run regardless of
-	// status, so the app-level check still returns the completed run.
-	// This test verifies that the completed run is returned as an
-	// idempotency hit (correct current behavior).
+	// After a run reaches terminal status, both the DB partial unique index
+	// and the app-level GetRunByIdempotencyKey query (with status filter)
+	// allow key reuse. A new run should be created with the same key.
 	mustClean(t)
 
 	projectID := "proj-idem-reuse-" + newID()
@@ -969,10 +966,21 @@ func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
 		t.Fatalf("completed: %v", err)
 	}
 
-	// Same key still returns the completed run (app-level query has no status filter).
+	// Same key should create a NEW run since the first is terminal.
 	second := triggerJob(t, jobID, `{"payload":{}}`, key)
-	if asString(t, second, "id") != firstID {
-		t.Fatalf("expected same run ID (completed run returned as hit), got %s vs %s", asString(t, second, "id"), firstID)
+	secondID := asString(t, second, "id")
+	if secondID == firstID {
+		t.Fatalf("expected new run ID after terminal, got same %s", firstID)
+	}
+
+	// Verify 2 runs exist.
+	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if lw.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d", lw.Code)
+	}
+	runs := mustDecodeList(t, lw)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs after key reuse, got %d", len(runs))
 	}
 }
 
