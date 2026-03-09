@@ -24,6 +24,12 @@ type Metrics struct {
 	ExecutionTraceDispatch  metric.Float64Histogram
 	ExecutionTraceQueueWait metric.Float64Histogram
 
+	// Event trigger metrics.
+	EventTriggersCreated     metric.Int64Counter
+	EventTriggersReceived    metric.Int64Counter
+	EventTriggersTimedOut    metric.Int64Counter
+	EventTriggerWaitDuration metric.Float64Histogram
+
 	// Worker pool gauges (reported via ObservePool callback).
 	PoolRunningWorkers metric.Int64ObservableGauge
 	PoolWaitingTasks   metric.Int64ObservableGauge
@@ -116,6 +122,42 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create execution trace queue wait histogram: %w", err)
 	}
 
+	eventTriggersCreated, err := meter.Int64Counter(
+		"strait.event_triggers.created",
+		metric.WithDescription("Total event triggers created"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event triggers created counter: %w", err)
+	}
+
+	eventTriggersReceived, err := meter.Int64Counter(
+		"strait.event_triggers.received",
+		metric.WithDescription("Total events received (triggers completed)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event triggers received counter: %w", err)
+	}
+
+	eventTriggersTimedOut, err := meter.Int64Counter(
+		"strait.event_triggers.timed_out",
+		metric.WithDescription("Total event triggers that expired"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event triggers timed out counter: %w", err)
+	}
+
+	eventTriggerWaitDuration, err := meter.Float64Histogram(
+		"strait.event_triggers.wait_duration",
+		metric.WithDescription("Duration between trigger creation and event receipt"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event trigger wait duration histogram: %w", err)
+	}
+
 	poolRunning, err := meter.Int64ObservableGauge(
 		"strait.pool.running_workers",
 		metric.WithDescription("Number of goroutines currently executing tasks"),
@@ -180,19 +222,23 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	m := &Metrics{
-		RunTransitions:          runTransitions,
-		DequeueDuration:         dequeueDuration,
-		DispatchDuration:        dispatchDuration,
-		DispatchErrors:          dispatchErrors,
-		ExecutionTraceDispatch:  executionTraceDispatch,
-		ExecutionTraceQueueWait: executionTraceQueueWait,
-		PoolRunningWorkers:      poolRunning,
-		PoolWaitingTasks:        poolWaiting,
-		PoolSubmittedTasks:      poolSubmitted,
-		PoolCompletedTasks:      poolCompleted,
-		PoolSuccessfulTasks:     poolSuccessful,
-		PoolFailedTasks:         poolFailed,
-		PoolDroppedTasks:        poolDropped,
+		RunTransitions:           runTransitions,
+		DequeueDuration:          dequeueDuration,
+		DispatchDuration:         dispatchDuration,
+		DispatchErrors:           dispatchErrors,
+		ExecutionTraceDispatch:   executionTraceDispatch,
+		ExecutionTraceQueueWait:  executionTraceQueueWait,
+		EventTriggersCreated:     eventTriggersCreated,
+		EventTriggersReceived:    eventTriggersReceived,
+		EventTriggersTimedOut:    eventTriggersTimedOut,
+		EventTriggerWaitDuration: eventTriggerWaitDuration,
+		PoolRunningWorkers:       poolRunning,
+		PoolWaitingTasks:         poolWaiting,
+		PoolSubmittedTasks:       poolSubmitted,
+		PoolCompletedTasks:       poolCompleted,
+		PoolSuccessfulTasks:      poolSuccessful,
+		PoolFailedTasks:          poolFailed,
+		PoolDroppedTasks:         poolDropped,
 	}
 
 	slog.Info("prometheus metrics enabled")
