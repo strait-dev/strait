@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -396,6 +397,11 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "failed to delete job")
 		return
 	}
+
+	slog.Info("job deleted",
+		"job_id", jobID,
+		"actor", actorFromContext(r.Context()),
+		"project_id", projectIDFromContext(r.Context()))
 
 	w.WriteHeader(http.StatusNoContent)
 }

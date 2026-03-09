@@ -270,6 +270,14 @@ func permCacheTTL(cfg *config.Config) time.Duration {
 	return 30 * time.Second
 }
 
+// Close releases resources held by the server (e.g. background goroutines).
+// Call this when shutting down.
+func (s *Server) Close() {
+	if s.permCache != nil {
+		s.permCache.Stop()
+	}
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }

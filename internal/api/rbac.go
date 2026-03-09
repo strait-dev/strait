@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -132,6 +133,8 @@ func (s *Server) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "failed to delete role")
 		return
 	}
+	slog.Info("role deleted", "role_id", roleID, "actor", actorFromContext(r.Context()),
+		"project_id", projectIDFromContext(r.Context()))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -210,6 +213,8 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.permCache.Invalidate(projectID, userID)
+	slog.Info("member removed", "user_id", userID, "actor", actorFromContext(r.Context()),
+		"project_id", projectID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -318,5 +323,7 @@ func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Reque
 		s.permCache.Invalidate(projectID, userID)
 	}
 
+	slog.Info("resource policy deleted", "policy_id", policyID, "actor", actorFromContext(r.Context()),
+		"affected_user", userID, "project_id", projectID)
 	w.WriteHeader(http.StatusNoContent)
 }

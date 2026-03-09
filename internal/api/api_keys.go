@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -137,5 +138,7 @@ func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slog.Info("api key revoked", "key_id", keyID, "actor", actorFromContext(r.Context()),
+		"project_id", projectIDFromContext(r.Context()))
 	respondJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
