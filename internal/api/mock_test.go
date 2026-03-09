@@ -536,6 +536,10 @@ func (m *mockAPIStore) ListWorkflows(ctx context.Context, projectID string, limi
 	return nil, nil
 }
 
+func (m *mockAPIStore) ListWorkflowsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.Workflow, error) {
+	return nil, nil
+}
+
 func (m *mockAPIStore) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error {
 	if m.updateWorkflowFn != nil {
 		return m.updateWorkflowFn(ctx, w)

@@ -119,6 +119,7 @@ type WorkflowStore interface {
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
+	ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
 	DeleteWorkflow(ctx context.Context, id string) error
 	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error

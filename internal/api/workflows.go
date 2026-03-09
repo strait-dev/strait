@@ -44,6 +44,7 @@ type createWorkflowRequest struct {
 	Name              string                `json:"name" validate:"required"`
 	Slug              string                `json:"slug" validate:"required"`
 	Description       string                `json:"description,omitempty"`
+	Tags              map[string]string     `json:"tags,omitempty"`
 	Enabled           *bool                 `json:"enabled,omitempty"`
 	TimeoutSecs       int                   `json:"timeout_secs,omitempty"`
 	MaxConcurrentRuns int                   `json:"max_concurrent_runs,omitempty"`
@@ -58,6 +59,7 @@ type updateWorkflowRequest struct {
 	Name              *string                `json:"name,omitempty"`
 	Slug              *string                `json:"slug,omitempty"`
 	Description       *string                `json:"description,omitempty"`
+	Tags              *map[string]string     `json:"tags,omitempty"`
 	Enabled           *bool                  `json:"enabled,omitempty"`
 	TimeoutSecs       *int                   `json:"timeout_secs,omitempty"`
 	MaxConcurrentRuns *int                   `json:"max_concurrent_runs,omitempty"`
@@ -113,11 +115,19 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		enabled = *req.Enabled
 	}
 
+	if len(req.Tags) > 0 {
+		if err := validateTags(req.Tags); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	wf := &domain.Workflow{
 		ProjectID:         req.ProjectID,
 		Name:              req.Name,
 		Slug:              req.Slug,
 		Description:       req.Description,
+		Tags:              req.Tags,
 		Enabled:           enabled,
 		TimeoutSecs:       req.TimeoutSecs,
 		MaxConcurrentRuns: req.MaxConcurrentRuns,
@@ -198,9 +208,17 @@ func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
+	query := r.URL.Query()
+	projectID := query.Get("project_id")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	tagKey := query.Get("tag_key")
+	tagValue := query.Get("tag_value")
+	if tagValue != "" && tagKey == "" {
+		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
 		return
 	}
 
@@ -210,7 +228,12 @@ func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workflows, err := s.store.ListWorkflows(r.Context(), projectID, limit+1, cursor)
+	var workflows []domain.Workflow
+	if tagKey != "" {
+		workflows, err = s.store.ListWorkflowsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
+	} else {
+		workflows, err = s.store.ListWorkflows(r.Context(), projectID, limit+1, cursor)
+	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflows")
 		return
@@ -272,6 +295,13 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SkipIfRunning != nil {
 		wf.SkipIfRunning = *req.SkipIfRunning
+	}
+	if req.Tags != nil {
+		if err := validateTags(*req.Tags); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+		wf.Tags = *req.Tags
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
