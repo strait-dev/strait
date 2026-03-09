@@ -105,6 +105,18 @@ func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun)
 	}
 }
 
+// ReapOnce runs all reaper passes exactly once. Exported for integration tests.
+func (r *Reaper) ReapOnce(ctx context.Context) {
+	r.reapStaleDequeued(ctx)
+	r.reapStale(ctx)
+	r.reapExpired(ctx)
+	r.reapTimedOutWorkflows(ctx)
+	r.reapExpiredApprovals(ctx)
+	r.reapExpiredEventTriggers(ctx)
+	r.reapInconsistentEventTriggers(ctx)
+	r.reapOldWorkflowRuns(ctx)
+}
+
 func (r *Reaper) Run(ctx context.Context) {
 	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
 	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
