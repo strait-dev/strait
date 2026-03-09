@@ -694,6 +694,169 @@ func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.
 	}
 }
 
+func TestCreateRun_IdempotencyConflict_ActiveRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-idem-conflict")
+	key := newID()
+
+	first := baseRun(job, newID())
+	first.IdempotencyKey = key
+	if err := q.CreateRun(ctx, first); err != nil {
+		t.Fatalf("CreateRun(first) error = %v", err)
+	}
+
+	// Second run with same key+job while first is still queued (active) → conflict.
+	second := baseRun(job, newID())
+	second.IdempotencyKey = key
+	err := q.CreateRun(ctx, second)
+	if !errors.Is(err, domain.ErrIdempotencyConflict) {
+		t.Fatalf("CreateRun(second) error = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
+func TestCreateRun_IdempotencyConflict_AllowsAfterTerminal(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-idem-terminal")
+	key := newID()
+
+	first := baseRun(job, newID())
+	first.IdempotencyKey = key
+	if err := q.CreateRun(ctx, first); err != nil {
+		t.Fatalf("CreateRun(first) error = %v", err)
+	}
+
+	// Transition first to terminal state.
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
+		"started_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dequeued) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{}); err != nil {
+		t.Fatalf("UpdateRunStatus(executing) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, first.ID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
+		"finished_at": time.Now().UTC(),
+		"error":       "done",
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(failed) error = %v", err)
+	}
+
+	// Second run with same key should succeed now.
+	second := baseRun(job, newID())
+	second.IdempotencyKey = key
+	if err := q.CreateRun(ctx, second); err != nil {
+		t.Fatalf("CreateRun(second) after terminal error = %v", err)
+	}
+}
+
+func TestIdempotencyIndex_UniquePerJobAndKey(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	jobA := mustCreateJob(t, ctx, q, "project-idem-scope-a")
+	jobB := mustCreateJob(t, ctx, q, "project-idem-scope-b")
+	key := newID()
+
+	runA := baseRun(jobA, newID())
+	runA.IdempotencyKey = key
+	if err := q.CreateRun(ctx, runA); err != nil {
+		t.Fatalf("CreateRun(jobA) error = %v", err)
+	}
+
+	// Same key on different job → should succeed.
+	runB := baseRun(jobB, newID())
+	runB.IdempotencyKey = key
+	if err := q.CreateRun(ctx, runB); err != nil {
+		t.Fatalf("CreateRun(jobB) error = %v, want nil (different job)", err)
+	}
+
+	// Same key on same job → conflict.
+	runA2 := baseRun(jobA, newID())
+	runA2.IdempotencyKey = key
+	err := q.CreateRun(ctx, runA2)
+	if !errors.Is(err, domain.ErrIdempotencyConflict) {
+		t.Fatalf("CreateRun(jobA duplicate) error = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
+func TestIdempotencyIndex_NullKeyAllowsDuplicates(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-idem-null")
+
+	// Two runs with empty key (stored as NULL) on same job → both succeed.
+	run1 := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run1); err != nil {
+		t.Fatalf("CreateRun(run1) error = %v", err)
+	}
+	run2 := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run2); err != nil {
+		t.Fatalf("CreateRun(run2) error = %v", err)
+	}
+}
+
+func TestIdempotencyIndex_AllTerminalStatusesAllowReuse(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	terminalStatuses := []struct {
+		name   string
+		status domain.RunStatus
+	}{
+		{"failed", domain.StatusFailed},
+		{"completed", domain.StatusCompleted},
+		{"timed_out", domain.StatusTimedOut},
+		{"canceled", domain.StatusCanceled},
+	}
+
+	for _, tt := range terminalStatuses {
+		t.Run(tt.name, func(t *testing.T) {
+			mustClean(t, ctx)
+			job := mustCreateJob(t, ctx, q, "project-idem-"+tt.name)
+			key := newID()
+
+			run := baseRun(job, newID())
+			run.IdempotencyKey = key
+			if err := q.CreateRun(ctx, run); err != nil {
+				t.Fatalf("CreateRun error = %v", err)
+			}
+
+			// Move through FSM to terminal.
+			if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
+				"started_at": time.Now().UTC(),
+			}); err != nil {
+				t.Fatalf("dequeued error = %v", err)
+			}
+			if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{}); err != nil {
+				t.Fatalf("executing error = %v", err)
+			}
+			if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, tt.status, map[string]any{
+				"finished_at": time.Now().UTC(),
+				"error":       "test",
+			}); err != nil {
+				t.Fatalf("terminal error = %v", err)
+			}
+
+			// New run with same key should succeed.
+			run2 := baseRun(job, newID())
+			run2.IdempotencyKey = key
+			if err := q.CreateRun(ctx, run2); err != nil {
+				t.Fatalf("CreateRun after %s error = %v", tt.name, err)
+			}
+		})
+	}
+}
+
 func TestListRunsByJob(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -616,8 +616,10 @@ func TestE2E_ReplayRun(t *testing.T) {
 	if asString(t, replay, "status") != string(domain.StatusQueued) {
 		t.Fatalf("expected replay status queued, got %s", asString(t, replay, "status"))
 	}
-	if asString(t, replay, "idempotency_key") != idempotencyKey {
-		t.Fatalf("expected replay idempotency key %q, got %q", idempotencyKey, asString(t, replay, "idempotency_key"))
+	// Replays do NOT copy the original idempotency key to avoid conflicts
+	// with active runs sharing the same key.
+	if replayKey, ok := replay["idempotency_key"].(string); ok && replayKey != "" {
+		t.Fatalf("expected replay idempotency key to be empty, got %q", replayKey)
 	}
 
 	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
@@ -1170,5 +1172,152 @@ func TestE2E_TagFilteringWorkflows(t *testing.T) {
 	filtered := mustDecodeList(t, fw)
 	if len(filtered) != 1 {
 		t.Fatalf("expected 1 filtered workflow, got %d", len(filtered))
+	}
+}
+
+// ── Idempotency E2E tests ──────────────────────────────────────────────
+
+func TestE2E_IdempotencyKeyHitReturnsOriginal(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-idem-hit-" + newID()
+	job := createJob(t, projectID, "IdemHit", "idem-hit-"+newID())
+	jobID := asString(t, job, "id")
+	key := "idem-" + newID()
+
+	first := triggerJob(t, jobID, `{"payload":{"x":1}}`, key)
+	second := triggerJob(t, jobID, `{"payload":{"x":2}}`, key)
+
+	if asString(t, first, "id") != asString(t, second, "id") {
+		t.Fatalf("expected same run ID, got %s vs %s", asString(t, first, "id"), asString(t, second, "id"))
+	}
+
+	// Only 1 run should exist.
+	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if lw.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d", lw.Code)
+	}
+	runs := mustDecodeList(t, lw)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+}
+
+func TestE2E_IdempotencyKeyPerJobScoping(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-idem-scope-" + newID()
+	jobA := createJob(t, projectID, "IdemA", "idem-a-"+newID())
+	jobB := createJob(t, projectID, "IdemB", "idem-b-"+newID())
+	key := "idem-shared-" + newID()
+
+	runA := triggerJob(t, asString(t, jobA, "id"), `{"payload":{}}`, key)
+	runB := triggerJob(t, asString(t, jobB, "id"), `{"payload":{}}`, key)
+
+	if asString(t, runA, "id") == asString(t, runB, "id") {
+		t.Fatalf("expected different run IDs for different jobs, both got %s", asString(t, runA, "id"))
+	}
+}
+
+func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
+	// After a run reaches terminal status, both the DB partial unique index
+	// and the app-level GetRunByIdempotencyKey query (with status filter)
+	// allow key reuse. A new run should be created with the same key.
+	mustClean(t)
+
+	projectID := "proj-idem-reuse-" + newID()
+	job := createJob(t, projectID, "IdemReuse", "idem-reuse-"+newID())
+	jobID := asString(t, job, "id")
+	key := "idem-" + newID()
+
+	first := triggerJob(t, jobID, `{"payload":{}}`, key)
+	firstID := asString(t, first, "id")
+
+	// Transition to terminal.
+	if err := testStore.UpdateRunStatus(context.Background(), firstID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
+		"started_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("dequeued: %v", err)
+	}
+	if err := testStore.UpdateRunStatus(context.Background(), firstID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{}); err != nil {
+		t.Fatalf("executing: %v", err)
+	}
+	if err := testStore.UpdateRunStatus(context.Background(), firstID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("completed: %v", err)
+	}
+
+	// Same key should create a NEW run since the first is terminal.
+	second := triggerJob(t, jobID, `{"payload":{}}`, key)
+	secondID := asString(t, second, "id")
+	if secondID == firstID {
+		t.Fatalf("expected new run ID after terminal, got same %s", firstID)
+	}
+
+	// Verify 2 runs exist.
+	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	if lw.Code != http.StatusOK {
+		t.Fatalf("list runs status = %d", lw.Code)
+	}
+	runs := mustDecodeList(t, lw)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs after key reuse, got %d", len(runs))
+	}
+}
+
+func TestE2E_IdempotencyKeyTooLong(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-idem-long-" + newID()
+	job := createJob(t, projectID, "IdemLong", "idem-long-"+newID())
+	jobID := asString(t, job, "id")
+
+	longKey := strings.Repeat("x", 257)
+	req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{"payload":{}}`)
+	req.Header.Set("X-Idempotency-Key", longKey)
+	w := httptest.NewRecorder()
+	testServer.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for long key, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestE2E_IdempotencyBulkPerItem(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-idem-bulk-" + newID()
+	job := createJob(t, projectID, "IdemBulk", "idem-bulk-"+newID())
+	jobID := asString(t, job, "id")
+
+	// First: trigger one item with a known key.
+	keyA := "bulk-key-a-" + newID()
+	triggerJob(t, jobID, `{"payload":{"item":"a"}}`, keyA)
+
+	// Bulk trigger: first item has same key (should hit), second is new.
+	keyB := "bulk-key-b-" + newID()
+	body := fmt.Sprintf(`{"items":[{"payload":{},"idempotency_key":"%s"},{"payload":{},"idempotency_key":"%s"}]}`, keyA, keyB)
+	w := doRequest(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger/bulk", body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("bulk trigger status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var bulkResp struct {
+		Results []map[string]any `json:"results"`
+		Total   int              `json:"total"`
+		Created int              `json:"created"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&bulkResp); err != nil {
+		t.Fatalf("decode bulk response: %v", err)
+	}
+	if len(bulkResp.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(bulkResp.Results))
+	}
+	// Both should have IDs.
+	for i, r := range bulkResp.Results {
+		if _, ok := r["id"].(string); !ok || r["id"] == "" {
+			t.Fatalf("result[%d] missing id: %v", i, r)
+		}
 	}
 }

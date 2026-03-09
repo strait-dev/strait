@@ -1156,8 +1156,10 @@ func TestHandleReplayRun_Success(t *testing.T) {
 	if string(enqueued.Payload) != string(originalRun.Payload) {
 		t.Fatalf("expected payload %s, got %s", string(originalRun.Payload), string(enqueued.Payload))
 	}
-	if enqueued.IdempotencyKey != originalRun.IdempotencyKey {
-		t.Fatalf("expected idempotency key %q, got %q", originalRun.IdempotencyKey, enqueued.IdempotencyKey)
+	// Replays should NOT carry the original idempotency key to avoid
+	// conflicts with active runs sharing the same key.
+	if enqueued.IdempotencyKey != "" {
+		t.Fatalf("expected empty idempotency key on replay, got %q", enqueued.IdempotencyKey)
 	}
 }
 

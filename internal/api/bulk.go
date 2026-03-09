@@ -21,15 +21,17 @@ type BulkTriggerRequest struct {
 }
 
 type BulkTriggerItem struct {
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
-	Priority    int             `json:"priority,omitempty"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	ScheduledAt    *time.Time      `json:"scheduled_at,omitempty"`
+	Priority       int             `json:"priority,omitempty"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
 }
 
 type BulkTriggerResult struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	RunToken string `json:"run_token"`
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	RunToken       string `json:"run_token"`
+	IdempotencyHit bool   `json:"idempotency_hit"`
 }
 
 type BulkTriggerResponse struct {
@@ -102,17 +104,48 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, item := range req.Items {
+		itemIdx := len(results)
+
 		if s.config.FFPayloadValidation {
 			if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
-				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", created, err))
+				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
 				return
 			}
 		}
 
 		payload, _, payloadErr := canonicalizePayload(item.Payload)
 		if payloadErr != nil {
-			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", created, payloadErr))
+			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", itemIdx, payloadErr))
 			return
+		}
+
+		// Per-item idempotency check.
+		if item.IdempotencyKey != "" {
+			if len(item.IdempotencyKey) > maxIdempotencyKeyLength {
+				respondError(w, r, http.StatusBadRequest,
+					fmt.Sprintf("idempotency key for item %d must be %d characters or fewer", itemIdx, maxIdempotencyKeyLength))
+				return
+			}
+
+			existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+			if idempErr != nil {
+				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key for item %d", itemIdx))
+				return
+			}
+			if existingRun != nil {
+				slog.Info("idempotency hit",
+					"job_id", job.ID,
+					"idempotency_key", item.IdempotencyKey,
+					"existing_run_id", existingRun.ID,
+					"existing_run_status", existingRun.Status,
+					"item_index", itemIdx)
+				results = append(results, BulkTriggerResult{
+					ID:             existingRun.ID,
+					Status:         string(existingRun.Status),
+					IdempotencyHit: true,
+				})
+				continue
+			}
 		}
 
 		if s.config.FFProjectQuotas && projectQuota != nil {
@@ -163,9 +196,10 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			}
 			if existingRun != nil {
 				results = append(results, BulkTriggerResult{
-					ID:       existingRun.ID,
-					Status:   string(existingRun.Status),
-					RunToken: "",
+					ID:             existingRun.ID,
+					Status:         string(existingRun.Status),
+					RunToken:       "",
+					IdempotencyHit: false,
 				})
 				continue
 			}
@@ -188,7 +222,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to sign run token for item %d", created))
+			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to sign run token for item %d", itemIdx))
 			return
 		}
 
@@ -212,28 +246,60 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		run := &domain.JobRun{
-			ID:          runID,
-			JobID:       job.ID,
-			ProjectID:   job.ProjectID,
-			Status:      status,
-			Attempt:     1,
-			Payload:     payload,
-			TriggeredBy: domain.TriggerManual,
-			ScheduledAt: scheduledAt,
-			Priority:    item.Priority,
-			JobVersion:  job.Version,
-			ExpiresAt:   &expiresAt,
+			ID:             runID,
+			JobID:          job.ID,
+			ProjectID:      job.ProjectID,
+			Status:         status,
+			Attempt:        1,
+			Payload:        payload,
+			TriggeredBy:    domain.TriggerManual,
+			ScheduledAt:    scheduledAt,
+			Priority:       item.Priority,
+			IdempotencyKey: item.IdempotencyKey,
+			JobVersion:     job.Version,
+			ExpiresAt:      &expiresAt,
 		}
 
 		if err := s.queue.Enqueue(r.Context(), run); err != nil {
-			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", created))
+			// Handle race: concurrent bulk request with the same idempotency key.
+			if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
+				existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+				if retryErr != nil {
+					slog.Error("idempotency conflict retry failed",
+						"job_id", job.ID,
+						"idempotency_key", item.IdempotencyKey,
+						"item_index", itemIdx,
+						"error", retryErr)
+					respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
+					return
+				}
+				if existingRun != nil {
+					slog.Warn("idempotency conflict resolved",
+						"job_id", job.ID,
+						"idempotency_key", item.IdempotencyKey,
+						"winning_run_id", existingRun.ID,
+						"item_index", itemIdx)
+					results = append(results, BulkTriggerResult{
+						ID:             existingRun.ID,
+						Status:         string(existingRun.Status),
+						IdempotencyHit: true,
+					})
+					continue
+				}
+				slog.Error("idempotency conflict retry returned nil",
+					"job_id", job.ID,
+					"idempotency_key", item.IdempotencyKey,
+					"item_index", itemIdx)
+			}
+			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", itemIdx))
 			return
 		}
 
 		results = append(results, BulkTriggerResult{
-			ID:       run.ID,
-			Status:   string(run.Status),
-			RunToken: tokenString,
+			ID:             run.ID,
+			Status:         string(run.Status),
+			RunToken:       tokenString,
+			IdempotencyHit: false,
 		})
 		created++
 	}

@@ -230,19 +230,29 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	replayRun := &domain.JobRun{
-		JobID:          originalRun.JobID,
-		ProjectID:      originalRun.ProjectID,
-		Attempt:        1,
-		Payload:        payload,
-		TriggeredBy:    domain.TriggerManual,
-		Priority:       originalRun.Priority,
-		IdempotencyKey: originalRun.IdempotencyKey,
-		JobVersion:     originalRun.JobVersion,
-		ExpiresAt:      &expiresAt,
-		DebugMode:      debugMode,
+		JobID:       originalRun.JobID,
+		ProjectID:   originalRun.ProjectID,
+		Attempt:     1,
+		Payload:     payload,
+		TriggeredBy: domain.TriggerManual,
+		Priority:    originalRun.Priority,
+		// Deliberately do NOT copy IdempotencyKey: replays are independent
+		// operations. Copying the key would conflict with any active run
+		// that shares the same key (the DB unique partial index only covers
+		// non-terminal statuses).
+		JobVersion: originalRun.JobVersion,
+		ExpiresAt:  &expiresAt,
+		DebugMode:  debugMode,
 	}
 
 	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			slog.Warn("replay idempotency conflict",
+				"original_run_id", runID,
+				"replay_run_id", replayRun.ID)
+			respondError(w, r, http.StatusConflict, "idempotency key conflict: a run with this key is already active")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to enqueue replay run")
 		return
 	}
