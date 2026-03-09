@@ -8,6 +8,11 @@ import (
 // Sentinel errors for common domain conditions.
 var (
 	ErrJobDisabled = errors.New("job is disabled")
+
+	// ErrIdempotencyConflict is returned when an insert fails due to the
+	// idempotency unique index constraint (idx_runs_idempotency). Callers
+	// should retry by looking up the existing run via GetRunByIdempotencyKey.
+	ErrIdempotencyConflict = errors.New("idempotency key conflict")
 )
 
 // TransitionError is returned when an FSM state transition is invalid.

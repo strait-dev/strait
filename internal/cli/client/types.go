@@ -40,15 +40,18 @@ type TriggerJobRequest struct {
 }
 
 type TriggerJobResponse struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	RunToken string `json:"run_token,omitempty"`
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	RunToken       string `json:"run_token,omitempty"`
+	PayloadHash    string `json:"payload_hash,omitempty"`
+	IdempotencyHit bool   `json:"idempotency_hit"`
 }
 
 type BulkTriggerItem struct {
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
-	Priority    int             `json:"priority,omitempty"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	ScheduledAt    *time.Time      `json:"scheduled_at,omitempty"`
+	Priority       int             `json:"priority,omitempty"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
 }
 
 type BulkTriggerRequest struct {
@@ -56,9 +59,10 @@ type BulkTriggerRequest struct {
 }
 
 type BulkTriggerResult struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	RunToken string `json:"run_token,omitempty"`
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	RunToken       string `json:"run_token,omitempty"`
+	IdempotencyHit bool   `json:"idempotency_hit"`
 }
 
 type BulkTriggerResponse struct {

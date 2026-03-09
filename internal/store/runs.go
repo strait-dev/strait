@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
@@ -83,6 +84,10 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		run.LineageDepth,
 	).Scan(&run.CreatedAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_runs_idempotency" {
+			return domain.ErrIdempotencyConflict
+		}
 		return fmt.Errorf("create run: %w", err)
 	}
 
@@ -115,12 +120,17 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunByIdempotencyKey")
 	defer span.End()
 
+	// Only return runs in non-terminal statuses to match the DB partial
+	// unique index (idx_runs_idempotency). This allows idempotency key
+	// reuse after a run reaches a terminal state.
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth
 		FROM job_runs
-		WHERE job_id = $1 AND idempotency_key = $2
+		WHERE job_id = $1
+		  AND idempotency_key = $2
+		  AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
 		ORDER BY created_at DESC
 		LIMIT 1`
 

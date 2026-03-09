@@ -231,6 +231,13 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			slog.Warn("spawn idempotency conflict",
+				"parent_run_id", parentRunID,
+				"child_run_id", run.ID)
+			respondError(w, r, http.StatusConflict, "idempotency key conflict: a run with this key is already active")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to enqueue child run")
 		return
 	}
@@ -302,6 +309,13 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(r.Context(), continuationRun); err != nil {
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			slog.Warn("continuation idempotency conflict",
+				"parent_run_id", parentRunID,
+				"continuation_run_id", continuationRun.ID)
+			respondError(w, r, http.StatusConflict, "idempotency key conflict: a run with this key is already active")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to enqueue continuation run")
 		return
 	}
