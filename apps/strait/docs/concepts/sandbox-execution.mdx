@@ -1,0 +1,78 @@
+---
+title: "Sandbox Execution"
+description: "Execute code in secure, isolated sandbox environments"
+---
+
+# Sandbox Execution
+
+Strait supports two execution modes for jobs:
+
+- **HTTP** (default): Dispatches work to an external HTTP endpoint
+- **Sandbox**: Executes code directly in an isolated sandbox environment powered by [Forge](/apps/forge/)
+
+## How It Works
+
+When a sandbox job runs, the orchestrator sends the code to the Forge service via gRPC. Forge executes the code in an isolated BEAM process with resource limits and streams execution events (logs, checkpoints, results) back to Strait in real time.
+
+```
+Strait                         Forge
+  │                              │
+  │── gRPC Execute(code) ───────▶│
+  │                              ├── spawn supervised process
+  │◀── stream log ───────────────│    ├── run python3 code
+  │◀── stream log ───────────────│    ├── capture stdout
+  │◀── stream result ────────────│    └── enforce timeout
+  │                              │
+```
+
+## Creating a Sandbox Job
+
+Set `execution_mode` to `"sandbox"` and provide the code and language:
+
+```json
+{
+  "name": "Data Transform",
+  "slug": "data-transform",
+  "execution_mode": "sandbox",
+  "sandbox_language": "python",
+  "sandbox_code": "import json, os\npayload = json.loads(os.environ.get('FORGE_PAYLOAD', '{}'))\nresult = {'transformed': payload.get('input', '') .upper()}\nprint(json.dumps(result))",
+  "max_attempts": 3,
+  "timeout_secs": 30
+}
+```
+
+## Supported Languages
+
+| Language | Status |
+|----------|--------|
+| Python | ✅ Supported |
+| JavaScript | 🔜 Planned |
+
+## Resource Limits
+
+Each sandbox execution runs with configurable limits:
+
+- **Timeout**: Maximum execution time (from job `timeout_secs`)
+- **Memory**: 256MB default per execution
+- **Network**: Disabled by default for security
+
+## How It Integrates
+
+Sandbox jobs work with all existing Strait features:
+
+- **Retries**: Same retry logic (exponential backoff, smart retry) applies
+- **Workflows**: Sandbox jobs can be steps in workflow DAGs
+- **Circuit breaker**: Forge connection health is tracked
+- **Events**: Execution logs are streamed as run events
+- **Checkpoints**: Sandbox code can persist intermediate state
+
+## Comparison
+
+| Feature | HTTP Mode | Sandbox Mode |
+|---------|-----------|--------------|
+| Infrastructure | You host the endpoint | Forge handles it |
+| Languages | Any (HTTP API) | Python (more coming) |
+| Latency | Network roundtrip | gRPC stream |
+| Code deployment | You deploy | Inline in job definition |
+| Isolation | Your responsibility | BEAM process isolation |
+| Best for | Existing services | Quick logic, AI agents, transforms |

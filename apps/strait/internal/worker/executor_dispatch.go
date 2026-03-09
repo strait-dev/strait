@@ -169,7 +169,13 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, execTrace, err := e.tracedDispatch(execCtx, job, run)
+	var result json.RawMessage
+	var execTrace *domain.ExecutionTrace
+	if job.ExecutionMode == "sandbox" {
+		result, execTrace, err = e.dispatchSandbox(execCtx, job, run)
+	} else {
+		result, execTrace, err = e.tracedDispatch(execCtx, job, run)
+	}
 	if execTrace != nil {
 		execTrace.TotalMs = durationMillisecondsAtLeastOne(time.Since(executeStart))
 		queueWait := max(time.Duration(0), executeStart.Sub(run.CreatedAt))

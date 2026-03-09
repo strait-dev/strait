@@ -52,6 +52,9 @@ type Job struct {
 	Tags                map[string]string `json:"tags,omitempty"`
 	EndpointURL         string            `json:"endpoint_url"`
 	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
+	ExecutionMode       string            `json:"execution_mode"`
+	SandboxCode         string            `json:"sandbox_code,omitempty"`
+	SandboxLanguage     string            `json:"sandbox_language,omitempty"`
 	MaxAttempts         int               `json:"max_attempts"`
 	TimeoutSecs         int               `json:"timeout_secs"`
 	MaxConcurrency      int               `json:"max_concurrency,omitempty"`

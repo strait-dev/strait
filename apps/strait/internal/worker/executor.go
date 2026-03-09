@@ -13,6 +13,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
+	"strait/internal/sandbox"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
@@ -77,6 +78,7 @@ type Executor struct {
 	webhookClient          *http.Client
 	webhookMaxRetry        int
 	webhookDispatchTimeout time.Duration
+	sandboxClient          *sandbox.Client
 }
 
 // ExecutorConfig holds configuration for the Executor.
@@ -105,6 +107,7 @@ type ExecutorConfig struct {
 	WebhookIdleConnTimeout  time.Duration
 	WebhookDispatchTimeout  time.Duration
 	WebhookMaxAttempts      int
+	SandboxClient           *sandbox.Client
 }
 
 const (
@@ -184,6 +187,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		webhookClient:          whClient,
 		webhookMaxRetry:        whMaxAttempts,
 		webhookDispatchTimeout: whDispatchTimeout,
+		sandboxClient:          cfg.SandboxClient,
 	}
 }
 
