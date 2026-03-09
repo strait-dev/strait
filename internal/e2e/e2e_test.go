@@ -859,7 +859,7 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-api-key-" + newID()
-	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read"]}`, projectID)
+	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read","stats:read"]}`, projectID)
 	w := doRequest(t, http.MethodPost, "/v1/api-keys/", createBody)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", w.Code, w.Body.String())
