@@ -7522,3 +7522,129 @@ func TestListWorkflowsByTag_KeyOnly(t *testing.T) {
 		t.Fatalf("expected 1 workflow, got %d", len(workflows))
 	}
 }
+
+// --- Tag query integration tests ---
+
+func TestListWorkflowsByTag(t *testing.T) {
+	q := newTestQueries(t)
+	ctx := context.Background()
+
+	projectID := "proj-wftag-" + newTestID()
+
+	// Create two workflows with different tags.
+	wf1 := &domain.Workflow{ProjectID: projectID, Name: "WF Tagged", Slug: "wf-tagged-" + newTestID(), Tags: map[string]string{"env": "prod"}, Enabled: true}
+	if err := q.CreateWorkflow(ctx, wf1); err != nil {
+		t.Fatalf("create workflow 1: %v", err)
+	}
+	wf2 := &domain.Workflow{ProjectID: projectID, Name: "WF Other", Slug: "wf-other-" + newTestID(), Tags: map[string]string{"env": "staging"}, Enabled: true}
+	if err := q.CreateWorkflow(ctx, wf2); err != nil {
+		t.Fatalf("create workflow 2: %v", err)
+	}
+
+	workflows, err := q.ListWorkflowsByTag(ctx, projectID, "env", "prod", 100, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowsByTag: %v", err)
+	}
+	if len(workflows) != 1 {
+		t.Fatalf("expected 1 tagged workflow, got %d", len(workflows))
+	}
+	if workflows[0].ID != wf1.ID {
+		t.Fatalf("expected workflow %s, got %s", wf1.ID, workflows[0].ID)
+	}
+}
+
+func TestListRunsByTag(t *testing.T) {
+	q := newTestQueries(t)
+	ctx := context.Background()
+	pq := newTestQueue(t)
+
+	projectID := "proj-runtag-" + newTestID()
+	job := createTestJob(t, q, projectID, "run-tag-"+newTestID())
+
+	// Enqueue a run with tags.
+	run := &domain.JobRun{
+		JobID:      job.ID,
+		ProjectID:  projectID,
+		Tags:       map[string]string{"team": "infra"},
+		Status:     domain.StatusQueued,
+		Attempt:    1,
+		TriggeredBy: domain.TriggerManual,
+		JobVersion: job.Version,
+	}
+	if err := pq.Enqueue(ctx, run); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// Enqueue a run without matching tags.
+	run2 := &domain.JobRun{
+		JobID:       job.ID,
+		ProjectID:   projectID,
+		Tags:        map[string]string{"team": "platform"},
+		Status:      domain.StatusQueued,
+		Attempt:     1,
+		TriggeredBy: domain.TriggerManual,
+		JobVersion:  job.Version,
+	}
+	if err := pq.Enqueue(ctx, run2); err != nil {
+		t.Fatalf("enqueue run2: %v", err)
+	}
+
+	runs, err := q.ListRunsByTag(ctx, projectID, "team", "infra", 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByTag: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 tagged run, got %d", len(runs))
+	}
+	if runs[0].ID != run.ID {
+		t.Fatalf("expected run %s, got %s", run.ID, runs[0].ID)
+	}
+}
+
+func TestListWorkflowRunsByTag(t *testing.T) {
+	q := newTestQueries(t)
+	ctx := context.Background()
+
+	projectID := "proj-wfruntag-" + newTestID()
+	wf := &domain.Workflow{ProjectID: projectID, Name: "WF RunTag", Slug: "wf-runtag-" + newTestID(), Tags: map[string]string{"env": "staging"}, Enabled: true}
+	if err := q.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	// Create workflow run with tags.
+	wfRun := &domain.WorkflowRun{
+		WorkflowID:      wf.ID,
+		ProjectID:       projectID,
+		Tags:            map[string]string{"release": "v2"},
+		Status:          domain.WfStatusPending,
+		TriggeredBy:     domain.TriggerManual,
+		WorkflowVersion: wf.Version,
+	}
+	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
+		t.Fatalf("create workflow run: %v", err)
+	}
+
+	// Create workflow run without matching tag.
+	wfRun2 := &domain.WorkflowRun{
+		WorkflowID:      wf.ID,
+		ProjectID:       projectID,
+		Tags:            map[string]string{"release": "v1"},
+		Status:          domain.WfStatusPending,
+		TriggeredBy:     domain.TriggerManual,
+		WorkflowVersion: wf.Version,
+	}
+	if err := q.CreateWorkflowRun(ctx, wfRun2); err != nil {
+		t.Fatalf("create workflow run 2: %v", err)
+	}
+
+	runs, err := q.ListWorkflowRunsByTag(ctx, projectID, "release", "v2", 100, nil)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByTag: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 tagged workflow run, got %d", len(runs))
+	}
+	if runs[0].ID != wfRun.ID {
+		t.Fatalf("expected run %s, got %s", wfRun.ID, runs[0].ID)
+	}
+}
