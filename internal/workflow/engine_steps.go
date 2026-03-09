@@ -179,10 +179,6 @@ func (e *WorkflowEngine) startWaitForEventStep(
 		return fmt.Errorf("event_key is empty for step %s", step.StepRef)
 	}
 
-	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
-		return fmt.Errorf("set wait_for_event step waiting: %w", err)
-	}
-
 	timeoutSecs := step.EventTimeoutSecs
 	if timeoutSecs <= 0 {
 		timeoutSecs = domain.DefaultEventTimeoutSecs
@@ -203,11 +199,18 @@ func (e *WorkflowEngine) startWaitForEventStep(
 		NotifyURL:         step.EventNotifyURL,
 	}
 
+	// Create the trigger BEFORE updating step status. If trigger creation fails
+	// (e.g., key conflict), the step stays in its current status rather than
+	// being stuck in 'waiting' with no trigger row.
 	if err := e.store.CreateEventTrigger(ctx, trigger); err != nil {
 		if errors.Is(err, store.ErrEventKeyConflict) {
 			return fmt.Errorf("event key %q already in use — use a unique key pattern like {workflow_id}:{run_id}:{step_ref}: %w", renderedKey, err)
 		}
 		return fmt.Errorf("create event trigger for step %s: %w", step.StepRef, err)
+	}
+
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("set wait_for_event step waiting: %w", err)
 	}
 
 	if e.onTriggerCreate != nil {
@@ -242,10 +245,6 @@ func (e *WorkflowEngine) startSleepStep(
 	}
 	expiresAt := now.Add(time.Duration(durationSecs) * time.Second)
 
-	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
-		return fmt.Errorf("set sleep step waiting: %w", err)
-	}
-
 	trigger := &domain.EventTrigger{
 		ID:                fmt.Sprintf("slp:%s", stepRun.ID),
 		EventKey:          fmt.Sprintf("sleep:%s:%s", wfRun.ID, step.StepRef),
@@ -260,8 +259,15 @@ func (e *WorkflowEngine) startSleepStep(
 		ExpiresAt:         expiresAt,
 	}
 
+	// Create the trigger BEFORE updating step status. If trigger creation fails,
+	// the step stays in its current status rather than being stuck in 'waiting'
+	// with no trigger row.
 	if err := e.store.CreateEventTrigger(ctx, trigger); err != nil {
 		return fmt.Errorf("create sleep trigger for step %s: %w", step.StepRef, err)
+	}
+
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("set sleep step waiting: %w", err)
 	}
 
 	if e.onTriggerCreate != nil {
