@@ -28,6 +28,8 @@ tags:
     description: Queue and system statistics
   - name: Secrets
     description: Job and environment secret management
+  - name: EventTriggers
+    description: External event trigger management for durable waits
   - name: SDK
     description: Endpoints called by job executors using run tokens
 
@@ -1716,6 +1718,119 @@ paths:
       responses:
         '204':
           description: Secret deleted
+
+  /v1/events:
+    get:
+      tags:
+        - EventTriggers
+      summary: List event triggers for a project
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [waiting, received, timed_out, canceled]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated list of event triggers
+
+  /v1/events/{eventKey}:
+    get:
+      tags:
+        - EventTriggers
+      summary: Get event trigger by key
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event trigger details
+        '404':
+          description: Event trigger not found
+
+  /v1/events/{eventKey}/send:
+    post:
+      tags:
+        - EventTriggers
+      summary: Send an event to a waiting trigger
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload:
+                  type: object
+                  nullable: true
+      responses:
+        '200':
+          description: Event received
+        '404':
+          description: No waiting trigger found
+        '409':
+          description: Trigger already received or timed out
+
+  /sdk/v1/runs/{runID}/wait-for-event:
+    post:
+      tags:
+        - SDK
+      summary: Pause a run to wait for an external event
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_key]
+              properties:
+                event_key:
+                  type: string
+                timeout_sec:
+                  type: integer
+                  default: 3600
+      responses:
+        '200':
+          description: Run paused, waiting for event
+        '404':
+          description: Feature not enabled or run not found
+        '409':
+          description: Run not executing or key conflict
 
   /sdk/v1/runs/{runID}/log:
     post:
