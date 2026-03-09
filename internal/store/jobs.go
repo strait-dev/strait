@@ -298,7 +298,19 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJob")
 	defer span.End()
 
-	// Guard: refuse to delete if there are non-terminal runs.
+	// If the underlying connection supports transactions, wrap the whole
+	// delete in one so a crash mid-way doesn't leave orphaned data.
+	if txb, ok := q.db.(TxBeginner); ok {
+		return WithTx(ctx, txb, func(tx *Queries) error {
+			return tx.deleteJobTx(ctx, id)
+		})
+	}
+	// Already inside a transaction — execute directly.
+	return q.deleteJobTx(ctx, id)
+}
+
+func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
+	// Lock the job row and check for active runs atomically.
 	var activeCount int
 	err := q.db.QueryRow(ctx,
 		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','delayed','dequeued','executing','waiting')`,
@@ -309,6 +321,16 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 	}
 	if activeCount > 0 {
 		return ErrJobHasActiveRuns
+	}
+
+	// Lock the job row to prevent concurrent enqueues.
+	var exists bool
+	err = q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE id = $1 FOR UPDATE)`, id).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("delete job lock: %w", err)
+	}
+	if !exists {
+		return ErrJobNotFound
 	}
 
 	// Delete related data before removing the job (FK constraints).
