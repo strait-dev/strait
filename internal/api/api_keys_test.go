@@ -282,8 +282,8 @@ func TestGenerateAPIKey_Format(t *testing.T) {
 	if !strings.HasPrefix(key, "strait_") {
 		t.Fatalf("expected key prefix strait_, got %q", key)
 	}
-	if len(key) != 68 {
-		t.Fatalf("expected key length 68, got %d", len(key))
+	if len(key) != 71 {
+		t.Fatalf("expected key length 71, got %d", len(key))
 	}
 }
 
