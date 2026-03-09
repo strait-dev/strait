@@ -207,7 +207,11 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 			}
 		}
 
-		if execCtx.Err() == context.DeadlineExceeded {
+		if ctx.Err() == context.Canceled {
+			// Parent context was canceled (e.g. workflow cancel, shutdown).
+			// Transition through canceling to allow cancel webhook dispatch.
+			e.transitionToCanceling(ctx, job, run)
+		} else if execCtx.Err() == context.DeadlineExceeded {
 			e.handleTimeout(ctx, run, job, policy, execTrace)
 		} else {
 			e.handleFailure(ctx, run, job, policy, err, execTrace)
