@@ -8,10 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"orchestrator/internal/domain"
+
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
 const ctxProjectIDKey contextKey = "project_id"
+const ctxScopesKey contextKey = "scopes"
+const ctxAPIKeyIDKey contextKey = "api_key_id"
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -60,6 +64,8 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		}()
 
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
+		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)
+		ctx = context.WithValue(ctx, ctxAPIKeyIDKey, apiKey.ID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -127,6 +133,35 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			slog.Info("request", attrs...)
 		}
 	})
+}
+
+func scopesFromContext(ctx context.Context) []string {
+	if v, ok := ctx.Value(ctxScopesKey).([]string); ok {
+		return v
+	}
+	return nil
+}
+
+// requireScope returns a middleware that checks whether the authenticated
+// caller has the given scope. Empty scopes or wildcard are treated as full
+// access for backwards compatibility with pre-existing API keys.
+// Requests authenticated via internal secret (no scopes in context) are always allowed.
+func requireScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			scopes := scopesFromContext(r.Context())
+			// nil scopes means internal secret auth (no API key) — allow through
+			if scopes == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !domain.HasScope(scopes, scope) {
+				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+scope)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // apiVersionHeader injects X-API-Version into every response.

@@ -66,6 +66,13 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		req.Scopes = []string{}
 	}
 
+	if len(req.Scopes) > 0 {
+		if err := domain.ValidateScopes(req.Scopes); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
 		t := time.Now().Add(time.Duration(*req.ExpiresIn) * 24 * time.Hour)
