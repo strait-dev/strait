@@ -317,19 +317,19 @@ func (q *Queries) GetResourcePolicies(ctx context.Context, resourceType, resourc
 	return actions, nil
 }
 
-func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) error {
+func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteResourcePolicy")
 	defer span.End()
 
-	query := `DELETE FROM resource_policies WHERE id = $1`
-	tag, err := q.db.Exec(ctx, query, id)
+	query := `DELETE FROM resource_policies WHERE id = $1 RETURNING project_id, user_id`
+	err = q.db.QueryRow(ctx, query, id).Scan(&projectID, &userID)
 	if err != nil {
-		return fmt.Errorf("delete resource policy: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", ErrResourcePolicyNotFound
+		}
+		return "", "", fmt.Errorf("delete resource policy: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrResourcePolicyNotFound
-	}
-	return nil
+	return projectID, userID, nil
 }
 
 func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resourceID string) ([]domain.ResourcePolicy, error) {

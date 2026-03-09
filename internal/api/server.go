@@ -167,7 +167,7 @@ type RBACStore interface {
 	SeedProjectSystemRoles(ctx context.Context, projectID string) error
 	CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error
 	GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error)
-	DeleteResourcePolicy(ctx context.Context, id string) error
+	DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error)
 	ListResourcePolicies(ctx context.Context, resourceType, resourceID string) ([]domain.ResourcePolicy, error)
 }
 

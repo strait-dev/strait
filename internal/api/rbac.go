@@ -303,13 +303,19 @@ func (s *Server) handleListResourcePolicies(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	policyID := chi.URLParam(r, "policyID")
 
-	if err := s.store.DeleteResourcePolicy(r.Context(), policyID); err != nil {
+	projectID, userID, err := s.store.DeleteResourcePolicy(r.Context(), policyID)
+	if err != nil {
 		if errors.Is(err, store.ErrResourcePolicyNotFound) {
 			respondError(w, r, http.StatusNotFound, "resource policy not found")
 			return
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to delete resource policy")
 		return
+	}
+
+	// Invalidate cache for the affected user so revoked access takes effect immediately.
+	if projectID != "" && userID != "" {
+		s.permCache.Invalidate(projectID, userID)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
