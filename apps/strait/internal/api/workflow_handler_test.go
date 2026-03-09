@@ -1958,3 +1958,69 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleRetryCompensation_Success(t *testing.T) {
+	t.Parallel()
+	comp := &mockCompensator{
+		retryFn: func(_ context.Context, _ string) (*workflow.CompensationResult, error) {
+			return &workflow.CompensationResult{
+				Compensated: []string{"undo-a"},
+				Status:      domain.CompensationCompleted,
+			}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+	srv.compensationEngine = comp
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/compensate", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryCompensation_NotFound(t *testing.T) {
+	t.Parallel()
+	comp := &mockCompensator{
+		retryFn: func(_ context.Context, _ string) (*workflow.CompensationResult, error) {
+			return nil, fmt.Errorf("workflow run not found")
+		},
+	}
+	srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+	srv.compensationEngine = comp
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/missing/compensate", ""))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryCompensation_NotRetryable(t *testing.T) {
+	t.Parallel()
+	comp := &mockCompensator{
+		retryFn: func(_ context.Context, _ string) (*workflow.CompensationResult, error) {
+			return nil, fmt.Errorf("compensation status is completed, not retryable")
+		},
+	}
+	srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+	srv.compensationEngine = comp
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/compensate", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryCompensation_NilEngine(t *testing.T) {
+	t.Parallel()
+	srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+	srv.compensationEngine = nil
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/compensate", ""))
+
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", w.Code, w.Body.String())
+	}
+}

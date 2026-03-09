@@ -509,3 +509,151 @@ func TestCompensationResult_StatusFields(t *testing.T) {
 		seen[s] = true
 	}
 }
+
+func TestCancelWorkflowRun_CompensationStepNotFound(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	store := &mockCompensationStore{
+		workflowRun: &domain.WorkflowRun{
+			ID:              "wfr-1",
+			WorkflowID:      "wf-1",
+			ProjectID:       "proj-1",
+			Status:          domain.WfStatusRunning,
+			WorkflowVersion: 1,
+		},
+		steps: []domain.WorkflowStep{
+			// compensate_step_ref points to a nonexistent step
+			{ID: "s1", StepRef: "step-a", JobID: "job-a", CompensateStepRef: "nonexistent-step"},
+		},
+		stepRuns: []domain.WorkflowStepRun{
+			{ID: "sr-1", WorkflowRunID: "wfr-1", StepRef: "step-a", Status: domain.StepCompleted, FinishedAt: &now},
+		},
+	}
+
+	queue := &mockCompQueue{}
+	engine := NewCompensationEngine(store, queue, nil)
+
+	result, err := engine.CancelWorkflowRun(context.Background(), "wfr-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != domain.CompensationFailed {
+		t.Errorf("expected failed status, got %s", result.Status)
+	}
+	if len(result.Failed) != 1 || result.Failed[0] != "nonexistent-step" {
+		t.Errorf("expected nonexistent-step in failed, got %v", result.Failed)
+	}
+}
+
+func TestCancelWorkflowRun_StoreError(t *testing.T) {
+	t.Parallel()
+	store := &mockCompensationStore{} // returns nil for GetWorkflowRun
+	queue := &mockCompQueue{}
+	engine := NewCompensationEngine(store, queue, nil)
+
+	_, err := engine.CancelWorkflowRun(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nil workflow run")
+	}
+}
+
+func TestRetryFailedCompensation_SkipsCompleted(t *testing.T) {
+	t.Parallel()
+	store := &mockCompensationStore{
+		workflowRun: &domain.WorkflowRun{
+			ID:                 "wfr-1",
+			WorkflowID:         "wf-1",
+			ProjectID:          "proj-1",
+			Status:             domain.WfStatusCanceled,
+			WorkflowVersion:    1,
+			CompensationStatus: domain.CompensationPartial,
+		},
+		steps: []domain.WorkflowStep{
+			{ID: "s1", StepRef: "step-a", JobID: "job-a", CompensateStepRef: "undo-a"},
+			{ID: "s2", StepRef: "step-b", JobID: "job-b", CompensateStepRef: "undo-b"},
+			{ID: "s3", StepRef: "undo-a", JobID: "job-undo-a"},
+			{ID: "s4", StepRef: "undo-b", JobID: "job-undo-b"},
+		},
+		stepRuns: []domain.WorkflowStepRun{
+			{ID: "sr-1", WorkflowRunID: "wfr-1", StepRef: "step-a", Status: domain.StepCompleted},
+			{ID: "sr-2", WorkflowRunID: "wfr-1", StepRef: "step-b", Status: domain.StepCompleted},
+			// undo-a already completed — should be skipped
+			{ID: "comp-sr-1", WorkflowRunID: "wfr-1", StepRef: "undo-a", Status: domain.StepCompleted},
+			// undo-b failed — should be retried
+			{ID: "comp-sr-2", WorkflowRunID: "wfr-1", StepRef: "undo-b", Status: domain.StepFailed, Attempt: 1},
+		},
+	}
+
+	queue := &mockCompQueue{}
+	engine := NewCompensationEngine(store, queue, nil)
+
+	result, err := engine.RetryFailedCompensation(context.Background(), "wfr-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// undo-a skipped (already completed), undo-b retried
+	if result.Status != domain.CompensationCompleted {
+		t.Errorf("expected completed, got %s", result.Status)
+	}
+	// Both should appear in compensated
+	if len(result.Compensated) != 2 {
+		t.Errorf("expected 2 compensated (1 skipped + 1 retried), got %d: %v", len(result.Compensated), result.Compensated)
+	}
+	// Only undo-b should have been enqueued
+	if len(queue.enqueuedRuns) != 1 {
+		t.Fatalf("expected 1 enqueued (only the failed one), got %d", len(queue.enqueuedRuns))
+	}
+	if queue.enqueuedRuns[0].JobID != "job-undo-b" {
+		t.Errorf("expected job-undo-b, got %s", queue.enqueuedRuns[0].JobID)
+	}
+}
+
+func TestCancelActiveSteps_MixedStatuses(t *testing.T) {
+	t.Parallel()
+	store := &mockCompensationStore{
+		stepRuns: []domain.WorkflowStepRun{
+			{ID: "sr-1", StepRef: "a", Status: domain.StepCompleted},
+			{ID: "sr-2", StepRef: "b", Status: domain.StepRunning, JobRunID: "run-b"},
+			{ID: "sr-3", StepRef: "c", Status: domain.StepFailed},
+			{ID: "sr-4", StepRef: "d", Status: domain.StepPending},
+		},
+	}
+
+	engine := NewCompensationEngine(store, nil, nil)
+
+	err := engine.cancelActiveSteps(context.Background(), "wfr-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// completed and failed are terminal — should NOT be canceled
+	// running and pending are non-terminal — should be canceled
+	if len(store.canceledSteps) != 2 {
+		t.Errorf("expected 2 canceled steps (running + pending), got %d: %v",
+			len(store.canceledSteps), store.canceledSteps)
+	}
+}
+
+func TestCompensateFailedWorkflow_NilRun(t *testing.T) {
+	t.Parallel()
+	store := &mockCompensationStore{} // returns nil
+	engine := NewCompensationEngine(store, &mockCompQueue{}, nil)
+
+	_, err := engine.CompensateFailedWorkflow(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nil workflow run")
+	}
+}
+
+func TestRetryFailedCompensation_NotFound(t *testing.T) {
+	t.Parallel()
+	store := &mockCompensationStore{} // returns nil
+	engine := NewCompensationEngine(store, &mockCompQueue{}, nil)
+
+	_, err := engine.RetryFailedCompensation(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nil workflow run")
+	}
+}
