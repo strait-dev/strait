@@ -1358,7 +1358,7 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 			UNION ALL
 			SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload, jr.result, jr.metadata, jr.error,
 			       jr.triggered_by, jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
-			       jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth
+			       jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by
 			FROM job_runs jr
 			JOIN lineage l ON jr.continuation_of = l.id
 		)
