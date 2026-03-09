@@ -3,19 +3,19 @@ title: "CDC (Change Data Capture)"
 description: "Real-time database event streaming."
 ---
 
-Change Data Capture (CDC) allows the orchestrator to react to database changes in real-time by streaming the Postgres Write-Ahead Log (WAL).
+Change Data Capture (CDC) allows the strait to react to database changes in real-time by streaming the Postgres Write-Ahead Log (WAL).
 
 ## What is CDC?
 
-CDC is a design pattern that captures every change (insert, update, delete) made to a database and streams those changes to downstream consumers. In the orchestrator, CDC is used to power real-time updates, audit trails, and reactive system behaviors.
+CDC is a design pattern that captures every change (insert, update, delete) made to a database and streams those changes to downstream consumers. In the strait, CDC is used to power real-time updates, audit trails, and reactive system behaviors.
 
 ## Sequin Integration
 
-The orchestrator integrates with [Sequin Stream](https://sequinstream.com) to implement CDC.
+The strait integrates with [Sequin Stream](https://sequinstream.com) to implement CDC.
 
 1. **WAL Streaming**: Sequin connects to the Postgres database and monitors the WAL via logical replication.
 2. **Buffering**: Sequin buffers these changes and exposes them via a high-performance HTTP API.
-3. **Polling**: The orchestrator's CDC consumer (defined in `internal/cdc/`) polls Sequin for batches of change events.
+3. **Polling**: The strait's CDC consumer (defined in `internal/cdc/`) polls Sequin for batches of change events.
 
 ## Monitored Tables
 

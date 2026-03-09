@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/config"
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
+	"strait/internal/config"
+	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 type mockWorkflowTrigger struct {

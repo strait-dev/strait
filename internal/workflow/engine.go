@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
@@ -92,7 +92,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	parentWorkflowRunID string,
 	stepOverrides []domain.StepOverride,
 ) (*domain.WorkflowRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "workflow.TriggerWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
 
 	wf, err := e.store.GetWorkflow(ctx, workflowID)

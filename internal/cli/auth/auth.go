@@ -12,7 +12,7 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-const serviceName = "orchestrator"
+const serviceName = "strait"
 
 func KeyName(contextName string) string {
 	name := strings.TrimSpace(contextName)

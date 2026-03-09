@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -20,7 +20,7 @@ import (
 )
 
 func (q *Queries) CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateJobSecret")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJobSecret")
 	defer span.End()
 
 	if secret.ID == "" {
@@ -64,7 +64,7 @@ func (q *Queries) CreateJobSecret(ctx context.Context, secret *domain.JobSecret)
 }
 
 func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobSecret")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobSecret")
 	defer span.End()
 
 	encryptionKey, err := q.secretKey()
@@ -95,7 +95,7 @@ func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecre
 }
 
 func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobSecrets")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobSecrets")
 	defer span.End()
 
 	encryptionKey, err := q.secretKey()
@@ -161,7 +161,7 @@ func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environm
 }
 
 func (q *Queries) DeleteJobSecret(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteJobSecret")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJobSecret")
 	defer span.End()
 
 	query := `DELETE FROM job_secrets WHERE id = $1`
@@ -177,7 +177,7 @@ func (q *Queries) DeleteJobSecret(ctx context.Context, id string) error {
 }
 
 func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobSecretsByJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobSecretsByJob")
 	defer span.End()
 
 	encryptionKey, err := q.secretKey()

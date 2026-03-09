@@ -3,7 +3,7 @@ package domain
 import (
 	"testing"
 
-	"orchestrator/internal/testutil"
+	"strait/internal/testutil"
 )
 
 func TestWorkflowRunStatus_IsTerminal(t *testing.T) {

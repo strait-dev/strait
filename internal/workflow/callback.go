@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"orchestrator/internal/domain"
-	storepkg "orchestrator/internal/store"
+	"strait/internal/domain"
+	storepkg "strait/internal/store"
 
 	"go.opentelemetry.io/otel"
 )
@@ -52,7 +52,7 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 }
 
 func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "workflow.OnJobRunTerminal")
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnJobRunTerminal")
 	defer span.End()
 
 	if run == nil || run.WorkflowStepRunID == "" {

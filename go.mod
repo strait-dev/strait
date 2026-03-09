@@ -1,4 +1,4 @@
-module orchestrator
+module strait
 
 go 1.26
 

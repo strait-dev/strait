@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
+	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestHandleUpdateJob_Success(t *testing.T) {

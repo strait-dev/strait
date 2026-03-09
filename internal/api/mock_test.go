@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/pubsub"
-	"orchestrator/internal/store"
+	"strait/internal/domain"
+	"strait/internal/pubsub"
+	"strait/internal/store"
 )
 
 // mockAPIStore implements APIStore for testing.

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"github.com/samber/lo"
 )

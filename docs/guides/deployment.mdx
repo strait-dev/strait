@@ -1,13 +1,13 @@
 ---
 title: "Deployment"
-description: "Guide for deploying and scaling the orchestrator in production."
+description: "Guide for deploying and scaling the strait in production."
 ---
 
-The orchestrator is designed as a single Go binary that can be deployed in various environments, from local development with Docker Compose to production on Fly.io or Kubernetes.
+The strait is designed as a single Go binary that can be deployed in various environments, from local development with Docker Compose to production on Fly.io or Kubernetes.
 
 ## Operation Modes
 
-The orchestrator can run in three different modes, controlled by the `--mode` flag or the `MODE` environment variable:
+The strait can run in three different modes, controlled by the `--mode` flag or the `MODE` environment variable:
 
 - **`api`**: Runs only the HTTP API server. Stateless and can be scaled horizontally.
 - **`worker`**: Runs only the job execution engine. Scales based on queue depth.
@@ -19,7 +19,7 @@ The project includes a multi-stage `Dockerfile` that produces a minimal Alpine-b
 
 ### Build the Image
 ```bash
-docker build -t orchestrator .
+docker build -t strait .
 ```
 
 ### Run the Container
@@ -29,12 +29,12 @@ docker run -p 8080:8080 \
   -e REDIS_URL=redis://host:6379 \
   -e INTERNAL_SECRET=your-secret \
   -e JWT_SIGNING_KEY=your-jwt-key \
-  orchestrator
+  strait
 ```
 
 ## Infrastructure Requirements
 
-The orchestrator requires the following backing services:
+The strait requires the following backing services:
 
 - **PostgreSQL 18**: Primary data store and job queue (uses `SKIP LOCKED`).
 - **Redis 8**: Used for pub/sub, SSE streaming, and CDC event publishing.
@@ -85,10 +85,10 @@ For high-traffic production environments, it is recommended to separate the API 
 
 ## Graceful Shutdown
 
-The orchestrator implements graceful shutdown for both the API and the worker:
+The strait implements graceful shutdown for both the API and the worker:
 - **API**: Stops accepting new requests and waits for active requests to finish (up to the configured timeout).
 - **Worker**: Stops dequeuing new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
 
 <Tip>
-  Always use a process manager or orchestrator (like Kubernetes or Fly.io) that respects SIGTERM signals to ensure no jobs are abruptly interrupted.
+  Always use a process manager or strait (like Kubernetes or Fly.io) that respects SIGTERM signals to ensure no jobs are abruptly interrupted.
 </Tip>

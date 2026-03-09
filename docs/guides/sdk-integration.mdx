@@ -1,9 +1,9 @@
 ---
 title: "SDK Integration"
-description: "Integrating your job code with the orchestrator using the SDK endpoints."
+description: "Integrating your job code with the strait using the SDK endpoints."
 ---
 
-The orchestrator provides a set of SDK endpoints that allow your job code to communicate its progress, logs, and state back to the system.
+The strait provides a set of SDK endpoints that allow your job code to communicate its progress, logs, and state back to the system.
 
 ## SDK Authentication
 
@@ -32,7 +32,7 @@ Add or update metadata annotations on the run.
 
 ### Heartbeat
 `POST /heartbeat`
-Signal that the job is still alive and executing. This prevents the orchestrator from marking the run as timed out or crashed.
+Signal that the job is still alive and executing. This prevents the strait from marking the run as timed out or crashed.
 
 ### Checkpoints
 `POST /checkpoint`
@@ -64,7 +64,7 @@ Store structured results or artifacts produced by the job.
 
 ## Feature Flags
 
-Some endpoints are gated by feature flags in the orchestrator configuration:
+Some endpoints are gated by feature flags in the strait configuration:
 - `FF_RUN_ANNOTATIONS`: Gates `/annotate`.
 - `FF_RUN_CONTINUATION`: Gates `/continue`.
 - `FF_DEBUG_BUNDLE`: Required for some advanced telemetry features.
@@ -72,7 +72,7 @@ Some endpoints are gated by feature flags in the orchestrator configuration:
 ## Example: Reporting Progress
 
 ```bash
-curl -X POST https://api.orchestrator.com/sdk/v1/runs/{runID}/progress \
+curl -X POST https://strait.dev/sdk/v1/runs/{runID}/progress \
   -H "Authorization: Bearer $RUN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -83,5 +83,5 @@ curl -X POST https://api.orchestrator.com/sdk/v1/runs/{runID}/progress \
 ```
 
 <Tip>
-  Use the `heartbeat` endpoint regularly (e.g., every 30 seconds) in long-running jobs to ensure the orchestrator knows the job is still active.
+  Use the `heartbeat` endpoint regularly (e.g., every 30 seconds) in long-running jobs to ensure the strait knows the job is still active.
 </Tip>

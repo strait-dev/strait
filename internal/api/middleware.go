@@ -26,7 +26,7 @@ func projectIDFromContext(ctx context.Context) string {
 func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer orc_") {
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer strait_") {
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing api key")
 			return
 		}
@@ -67,7 +67,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer orc_") {
+		if strings.HasPrefix(authHeader, "Bearer strait_") {
 			s.apiKeyAuth(next).ServeHTTP(w, r)
 			return
 		}

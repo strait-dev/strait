@@ -1,0 +1,104 @@
+name: "Strait CLI"
+description: "Install and run the Strait CLI in GitHub Actions workflows"
+branding:
+  icon: "terminal"
+  color: "blue"
+
+inputs:
+  version:
+    description: "CLI version to install (e.g. v1.0.0, latest)"
+    required: false
+    default: "latest"
+  server:
+    description: "Strait server URL"
+    required: true
+  api-key:
+    description: "API key for authentication"
+    required: true
+  command:
+    description: "CLI command to run (e.g. 'jobs list', 'trigger my-job')"
+    required: false
+  project:
+    description: "Default project ID"
+    required: false
+
+outputs:
+  cli-path:
+    description: "Path to the installed CLI binary"
+    value: ${{ steps.install.outputs.cli-path }}
+  cli-version:
+    description: "Installed CLI version"
+    value: ${{ steps.install.outputs.cli-version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Determine version
+      id: version
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -fsSL "https://api.github.com/repos/leonardomso/strait/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Failed to determine latest version"
+            exit 1
+          fi
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Determine OS and architecture
+      id: platform
+      shell: bash
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64)  ARCH="amd64" ;;
+          aarch64) ARCH="arm64" ;;
+          arm64)   ARCH="arm64" ;;
+        esac
+        echo "os=$OS" >> "$GITHUB_OUTPUT"
+        echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+
+    - name: Install CLI
+      id: install
+      shell: bash
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        OS="${{ steps.platform.outputs.os }}"
+        ARCH="${{ steps.platform.outputs.arch }}"
+        INSTALL_DIR="${HOME}/.strait/bin"
+        mkdir -p "$INSTALL_DIR"
+
+        URL="https://github.com/leonardomso/strait/releases/download/${VERSION}/strait_${OS}_${ARCH}.tar.gz"
+        echo "Downloading strait ${VERSION} for ${OS}/${ARCH}..."
+        curl -fsSL "$URL" | tar xz -C "$INSTALL_DIR"
+
+        chmod +x "${INSTALL_DIR}/strait"
+        echo "${INSTALL_DIR}" >> "$GITHUB_PATH"
+        echo "cli-path=${INSTALL_DIR}/strait" >> "$GITHUB_OUTPUT"
+
+        CLI_VERSION=$("${INSTALL_DIR}/strait" version --short 2>/dev/null || echo "$VERSION")
+        echo "cli-version=$CLI_VERSION" >> "$GITHUB_OUTPUT"
+        echo "Installed strait ${CLI_VERSION}"
+
+    - name: Verify installation
+      shell: bash
+      env:
+        STRAIT_SERVER: ${{ inputs.server }}
+        STRAIT_API_KEY: ${{ inputs.api-key }}
+        STRAIT_CI: "true"
+      run: |
+        strait version
+
+    - name: Run command
+      if: inputs.command != ''
+      shell: bash
+      env:
+        STRAIT_SERVER: ${{ inputs.server }}
+        STRAIT_API_KEY: ${{ inputs.api-key }}
+        STRAIT_PROJECT: ${{ inputs.project }}
+        STRAIT_CI: "true"
+      run: |
+        strait ${{ inputs.command }}

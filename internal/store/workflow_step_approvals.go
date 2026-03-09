@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	"go.opentelemetry.io/otel"
 )
 
 func (q *Queries) CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateWorkflowStepApproval")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowStepApproval")
 	defer span.End()
 
 	query := `
@@ -42,7 +42,7 @@ func (q *Queries) CreateWorkflowStepApproval(ctx context.Context, approval *doma
 }
 
 func (q *Queries) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetWorkflowStepApprovalByStepRunID")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowStepApprovalByStepRunID")
 	defer span.End()
 
 	query := `
@@ -62,7 +62,7 @@ func (q *Queries) UpdateWorkflowStepApproval(
 	approvedAt *time.Time,
 	errMsg string,
 ) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateWorkflowStepApproval")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateWorkflowStepApproval")
 	defer span.End()
 
 	query := `
@@ -93,7 +93,7 @@ func (q *Queries) UpdateWorkflowStepApproval(
 }
 
 func (q *Queries) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListExpiredWorkflowStepApprovals")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListExpiredWorkflowStepApprovals")
 	defer span.End()
 
 	query := `
@@ -126,7 +126,7 @@ func (q *Queries) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domai
 }
 
 func (q *Queries) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetStepRunByWorkflowRunAndRef")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetStepRunByWorkflowRunAndRef")
 	defer span.End()
 
 	query := `

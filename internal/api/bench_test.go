@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/config"
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
+	"strait/internal/config"
+	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func benchmarkConfig() *config.Config {
@@ -211,7 +211,7 @@ func BenchmarkHandleListJobs(b *testing.B) {
 }
 
 func BenchmarkAPIKeyAuth(b *testing.B) {
-	rawKey := "orc_" + strings.Repeat("ab", 32)
+	rawKey := "strait_" + strings.Repeat("ab", 32)
 	keyHash := hashAPIKey(rawKey)
 	ms := &mockAPIStore{
 		getAPIKeyByHashFn: func(_ context.Context, gotHash string) (*domain.APIKey, error) {
@@ -620,7 +620,7 @@ func TestSustainedLoad(t *testing.T) {
 }
 
 func TestAPIKeyAuthConcurrent(t *testing.T) {
-	rawKey := "orc_" + strings.Repeat("ab", 32)
+	rawKey := "strait_" + strings.Repeat("ab", 32)
 	wantHash := hashAPIKey(rawKey)
 	var touchCount atomic.Int64
 

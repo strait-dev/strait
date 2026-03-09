@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/queue"
+	"strait/internal/domain"
+	"strait/internal/queue"
 
 	"github.com/robfig/cron/v3"
 	"go.opentelemetry.io/otel"
@@ -43,7 +43,7 @@ func NewCronScheduler(s CronStore, q queue.Queue, workflowTrigger WorkflowTrigge
 }
 
 func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cron.LoadJobs")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cron.LoadJobs")
 	defer span.End()
 
 	jobs, err := cs.store.ListCronJobs(ctx)
@@ -86,7 +86,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 }
 
 func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cron.TriggerJob")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerJob")
 	defer span.End()
 
 	run := domain.JobRun{
@@ -109,7 +109,7 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 }
 
 func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Workflow) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cron.TriggerWorkflow")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerWorkflow")
 	defer span.End()
 
 	if workflow.SkipIfRunning {

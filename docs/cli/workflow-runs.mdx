@@ -14,7 +14,7 @@ List workflow runs.
 | --limit | int | 50 | Maximum number of runs to return |
 
 ```bash
-orchestrator workflow-runs list --project my-project --status running
+strait workflow-runs list --project my-project --status running
 ```
 
 ## workflow-runs get
@@ -22,7 +22,7 @@ orchestrator workflow-runs list --project my-project --status running
 Get workflow run by ID.
 
 ```bash
-orchestrator workflow-runs get <run-id>
+strait workflow-runs get <run-id>
 ```
 
 ## workflow-runs cancel
@@ -30,7 +30,7 @@ orchestrator workflow-runs get <run-id>
 Cancel a workflow run and all its step runs.
 
 ```bash
-orchestrator workflow-runs cancel <run-id>
+strait workflow-runs cancel <run-id>
 ```
 
 ## workflow-runs steps
@@ -38,7 +38,7 @@ orchestrator workflow-runs cancel <run-id>
 List step runs for a workflow run.
 
 ```bash
-orchestrator workflow-runs steps <run-id>
+strait workflow-runs steps <run-id>
 ```
 
 ## workflow-runs watch
@@ -51,7 +51,7 @@ Watch workflow run status and step progression.
 | --timeout | duration | 5m | Maximum time to watch |
 
 ```bash
-orchestrator workflow-runs watch <run-id> --interval 1s
+strait workflow-runs watch <run-id> --interval 1s
 ```
 
 ## workflow-runs approve
@@ -64,5 +64,5 @@ Approve a workflow step.
 | --approver | string | | Name of the approver (required) |
 
 ```bash
-orchestrator workflow-runs approve <run-id> --step step-1 --approver "John Doe"
+strait workflow-runs approve <run-id> --step step-1 --approver "John Doe"
 ```

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func (e *Executor) poll(ctx context.Context) {

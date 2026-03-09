@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 // PollerStore is the subset of store operations needed by DelayedPoller.

@@ -7,8 +7,8 @@ import (
 
 	"github.com/sourcegraph/conc"
 
-	"orchestrator/internal/config"
-	"orchestrator/internal/queue"
+	"strait/internal/config"
+	"strait/internal/queue"
 )
 
 // SchedulerStore combines the store interfaces required by all scheduler components.

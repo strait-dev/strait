@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 type CreateJobRequest struct {

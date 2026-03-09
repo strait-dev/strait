@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/dbscan"
-	"orchestrator/internal/domain"
+	"strait/internal/dbscan"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +15,7 @@ import (
 )
 
 func (q *Queries) CreateJobGroup(ctx context.Context, group *domain.JobGroup) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.CreateJobGroup")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJobGroup")
 	defer span.End()
 
 	if group.ID == "" {
@@ -44,7 +44,7 @@ func (q *Queries) CreateJobGroup(ctx context.Context, group *domain.JobGroup) er
 }
 
 func (q *Queries) GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.GetJobGroup")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobGroup")
 	defer span.End()
 
 	query := `
@@ -64,7 +64,7 @@ func (q *Queries) GetJobGroup(ctx context.Context, id string) (*domain.JobGroup,
 }
 
 func (q *Queries) ListJobGroups(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobGroups")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobGroups")
 	defer span.End()
 
 	query := `
@@ -107,7 +107,7 @@ func (q *Queries) ListJobGroups(ctx context.Context, projectID string, limit int
 }
 
 func (q *Queries) UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.UpdateJobGroup")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJobGroup")
 	defer span.End()
 
 	query := `
@@ -138,7 +138,7 @@ func (q *Queries) UpdateJobGroup(ctx context.Context, group *domain.JobGroup) er
 }
 
 func (q *Queries) DeleteJobGroup(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.DeleteJobGroup")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJobGroup")
 	defer span.End()
 
 	query := `WITH nullify AS (
@@ -157,7 +157,7 @@ func (q *Queries) DeleteJobGroup(ctx context.Context, id string) error {
 }
 
 func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error) {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "store.ListJobsByGroup")
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobsByGroup")
 	defer span.End()
 
 	query := `

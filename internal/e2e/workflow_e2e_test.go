@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/api"
-	"orchestrator/internal/config"
-	"orchestrator/internal/domain"
-	"orchestrator/internal/workflow"
+	"strait/internal/api"
+	"strait/internal/config"
+	"strait/internal/domain"
+	"strait/internal/workflow"
 )
 
 func mustCleanWf(t *testing.T) {

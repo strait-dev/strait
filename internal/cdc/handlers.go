@@ -37,7 +37,7 @@ func NewJobRunHandler(pub EventPublisher, logger *slog.Logger) *JobRunHandler {
 func (h *JobRunHandler) Table() string { return "job_runs" }
 
 func (h *JobRunHandler) Handle(ctx context.Context, msg Message) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cdc.HandleJobRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.HandleJobRun")
 	defer span.End()
 
 	var record struct {
@@ -84,7 +84,7 @@ func NewWorkflowRunHandler(pub EventPublisher, logger *slog.Logger) *WorkflowRun
 func (h *WorkflowRunHandler) Table() string { return "workflow_runs" }
 
 func (h *WorkflowRunHandler) Handle(ctx context.Context, msg Message) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cdc.HandleWorkflowRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.HandleWorkflowRun")
 	defer span.End()
 
 	var record struct {
@@ -131,7 +131,7 @@ func NewWorkflowStepRunHandler(pub EventPublisher, logger *slog.Logger) *Workflo
 func (h *WorkflowStepRunHandler) Table() string { return "workflow_step_runs" }
 
 func (h *WorkflowStepRunHandler) Handle(ctx context.Context, msg Message) error {
-	ctx, span := otel.Tracer("orchestrator").Start(ctx, "cdc.HandleWorkflowStepRun")
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.HandleWorkflowStepRun")
 	defer span.End()
 
 	var record struct {

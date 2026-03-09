@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func TestE2E_JobGroup_CreateAndGet(t *testing.T) {

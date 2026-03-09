@@ -14,9 +14,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/pubsub"
-	"orchestrator/internal/testutil"
+	"strait/internal/domain"
+	"strait/internal/pubsub"
+	"strait/internal/testutil"
 )
 
 // Mock publisher for worker tests.

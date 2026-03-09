@@ -4,7 +4,7 @@ package dbscan
 import (
 	"encoding/json"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 // Scanner is satisfied by pgx.Row and pgx.Rows.

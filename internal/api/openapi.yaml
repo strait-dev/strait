@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: Orchestrator API
+  title: Strait API
   version: 1.0.0
   description: |
-    A production-grade Go job orchestrator API.
+    A production-grade Go job strait API.
 
     ## API Versioning
 
@@ -13,7 +13,7 @@ info:
     ## Authentication
 
     The API supports two authentication methods:
-    - **Bearer token**: Use `Authorization: Bearer orc_<key>` with a project API key
+    - **Bearer token**: Use `Authorization: Bearer strait_<key>` with a project API key
     - **Internal secret**: Use `X-Internal-Secret: <secret>` for service-to-service calls
 
     ## Pagination

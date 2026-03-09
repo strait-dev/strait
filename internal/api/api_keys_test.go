@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
+	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestHandleCreateAPIKey_Success(t *testing.T) {
@@ -57,8 +57,8 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	if captured.KeyHash == "" {
 		t.Fatal("expected non-empty key hash")
 	}
-	if !strings.HasPrefix(captured.KeyPrefix, "orc_") {
-		t.Fatalf("expected key prefix to start with orc_, got %q", captured.KeyPrefix)
+	if !strings.HasPrefix(captured.KeyPrefix, "strait_") {
+		t.Fatalf("expected key prefix to start with strait_, got %q", captured.KeyPrefix)
 	}
 
 	var resp CreateAPIKeyResponse
@@ -68,8 +68,8 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	if resp.ID == "" {
 		t.Fatal("expected id in response")
 	}
-	if !strings.HasPrefix(resp.Key, "orc_") {
-		t.Fatalf("expected key to start with orc_, got %q", resp.Key)
+	if !strings.HasPrefix(resp.Key, "strait_") {
+		t.Fatalf("expected key to start with strait_, got %q", resp.Key)
 	}
 	if resp.KeyPrefix == "" {
 		t.Fatal("expected key_prefix in response")
@@ -172,8 +172,8 @@ func TestHandleListAPIKeys_Success(t *testing.T) {
 			}
 			now := time.Now().UTC()
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: projectID, Name: "first", KeyPrefix: "orc_aaaaaaaa", CreatedAt: now},
-				{ID: "key-2", ProjectID: projectID, Name: "second", KeyPrefix: "orc_bbbbbbbb", CreatedAt: now},
+				{ID: "key-1", ProjectID: projectID, Name: "first", KeyPrefix: "strait_aaaaaaaa", CreatedAt: now},
+				{ID: "key-2", ProjectID: projectID, Name: "second", KeyPrefix: "strait_bbbbbbbb", CreatedAt: now},
 			}, nil
 		},
 	}
@@ -279,11 +279,11 @@ func TestGenerateAPIKey_Format(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateAPIKey returned error: %v", err)
 	}
-	if !strings.HasPrefix(key, "orc_") {
-		t.Fatalf("expected key prefix orc_, got %q", key)
+	if !strings.HasPrefix(key, "strait_") {
+		t.Fatalf("expected key prefix strait_, got %q", key)
 	}
-	if len(key) != 68 {
-		t.Fatalf("expected key length 68, got %d", len(key))
+	if len(key) != 71 {
+		t.Fatalf("expected key length 71, got %d", len(key))
 	}
 }
 
@@ -304,7 +304,7 @@ func TestGenerateAPIKey_Uniqueness(t *testing.T) {
 
 func TestHashAPIKey_Deterministic(t *testing.T) {
 	t.Parallel()
-	key := "orc_" + strings.Repeat("ab", 32)
+	key := "strait_" + strings.Repeat("ab", 32)
 	h1 := hashAPIKey(key)
 	h2 := hashAPIKey(key)
 
@@ -315,8 +315,8 @@ func TestHashAPIKey_Deterministic(t *testing.T) {
 
 func TestHashAPIKey_DifferentKeys(t *testing.T) {
 	t.Parallel()
-	h1 := hashAPIKey("orc_" + strings.Repeat("ab", 32))
-	h2 := hashAPIKey("orc_" + strings.Repeat("cd", 32))
+	h1 := hashAPIKey("strait_" + strings.Repeat("ab", 32))
+	h2 := hashAPIKey("strait_" + strings.Repeat("cd", 32))
 
 	if h1 == h2 {
 		t.Fatal("expected different hashes for different keys")
@@ -325,7 +325,7 @@ func TestHashAPIKey_DifferentKeys(t *testing.T) {
 
 func TestAPIKeyAuth_ValidKey(t *testing.T) {
 	t.Parallel()
-	rawKey := "orc_" + strings.Repeat("ab", 32)
+	rawKey := "strait_" + strings.Repeat("ab", 32)
 	wantHash := hashAPIKey(rawKey)
 	touched := make(chan string, 1)
 
@@ -368,7 +368,7 @@ func TestAPIKeyAuth_ValidKey(t *testing.T) {
 
 func TestAPIKeyAuth_TouchUsesBoundedDetachedContext(t *testing.T) {
 	t.Parallel()
-	rawKey := "orc_" + strings.Repeat("ef", 32)
+	rawKey := "strait_" + strings.Repeat("ef", 32)
 	wantHash := hashAPIKey(rawKey)
 
 	type touchCall struct {
@@ -429,7 +429,7 @@ func TestAPIKeyAuth_TouchUsesBoundedDetachedContext(t *testing.T) {
 
 func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 	t.Parallel()
-	rawKey := "orc_" + strings.Repeat("ab", 32)
+	rawKey := "strait_" + strings.Repeat("ab", 32)
 	expired := time.Now().Add(-time.Hour)
 
 	ms := &mockAPIStore{
@@ -460,7 +460,7 @@ func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 
 func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 	t.Parallel()
-	rawKey := "orc_" + strings.Repeat("ab", 32)
+	rawKey := "strait_" + strings.Repeat("ab", 32)
 	revoked := time.Now().Add(-time.Minute)
 
 	ms := &mockAPIStore{
@@ -499,7 +499,7 @@ func TestAPIKeyAuth_InvalidKey(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
-	req.Header.Set("Authorization", "Bearer orc_badkey")
+	req.Header.Set("Authorization", "Bearer strait_badkey")
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, req)
@@ -542,7 +542,7 @@ func TestDualAuth_FallbackToInternalSecret(t *testing.T) {
 
 func TestDualAuth_APIKeyTakesPrecedence(t *testing.T) {
 	t.Parallel()
-	rawKey := "orc_" + strings.Repeat("ab", 32)
+	rawKey := "strait_" + strings.Repeat("ab", 32)
 	wantHash := hashAPIKey(rawKey)
 	var lookedUp atomic.Bool
 

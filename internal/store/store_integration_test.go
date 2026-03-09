@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/domain"
-	"orchestrator/internal/store"
-	"orchestrator/internal/testutil"
+	"strait/internal/domain"
+	"strait/internal/store"
+	"strait/internal/testutil"
 
 	"github.com/google/uuid"
 )
@@ -1680,7 +1680,7 @@ func TestJobVersion_CRUD(t *testing.T) {
 		Description:   "first version",
 		Cron:          "*/5 * * * *",
 		PayloadSchema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`),
-		Tags:          map[string]string{"team": "core", "service": "orchestrator"},
+		Tags:          map[string]string{"team": "core", "service": "strait"},
 		EndpointURL:   "https://example.com/v1",
 		MaxAttempts:   3,
 		TimeoutSecs:   30,
