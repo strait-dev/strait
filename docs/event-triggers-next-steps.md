@@ -1075,3 +1075,21 @@ All new migrations should be in separate files to avoid conflicts:
 | `000051_event_trigger_notify.up.sql` | 8 | `notify_url`, `notify_status` columns |
 | `000052_event_trigger_types.up.sql` | 12, 13 | `event_emit_key`, `sleep_duration_secs`, `trigger_type` |
 | `000053_event_trigger_prefix_index.up.sql` | 11 | `text_pattern_ops` index for prefix matching |
+
+---
+
+## Post-GA: Deferred Improvements
+
+These items were identified during the final review but require larger
+architectural changes or are new feature work:
+
+| # | Item | Reason for Deferral |
+|---|------|---------------------|
+| 1 | Transaction safety for `handleSendEvent` | Requires exposing `TxBeginner` through `APIStore` interface |
+| 2 | Reconciliation query index optimization | Needs benchmarking with production-scale data |
+| 3 | Batch resolve atomicity for prefix send | Same transaction blocker as #1 |
+| 4 | Webhook notification retry with backoff | New subsystem — retry queue, DLQ |
+| 5 | SSE/WebSocket streaming for trigger status | New endpoint + CDC subscription |
+| 6 | Event trigger audit log (`sent_by` field) | Schema change, new migration |
+| 7 | Event trigger stats endpoint | Aggregation queries, new endpoint |
+| 8 | Migration squash (000049–000053) | Only safe before first production deploy |

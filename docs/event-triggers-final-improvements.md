@@ -1,7 +1,7 @@
-# Event Triggers — Final Improvements Plan
+# Event Triggers — Final Improvements (Complete)
 
 15 items from the final review, organized into 8 commits.
-Each commit is self-contained, passes all checks, and builds on the previous.
+All items implemented and passing CI.
 
 ---
 
@@ -204,8 +204,14 @@ Commit 8 (docs)              → commit
 → push → wait for CI green
 ```
 
-## Estimated Scope
+## Implementation Status
 
-- **~12 files modified**, 2 new test functions
-- **0 new migrations** (all code-level changes)
-- **~350 lines added**, ~30 lines modified
+All 8 commits implemented and passing CI:
+- ✅ Commit 1: Rate limiting on send endpoints
+- ✅ Commit 2: Trigger-before-step ordering
+- ✅ Commit 3: SDK notify_url
+- ✅ Commit 4: Sleep step output
+- ✅ Commit 5: List filtering
+- ✅ Commit 6: Cancel endpoint
+- ✅ Commit 7: Unit tests
+- ✅ Commit 8: Documentation
