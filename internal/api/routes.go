@@ -203,6 +203,7 @@ func (s *Server) routes() chi.Router {
 			r.Post("/fail", s.handleSDKFail)
 			r.Post("/spawn", s.handleSDKSpawn)
 			r.Post("/continue", s.handleSDKContinue)
+			r.Post("/wait-for-event", s.handleSDKWaitForEvent)
 		})
 	})
 

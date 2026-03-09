@@ -123,6 +123,7 @@ type APIStore interface {
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)

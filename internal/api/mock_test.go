@@ -101,6 +101,7 @@ type mockAPIStore struct {
 	listRunLineageFn              func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	sumRunCostMicrousdFn          func(ctx context.Context, runID string) (int64, error)
 	sumProjectDailyCostMicrousdFn func(ctx context.Context, projectID string, timezone string) (int64, error)
+	createEventTriggerFn          func(ctx context.Context, trigger *domain.EventTrigger) error
 	getEventTriggerByEventKeyFn   func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn    func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	listEventTriggersByProjectFn  func(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
@@ -720,6 +721,13 @@ func (m *mockAPIStore) SumProjectDailyCostMicrousd(ctx context.Context, projectI
 		return m.sumProjectDailyCostMicrousdFn(ctx, projectID, timezone)
 	}
 	return 0, nil
+}
+
+func (m *mockAPIStore) CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error {
+	if m.createEventTriggerFn != nil {
+		return m.createEventTriggerFn(ctx, trigger)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {

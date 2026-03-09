@@ -92,6 +92,7 @@ type Config struct {
 	FFJobDependencies  bool `mapstructure:"FF_JOB_DEPENDENCIES"`
 	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
+	FFEventTriggers    bool `mapstructure:"FF_EVENT_TRIGGERS"`
 
 	// Worker/Executor timeouts
 	WebhookTimeout          time.Duration `mapstructure:"WEBHOOK_TIMEOUT"`
