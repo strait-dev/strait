@@ -57,19 +57,20 @@ type createWorkflowRequest struct {
 }
 
 type updateWorkflowRequest struct {
-	Name              *string                `json:"name,omitempty"`
-	Slug              *string                `json:"slug,omitempty"`
-	Description       *string                `json:"description,omitempty"`
-	Tags              *map[string]string     `json:"tags,omitempty"`
-	Enabled           *bool                  `json:"enabled,omitempty"`
-	TimeoutSecs       *int                   `json:"timeout_secs,omitempty"`
-	MaxConcurrentRuns *int                   `json:"max_concurrent_runs,omitempty"`
-	MaxParallelSteps  *int                   `json:"max_parallel_steps,omitempty"`
-	Cron              *string                `json:"cron,omitempty"`
-	CronTimezone      *string                `json:"cron_timezone,omitempty"`
-	SkipIfRunning     *bool                  `json:"skip_if_running,omitempty"`
-	VersionPolicy     *string                `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
-	Steps             *[]workflowStepRequest `json:"steps,omitempty"`
+	Name                *string                `json:"name,omitempty"`
+	Slug                *string                `json:"slug,omitempty"`
+	Description         *string                `json:"description,omitempty"`
+	Tags                *map[string]string     `json:"tags,omitempty"`
+	Enabled             *bool                  `json:"enabled,omitempty"`
+	TimeoutSecs         *int                   `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns   *int                   `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps    *int                   `json:"max_parallel_steps,omitempty"`
+	Cron                *string                `json:"cron,omitempty"`
+	CronTimezone        *string                `json:"cron_timezone,omitempty"`
+	SkipIfRunning       *bool                  `json:"skip_if_running,omitempty"`
+	VersionPolicy       *string                `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	BackwardsCompatible *bool                  `json:"backwards_compatible,omitempty"`
+	Steps               *[]workflowStepRequest `json:"steps,omitempty"`
 }
 
 type dryRunWorkflowRequest struct {
@@ -312,6 +313,9 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.VersionPolicy != nil {
 		wf.VersionPolicy = domain.VersionPolicy(*req.VersionPolicy)
+	}
+	if req.BackwardsCompatible != nil {
+		wf.BackwardsCompatible = *req.BackwardsCompatible
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
