@@ -672,17 +672,22 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newWf := &domain.Workflow{
-		ProjectID:         projectID,
-		Name:              newName,
-		Slug:              newSlug,
-		Description:       sourceWf.Description,
-		Enabled:           sourceWf.Enabled,
-		TimeoutSecs:       sourceWf.TimeoutSecs,
-		MaxConcurrentRuns: sourceWf.MaxConcurrentRuns,
-		MaxParallelSteps:  sourceWf.MaxParallelSteps,
-		Cron:              sourceWf.Cron,
-		CronTimezone:      sourceWf.CronTimezone,
-		SkipIfRunning:     sourceWf.SkipIfRunning,
+		ProjectID:           projectID,
+		Name:                newName,
+		Slug:                newSlug,
+		Description:         sourceWf.Description,
+		Enabled:             sourceWf.Enabled,
+		TimeoutSecs:         sourceWf.TimeoutSecs,
+		MaxConcurrentRuns:   sourceWf.MaxConcurrentRuns,
+		MaxParallelSteps:    sourceWf.MaxParallelSteps,
+		Cron:                sourceWf.Cron,
+		CronTimezone:        sourceWf.CronTimezone,
+		SkipIfRunning:       sourceWf.SkipIfRunning,
+		Tags:                sourceWf.Tags,
+		VersionPolicy:       sourceWf.VersionPolicy,
+		BackwardsCompatible: sourceWf.BackwardsCompatible,
+		CreatedBy:           actorFromContext(r.Context()),
+		UpdatedBy:           actorFromContext(r.Context()),
 	}
 	if err := s.store.CreateWorkflow(r.Context(), newWf); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow")

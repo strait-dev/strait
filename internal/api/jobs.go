@@ -454,6 +454,10 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		RetryDelaysSecs:     source.RetryDelaysSecs,
 		EnvironmentID:       source.EnvironmentID,
 		Enabled:             true,
+		VersionPolicy:       source.VersionPolicy,
+		BackwardsCompatible: source.BackwardsCompatible,
+		CreatedBy:           actorFromContext(r.Context()),
+		UpdatedBy:           actorFromContext(r.Context()),
 	}
 
 	if err := s.store.CreateJob(r.Context(), clone); err != nil {
