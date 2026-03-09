@@ -29,6 +29,7 @@ type EngineStore interface {
 	CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error
 	CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error
 	CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)

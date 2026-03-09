@@ -51,6 +51,10 @@ func (e *WorkflowEngine) startStep(
 		return nil
 	}
 
+	if step.StepType == domain.WorkflowStepTypeWaitForEvent {
+		return e.startWaitForEventStep(ctx, stepRun, step, wfRun, now)
+	}
+
 	if step.StepType == domain.WorkflowStepTypeSubWorkflow {
 		return e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
 	}
@@ -124,6 +128,61 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 		"step_ref", step.StepRef,
 		"sub_workflow_id", step.SubWorkflowID,
 		"nesting_depth", currentDepth+1,
+	)
+
+	return nil
+}
+
+// startWaitForEventStep pauses execution until an external event is received.
+// No goroutine is held — the wait is a database row.
+func (e *WorkflowEngine) startWaitForEventStep(
+	ctx context.Context,
+	stepRun *domain.WorkflowStepRun,
+	step *domain.WorkflowStep,
+	wfRun *domain.WorkflowRun,
+	now time.Time,
+) error {
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("set wait_for_event step waiting: %w", err)
+	}
+
+	// Render event key template against workflow payload.
+	renderedKey := renderStringTemplate(step.EventKey, wfRun.Payload)
+	if renderedKey == "" {
+		return fmt.Errorf("event_key is empty for step %s", step.StepRef)
+	}
+
+	timeoutSecs := step.EventTimeoutSecs
+	if timeoutSecs <= 0 {
+		timeoutSecs = domain.DefaultEventTimeoutSecs
+	}
+	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
+
+	trigger := &domain.EventTrigger{
+		ID:                fmt.Sprintf("evt:%s", stepRun.ID),
+		EventKey:          renderedKey,
+		ProjectID:         wfRun.ProjectID,
+		SourceType:        "workflow_step",
+		WorkflowRunID:     wfRun.ID,
+		WorkflowStepRunID: stepRun.ID,
+		Status:            domain.EventTriggerStatusWaiting,
+		TimeoutSecs:       timeoutSecs,
+		RequestedAt:       now,
+		ExpiresAt:         expiresAt,
+	}
+
+	if err := e.store.CreateEventTrigger(ctx, trigger); err != nil {
+		return fmt.Errorf("create event trigger for step %s: %w", step.StepRef, err)
+	}
+
+	stepRun.Status = domain.StepWaiting
+	stepRun.StartedAt = &now
+
+	e.logger.Info("wait_for_event step started",
+		"workflow_run_id", wfRun.ID,
+		"step_ref", step.StepRef,
+		"event_key", renderedKey,
+		"expires_at", expiresAt,
 	)
 
 	return nil
