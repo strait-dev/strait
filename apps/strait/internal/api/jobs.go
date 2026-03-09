@@ -37,6 +37,10 @@ type CreateJobRequest struct {
 	RetryStrategy       string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       string            `json:"environment_id,omitempty"`
+	ExecutionMode       string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http sandbox"`
+	SandboxCode         string            `json:"sandbox_code,omitempty"`
+	SandboxLanguage     string            `json:"sandbox_language,omitempty" validate:"omitempty,oneof=python"`
+	CancelEndpointURL   string            `json:"cancel_endpoint_url,omitempty" validate:"omitempty,url"`
 }
 
 type UpdateJobRequest struct {
@@ -61,6 +65,10 @@ type UpdateJobRequest struct {
 	RetryStrategy       *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
 	RetryDelaysSecs     *[]int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       *string            `json:"environment_id,omitempty"`
+	ExecutionMode       *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http sandbox"`
+	SandboxCode         *string            `json:"sandbox_code,omitempty"`
+	SandboxLanguage     *string            `json:"sandbox_language,omitempty" validate:"omitempty,oneof=python"`
+	CancelEndpointURL   *string            `json:"cancel_endpoint_url,omitempty" validate:"omitempty,url"`
 	Enabled             *bool              `json:"enabled,omitempty"`
 }
 
@@ -82,6 +90,21 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.FallbackEndpointURL != "" {
 		if err := validateURL(req.FallbackEndpointURL); err != nil {
 			respondError(w, r, http.StatusBadRequest, "invalid fallback_endpoint_url: "+err.Error())
+			return
+		}
+	}
+
+	if req.ExecutionMode == "" {
+		req.ExecutionMode = string(domain.ExecutionModeHTTP)
+	}
+
+	if req.ExecutionMode == string(domain.ExecutionModeSandbox) {
+		if req.SandboxCode == "" {
+			respondError(w, r, http.StatusBadRequest, "sandbox_code is required when execution_mode is sandbox")
+			return
+		}
+		if req.SandboxLanguage == "" {
+			respondError(w, r, http.StatusBadRequest, "sandbox_language is required when execution_mode is sandbox")
 			return
 		}
 	}
@@ -148,6 +171,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		RetryStrategy:       req.RetryStrategy,
 		RetryDelaysSecs:     req.RetryDelaysSecs,
 		EnvironmentID:       req.EnvironmentID,
+		ExecutionMode:       domain.ExecutionMode(req.ExecutionMode),
+		SandboxCode:         req.SandboxCode,
+		SandboxLanguage:     req.SandboxLanguage,
+		CancelEndpointURL:   req.CancelEndpointURL,
 		Enabled:             true,
 	}
 
@@ -344,6 +371,18 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.EnvironmentID != nil {
 		job.EnvironmentID = *req.EnvironmentID
 	}
+	if req.ExecutionMode != nil {
+		job.ExecutionMode = domain.ExecutionMode(*req.ExecutionMode)
+	}
+	if req.SandboxCode != nil {
+		job.SandboxCode = *req.SandboxCode
+	}
+	if req.SandboxLanguage != nil {
+		job.SandboxLanguage = *req.SandboxLanguage
+	}
+	if req.CancelEndpointURL != nil {
+		job.CancelEndpointURL = *req.CancelEndpointURL
+	}
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled
 	}
@@ -437,6 +476,10 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		RetryStrategy:       source.RetryStrategy,
 		RetryDelaysSecs:     source.RetryDelaysSecs,
 		EnvironmentID:       source.EnvironmentID,
+		ExecutionMode:       source.ExecutionMode,
+		SandboxCode:         source.SandboxCode,
+		SandboxLanguage:     source.SandboxLanguage,
+		CancelEndpointURL:   source.CancelEndpointURL,
 		Enabled:             true,
 	}
 
@@ -603,6 +646,10 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			RetryStrategy:       jobReq.RetryStrategy,
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
 			EnvironmentID:       jobReq.EnvironmentID,
+			ExecutionMode:       domain.ExecutionMode(jobReq.ExecutionMode),
+			SandboxCode:         jobReq.SandboxCode,
+			SandboxLanguage:     jobReq.SandboxLanguage,
+			CancelEndpointURL:   jobReq.CancelEndpointURL,
 			Enabled:             true,
 		}
 

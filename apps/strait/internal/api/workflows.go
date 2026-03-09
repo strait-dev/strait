@@ -37,6 +37,7 @@ type workflowStepRequest struct {
 	OutputTransform       string                    `json:"output_transform,omitempty"`
 	SubWorkflowID         string                    `json:"sub_workflow_id,omitempty"`
 	MaxNestingDepth       int                       `json:"max_nesting_depth,omitempty"`
+	CompensateStepRef     string                    `json:"compensate_step_ref,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -156,6 +157,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
 			OutputTransform:       stepReq.OutputTransform,
 			SubWorkflowID:         stepReq.SubWorkflowID,
+			CompensateStepRef:     stepReq.CompensateStepRef,
 			MaxNestingDepth:       stepReq.MaxNestingDepth,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
@@ -313,6 +315,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 				TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
 				OutputTransform:       stepReq.OutputTransform,
 				SubWorkflowID:         stepReq.SubWorkflowID,
+				CompensateStepRef:     stepReq.CompensateStepRef,
 				MaxNestingDepth:       stepReq.MaxNestingDepth,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
@@ -661,6 +664,7 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 			TimeoutSecsOverride:   src.TimeoutSecsOverride,
 			OutputTransform:       src.OutputTransform,
 			SubWorkflowID:         src.SubWorkflowID,
+			CompensateStepRef:     src.CompensateStepRef,
 			MaxNestingDepth:       src.MaxNestingDepth,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
