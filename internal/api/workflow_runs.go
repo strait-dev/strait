@@ -54,6 +54,13 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 		return
 	}
 
+	tagKey := query.Get("tag_key")
+	tagValue := query.Get("tag_value")
+	if tagValue != "" && tagKey == "" {
+		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
+		return
+	}
+
 	var status *domain.WorkflowRunStatus
 	if statusRaw := query.Get("status"); statusRaw != "" {
 		parsed := domain.WorkflowRunStatus(statusRaw)
@@ -70,7 +77,12 @@ func (s *Server) handleListWorkflowRunsByProject(w http.ResponseWriter, r *http.
 		return
 	}
 
-	runs, err := s.store.ListWorkflowRunsByProject(r.Context(), projectID, status, limit+1, cursor)
+	var runs []domain.WorkflowRun
+	if tagKey != "" {
+		runs, err = s.store.ListWorkflowRunsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
+	} else {
+		runs, err = s.store.ListWorkflowRunsByProject(r.Context(), projectID, status, limit+1, cursor)
+	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflow runs")
 		return

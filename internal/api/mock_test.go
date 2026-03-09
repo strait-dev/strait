@@ -400,6 +400,10 @@ func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, 
 	return nil, nil
 }
 
+func (m *mockAPIStore) ListRunsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
 func (m *mockAPIStore) ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listDeadLetterRunsFn != nil {
 		return m.listDeadLetterRunsFn(ctx, projectID, limit, cursor)
@@ -611,6 +615,10 @@ func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID 
 	if m.listWorkflowRunsByProjFn != nil {
 		return m.listWorkflowRunsByProjFn(ctx, projectID, status, limit, cursor)
 	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListWorkflowRunsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
 	return nil, nil
 }
 
