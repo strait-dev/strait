@@ -30,6 +30,12 @@ func newTriggersListCommand(state *appState) *cobra.Command {
 			if projectID == "" {
 				return fmt.Errorf("--project is required")
 			}
+			if status != "" {
+				validStatuses := map[string]bool{"waiting": true, "received": true, "timed_out": true, "canceled": true}
+				if !validStatuses[status] {
+					return fmt.Errorf("invalid --status %q, must be one of: waiting, received, timed_out, canceled", status)
+				}
+			}
 
 			cli, err := newAPIClient(state)
 			if err != nil {
@@ -59,6 +65,9 @@ func newTriggersListCommand(state *appState) *cobra.Command {
 
 	cmd.Flags().StringVar(&projectID, "project", "", "project ID (required)")
 	cmd.Flags().StringVar(&status, "status", "", "filter by status (waiting, received, timed_out, canceled)")
+	_ = cmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"waiting", "received", "timed_out", "canceled"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }
