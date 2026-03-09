@@ -458,6 +458,18 @@ type WorkflowStep struct {
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
+// CompensationStatus tracks the state of Saga compensation for a workflow run.
+type CompensationStatus string
+
+const (
+	CompensationNone      CompensationStatus = "none"
+	CompensationPending   CompensationStatus = "pending"
+	CompensationRunning   CompensationStatus = "running"
+	CompensationCompleted CompensationStatus = "completed"
+	CompensationPartial   CompensationStatus = "partial"
+	CompensationFailed    CompensationStatus = "failed"
+)
+
 // WorkflowRun represents an execution instance of a workflow.
 type WorkflowRun struct {
 	ID                  string            `json:"id"`
@@ -475,6 +487,11 @@ type WorkflowRun struct {
 	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
+
+	// Compensation tracking (Saga pattern)
+	CompensationStatus         CompensationStatus `json:"compensation_status"`
+	CompensationStepsTotal     int                `json:"compensation_steps_total"`
+	CompensationStepsCompleted int                `json:"compensation_steps_completed"`
 }
 
 // WorkflowStepRun represents execution of a single step within a workflow run.

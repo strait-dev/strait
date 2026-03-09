@@ -12,7 +12,7 @@ import (
 
 // CompensationEngine handles the Saga compensation pattern for workflow runs.
 // When a workflow is canceled or fails, it walks completed steps in reverse
-// topological order and triggers their compensation steps.
+// chronological order and triggers their compensation steps.
 type CompensationEngine struct {
 	store  CompensationStore
 	queue  EngineQueue
@@ -31,6 +31,16 @@ type CompensationStore interface {
 	CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error
 }
 
+// CompensationResult describes the outcome of a compensation run.
+type CompensationResult struct {
+	// Compensated is the list of step refs that were successfully enqueued.
+	Compensated []string
+	// Failed is the list of step refs that failed to enqueue.
+	Failed []string
+	// Status is the final compensation status.
+	Status domain.CompensationStatus
+}
+
 // NewCompensationEngine creates a new compensation engine.
 func NewCompensationEngine(store CompensationStore, queue EngineQueue, logger *slog.Logger) *CompensationEngine {
 	if logger == nil {
@@ -45,8 +55,7 @@ func NewCompensationEngine(store CompensationStore, queue EngineQueue, logger *s
 
 // CancelWorkflowRun cancels a running workflow and triggers compensation
 // for completed steps that have compensation steps defined.
-// Returns the list of compensation steps that were triggered.
-func (c *CompensationEngine) CancelWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error) {
+func (c *CompensationEngine) CancelWorkflowRun(ctx context.Context, workflowRunID string) (*CompensationResult, error) {
 	wfRun, err := c.store.GetWorkflowRun(ctx, workflowRunID)
 	if err != nil {
 		return nil, fmt.Errorf("get workflow run: %w", err)
@@ -64,7 +73,7 @@ func (c *CompensationEngine) CancelWorkflowRun(ctx context.Context, workflowRunI
 	}
 
 	// Run compensation for completed steps
-	compensated, err := c.runCompensation(ctx, wfRun)
+	result, err := c.runCompensation(ctx, wfRun)
 	if err != nil {
 		c.logger.Error("compensation failed", "workflow_run_id", workflowRunID, "error", err)
 		// Don't fail the cancel — mark as canceled anyway
@@ -72,20 +81,26 @@ func (c *CompensationEngine) CancelWorkflowRun(ctx context.Context, workflowRunI
 
 	// Mark workflow as canceled
 	now := time.Now()
-	if err := c.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusCanceled, map[string]any{
+	cancelFields := map[string]any{
 		"finished_at": now,
 		"error":       "canceled with compensation",
-	}); err != nil {
-		return compensated, fmt.Errorf("mark workflow canceled: %w", err)
+	}
+	if result != nil {
+		cancelFields["compensation_status"] = string(result.Status)
+		cancelFields["compensation_steps_total"] = len(result.Compensated) + len(result.Failed)
+		cancelFields["compensation_steps_completed"] = len(result.Compensated)
+	}
+	if err := c.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusCanceled, cancelFields); err != nil {
+		return result, fmt.Errorf("mark workflow canceled: %w", err)
 	}
 
-	return compensated, nil
+	return result, nil
 }
 
 // CompensateFailedWorkflow triggers compensation for a workflow that has
 // already been marked as failed. This is called when a step fails with
 // FailWorkflow policy.
-func (c *CompensationEngine) CompensateFailedWorkflow(ctx context.Context, workflowRunID string) ([]string, error) {
+func (c *CompensationEngine) CompensateFailedWorkflow(ctx context.Context, workflowRunID string) (*CompensationResult, error) {
 	wfRun, err := c.store.GetWorkflowRun(ctx, workflowRunID)
 	if err != nil {
 		return nil, fmt.Errorf("get workflow run: %w", err)
@@ -95,6 +110,127 @@ func (c *CompensationEngine) CompensateFailedWorkflow(ctx context.Context, workf
 	}
 
 	return c.runCompensation(ctx, wfRun)
+}
+
+// RetryFailedCompensation retries compensation for steps that previously
+// failed to enqueue. It looks for compensation step runs in a failed state
+// and re-enqueues them. This is idempotent — already-completed compensation
+// steps are skipped.
+func (c *CompensationEngine) RetryFailedCompensation(ctx context.Context, workflowRunID string) (*CompensationResult, error) {
+	wfRun, err := c.store.GetWorkflowRun(ctx, workflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("get workflow run: %w", err)
+	}
+	if wfRun == nil {
+		return nil, fmt.Errorf("workflow run not found: %s", workflowRunID)
+	}
+
+	if wfRun.CompensationStatus != domain.CompensationPartial &&
+		wfRun.CompensationStatus != domain.CompensationFailed {
+		return nil, fmt.Errorf("workflow run %s compensation status is %s, not retryable", workflowRunID, wfRun.CompensationStatus)
+	}
+
+	steps, err := c.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow steps: %w", err)
+	}
+
+	stepRuns, err := c.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 10000, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list step runs: %w", err)
+	}
+
+	// Build step ref -> step map
+	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
+	for _, s := range steps {
+		stepByRef[s.StepRef] = s
+	}
+
+	// Find compensation step runs that are in a failed/canceled state
+	// and need to be retried.
+	var compensated, failed []string
+	for _, sr := range stepRuns {
+		step, ok := stepByRef[sr.StepRef]
+		if !ok {
+			continue
+		}
+		// Only look at compensation steps (steps that are referenced as
+		// compensate_step_ref by another step)
+		isCompensationStep := false
+		for _, s := range steps {
+			if s.CompensateStepRef == sr.StepRef {
+				isCompensationStep = true
+				break
+			}
+		}
+		if !isCompensationStep {
+			continue
+		}
+
+		// Skip already-completed compensation
+		if sr.Status == domain.StepCompleted {
+			compensated = append(compensated, sr.StepRef)
+			continue
+		}
+
+		// Only retry failed/canceled compensation step runs
+		if sr.Status != domain.StepFailed && sr.Status != domain.StepCanceled {
+			continue
+		}
+
+		c.logger.Info("retrying compensation step",
+			"workflow_run_id", wfRun.ID,
+			"step_ref", sr.StepRef,
+		)
+
+		if step.JobID != "" {
+			jobRun := &domain.JobRun{
+				JobID:             step.JobID,
+				ProjectID:         wfRun.ProjectID,
+				Status:            domain.StatusQueued,
+				Attempt:           sr.Attempt + 1,
+				Payload:           sr.Output, // original output from the step being compensated
+				TriggeredBy:       "compensation_retry",
+				WorkflowStepRunID: sr.ID,
+			}
+
+			if err := c.queue.Enqueue(ctx, jobRun); err != nil {
+				c.logger.Error("failed to re-enqueue compensation job",
+					"step_ref", sr.StepRef,
+					"error", err,
+				)
+				failed = append(failed, sr.StepRef)
+				continue
+			}
+
+			_ = c.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, map[string]any{
+				"job_run_id": jobRun.ID,
+				"started_at": time.Now(),
+				"attempt":    sr.Attempt + 1,
+			})
+		}
+
+		compensated = append(compensated, sr.StepRef)
+	}
+
+	status := domain.CompensationCompleted
+	if len(failed) > 0 && len(compensated) > 0 {
+		status = domain.CompensationPartial
+	} else if len(failed) > 0 {
+		status = domain.CompensationFailed
+	}
+
+	// Update the workflow run's compensation tracking
+	_ = c.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, wfRun.Status, map[string]any{
+		"compensation_status":          string(status),
+		"compensation_steps_completed": len(compensated),
+	})
+
+	return &CompensationResult{
+		Compensated: compensated,
+		Failed:      failed,
+		Status:      status,
+	}, nil
 }
 
 // cancelActiveSteps cancels all running and waiting step runs in a workflow.
@@ -156,8 +292,8 @@ func (c *CompensationEngine) cancelActiveSteps(ctx context.Context, workflowRunI
 }
 
 // runCompensation finds completed steps with compensation refs and triggers
-// them in reverse topological order.
-func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.WorkflowRun) ([]string, error) {
+// them in reverse chronological order.
+func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.WorkflowRun) (*CompensationResult, error) {
 	steps, err := c.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
 		return nil, fmt.Errorf("list workflow steps: %w", err)
@@ -196,8 +332,14 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 	}
 
 	if len(toCompensate) == 0 {
-		return nil, nil
+		return &CompensationResult{Status: domain.CompensationNone}, nil
 	}
+
+	// Mark compensation as running
+	_ = c.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, wfRun.Status, map[string]any{
+		"compensation_status":      string(domain.CompensationRunning),
+		"compensation_steps_total": len(toCompensate),
+	})
 
 	// Sort in reverse order by finish time (most recently completed first)
 	// This gives us reverse execution order for the Saga
@@ -210,7 +352,7 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 		return ti.After(*tj)
 	})
 
-	var compensated []string
+	var compensated, failed []string
 	for _, tc := range toCompensate {
 		compStepRef := tc.step.CompensateStepRef
 		compStep, ok := stepByRef[compStepRef]
@@ -219,6 +361,7 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 				"step_ref", tc.step.StepRef,
 				"compensate_step_ref", compStepRef,
 			)
+			failed = append(failed, compStepRef)
 			continue
 		}
 
@@ -244,6 +387,7 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 				"step_ref", compStepRef,
 				"error", err,
 			)
+			failed = append(failed, compStepRef)
 			continue
 		}
 
@@ -264,6 +408,7 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 					"step_ref", compStepRef,
 					"error", err,
 				)
+				failed = append(failed, compStepRef)
 				continue
 			}
 
@@ -281,5 +426,23 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 		compensated = append(compensated, compStepRef)
 	}
 
-	return compensated, nil
+	// Determine final compensation status
+	status := domain.CompensationCompleted
+	if len(failed) > 0 && len(compensated) > 0 {
+		status = domain.CompensationPartial
+	} else if len(failed) > 0 && len(compensated) == 0 {
+		status = domain.CompensationFailed
+	}
+
+	// Update compensation tracking
+	_ = c.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, wfRun.Status, map[string]any{
+		"compensation_status":          string(status),
+		"compensation_steps_completed": len(compensated),
+	})
+
+	return &CompensationResult{
+		Compensated: compensated,
+		Failed:      failed,
+		Status:      status,
+	}, nil
 }
