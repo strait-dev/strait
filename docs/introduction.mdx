@@ -3,63 +3,55 @@ title: "Introduction"
 description: "A production-grade Go job orchestrator for engineering teams and AI agents."
 ---
 
-The orchestrator is a production-grade Go job orchestrator inspired by Trigger.dev. It accepts job definitions via REST API, queues runs in Postgres using `SELECT FOR UPDATE SKIP LOCKED` (no external broker), dispatches them via HTTP to user endpoints, and handles retries with smart strategies. It ships as a single Go binary.
+The orchestrator is a production-grade Go job orchestrator designed for teams building reliable, scalable background job processing. Accept job definitions via REST API, queue runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED`—no external message broker required—and dispatch them via HTTP to your endpoints with intelligent retry strategies.
 
-<CardGroup cols={2}>
-  <Card title="Job Engine" icon="engine">
-    13-state FSM, priority queues, batch dequeue, and idempotency keys.
-  </Card>
-  <Card title="Workflow DAGs" icon="diagram-project">
-    Fan-in/fan-out, step conditions, template variables, and sub-workflows.
-  </Card>
-  <Card title="Smart Retry" icon="rotate">
-    Exponential, linear, fixed, or custom per-attempt delays with jitter.
-  </Card>
-  <Card title="Cost Budgets" icon="money-bill">
-    Per-run and daily project cost limits with AI model usage tracking.
-  </Card>
-</CardGroup>
+**Everything you need in one binary.** Single Go executable. No runtime dependencies. Deploy and scale horizontally.
+
+## What Problem Does It Solve?
+
+Engineering teams face challenges with background job processing:
+
+- **Reliability**: Jobs fail and need to retry with exponential backoff
+- **Observability**: Understanding why jobs failed, execution time, and resource usage
+- **Scheduling**: Running jobs on cron schedules with delayed execution and retention
+- **Orchestration**: Coordinating multi-step workflows with dependencies and conditions
+- **Infrastructure**: Managing message brokers, queues, and job state stores separately
+
+The orchestrator combines queue, state, scheduler, and executor in one system—eliminating operational complexity while providing production-grade features.
 
 ## Key Capabilities
 
-<Info>
-  The orchestrator is designed to be a single-binary solution that minimizes operational complexity while providing advanced features.
-</Info>
+<CardGroup cols={2}>
+  <Card title="13-State FSM" icon="engine">
+    Robust lifecycle management—queued, executing, completed, failed, timed_out, dead_letter—ensures every job run is tracked correctly.
+  </Card>
+  <Card title="Workflow DAGs" icon="diagram-project">
+    Directed Acyclic Graphs with fan-in/fan-out, step conditions, template variables, output transforms, and human approval gates.
+  </Card>
+  <Card title="Smart Retry" icon="rotate">
+    Exponential, linear, fixed, or custom per-attempt delays with ±20% jitter. Prevents thundering herd and handles transient failures gracefully.
+  </Card>
+  <Card title="Cost Budgets" icon="money-bill">
+    Track AI model usage with micro-USD precision. Enforce per-run and daily project limits to control costs.
+  </Card>
+</CardGroup>
 
-- **13-state FSM**: Robust lifecycle management for every job run.
-- **Workflow DAGs**: Complex orchestration with approval gates and output transforms.
-- **Smart Retry**: Advanced backoff strategies with a 1-hour cap.
-- **Cost Budgets**: Integrated AI cost tracking and budget enforcement.
-- **CDC**: Real-time Postgres WAL change capture via Sequin Stream.
-- **SDK Endpoints**: Specialized endpoints for logging, heartbeats, and progress.
+<CardGroup cols={2}>
+  <Card title="Real-Time CDC" icon="zap">
+    Postgres WAL change capture via Sequin. No polling required—your applications react instantly when jobs, workflows, or runs change.
+  </Card>
+  <Card title="SDK Endpoints" icon="code">
+    Specialized endpoints for job executors—logging, heartbeats, progress updates, checkpoints, continuation, and child job spawning.
+  </Card>
+  <Card title="Webhooks" icon="send">
+    HMAC-SHA256 signed webhooks with automatic retries and dead letter queue on delivery failure.
+  </Card>
+  <Card title="Health Scoring" icon="chart-line">
+    Aggregate metrics over configurable time windows. Success rate, timeout rate, crash rate, and latency stability—at-a-glance job reliability.
+  </Card>
+</CardGroup>
 
-## Tech Stack
-
-The orchestrator is built with a modern, high-performance tech stack:
-
-- **Go 1.26**: Single binary, no runtime dependencies.
-- **PostgreSQL 18**: Primary store, job queue (SKIP LOCKED), and workflow state.
-- **Redis 8**: Pub/Sub for SSE streaming and CDC event publishing.
-- **Sequin**: CDC (Change Data Capture) from Postgres WAL.
-- **sourcegraph/conc**: Structured concurrency with panic-safe goroutines and context-aware pools.
-- **alitto/pond/v2**: Production-grade worker pool with bounded queue backpressure and built-in metrics.
-- **samber/lo**: Type-safe generic collection utilities (Map, Filter, KeyBy, Keys).
-- **OpenTelemetry**: Distributed tracing and Prometheus metrics.
-- **google/go-cmp**: Structural comparison with rich, human-readable diffs for test assertions.
-
-## Project Structure
-
-The core logic resides in the `internal/` directory:
-
-- `internal/api/`: HTTP handlers, middleware, and auth.
-- `internal/worker/`: Executor, pond/v2 pool with backpressure, and backoff strategies.
-- `internal/workflow/`: DAG validation, engine, and templates.
-- `internal/queue/`: Queue interface + Postgres SKIP LOCKED.
-- `internal/store/`: Database queries (pgx, raw SQL).
-- `internal/domain/`: Core types and FSM definitions.
-- `internal/testutil/`: Test factories, go-cmp assertion helpers, and test DB/Redis helpers.
-
-## System Overview
+## Architecture Overview
 
 ```text
                     ┌──────────────────────────────────┐
@@ -122,13 +114,139 @@ The core logic resides in the `internal/` directory:
                     └──────────────────────────────────┘
 ```
 
-## Next Steps
+The orchestrator runs in three modes:
+
+<Info>
+**api**: Handles HTTP requests, job management, and triggering. Scale horizontally for API throughput.
+</Info>
+<Info>
+**worker**: Runs executor, scheduler, and background maintenance. Scale horizontally for job processing throughput.
+</Info>
+<Info>
+**all**: Combined mode for development or small deployments. Single binary, single process.
+</Info>
+
+## Why Orchestrator?
+
+<Steps>
+  <Step title="Zero External Dependencies">
+    No RabbitMQ. No SQS. No Kafka. PostgreSQL handles queuing with `SELECT FOR UPDATE SKIP LOCKED`—lock-free concurrent workers without operational overhead. Single binary includes everything—no runtime dependencies to install.
+  </Step>
+  <Step title="Production-Grade Concurrency">
+    Go goroutines provide parallel job execution without external coordination. Worker pool with bounded backpressure prevents memory exhaustion during traffic spikes. Structured concurrency patterns (`sourcegraph/conc`) ensure panic recovery and graceful shutdown.
+  </Step>
+  <Step title="Built for AI Workloads">
+    SDK endpoints designed for AI agents—logging, heartbeats, progress checkpoints, continuation for long-running workflows, and child job spawning. Cost budgets track token usage with micro-USD precision. Debug bundles aggregate execution data for troubleshooting.
+  </Step>
+  <Step title="Workflow Orchestration">
+    Complex DAGs with step conditions, output transforms, template variables, and human approval gates. Atomic fan-in handles concurrent parent completions safely. Sub-workflows enable arbitrary nesting depth for multi-stage pipelines.
+  </Step>
+  <Step title="Observability First">
+    OpenTelemetry tracing links job runs across API server, worker, and external endpoints. Prometheus metrics expose queue depth, throughput, and latency. Structured JSON logging enables log aggregation. Real-time SSE streaming via Redis.
+  </Step>
+  <Step title="Developer Experience">
+    CLI with 48+ commands, TUI dashboard, YAML manifests, and 7 output formats. Shell completion for Bash, Zsh, Fish, and PowerShell.
+  </Step>
+</Steps>
+
+## Use Cases
+
+The orchestrator fits these patterns:
+
+**Background Jobs**: Scheduled data imports, report generation, cache warming, cleanup tasks, and recurring maintenance operations.
+
+**Webhook Consumers**: Process events from external services with retries, dead letter queue, and delivery guarantees.
+
+**AI Agent Workflows**: Multi-step AI pipelines with human approval gates, conditional execution, and sub-workflow nesting. Cost tracking per run and per project.
+
+**Batch Processing**: Bulk job triggering with configurable batch sizes, priority ordering, and idempotency deduplication.
+
+**Data Pipelines**: ETL workflows with fan-out parallel steps, transform stages, and aggregation.
+
+**Cron Jobs**: Standard 5-field cron expressions with timezone support and execution windows.
+
+## Getting Started
 
 <CardGroup cols={2}>
-  <Card title="Quickstart" icon="bolt" href="/docs/quickstart">
-    Get the orchestrator running in minutes.
+  <Card title="Quick Start" icon="bolt" href="/docs/quickstart">
+    Get orchestrator running in minutes. Clone repository, start infrastructure with Docker Compose, and trigger your first job.
   </Card>
   <Card title="Architecture" icon="sitemap" href="/docs/architecture">
-    Deep dive into the system internals.
+    Deep dive into internals. Learn about queue mechanics, FSM states, workflow engine, and technology choices.
   </Card>
 </CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="CLI Reference" icon="terminal" href="/docs/cli/overview">
+    Complete CLI documentation. 48+ commands organized by category with examples and shell completion.
+  </Card>
+  <Card title="API Reference" icon="api" href="/docs/api-reference/overview">
+    REST API endpoints for job management, triggering, workflow orchestration, and SDK interactions.
+  </Card>
+</CardGroup>
+
+## Concepts
+
+Core domain concepts you'll encounter:
+
+<Tabs>
+  <Tab title="Jobs">
+    Jobs define the template for recurring tasks—endpoint URL, timeout, retry strategy, cron schedule, and cost budgets. Runs are execution instances of jobs.
+  </Tab>
+  <Tab title="Runs">
+    Runs represent a single execution of a job. Tracked through a 13-state FSM—queued, dequeued, executing, completed, failed, timed_out, dead_letter—with events, logs, and usage data.
+  </Tab>
+  <Tab title="Workflows">
+    Workflows orchestrate multiple jobs into DAGs. Steps can depend on outputs from parent steps, have conditional execution based on step status, and include human approval gates.
+  </Tab>
+  <Tab title="Environments">
+    Environments provide per-project, named configurations with key-value variables. Jobs can link to environments, enabling endpoint URL overrides for staging vs. production routing.
+  </Tab>
+</Tabs>
+
+## Guides
+
+Step-by-step guides for common tasks:
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/docs/guides/authentication">
+    Internal secret auth for API endpoints and JWT run token auth for SDK. API key management with system keychain storage.
+  </Card>
+  <Card title="Deployment" icon="cloud" href="/docs/guides/deployment">
+    Docker deployment, Fly.io configuration, horizontal scaling strategies, and production readiness checklist.
+  </Card>
+  <Card title="Security" icon="shield" href="/docs/guides/security">
+    SSRF protection, rate limiting, encryption at rest, and secure webhook delivery.
+  </Card>
+  <Card title="Cost Budgets" icon="money-bill" href="/docs/concepts/cost-budgets">
+    Per-run and daily project limits. AI model usage tracking with micro-USD precision. Budget enforcement before execution.
+  </Card>
+</CardGroup>
+
+## Development
+
+Contributing to the orchestrator or running it locally:
+
+<CardGroup cols={2}>
+  <Card title="Contributing" icon="users" href="/docs/development/contributing">
+    Setup development environment, code style, commit conventions, and PR guidelines.
+  </Card>
+  <Card title="Testing" icon="check-circle" href="/docs/development/testing">
+    Unit tests, integration tests with testcontainers, E2E tests, fuzz testing, and benchmarks.
+  </Card>
+  <Card title="Database Schema" icon="database" href="/docs/development/database-schema">
+    Complete table definitions, indexes, and relationships for PostgreSQL schema.
+  </Card>
+</CardGroup>
+
+## What's Next?
+
+Ready to dive deeper?
+
+- Learn about the **[queue mechanics](/docs/architecture#queue-mechanics) and how `SKIP LOCKED` works
+- Understand the **[workflow engine](/docs/architecture#workflow-engine) and DAG execution
+- Explore **[retry strategies](/docs/concepts/retry-strategies) — exponential, linear, fixed, and custom
+- Set up **[webhooks](/docs/concepts/webhooks) with HMAC signing for event delivery
+- Configure **[cost budgets](/docs/concepts/cost-budgets) for AI workloads
+
+Or jump straight into the **[Quick Start Guide](/docs/quickstart)** and run your first job in 5 minutes.

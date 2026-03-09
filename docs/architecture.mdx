@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-description: "Deep dive into the orchestrator internals, design decisions, and component interactions."
+description: "Deep dive into orchestrator internals, design decisions, and component interactions."
 ---
 
 The orchestrator is designed as a distributed job orchestrator that uses PostgreSQL as its primary state store and message queue.
@@ -68,39 +68,203 @@ The orchestrator is designed as a distributed job orchestrator that uses Postgre
                     └──────────────────────────────────┘
 ```
 
+The system is distributed as a single Go binary that can run in three modes:
+- **api**: Handles HTTP requests, job management, and triggering.
+- **worker**: Runs executor, scheduler, and background maintenance tasks.
+- **all**: Runs both API and worker components in a single process.
+
+Graceful shutdown is implemented using `errgroup` and signal handling to ensure in-flight jobs are completed and resources are released cleanly.
+
 ## Component Architecture
 
-The core logic resides in the `internal/` directory, organized into specialized packages.
+The core logic resides in `internal/` directory, organized into specialized packages.
 
 <CardGroup cols={2}>
   <Card title="api" icon="server">
-    Implements the Chi HTTP router, middleware chain, and authentication (Internal Secret + Run Token).
+    Implements Chi HTTP router, middleware chain, and authentication (Internal Secret + Run Token). Handles SSRF validation, health scoring, debug bundles, and DLQ management.
   </Card>
   <Card title="worker" icon="gears">
-    Handles the pond/v2 executor pool with bounded queue backpressure, HTTP dispatch, smart retries, and state transitions. Exposes OTel metrics for pool observability.
+    Handles pond/v2 executor pool with bounded queue backpressure, HTTP dispatch, smart retries, and state transitions. Exposes OTel metrics for pool observability.
   </Card>
   <Card title="workflow" icon="diagram-sankey">
-    Manages DAG execution, Kahn's algorithm validation, and atomic fan-in logic.
+    Manages DAG execution, Kahn's algorithm validation, atomic fan-in logic, step conditions, and sub-workflow nesting.
   </Card>
   <Card title="queue" icon="list-check">
-    Implements the Postgres-backed queue using `SKIP LOCKED` for atomic job claiming.
+    Implements Postgres-backed queue using `SKIP LOCKED` for atomic job claiming and batch dequeue operations.
   </Card>
   <Card title="store" icon="database">
-    Provides raw SQL access via `pgx/v5` with instrumented OTel spans.
+    Provides raw SQL access via `pgx/v5` with instrumented OTel spans, optimistic locking, and interface segregation.
   </Card>
   <Card title="scheduler" icon="clock">
-    Background components for Cron, delayed polling, and stale run reaping.
+    Background components for Cron, delayed polling, stale run reaping, retention, and cost budget enforcement.
   </Card>
 </CardGroup>
+
+## Technology Stack & Design Rationale
+
+### Go 1.26
+
+**Why This Technology:**
+
+Go is ideal for a distributed job orchestrator because it combines enterprise-grade performance with operational simplicity. The single binary distribution eliminates runtime dependency management—no Python venvs, no node_modules, no container images required. This dramatically reduces deployment complexity and attack surface.
+
+Go's concurrency primitives—goroutines, channels, and the sync package—provide a robust foundation for parallel job execution without external dependencies. The worker pool can spin up hundreds of concurrent goroutines with minimal overhead, each handling independent job dispatches. Channels enable elegant coordination between the executor, scheduler, and background maintenance tasks without complex distributed coordination systems.
+
+For a job orchestrator, cold start performance matters. Go compiles to native code that starts instantly, crucial for rapid worker scaling during traffic spikes. Unlike interpreted languages, there's no JIT warmup period or garbage collection tuning needed at scale.
+
+The standard library provides production-ready HTTP server, JSON handling, and cryptographic primitives without external dependencies. This reduces vulnerability surface and ensures long-term stability—critical infrastructure that won't be abandoned in 3 years.
+
+### PostgreSQL 18 with SELECT FOR UPDATE SKIP LOCKED
+
+**Why This Technology:**
+
+Using PostgreSQL as both the job queue and state store eliminates distributed transaction complexity. When a job is triggered, the enqueue operation and state update happen in a single database transaction. No message broker coordination is required—no RabbitMQ, SQS, or Kafka to manage, configure, or scale horizontally. This reduces operational overhead significantly while ensuring exactly-once semantics.
+
+`SELECT FOR UPDATE SKIP LOCKED` is the key mechanism that enables PostgreSQL to function as a message queue. Multiple workers can poll the same table concurrently, but each query locks only rows it will process and skips rows already locked by other workers. This provides lock-free dequeue with ACID guarantees at the database level. No distributed locks, no leader election, no coordination service.
+
+Batch dequeue operations use Common Table Expressions (CTEs) to claim up to N rows in a single database round-trip. This amortizes connection overhead and improves throughput at scale.
+
+PostgreSQL provides excellent support for JSONB fields, enabling flexible job metadata, workflow DAG definitions, and execution traces without schema migrations for every new field. The partial indexes on `status = 'queued'` and `priority DESC, created_at ASC` ensure efficient dequeue queries even with millions of queued runs.
+
+### Redis 8
+
+**Why This Technology:**
+
+Redis provides the pub/sub layer that decouples real-time streaming from the transactional database layer. When a job run completes, state changes are published to Redis channels. Clients can subscribe to these channels via Server-Sent Events (SSE) for real-time dashboards without polling the API. This reduces database load and provides sub-second latency for UI updates.
+
+For Change Data Capture (CDC), Sequin streams Postgres WAL events through Redis channels. This enables real-time notifications when job definitions change, workflows update, or runs complete—without application-level triggers that run within transactions and could slow down operations under load.
+
+Redis cluster mode provides horizontal scalability for the pub/sub layer. As the number of concurrent SSE connections grows, the Redis cluster can distribute channel subscriptions across multiple nodes.
+
+### pgx/v5 (Raw SQL over ORM)
+
+**Why This Technology:**
+
+The `pgx/v5` library provides low-level access to PostgreSQL with fine-grained control over connection pooling, prepared statements, and transaction boundaries. For performance-critical operations like `SELECT FOR UPDATE SKIP LOCKED`, using raw SQL ensures the exact query structure needed for lock-free dequeue. ORMs introduce abstraction layers that may not support these patterns efficiently or may generate suboptimal queries for batch operations.
+
+Connection pooling is configurable and critical for production deployments. The pool manages connection lifecycle, limits concurrent connections to prevent database exhaustion, and provides metrics for monitoring. Transactions use the `WithTx` helper to wrap multiple queries in ACID boundaries for operations like enqueue with budget checks.
+
+Prepared statements are automatically used for repeated queries, reducing parsing overhead. This is particularly important for worker dequeue loops that execute the same queries millions of times.
+
+### Chi/v5 HTTP Router
+
+**Why This Technology:**
+
+Chi is a lightweight, composable HTTP router that provides excellent performance with minimal allocations in the hot request path. For a job orchestrator API handling thousands of requests per second, memory allocation efficiency translates directly to better throughput and lower GC pressure.
+
+The middleware chain composes independently—RequestID generation, real IP extraction, OTel tracing, request logging, panic recovery, rate limiting, and authentication can each be developed, tested, and debugged separately. This modularity enables adding cross-cutting concerns without modifying route handlers.
+
+### sourcegraph/conc (Structured Concurrency)
+
+**Why This Technology:**
+
+The `sourcegraph/conc` library provides panic-safe goroutine pools and context-aware execution patterns. In a job orchestrator, background goroutines handle scheduling, heartbeat monitoring, webhook dispatch, and retention cleanup. If any of these goroutines panic, `conc` automatically recovers and logs the stack trace without crashing the entire process.
+
+Context-aware pools automatically cancel all work when the parent context is canceled. This is crucial for graceful shutdown—when the orchestrator receives SIGTERM, all in-flight operations complete before the process exits. Pools also enforce size limits, preventing unbounded goroutine spawns that could exhaust process memory under error conditions.
+
+### alitto/pond/v2 (Worker Pool)
+
+**Why This Technology:**
+
+The `alitto/pond/v2` library implements a production-grade worker pool with bounded queue backpressure. Tasks are submitted to a buffered channel, and a configurable number of worker goroutines consume from this channel. The buffer size provides backpressure—when the queue is full, task submission blocks rather than growing unbounded memory usage.
+
+The pool exposes Prometheus metrics for active workers, queued tasks, and task completion time. These metrics enable horizontal scaling decisions—monitoring queue depth to add workers proactively before latency increases. Graceful shutdown waits for all in-flight tasks to complete, ensuring no job work is lost during deployments.
+
+### Sequin (Change Data Capture)
+
+**Why This Technology:**
+
+Sequin captures Postgres Write-Ahead Log (WAL) events in real-time and streams them through Redis. This enables applications to react to data changes without polling. For a job orchestrator, this means real-time dashboards, audit trails, and trigger-based workflows without adding application-level triggers that run within transactions.
+
+Logical replication slots provide the CDC stream without affecting transaction performance. Multiple consumers can subscribe to the same slot for different purposes—SSE streaming, cache invalidation, and external event forwarding.
+
+### OpenTelemetry (Distributed Tracing & Metrics)
+
+**Why This Technology:**
+
+OpenTelemetry provides vendor-neutral observability that works with Prometheus, Jaeger, Tempo, or any OTLP-compatible backend. The `otelchi` middleware automatically traces every HTTP request with span ID, parent/child relationships, and performance timings.
+
+Spans cover database queries, queue operations, HTTP dispatches, and workflow step execution. When debugging production issues, distributed tracing links a slow job run across the API server, worker, and external endpoint to pinpoint latency sources. Metrics expose Prometheus counters and histograms for run transitions, dequeue duration, and HTTP dispatch latency, enabling alerting and capacity planning.
+
+### golang-jwt/v5
+
+**Why This Technology:**
+
+The `golang-jwt/v5` library generates HS256 JWT tokens with the `JWT_SIGNING_KEY` for SDK authentication. Tokens include the run ID as the subject, an expiration timestamp, and issued-at claim. This allows job executors to interact with the `/sdk/v1/*` endpoints for a specific run without managing session state or long-lived credentials.
+
+JWT tokens enable stateless authentication—the server validates the signature and claims on each request without database lookups. The 60-second default expiration ensures tokens cannot be reused after the run completes.
+
+### robfig/cron/v3
+
+**Why This Technology:**
+
+The `robfig/cron/v3` library implements standard 5-field cron expressions for job scheduling. This enables time-based job triggering—hourly, daily, weekly, or custom schedules—without building custom scheduling logic.
+
+The cron scheduler maintains job IDs and schedules in memory, triggering a tick when the next execution time arrives. Timezone support ensures jobs run at the correct time regardless of server location.
+
+### golang-migrate/v4 with go:embed
+
+**Why This Technology:**
+
+The `golang-migrate/v4` library manages SQL schema migrations with up/down files. Using `go:embed` embeds migration files directly in the Go binary, eliminating the need to bundle migration files separately or mount them in containers.
+
+Migrations run automatically on startup, checking the `schema_migrations` table for the current version and applying any pending migrations. This ensures database schema is always synchronized with application code, preventing deployment failures due to mismatched schema versions.
+
+### samber/lo (Type-Safe Utilities)
+
+**Why This Technology:**
+
+The `samber/lo` library provides type-safe generic collection utilities—Map, Filter, Reduce, GroupBy, and more—for Go code. Without generics, common operations require verbose boilerplate or unsafe type assertions. These utilities provide concise, readable code for data transformations without sacrificing type safety.
+
+Map operations support functional composition, enabling pipeline-style data processing in job payloads and workflow step outputs. Type parameters inferred from usage reduce boilerplate compared to the Go standard library.
+
+### google/go-cmp
+
+**Why This Technology:**
+
+The `google/go-cmp` library provides structural comparison with human-readable diffs for test assertions. When testing job run transitions, expected vs. actual JSONB payloads can be compared with deep equality, not just pointer equality. The diff output shows exactly which fields differ, speeding up test debugging.
+
+### testcontainers-go
+
+**Why This Technology:**
+
+The `testcontainers-go` library spins up real Postgres and Redis containers for integration tests. Tests execute against actual database behavior—including `SELECT FOR UPDATE SKIP LOCKED` semantics and transaction isolation—rather than mocks that may not match production.
+
+Containers are provisioned with deterministic ports and automatically cleaned up after tests complete. This enables CI pipelines to run integration tests without external infrastructure dependencies.
 
 ## Queue Mechanics
 
 The orchestrator uses PostgreSQL as a message queue to minimize operational complexity and ensure transactional consistency.
 
-- **SELECT FOR UPDATE SKIP LOCKED**: Allows multiple workers to poll the same table simultaneously without blocking.
-- **Atomic Dequeue**: Uses a subquery to select a row and an outer `UPDATE` to transition status atomically.
-- **Batch Dequeue**: Uses a CTE pattern to claim up to N rows in a single database round-trip.
-- **Priority and Ordering**: Respects job priority (`priority DESC`) and FIFO (`created_at ASC`).
+### SKIP LOCKED Dequeue
+
+Multiple workers can poll the same job_runs table concurrently. `SELECT FOR UPDATE SKIP LOCKED` locks only the rows that will be processed by this worker and skips rows already locked by other workers. This provides:
+
+- **Lock-free concurrency**: Workers don't block each other. Each worker claims rows it can process immediately.
+- **Exactly-once semantics**: A row locked by one worker cannot be claimed by another, preventing duplicate job execution.
+- **ACID guarantees**: The dequeue and status update happen in a single transaction. If the worker crashes after claiming but before processing, the transaction rolls back and the run returns to queued state.
+
+### Batch Dequeue (DequeueN)
+
+Using a Common Table Expression (CTE), workers can claim up to N rows in a single database round-trip. The CTE selects rows with `SKIP LOCKED` and returns their IDs, then the outer UPDATE transitions them to `dequeued`. This amortizes network latency across multiple jobs.
+
+### Priority and Ordering
+
+The queue respects two ordering dimensions:
+
+- **Priority**: Jobs with higher `priority` values are dequeued first (`ORDER BY priority DESC`).
+- **FIFO within priority**: Jobs with the same priority follow first-in-first-out ordering (`ORDER BY created_at ASC`).
+
+### Delayed and Retry Gating
+
+The dequeue query includes filters for `scheduled_at` and `next_retry_at` columns. Jobs are only dequeued when:
+
+- `scheduled_at IS NULL OR scheduled_at <= NOW()`: Delayed jobs wait until their scheduled time.
+- `next_retry_at IS NULL OR next_retry_at <= NOW()`: Retrying jobs wait until their backoff period expires.
+
+### Visibility Timeout
+
+The transition from `queued` to `dequeued` acts as the visibility timeout mechanism. If a worker crashes after claiming but before processing, the stale reaper identifies runs stuck in `dequeued` state with no recent heartbeat and transitions them back to `queued` for reprocessing.
 
 ## Finite State Machine (FSM)
 
@@ -112,34 +276,61 @@ The lifecycle of a job run is managed by an FSM with 13 possible states.
                     └────┬────┘
                          │ scheduled_at <= NOW
                          v
-   ┌────────────────┬─────────┬────────────────────┐
-   │                │ queued  │                     │
-   │                └────┬────┘                     │
-   │                     │ dequeue                  │
-   │                     v                          │
-   │              ┌──────────┐                      │
-   │              │ dequeued │──────────┐            │
-   │              └────┬─────┘          │            │
-   │                   │ start          │ system     │
-   │                   v                │ failure    │
-   │    retry    ┌───────────┐          │            │
-   │  ┌─────────>│ executing │          │            │
-   │  │          └─────┬─────┘          │            │
-   │  │  ┌─────────┬───┴───┬─────────┐ │            │
-   │  │  │         │       │         │ │            │
-   │  │  v         v       v         v v            │
-   │  │ completed failed timed_out system_failed    │
-   │  │                │                             │
-   │  │                v (max attempts reached       │
-   │  │          ┌─────────────┐  + FF_RUN_DLQ)     │
-   │  │          │ dead_letter │                     │
-   │  │          └─────────────┘                     │
-   │  │                                              │
-   │  └── (attempt < max_attempts) ──────────────────┘
-   │                                                 │
-   │  canceled <── (any non-terminal) ──────────────┘
-   │  expired  <── (delayed, queued with expires_at) ┘
+    ┌────────────────┬─────────┬────────────────────┐
+    │                │ queued  │                     │
+    │                └────┬────┘                     │
+    │                     │ dequeue                  │
+    │                     v                          │
+    │              ┌──────────┐                      │
+    │              │ dequeued │──────────┐            │
+    │              └────┬─────┘          │            │
+    │                   │ start          │ system     │
+    │                   v                │ failure    │
+    │    retry    ┌───────────┐          │            │
+    │  ┌─────────>│ executing │          │            │
+    │  │          └─────┬─────┘          │            │
+    │  │  ┌─────────┬───┴───┬─────────┐ │            │
+    │  │  │         │       │         │ │            │
+    │  │  v         v       v         v v            │
+    │  │ completed failed timed_out system_failed    │
+    │  │                │                             │
+    │  │                v (max attempts reached       │
+    │  │          ┌─────────────┐  + FF_RUN_DLQ)     │
+    │  │          │ dead_letter │                     │
+    │  │          └─────────────┘                     │
+    │  │                                              │
+    │  └── (attempt < max_attempts) ──────────────────┘
+    │                                                 │
+    │  canceled <── (any non-terminal) ──────────────┘
+    │  expired  <── (delayed, queued with expires_at) ┘
 ```
+
+### Valid Transitions
+
+<Steps>
+  <Step title="delayed → queued, canceled, expired">
+    Delayed jobs move to queued when scheduled time arrives. Can be canceled or expired before execution.
+  </Step>
+  <Step title="queued → dequeued, canceled, expired">
+    Dequeued by worker via SKIP LOCKED, or manually canceled, or expired if TTL elapses.
+  </Step>
+  <Step title="dequeued → executing, queued, canceled, system_failed">
+    Starts execution, returns to queue if worker fails, or system failure during dispatch.
+  </Step>
+  <Step title="executing → completed, failed, timed_out, crashed, canceled, waiting, queued, system_failed, dead_letter">
+    Terminal states indicate job outcome. Waiting state for SDK checkpoints. Queued for retry if attempt < max_attempts. Dead letter if all retries exhausted.
+  </Step>
+  <Step title="waiting → executing, completed, failed, canceled, timed_out">
+    Waiting state for SDK-controlled execution (checkpoints, continuation). Returns to executing or terminal.
+  </Step>
+  <Step title="dead_letter → queued">
+    Replay via DLQ management endpoint resets attempt counter and status.
+  </Step>
+</Steps>
+
+### Optimistic Locking
+
+State transitions use optimistic locking with `WHERE status = $from` clause in the UPDATE statement. Multiple workers can attempt the same transition simultaneously, but only one will match the row and succeed. The others receive a 0-row update result and must retry the entire transition. This prevents race conditions without distributed locks or version numbers.
 
 ## Authentication
 
@@ -147,10 +338,10 @@ The system implements two distinct authentication schemes:
 
 <Tabs>
   <Tab title="Internal Secret">
-    Used for the management API (`/v1/*`). Requires `Authorization: Bearer <INTERNAL_SECRET>`.
+    Used for management API (`/v1/*`). Requires `Authorization: Bearer <INTERNAL_SECRET>` header. Simple string comparison provides fast auth for job CRUD, triggering, and run management.
   </Tab>
   <Tab title="Run Token">
-    Used for the SDK API (`/sdk/v1/*`). Uses JWT HS256 signed with `JWT_SIGNING_KEY`.
+    Used for SDK API (`/sdk/v1/*`). Uses JWT HS256 signed with `JWT_SIGNING_KEY`. Token contains `sub` (runID), `exp` (timeout + 60s), and `iat`. Stateless auth—server validates signature on each request.
   </Tab>
 </Tabs>
 
@@ -158,41 +349,441 @@ The system implements two distinct authentication schemes:
 
 <Steps>
   <Step title="Trigger">
-    API receives a trigger request and checks cost budgets.
-  </Step>
-  <Step title="Enqueue">
-    A `job_run` is created with `status=queued` and a JWT is generated.
+    API receives POST to `/v1/jobs/{id}/trigger`. Cost budget check if FF_COST_BUDGETS enabled. Create job_run with status=queued or delayed. Generate JWT run token.
   </Step>
   <Step title="Dequeue">
-    A worker claims the run via `SKIP LOCKED` and updates status to `dequeued`.
+    Worker calls `DequeueN`, claiming runs via `SKIP LOCKED` and updating status to `dequeued`. Optimistic lock ensures only one worker claims each run.
   </Step>
   <Step title="Execute">
-    The execution is submitted to the pond/v2 worker pool using `context.WithoutCancel`. The pool provides bounded backpressure and reports running workers, waiting tasks, and completion metrics via OTel.
+    Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if orchestrator process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
+  </Step>
+  <Step title="Resolve Environment">
+    If FF_ENVIRONMENTS enabled and job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
   </Step>
   <Step title="Dispatch">
-    The executor sends an HTTP POST to the resolved endpoint URL.
+    Executor sends HTTP POST to resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
+  </Step>
+  <Step title="Execution Tracing">
+    If FF_EXECUTION_TRACING enabled, capture timing breakdown: queue_wait_ms, dequeue_ms, connect_ms, ttfb_ms, transfer_ms, total_ms. Stored as JSONB in `execution_trace` column.
   </Step>
   <Step title="Result Handling">
-    Based on the response, the run becomes `completed`, `failed`, or is scheduled for `retry`.
+    2xx response → status=completed, store result. Non-2xx → schedule retry using job's retry_strategy or mark failed. Timeout → retry or timed_out. Adaptive timeout adjustment if FF_ADAPTIVE_TIMEOUT enabled.
+  </Step>
+  <Step title="DLQ">
+    If FF_RUN_DLQ enabled and attempt >= max_attempts, transition to `dead_letter` instead of `failed`. Dead-lettered runs excluded from normal listings.
+  </Step>
+  <Step title="Webhook">
+    Upon reaching terminal state, send signed POST to job's `webhook_url`. Fire-and-forget—no retries for webhooks.
+  </Step>
+  <Step title="PubSub">
+    State change published to Redis channel `run:{runID}` for SSE streaming.
   </Step>
 </Steps>
 
 ## Workflow Engine
 
-The workflow engine manages the execution of Directed Acyclic Graphs (DAGs).
+The workflow engine manages execution of Directed Acyclic Graphs (DAGs) where each node represents a job execution, human approval, or nested sub-workflow.
 
-- **Atomic Fan-In**: Uses a dependency counter on the step run to handle concurrent parent completions.
-- **Payload Merging**: Merges trigger payload, static step payload, and parent outputs.
-- **Template Rendering**: Supports `{{var}}` placeholders with dot-notation.
-- **Output Transform**: Applies JSONPath extraction to step results before persisting.
+### DAG Validation
+
+Before execution, the workflow definition is validated using Kahn's algorithm for cycle detection. The algorithm:
+
+1. Identifies all steps with no dependencies (roots).
+2. Removes roots from the graph and identifies newly exposed roots.
+3. Repeats until all steps are processed.
+
+If a cycle is detected, the workflow is rejected before any runs are created. This prevents infinite execution loops that could exhaust resources.
+
+### Atomic Fan-In
+
+When multiple parent steps complete concurrently, their child step must start only when all dependencies are satisfied. The engine uses a `deps_completed` counter on each `workflow_step_run`. As each parent completes, an `UPDATE ... RETURNING` query atomically increments the counter and identifies runs where `deps_completed == deps_required`. This ensures exactly one parent triggers the child, even with concurrent completions.
+
+### Payload Merging
+
+Step payloads are constructed by merging three layers:
+
+1. **Trigger payload**: Initial payload provided when workflow is triggered.
+2. **Step payload**: Static payload defined on the step in workflow definition.
+3. **Parent outputs**: Outputs from all direct dependency steps, keyed by `step_ref`.
+
+Template variables `{{parent_outputs.stepRef.field}}` allow accessing nested fields. The engine preserves native JSON types—arrays, objects, strings—so no manual serialization is needed.
+
+### Template Rendering
+
+The template engine renders `{{variable}}` placeholders using dot notation. Example: `{{parent_outputs.extractData.id}}` accesses the `id` field of the `extractData` object from a parent step's output. This provides flexible data flow while maintaining type safety.
+
+### Output Transform
+
+Steps can define an `output_transform` using JSONPath expressions. Before persisting a step's output, the engine extracts the matching subset of the job result. This reduces storage overhead and simplifies downstream steps that only need specific fields. Example: `$.data.items[*].id` extracts all IDs from an array.
+
+### Step Types
+
+<Tabs>
+  <Tab title="job">
+    Executes a regular job. The workflow creates a new `job_run` and waits for it to reach a terminal state before marking the step as completed.
+  </Tab>
+  <Tab title="approval">
+    Human-in-the-loop gate. Creates `workflow_step_approvals` record with `pending` status. Workflow pauses until approval via API or CLI command. Timeout specified in `approval_timeout_secs`.
+  </Tab>
+  <Tab title="sub_workflow">
+    Triggers a nested workflow run. The parent workflow waits for the child to complete and aggregates its outputs. Nesting depth limited to `max_nesting_depth` to prevent infinite recursion.
+  </Tab>
+</Tabs>
+
+### Workflow FSM
+
+The workflow engine manages two FSMs—one for workflow runs, one for step runs.
+
+**Workflow Run States**: pending → running → paused → (completed | failed | timed_out | canceled)
+
+**Step Run States**: pending → (waiting | skipped | canceled) → running → (completed | failed)
+
+Callback handler `OnJobRunTerminal` drives workflow progression when any job run completes. This single entry point handles all terminal states (completed, failed, timed_out, crashed, canceled, system_failed, dead_letter) and determines next workflow actions—start ready children, apply failure policies, propagate sub-workflow outputs.
+
+## Data Model
+
+The system uses PostgreSQL with the following primary tables (47 migrations):
+
+### jobs
+
+```sql
+id                  TEXT PRIMARY KEY              -- UUIDv7, time-ordered
+project_id          TEXT NOT NULL
+group_id            TEXT                          -- FK to job_groups
+name                TEXT NOT NULL
+slug                TEXT NOT NULL
+description         TEXT
+cron                TEXT                          -- 5-field cron expression
+payload_schema      JSONB
+tags                JSONB                         -- string map tags
+endpoint_url        TEXT NOT NULL
+fallback_endpoint_url TEXT
+max_attempts        INT NOT NULL DEFAULT 3
+timeout_secs        INT NOT NULL DEFAULT 300
+max_concurrency     INT                           -- per-job concurrency cap
+execution_window_cron TEXT                        -- when job can execute
+timezone            TEXT                          -- project-level timezone override
+rate_limit_max      INT
+rate_limit_window_secs INT
+dedup_window_secs   INT
+enabled             BOOLEAN NOT NULL DEFAULT TRUE
+webhook_url         TEXT
+webhook_secret      TEXT
+run_ttl_secs        INT
+retry_strategy      TEXT                          -- exponential|linear|fixed|custom
+retry_delays_secs   INT[]                         -- custom per-attempt delays
+environment_id      TEXT                          -- FK to environments
+version             INT NOT NULL DEFAULT 1
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+UNIQUE (project_id, slug)
+```
+
+### job_runs
+
+```sql
+id                  TEXT PRIMARY KEY              -- UUIDv7
+job_id              TEXT NOT NULL REFERENCES jobs(id)
+project_id          TEXT NOT NULL
+status              TEXT NOT NULL DEFAULT 'queued' -- 13 states incl. dead_letter
+attempt             INT NOT NULL DEFAULT 1
+payload             JSONB
+result              JSONB
+metadata            JSONB NOT NULL DEFAULT '{}'   -- key-value annotations
+error               TEXT
+triggered_by        TEXT NOT NULL DEFAULT 'manual' -- manual, cron, spawn, workflow
+scheduled_at        TIMESTAMPTZ
+started_at          TIMESTAMPTZ
+finished_at         TIMESTAMPTZ
+heartbeat_at        TIMESTAMPTZ
+next_retry_at       TIMESTAMPTZ
+expires_at          TIMESTAMPTZ
+parent_run_id       TEXT REFERENCES job_runs(id)
+priority            INT NOT NULL DEFAULT 0
+idempotency_key     TEXT
+job_version         INT NOT NULL DEFAULT 1
+workflow_step_run_id TEXT
+execution_trace     JSONB                         -- timing breakdown
+debug_mode          BOOLEAN NOT NULL DEFAULT FALSE
+continuation_of     TEXT                          -- FK for continuation lineage
+lineage_depth       INT NOT NULL DEFAULT 0        -- depth in continuation chain
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+### workflows & workflow_runs
+
+```sql
+-- workflows table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+project_id          TEXT NOT NULL
+name                TEXT NOT NULL
+slug                TEXT NOT NULL
+description         TEXT
+enabled             BOOLEAN NOT NULL DEFAULT TRUE
+version             INT NOT NULL DEFAULT 1
+timeout_secs        INT
+max_concurrent_runs INT
+max_parallel_steps  INT
+cron                TEXT
+cron_timezone       TEXT
+skip_if_running     BOOLEAN NOT NULL DEFAULT FALSE
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+-- workflow_runs table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_id         TEXT NOT NULL REFERENCES workflows(id)
+project_id          TEXT NOT NULL
+status              TEXT NOT NULL DEFAULT 'pending'
+triggered_by        TEXT NOT NULL DEFAULT 'manual'
+workflow_version    INT NOT NULL DEFAULT 1
+max_parallel_steps  INT
+payload             JSONB
+error               TEXT
+retry_of_run_id     TEXT                          -- FK to workflow_runs
+parent_workflow_run_id TEXT                       -- FK for sub-workflows
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+started_at          TIMESTAMPTZ
+finished_at         TIMESTAMPTZ
+expires_at          TIMESTAMPTZ
+```
+
+### workflow_steps & workflow_step_runs
+
+```sql
+-- workflow_steps table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_id         TEXT NOT NULL REFERENCES workflows(id)
+job_id              TEXT                          -- FK to jobs
+step_ref            TEXT NOT NULL                 -- Unique within workflow
+depends_on          TEXT[] NOT NULL DEFAULT '{}'  -- Array of step_refs
+condition           JSONB                         -- step_status|all_of|any_of
+on_failure          TEXT NOT NULL DEFAULT 'fail_workflow'
+payload             JSONB                         -- Static payload + templates
+step_type           TEXT NOT NULL DEFAULT 'job'   -- job|approval|sub_workflow
+approval_timeout_secs INT
+approval_approvers  TEXT[]
+retry_max_attempts  INT NOT NULL DEFAULT 0
+retry_backoff       TEXT NOT NULL DEFAULT 'exponential'
+retry_initial_delay_secs INT NOT NULL DEFAULT 1
+retry_max_delay_secs INT NOT NULL DEFAULT 3600
+timeout_secs_override INT
+output_transform    TEXT                          -- JSONPath expression
+sub_workflow_id     TEXT                          -- FK to workflows
+max_nesting_depth   INT NOT NULL DEFAULT 10
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+-- workflow_step_runs table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id)
+workflow_step_id    TEXT NOT NULL REFERENCES workflow_steps(id)
+step_ref            TEXT NOT NULL
+job_run_id          TEXT                          -- FK to job_runs
+attempt             INT NOT NULL DEFAULT 1
+status              TEXT NOT NULL DEFAULT 'pending'
+deps_completed      INT NOT NULL DEFAULT 0
+deps_required       INT NOT NULL DEFAULT 0
+output              JSONB
+error               TEXT
+started_at          TIMESTAMPTZ
+finished_at         TIMESTAMPTZ
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+### Key Indexes
+
+Partial and composite indexes ensure query performance at scale:
+
+- `idx_runs_queue`: `(status) WHERE status = 'queued'` — Fast dequeue lookup
+- `idx_runs_priority`: `(priority DESC, created_at ASC) WHERE status = 'queued'` — Priority-ordered FIFO
+- `idx_runs_idempotency`: `(job_id, idempotency_key) WHERE idempotency_key IS NOT NULL` UNIQUE — Deduplication
+- `idx_runs_heartbeat`: `(heartbeat_at) WHERE status = 'executing'` — Stale run detection
+- `idx_runs_retry`: `(next_retry_at) WHERE status = 'queued' AND next_retry_at IS NOT NULL` — Retry gating
+- `idx_runs_dead_letter`: `(status) WHERE status = 'dead_letter'` — DLQ queries
+- `idx_runs_continuation`: `(continuation_of)` — Lineage tree traversal
+- `idx_runs_debug`: `(debug_mode) WHERE debug_mode = TRUE` — Debug mode queries
 
 ## Design Decisions
 
-1. **Postgres as Queue**: Chosen to avoid the operational overhead of an external broker.
-2. **Optimistic Locking**: Prevents race conditions during state transitions.
-3. **Raw SQL over ORM**: `pgx/v5` provides full control over performance-critical queries.
-4. **Single Binary, Three Modes**: Simplifies deployment while allowing independent scaling.
-5. **Micro-USD Cost Tracking**: Uses integer micro-USD to avoid floating-point precision issues.
-6. **Dead Letter as FSM State**: DLQ is modeled as a first-class FSM state.
-7. **Structured Concurrency (conc)**: All goroutines use `sourcegraph/conc` for automatic panic recovery and fail-fast error propagation.
-8. **Production-Grade Pool (pond/v2)**: Worker pool uses `alitto/pond/v2` for bounded queue backpressure, graceful shutdown, and built-in metrics instead of a hand-rolled semaphore.
+### UUIDv7 Primary Keys
+
+UUIDv7 combines a timestamp (first 48 bits) with random bits. This provides:
+
+- **Natural sort order**: Rows are approximately ordered by creation time without a separate index column
+- **No sequence contention**: Auto-increment integers create hotspots during concurrent inserts
+- **Distributed-friendly**: Can be generated without coordination across multiple nodes
+
+The time-ordered property enables efficient time-range queries—selecting runs created in the last hour—by scanning primary key order with index-only scans.
+
+### Raw SQL Over ORM
+
+Hand-written SQL via `pgx/v5` provides complete control over query execution plans. For operations like `SELECT FOR UPDATE SKIP LOCKED` and CTE-based batch dequeue, the exact query structure matters. ORMs may generate suboptimal queries or fail to support these PostgreSQL-specific features efficiently.
+
+The trade-off is verbosity—SQL queries require manual maintenance—but the benefits include predictable performance, transparent optimization, and the ability to use database-specific features without fighting the abstraction layer.
+
+### Embedded Migrations
+
+Using `go:embed`, migration files are compiled into the binary. This eliminates the need to bundle migration files separately or mount them in containers. The binary is truly self-contained—no external file dependencies at startup.
+
+Migrations run automatically on startup, checking `schema_migrations` table for the current version and applying pending migrations in a transaction. This ensures database schema always matches application code.
+
+### Single Binary, Three Modes
+
+The orchestrator compiles to a single executable that can run in three modes:
+
+- **api**: HTTP server only, for scaling API endpoints independently
+- **worker**: Executor and scheduler only, for scaling job processing independently
+- **all**: Combined mode for development or small deployments
+
+This flexibility enables horizontal scaling without multiple deployment artifacts. Deploy the same binary in production with different mode flags.
+
+### context.WithoutCancel for In-flight Jobs
+
+When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (orchestrator shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
+
+### Feature Flags for Progressive Rollout
+
+All new engine capabilities are gated behind boolean environment variables (defaulting to `false`). This enables:
+
+- **Progressive rollout**: Enable features individually in production environments
+- **Safe testing**: Test new behaviors without affecting existing workloads
+- **Independent lifecycle**: Each feature can be enabled/disabled without code changes
+
+Feature flags are validated at startup—if a flag requires additional configuration (e.g., `FF_SECRET_INJECTION` requires `SECRET_ENCRYPTION_KEY`), validation fails with a clear error message.
+
+### Micro-USD Cost Tracking
+
+AI costs are tracked in micro-USD (1/1,000,000 USD) stored as `BIGINT`. This avoids floating-point precision issues that accumulate with repeated additions. Integer arithmetic provides exact financial calculations down to $0.000001 resolution.
+
+### Dead Letter as FSM State
+
+The DLQ is modeled as a first-class FSM state (`dead_letter`) rather than a separate table. This design choice:
+
+- Allows standard run queries to include or exclude dead-lettered runs via status filter
+- Enables DLQ replay using the same state transition mechanism as retries
+- Maintains FSM invariants—all state transitions go through the same validation logic
+
+### Interface Segregation
+
+Store packages define small, focused interfaces (`JobStore`, `RunStore`, `WorkflowStore`, etc.) that only include methods needed by callers. This improves:
+
+- **Testability**: Mocks only implement required methods, not entire store
+- **Decoupling**: Changes to unrelated store methods don't require recompiling callers
+- **Encapsulation**: Internal store implementation details hidden from consumers
+
+The `WithTx` helper accepts any `DBTX` interface (connection pool or transaction), enabling callers to write transaction-aware code without hard-coded transaction handling.
+
+### SSRF Validation in Both Layers
+
+Endpoint URL validation happens in both the API server (job creation/update) and the worker (environment override resolution). This defense-in-depth prevents bypassing SSRF checks via environment variable injection. Blocked address ranges include:
+
+- Private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Loopback addresses (127.0.0.0/8, ::1/128)
+- Link-local addresses (169.254.0.0/16)
+
+## Graceful Shutdown
+
+The shutdown sequence protects in-flight work:
+
+<Steps>
+  <Step title="Signal Capture">
+    `signal.NotifyContext` captures SIGINT and SIGTERM. Context cancellation propagates through `errgroup`.
+  </Step>
+  <Step title="Worker Pool Shutdown">
+    Worker polling loop exits on context cancellation. `pool.Shutdown()` blocks until all in-flight goroutines complete.
+  </Step>
+  <Step title="Scheduler Shutdown">
+    Cron ticker stops, delayed poller exits, reaper stops. No new jobs scheduled.
+  </Step>
+  <Step title="HTTP Server Shutdown">
+    Server shuts down with 10-second grace period to drain in-flight HTTP requests.
+  </Step>
+  <Step title="Resource Cleanup">
+    Database connections closed with context cancellation. Redis connections closed. OTel exporters flush metrics.
+  </Step>
+</Steps>
+
+The use of `context.WithoutCancel` for job dispatch ensures that jobs already executing when shutdown begins are allowed to complete and record their results. This prevents partial execution and data loss during deployments.
+
+## Observability
+
+### Distributed Tracing
+
+OpenTelemetry spans cover critical operations:
+
+- **HTTP requests**: `otelchi` middleware traces request duration, path, and status code
+- **Database queries**: Each store method is instrumented with span attributes (query type, table)
+- **Queue operations**: Dequeue, enqueue, and retry operations traced
+- **Workflow execution**: Step completion, fan-in triggers, sub-workflow propagation traced
+
+Spans include parent-child relationships, linking a slow job run across API server, worker, and external endpoint in trace visualization tools like Jaeger or Tempo.
+
+### Prometheus Metrics
+
+Metrics exposed at `GET /metrics`:
+
+- `orchestrator_run_transitions_total`: Counter for each FSM state transition (labeled by from_status, to_status)
+- `orchestrator_dispatch_duration_seconds`: Histogram of HTTP dispatch latency (labeled by job_id, outcome)
+- `orchestrator_dequeue_duration_seconds`: Histogram of queue polling latency
+- `orchestrator_worker_pool_active`: Gauge of currently active worker goroutines
+- `orchestrator_worker_pool_queued`: Gauge of tasks waiting in pool buffer
+
+### Structured Logging
+
+Structured JSON logging via `log/slog` captures events with consistent fields:
+
+- `run_id`: Job run identifier for correlation
+- `job_id`: Job identifier for filtering
+- `status`: FSM state transition
+- `error`: Error details with stack trace
+- `duration_ms`: Operation timing
+
+Logs are human-readable in development and machine-parseable in production for log aggregation systems.
+
+## Concurrency Model
+
+Multiple worker processes can run concurrently, each polling the same PostgreSQL table. Coordination is handled entirely by `SELECT FOR UPDATE SKIP LOCKED`:
+
+1. **No distributed coordination needed**: Workers don't know about each other. Database locks provide coordination.
+2. **Scalability**: Add worker processes to increase dequeue throughput. No leader election or worker registry.
+3. **Safety**: Optimistic locking prevents race conditions during state transitions. Workers retry on conflict.
+
+The worker pool uses `alitto/pond/v2` which provides:
+
+- **Bounded queue**: Buffer channel limits task submissions, preventing unbounded memory growth
+- **Backpressure**: When queue is full, task submission blocks, signaling workers are at capacity
+- **Graceful shutdown**: Pool waits for all in-flight tasks before returning
+- **Metrics**: Exposes pool metrics for capacity planning
+
+## Scheduler Background Tasks
+
+The scheduler package runs several background goroutines:
+
+<Tabs>
+  <Tab title="Cron Scheduler">
+    Uses `robfig/cron/v3` to maintain job schedules. Every second, checks for jobs whose next execution time has arrived and enqueues new runs with `triggered_by = 'cron'`. Supports cron expressions, timezones, and execution windows.
+  </Tab>
+  <Tab title="Delayed Poller">
+    Polls every 5 seconds for job_runs with `status = 'delayed'` where `scheduled_at <= NOW()`. Transitions them to `queued` for dequeue. Enables delayed job execution without cron.
+  </Tab>
+  <Tab title="Stale Reaper">
+    Polls every minute for:
+    - Runs stuck in `dequeued` state with `heartbeat_at < NOW() - 5 minutes`
+    - Runs stuck in `waiting` state with `heartbeat_at < NOW() - 1 hour`
+    Transitions stale runs to `system_failed` with appropriate error message.
+  </Tab>
+  <Tab title="Retention Worker">
+    Every hour, deletes terminal runs based on retention policy:
+    - completed/failed/canceled/expired: 30 days
+    - timed_out/crashed/system_failed: 90 days
+    Uses batch DELETE for efficient cleanup.
+  </Tab>
+</Tabs>
+
+## Related Documentation
+
+- [Introduction](/docs/introduction) — Product overview and key features
+- [Quick Start](/docs/quickstart) — Getting started guide
+- [Jobs](/docs/concepts/jobs) — Job definitions and configuration
+- [Runs](/docs/concepts/runs) — Run lifecycle and FSM
+- [Workflows](/docs/concepts/workflows) — DAG orchestration details
