@@ -124,6 +124,7 @@ func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.permCache.Invalidate(m.ProjectID, m.UserID)
 	respondJSON(w, http.StatusCreated, m)
 }
 
@@ -149,5 +150,6 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "failed to remove member")
 		return
 	}
+	s.permCache.Invalidate(projectID, userID)
 	w.WriteHeader(http.StatusNoContent)
 }

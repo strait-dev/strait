@@ -220,18 +220,27 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 				return
 
 			case "user":
-				// Users: check role permissions from DB
+				// Users: check role permissions from DB (with cache).
 				projectID := projectIDFromContext(ctx)
 				actorID := actorFromContext(ctx)
 				if projectID == "" || actorID == "" {
 					respondError(w, r, http.StatusForbidden, "missing project or actor context")
 					return
 				}
-				perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
-				if err != nil {
-					respondError(w, r, http.StatusInternalServerError, "failed to load permissions")
-					return
+
+				perms, cached := s.permCache.Get(projectID, actorID)
+				if !cached {
+					var err error
+					perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+					if err != nil {
+						respondError(w, r, http.StatusInternalServerError, "failed to load permissions")
+						return
+					}
+					if perms != nil {
+						s.permCache.Set(projectID, actorID, perms)
+					}
 				}
+
 				if perms == nil {
 					respondError(w, r, http.StatusForbidden, "no role assigned in this project")
 					return

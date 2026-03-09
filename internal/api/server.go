@@ -190,6 +190,7 @@ type Server struct {
 	actorSyncer        ActorSyncer
 	validate           *validator.Validate
 	maxRequestBodySize int64
+	permCache          *permissionCache
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -225,6 +226,7 @@ func NewServer(deps ServerDeps) *Server {
 		actorSyncer:        deps.ActorSyncer,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
+		permCache:          newPermissionCache(30 * time.Second),
 	}
 	srv.router = srv.routes()
 	return srv
