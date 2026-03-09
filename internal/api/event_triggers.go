@@ -45,6 +45,11 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if trigger.Status != domain.EventTriggerStatusWaiting {
+		// Idempotent re-send: if already received with the same payload, return 200.
+		if trigger.Status == domain.EventTriggerStatusReceived && payloadsMatch(trigger.ResponsePayload, req.Payload) {
+			respondJSON(w, http.StatusOK, trigger)
+			return
+		}
 		respondError(w, r, http.StatusConflict, "event trigger is not in waiting state")
 		return
 	}
@@ -147,4 +152,24 @@ func (s *Server) handleListEventTriggers(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, paginatedResult(triggers, limit, func(t domain.EventTrigger) string {
 		return t.RequestedAt.Format(time.RFC3339Nano)
 	}))
+}
+
+// payloadsMatch compares two JSON payloads for semantic equality.
+func payloadsMatch(a, b json.RawMessage) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	var va, vb any
+	if err := json.Unmarshal(a, &va); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &vb); err != nil {
+		return false
+	}
+	ea, _ := json.Marshal(va)
+	eb, _ := json.Marshal(vb)
+	return string(ea) == string(eb)
 }

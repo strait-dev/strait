@@ -109,23 +109,26 @@ func TestHandleSendEvent_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleSendEvent_AlreadyReceived(t *testing.T) {
+func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
 	t.Parallel()
 
 	ms := &mockAPIStore{
 		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
-				ID:       "evt-1",
-				EventKey: "some-key",
-				Status:   domain.EventTriggerStatusReceived,
+				ID:              "evt-1",
+				EventKey:        "some-key",
+				Status:          domain.EventTriggerStatusReceived,
+				ResponsePayload: json.RawMessage(`{"original":true}`),
 			}, nil
 		},
 	}
 
 	srv := newEventTriggersTestServer(t, ms, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", nil)
+	// Different payload -> 409.
+	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", strings.NewReader(`{"payload":{"different":true}}`))
 	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -355,5 +358,72 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	// that's the callback's responsibility (avoids double-update).
 	if stepRunStatusUpdatedDirectly {
 		t.Fatal("step run status should not be updated directly by handler; callback handles it")
+	}
+}
+
+func TestHandleSendEvent_IdempotentResend(t *testing.T) {
+	t.Parallel()
+
+	receivedAt := time.Now()
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:              "evt-1",
+				EventKey:        "my-event",
+				ProjectID:       "proj-1",
+				SourceType:      "workflow_step",
+				Status:          domain.EventTriggerStatusReceived,
+				ResponsePayload: json.RawMessage(`{"ok":true}`),
+				ReceivedAt:      &receivedAt,
+			}, nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	// Same payload -> 200 (idempotent).
+	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for idempotent resend, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Different payload -> 409.
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":false}}`))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-Internal-Secret", "test-secret")
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for different payload, got %d: %s", w2.Code, w2.Body.String())
+	}
+}
+
+func TestPayloadsMatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a, b json.RawMessage
+		want bool
+	}{
+		{"both nil", nil, nil, true},
+		{"both empty", json.RawMessage(``), json.RawMessage(``), true},
+		{"equal", json.RawMessage(`{"k":"v"}`), json.RawMessage(`{"k":"v"}`), true},
+		{"whitespace diff", json.RawMessage(`{ "k" : "v" }`), json.RawMessage(`{"k":"v"}`), true},
+		{"different", json.RawMessage(`{"a":1}`), json.RawMessage(`{"a":2}`), false},
+		{"one nil", json.RawMessage(`{"a":1}`), nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := payloadsMatch(tt.a, tt.b); got != tt.want {
+				t.Fatalf("payloadsMatch(%s, %s) = %v, want %v", string(tt.a), string(tt.b), got, tt.want)
+			}
+		})
 	}
 }
