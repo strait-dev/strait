@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -230,7 +229,7 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
-		if errors.Is(err, queue.ErrIdempotencyConflict) {
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			slog.Warn("replay idempotency conflict",
 				"original_run_id", runID,
 				"replay_run_id", replayRun.ID)

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/store"
 )
 
@@ -1368,7 +1367,7 @@ func TestIdempotency_EnqueueUniqueViolation_RetriesLookup(t *testing.T) {
 		},
 	}
 	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-		return queue.ErrIdempotencyConflict
+		return domain.ErrIdempotencyConflict
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
@@ -1499,7 +1498,7 @@ func TestIdempotency_BulkTriggerConflictRetry(t *testing.T) {
 		},
 	}
 	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-		return queue.ErrIdempotencyConflict
+		return domain.ErrIdempotencyConflict
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)

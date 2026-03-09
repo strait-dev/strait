@@ -16,11 +16,6 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// ErrIdempotencyConflict is returned when an enqueue fails due to the
-// idempotency unique index constraint (idx_runs_idempotency). Callers
-// should retry by looking up the existing run via GetRunByIdempotencyKey.
-var ErrIdempotencyConflict = errors.New("idempotency key conflict")
-
 type PostgresQueue struct {
 	db store.DBTX
 }
@@ -95,7 +90,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_runs_idempotency" {
-			return ErrIdempotencyConflict
+			return domain.ErrIdempotencyConflict
 		}
 		return fmt.Errorf("enqueue run: %w", err)
 	}

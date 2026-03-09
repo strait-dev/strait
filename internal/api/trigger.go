@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -260,7 +259,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		// Handle race condition: two concurrent requests with the same
 		// idempotency key both passed the app-level check but the DB
 		// unique index rejected the second INSERT. Retry the lookup.
-		if errors.Is(err, queue.ErrIdempotencyConflict) && idempotencyKey != "" {
+		if errors.Is(err, domain.ErrIdempotencyConflict) && idempotencyKey != "" {
 			existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
 			if retryErr != nil {
 				slog.Error("idempotency conflict retry failed",

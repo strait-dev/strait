@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -260,7 +259,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 		if err := s.queue.Enqueue(r.Context(), run); err != nil {
 			// Handle race: concurrent bulk request with the same idempotency key.
-			if errors.Is(err, queue.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
+			if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
 				existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
 				if retryErr != nil {
 					slog.Error("idempotency conflict retry failed",
