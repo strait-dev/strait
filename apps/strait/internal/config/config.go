@@ -110,6 +110,9 @@ type Config struct {
 	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
 	ReaperDeleteBatchSize int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
 
+	// Forge sandbox settings
+	ForgeGRPCAddr string `mapstructure:"FORGE_GRPC_ADDR"`
+
 	// Workflow settings
 	MaxWorkflowNestingDepth int `mapstructure:"MAX_WORKFLOW_NESTING_DEPTH"`
 
@@ -189,6 +192,7 @@ func setDefaults() {
 	viper.SetDefault("WORKER_QUEUE_SIZE", 0)
 	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
 	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
+	viper.SetDefault("FORGE_GRPC_ADDR", "")
 	viper.SetDefault("MAX_WORKFLOW_NESTING_DEPTH", 10)
 	viper.SetDefault("CDC_BATCH_SIZE", 10)
 	viper.SetDefault("CDC_WAIT_TIME_MS", 5000)
@@ -219,6 +223,7 @@ func BindEnv() error {
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_ATTEMPTS",
 		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
 		"WORKFLOW_RETENTION",
+		"FORGE_GRPC_ADDR",
 		"REAPER_DELETE_BATCH_SIZE", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
 		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
 	}

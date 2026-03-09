@@ -176,6 +176,7 @@ func (s *Server) routes() chi.Router {
 				r.Post("/steps/{stepRef}/skip", s.handleSkipWorkflowStep)
 				r.Post("/steps/{stepRef}/force-complete", s.handleForceCompleteWorkflowStep)
 				r.Post("/retry", s.handleRetryWorkflowRun)
+				r.Post("/compensate", s.handleRetryCompensation)
 			})
 		})
 	})

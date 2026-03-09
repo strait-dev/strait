@@ -15,6 +15,7 @@ import (
 	"strait/internal/health"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
+	"strait/internal/sandbox"
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -168,7 +169,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, compensationEngine *workflow.CompensationEngine) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -190,15 +191,16 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	}
 
 	srv := api.NewServer(api.ServerDeps{
-		Config:           cfg,
-		Store:            queries,
-		Queue:            q,
-		PubSub:           pub,
-		MetricsHandler:   metricsHandler,
-		Pinger:           pinger,
-		HealthRegistry:   healthReg,
-		WorkflowCallback: stepCallback,
-		WorkflowEngine:   workflowEngine,
+		Config:             cfg,
+		Store:              queries,
+		Queue:              q,
+		PubSub:             pub,
+		MetricsHandler:     metricsHandler,
+		Pinger:             pinger,
+		HealthRegistry:     healthReg,
+		WorkflowCallback:   stepCallback,
+		WorkflowEngine:     workflowEngine,
+		CompensationEngine: compensationEngine,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -244,6 +246,18 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		partitionWeights = cfg.WorkerPartitionWeights
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
 	}
+	// Initialize sandbox client if Forge is configured
+	var sandboxClient *sandbox.Client
+	if cfg.ForgeGRPCAddr != "" {
+		sandboxClient = sandbox.NewClient(cfg.ForgeGRPCAddr, slog.Default())
+		if err := sandboxClient.Connect(context.Background()); err != nil {
+			slog.Error("failed to connect to forge", "addr", cfg.ForgeGRPCAddr, "error", err)
+			// Non-fatal: sandbox jobs will fail at dispatch time with ErrNotConnected
+		} else {
+			slog.Info("sandbox client connected", "addr", cfg.ForgeGRPCAddr)
+		}
+	}
+
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                    p,
 		Queue:                   q,
@@ -268,6 +282,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WebhookIdleConnTimeout:  cfg.WebhookIdleConnTimeout,
 		WebhookDispatchTimeout:  cfg.WebhookDispatchTimeout,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
+		SandboxClient:           sandboxClient,
 	})
 
 	if metrics != nil {
@@ -289,6 +304,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		defer shutdownCancel()
 		if err := p.Shutdown(shutdownCtx); err != nil {
 			slog.Warn("worker pool shutdown timed out", "error", err)
+		}
+		if sandboxClient != nil {
+			if err := sandboxClient.Close(); err != nil {
+				slog.Warn("failed to close sandbox client", "error", err)
+			}
 		}
 		return nil
 	})

@@ -123,9 +123,10 @@ func runServe(modeOverride string) error {
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
+	compensationEngine := workflow.NewCompensationEngine(queries, q, slog.Default())
 
 	startCDCConsumer(g, cfg, pub)
-	startAPIServer(g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
+	startAPIServer(g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine, compensationEngine)
 	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
 
 	if err := g.Wait(); err != nil {

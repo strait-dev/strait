@@ -22,6 +22,7 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/workflow"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -144,6 +145,12 @@ type WorkflowTrigger interface {
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
 
+// WorkflowCompensator handles Saga compensation for canceled/failed workflows.
+type WorkflowCompensator interface {
+	CancelWorkflowRun(ctx context.Context, workflowRunID string) (*workflow.CompensationResult, error)
+	RetryFailedCompensation(ctx context.Context, workflowRunID string) (*workflow.CompensationResult, error)
+}
+
 const (
 	defaultPageLimit = 50
 	maxPageLimit     = 100
@@ -167,21 +174,23 @@ type Server struct {
 	healthRegistry     *health.Registry
 	workflowCallback   WorkflowCallback
 	workflowEngine     WorkflowTrigger
+	compensationEngine WorkflowCompensator
 	validate           *validator.Validate
 	maxRequestBodySize int64
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
 type ServerDeps struct {
-	Config           *config.Config
-	Store            APIStore
-	Queue            queue.Queue
-	PubSub           pubsub.Publisher
-	MetricsHandler   http.Handler
-	Pinger           Pinger
-	HealthRegistry   *health.Registry
-	WorkflowCallback WorkflowCallback
-	WorkflowEngine   WorkflowTrigger
+	Config             *config.Config
+	Store              APIStore
+	Queue              queue.Queue
+	PubSub             pubsub.Publisher
+	MetricsHandler     http.Handler
+	Pinger             Pinger
+	HealthRegistry     *health.Registry
+	WorkflowCallback   WorkflowCallback
+	WorkflowEngine     WorkflowTrigger
+	CompensationEngine WorkflowCompensator
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -200,6 +209,7 @@ func NewServer(deps ServerDeps) *Server {
 		healthRegistry:     deps.HealthRegistry,
 		workflowCallback:   deps.WorkflowCallback,
 		workflowEngine:     deps.WorkflowEngine,
+		compensationEngine: deps.CompensationEngine,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
 	}

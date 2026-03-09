@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -98,80 +99,64 @@ func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	workflowRunID := chi.URLParam(r, "workflowRunID")
-	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+
+	if s.compensationEngine == nil {
+		respondError(w, r, http.StatusNotImplemented, "compensation engine not configured")
+		return
+	}
+
+	result, err := s.compensationEngine.CancelWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
-		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+		if strings.Contains(err.Error(), "not found") {
 			respondError(w, r, http.StatusNotFound, "workflow run not found")
 			return
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
-		return
-	}
-
-	if run.Status.IsTerminal() {
-		respondError(w, r, http.StatusBadRequest, "workflow run already in terminal state")
-		return
-	}
-
-	if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, run.Status, domain.WfStatusCanceled, map[string]any{
-		"finished_at": time.Now(),
-		"error":       "canceled by user",
-	}); err != nil {
-		respondError(w, r, http.StatusConflict, "failed to cancel workflow run")
-		return
-	}
-
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), run.ID, 10000, nil)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
-		return
-	}
-
-	now := time.Now()
-	for _, stepRun := range stepRuns {
-		if !stepRun.Status.IsTerminal() {
-			if err := s.store.UpdateStepRunStatus(r.Context(), stepRun.ID, domain.StepCanceled, map[string]any{
-				"finished_at": now,
-				"error":       "workflow canceled by user",
-			}); err != nil {
-				respondError(w, r, http.StatusConflict, "failed to cancel workflow step run")
-				return
-			}
-		}
-
-		if stepRun.JobRunID == "" {
-			continue
-		}
-
-		jobRun, err := s.store.GetRun(r.Context(), stepRun.JobRunID)
-		if err != nil {
-			if errors.Is(err, store.ErrRunNotFound) {
-				continue
-			}
-			respondError(w, r, http.StatusInternalServerError, "failed to get step job run")
+		if strings.Contains(err.Error(), "terminal state") {
+			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
-		if jobRun.Status.IsTerminal() {
-			continue
-		}
-
-		if err := s.store.UpdateRunStatus(r.Context(), jobRun.ID, jobRun.Status, domain.StatusCanceled, map[string]any{
-			"finished_at": now,
-			"error":       "workflow canceled by user",
-		}); err != nil {
-			respondError(w, r, http.StatusConflict, "failed to cancel step job run")
-			return
-		}
+		respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("cancel workflow run: %s", err))
+		return
 	}
 
-	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
+	updatedRun, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
 		return
 	}
-	s.publishWorkflowRunHook(r.Context(), updatedRun, run.Status, domain.WfStatusCanceled, "cancel")
+	s.publishWorkflowRunHook(r.Context(), updatedRun, domain.WfStatusRunning, domain.WfStatusCanceled, "cancel")
 
-	respondJSON(w, http.StatusOK, updatedRun)
+	respondJSON(w, http.StatusOK, map[string]any{
+		"workflow_run":        updatedRun,
+		"compensation_result": result,
+	})
+}
+
+func (s *Server) handleRetryCompensation(w http.ResponseWriter, r *http.Request) {
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+
+	if s.compensationEngine == nil {
+		respondError(w, r, http.StatusNotImplemented, "compensation engine not configured")
+		return
+	}
+
+	result, err := s.compensationEngine.RetryFailedCompensation(r.Context(), workflowRunID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
+			return
+		}
+		if strings.Contains(err.Error(), "not retryable") {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("retry compensation: %s", err))
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"compensation_result": result,
+	})
 }
 
 func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) {
