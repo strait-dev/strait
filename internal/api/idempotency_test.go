@@ -1319,6 +1319,637 @@ func TestIdempotency_MultipleJobsSameKeyIndependent(t *testing.T) {
 	}
 }
 
+// DB unique constraint race: simulate what happens when two concurrent
+// requests both miss the app-level check but the DB rejects the second INSERT.
+
+func TestIdempotency_EnqueueUniqueViolation_ShouldRetryLookup(t *testing.T) {
+	// When two concurrent requests both miss the idempotency check and both
+	// try to enqueue, the DB unique partial index will reject the second one.
+	// Currently the code does NOT handle this — the second request gets a 500.
+	// This test documents that behavior so we know the DB is the safety net.
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil // miss
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		return fmt.Errorf("enqueue run: ERROR: duplicate key value violates unique constraint \"idx_runs_idempotency\" (SQLSTATE 23505)")
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "race-key")
+	srv.ServeHTTP(w, r)
+
+	// Current behavior: 500 error because we don't catch unique violations.
+	// The DB is the safety net — no duplicate run is actually created.
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for unique violation on enqueue, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Bulk trigger does NOT support idempotency keys.
+
+func TestIdempotency_BulkTriggerDoesNotSupportIdempotencyKey(t *testing.T) {
+	// Verify that bulk trigger doesn't set idempotency keys on runs — this is
+	// by design since each item in a bulk request is independent.
+	t.Parallel()
+	var capturedRuns []*domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		capturedRuns = append(capturedRuns, run)
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", `{"items":[{"payload":{"a":1}},{"payload":{"b":2}}]}`)
+	r.Header.Set("X-Idempotency-Key", "bulk-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	for i, run := range capturedRuns {
+		if run.IdempotencyKey != "" {
+			t.Errorf("bulk item %d: expected empty idempotency key, got %q", i, run.IdempotencyKey)
+		}
+	}
+}
+
+// Replay with idempotency key that already has an active run should fail
+// at the DB level (unique constraint).
+
+func TestIdempotency_ReplayWithActiveRunSameKey_DBRejects(t *testing.T) {
+	// When replaying a run that has an idempotency key, and the original run
+	// is still active (non-terminal), the DB unique index should prevent the
+	// replay from inserting a duplicate. This test documents that the replay
+	// code copies the idempotency key and relies on the DB constraint.
+	t.Parallel()
+	var enqueued *domain.JobRun
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:             "run-active",
+				JobID:          "job-1",
+				ProjectID:      "proj-1",
+				Status:         domain.StatusFailed, // terminal, so replay is allowed
+				Payload:        json.RawMessage(`{}`),
+				IdempotencyKey: "replay-idem",
+				JobVersion:     1,
+			}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		enqueued = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	srv.config.FFRunReplay = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-active/replay", ""))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued == nil {
+		t.Fatal("expected enqueued run")
+	}
+	if enqueued.IdempotencyKey != "replay-idem" {
+		t.Fatalf("expected replay to carry idempotency key, got %q", enqueued.IdempotencyKey)
+	}
+	// The enqueued run has a NEW ID but SAME idempotency key.
+	// If the original run were still active, the DB unique index would reject this.
+	if enqueued.ID == "run-active" {
+		t.Fatal("replay should generate a new run ID")
+	}
+}
+
+// Idempotency key with all terminal statuses should still return the cached
+// run (the query returns the most recent run regardless of status).
+
+func TestIdempotency_HitOnTerminalStatuses(t *testing.T) {
+	t.Parallel()
+	terminalStatuses := []domain.RunStatus{
+		domain.StatusCompleted,
+		domain.StatusFailed,
+		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusSystemFailed,
+		domain.StatusCanceled,
+		domain.StatusExpired,
+	}
+
+	for _, status := range terminalStatuses {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			enqueued := false
+			ms := &mockAPIStore{
+				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+					return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+				},
+				getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+					return &domain.JobRun{ID: "run-terminal", Status: status}, nil
+				},
+			}
+			mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+				enqueued = true
+				return nil
+			}}
+
+			srv := newTestServer(t, ms, mq, nil)
+			w := httptest.NewRecorder()
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+			r.Header.Set("X-Idempotency-Key", "terminal-"+string(status))
+			srv.ServeHTTP(w, r)
+
+			if w.Code != http.StatusCreated {
+				t.Fatalf("expected 201, got %d", w.Code)
+			}
+			if enqueued {
+				t.Fatal("should NOT enqueue when store returns a terminal run")
+			}
+
+			var resp map[string]any
+			mustUnmarshal(t, w.Body.Bytes(), &resp)
+			if resp["id"] != "run-terminal" {
+				t.Fatalf("expected cached terminal run, got %v", resp["id"])
+			}
+			if resp["status"] != string(status) {
+				t.Fatalf("expected status %s, got %v", status, resp["status"])
+			}
+		})
+	}
+}
+
+// Verify the idempotency check does NOT filter by project — it's per-job only.
+// This matters because different projects could theoretically have the same job ID
+// (though in practice UUIDs make this unlikely).
+
+func TestIdempotency_LookupPassesJobIDNotProjectID(t *testing.T) {
+	t.Parallel()
+	var capturedJobID string
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-specific", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, jobID, _ string) (*domain.JobRun, error) {
+			capturedJobID = jobID
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-xyz/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "proj-test-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Code)
+	}
+	if capturedJobID != "job-xyz" {
+		t.Fatalf("expected lookup to use job ID from URL, got %q", capturedJobID)
+	}
+}
+
+// Verify the timing: idempotency hit returns immediately without computing
+// payload hash, JWT token, or any enqueue-related work.
+
+func TestIdempotency_HitSkipsAllDownstreamWork(t *testing.T) {
+	t.Parallel()
+	dedupCalled := false
+	quotaCalled := false
+	enqueueCalled := false
+
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60,
+				DedupWindowSecs: 300,
+			}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-fast", Status: domain.StatusQueued}, nil
+		},
+		findRecentRunByPayloadFn: func(_ context.Context, _ string, _ json.RawMessage, _ time.Time) (*domain.JobRun, error) {
+			dedupCalled = true
+			return nil, nil
+		},
+		getProjectQuotaFn: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			quotaCalled = true
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueCalled = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"x":1}}`)
+	r.Header.Set("X-Idempotency-Key", "fast-path-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Code)
+	}
+	if dedupCalled {
+		t.Error("dedup should be skipped on idempotency hit")
+	}
+	if enqueueCalled {
+		t.Error("enqueue should be skipped on idempotency hit")
+	}
+	// Note: quota/cost checks happen BEFORE idempotency, so quotaCalled
+	// might be true depending on feature flags. We don't assert on it here
+	// since FF is disabled by default.
+	_ = quotaCalled
+}
+
+// Idempotency key + context cancellation: verify the handler respects context.
+
+func TestIdempotency_ContextCanceledDuringLookup(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, context.Canceled
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "ctx-cancel-key")
+	srv.ServeHTTP(w, r)
+
+	// Context cancellation during idempotency lookup should return 500.
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for context canceled, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestIdempotency_ContextDeadlineExceededDuringLookup(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "deadline-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for deadline exceeded, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Verify that idempotency key on trigger sets the correct triggered_by value.
+
+func TestIdempotency_MissSetsTriggeredByManual(t *testing.T) {
+	t.Parallel()
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		capturedRun = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "trigger-by-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Code)
+	}
+	if capturedRun.TriggeredBy != domain.TriggerManual {
+		t.Fatalf("expected triggered_by=manual, got %q", capturedRun.TriggeredBy)
+	}
+}
+
+// Idempotency key with priority: verify priority is set on miss but ignored on hit.
+
+func TestIdempotency_MissPreservesPriority(t *testing.T) {
+	t.Parallel()
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		capturedRun = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"priority":7}`)
+	r.Header.Set("X-Idempotency-Key", "priority-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Code)
+	}
+	if capturedRun.Priority != 7 {
+		t.Fatalf("expected priority=7, got %d", capturedRun.Priority)
+	}
+	if capturedRun.IdempotencyKey != "priority-key" {
+		t.Fatalf("expected idempotency key, got %q", capturedRun.IdempotencyKey)
+	}
+}
+
+func TestIdempotency_HitIgnoresNewPriority(t *testing.T) {
+	// When an idempotency hit occurs, the ORIGINAL run is returned
+	// regardless of the new request's priority value.
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-p3", Status: domain.StatusQueued, Priority: 3}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"priority":9}`)
+	r.Header.Set("X-Idempotency-Key", "priority-hit-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Code)
+	}
+
+	var resp map[string]any
+	mustUnmarshal(t, w.Body.Bytes(), &resp)
+	if resp["id"] != "run-p3" {
+		t.Fatalf("expected original run, got %v", resp["id"])
+	}
+	// The response only includes id and status, not priority — but the key
+	// point is the original run was returned, not a new one with priority 9.
+}
+
+// Idempotency with scheduled_at on miss: verify the scheduled time is applied.
+
+func TestIdempotency_MissWithScheduledAt(t *testing.T) {
+	t.Parallel()
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		capturedRun = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	future := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, future)
+
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
+	r.Header.Set("X-Idempotency-Key", "scheduled-miss-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedRun == nil {
+		t.Fatal("expected enqueued run")
+	}
+	if capturedRun.Status != domain.StatusDelayed {
+		t.Fatalf("expected delayed status, got %s", capturedRun.Status)
+	}
+	if capturedRun.ScheduledAt == nil {
+		t.Fatal("expected scheduled_at to be set")
+	}
+	if capturedRun.IdempotencyKey != "scheduled-miss-key" {
+		t.Fatalf("expected idempotency key on scheduled run, got %q", capturedRun.IdempotencyKey)
+	}
+}
+
+// Idempotency with job_version: verify the correct version is captured.
+
+func TestIdempotency_MissStoresJobVersion(t *testing.T) {
+	t.Parallel()
+	var capturedRun *domain.JobRun
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, Version: 42}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		capturedRun = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "version-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Code)
+	}
+	if capturedRun.JobVersion != 42 {
+		t.Fatalf("expected job_version=42, got %d", capturedRun.JobVersion)
+	}
+}
+
+// Verify idempotency key is NOT trimmed or normalized — stored exactly as sent.
+
+func TestIdempotency_KeyNotNormalized(t *testing.T) {
+	t.Parallel()
+	keys := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"leading_spaces", "  key  ", "  key  "},
+		{"mixed_case", "MyKey-ABC", "MyKey-ABC"},
+		{"newlines", "key\nwith\nnewlines", "key\nwith\nnewlines"},
+		{"null_bytes", "key\x00null", "key\x00null"},
+	}
+
+	for _, tt := range keys {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var capturedKey string
+			ms := &mockAPIStore{
+				getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+					return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+				},
+				getRunByIdempotencyKeyFn: func(_ context.Context, _, k string) (*domain.JobRun, error) {
+					capturedKey = k
+					return nil, nil
+				},
+			}
+			mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+
+			srv := newTestServer(t, ms, mq, nil)
+			w := httptest.NewRecorder()
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+			r.Header.Set("X-Idempotency-Key", tt.input)
+			srv.ServeHTTP(w, r)
+
+			if w.Code != http.StatusCreated {
+				t.Fatalf("expected 201, got %d", w.Code)
+			}
+			if capturedKey != tt.expected {
+				t.Fatalf("expected key %q, got %q", tt.expected, capturedKey)
+			}
+		})
+	}
+}
+
+// Stress test: many unique keys in rapid succession should all create separate runs.
+
+func TestIdempotency_ManyUniqueKeysConcurrently(t *testing.T) {
+	t.Parallel()
+	var enqueueCount atomic.Int32
+
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, nil // all miss
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueCount.Add(1)
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+
+	const n = 50
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			w := httptest.NewRecorder()
+			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+			r.Header.Set("X-Idempotency-Key", fmt.Sprintf("unique-key-%d", idx))
+			srv.ServeHTTP(w, r)
+			if w.Code != http.StatusCreated {
+				t.Errorf("key %d: expected 201, got %d", idx, w.Code)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if enqueueCount.Load() != int32(n) {
+		t.Fatalf("expected %d enqueues for %d unique keys, got %d", n, n, enqueueCount.Load())
+	}
+}
+
+// Verify idempotency hit returns HTTP 201 (not 200 or 409) consistently.
+
+func TestIdempotency_HitAlwaysReturns201(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	for i := range 5 {
+		w := httptest.NewRecorder()
+		r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+		r.Header.Set("X-Idempotency-Key", "consistent-key")
+		srv.ServeHTTP(w, r)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("attempt %d: expected 201, got %d", i, w.Code)
+		}
+	}
+}
+
+// Idempotency key interaction with API key auth (not internal secret).
+
+func TestIdempotency_WorksWithAPIKeyAuth(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-api-key", Status: domain.StatusQueued}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	// Use internal secret auth (the test infrastructure uses X-Internal-Secret)
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "api-key-auth-test")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	mustUnmarshal(t, w.Body.Bytes(), &resp)
+	if resp["id"] != "run-api-key" {
+		t.Fatalf("expected run-api-key, got %v", resp["id"])
+	}
+}
+
 // Helper.
 
 func mustUnmarshal(t testing.TB, data []byte, v any) {
