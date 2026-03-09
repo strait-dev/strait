@@ -682,6 +682,14 @@ func (m *mockAPIStore) UpdateWorkflowStepApproval(ctx context.Context, id string
 	return nil
 }
 
+func (m *mockAPIStore) ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error) {
+	return nil, store.ErrWorkflowVersionNotFound
+}
+
 func (m *mockAPIStore) DeleteJobSecret(ctx context.Context, id string) error {
 	if m.deleteJobSecretFn != nil {
 		return m.deleteJobSecretFn(ctx, id)

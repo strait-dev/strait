@@ -25,6 +25,7 @@ var (
 	ErrWorkflowStepNotFound    = errors.New("workflow step not found")
 	ErrWorkflowRunNotFound     = errors.New("workflow run not found")
 	ErrWorkflowStepRunNotFound = errors.New("workflow step run not found")
+	ErrWorkflowVersionNotFound = errors.New("workflow version not found")
 )
 
 type DBTX interface {

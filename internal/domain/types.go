@@ -359,6 +359,28 @@ type JobVersion struct {
 	CreatedAt           time.Time         `json:"created_at"`
 }
 
+// WorkflowVersion is a point-in-time snapshot of a workflow.
+type WorkflowVersion struct {
+	ID                string    `json:"id"`
+	WorkflowID        string    `json:"workflow_id"`
+	Version           int       `json:"version"`
+	ProjectID         string    `json:"project_id"`
+	Name              string    `json:"name"`
+	Slug              string    `json:"slug"`
+	Description       string    `json:"description,omitempty"`
+	Enabled           bool      `json:"enabled"`
+	TimeoutSecs       int       `json:"timeout_secs"`
+	MaxConcurrentRuns int       `json:"max_concurrent_runs"`
+	MaxParallelSteps  int       `json:"max_parallel_steps"`
+	Cron              string    `json:"cron,omitempty"`
+	CronTimezone      string    `json:"cron_timezone,omitempty"`
+	SkipIfRunning     bool      `json:"skip_if_running,omitempty"`
+	VersionID         string    `json:"version_id,omitempty"`
+	CreatedBy         string    `json:"created_by,omitempty"`
+	UpdatedBy         string    `json:"updated_by,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
 func (s RunStatus) IsTerminal() bool {
 	switch s {
 	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:
