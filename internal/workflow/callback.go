@@ -37,6 +37,7 @@ type CallbackStore interface {
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 }
 
@@ -123,6 +124,9 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 
 	switch stepStatus {
 	case domain.StepCompleted:
+		// Auto-emit event if step has event_emit_key configured.
+		s.tryEmitEvent(ctx, stepRun)
+
 		if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
 			s.logger.Error("failed to process completed step", "step_ref", stepRun.StepRef, "error", err)
 			return fmt.Errorf("process completed step %s: %w", stepRun.StepRef, err)
@@ -250,4 +254,50 @@ func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[str
 		}
 		return domain.StepFailed, fields
 	}
+}
+
+// tryEmitEvent looks up the step definition for a completed step run and
+// auto-emits an event if event_emit_key is configured. Non-fatal on failure.
+func (s *StepCallback) tryEmitEvent(ctx context.Context, stepRun *domain.WorkflowStepRun) {
+	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
+	if err != nil || wfRun == nil {
+		return
+	}
+
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return
+	}
+
+	for i := range steps {
+		if steps[i].StepRef == stepRun.StepRef {
+			s.emitEventIfConfigured(ctx, stepRun, &steps[i])
+			return
+		}
+	}
+}
+
+// emitEventIfConfigured checks if a step has event_emit_key set and if so,
+// auto-resolves a matching waiting trigger with the step's output.
+func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domain.WorkflowStepRun, step *domain.WorkflowStep) {
+	if step == nil || step.EventEmitKey == "" {
+		return
+	}
+
+	trigger, err := s.store.GetEventTriggerByEventKey(ctx, step.EventEmitKey)
+	if err != nil {
+		s.logger.Error("emit event: failed to get trigger", "event_key", step.EventEmitKey, "error", err)
+		return
+	}
+	if trigger == nil || trigger.Status != domain.EventTriggerStatusWaiting {
+		return
+	}
+
+	now := time.Now()
+	if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, stepRun.Output, &now, ""); err != nil {
+		s.logger.Error("emit event: failed to resolve trigger", "event_key", step.EventEmitKey, "trigger_id", trigger.ID, "error", err)
+		return
+	}
+
+	s.logger.Info("auto-emitted event on step completion", "step_ref", step.StepRef, "event_key", step.EventEmitKey, "trigger_id", trigger.ID)
 }

@@ -61,7 +61,7 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			timeout_secs_override, output_transform,
 			sub_workflow_id, max_nesting_depth,
-			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs
+			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key
 		)
 		SELECT
 			$1 || ':' || step_ref,
@@ -86,7 +86,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			event_key,
 			event_timeout_secs,
 			event_notify_url,
-			sleep_duration_secs
+			sleep_duration_secs,
+			event_emit_key
 		FROM workflow_steps
 		WHERE workflow_id = $2`
 
@@ -126,6 +127,7 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 			wvs.event_timeout_secs,
 			wvs.event_notify_url,
 			wvs.sleep_duration_secs,
+			wvs.event_emit_key,
 			wvs.created_at
 		FROM workflow_version_steps wvs
 		JOIN workflow_versions wv ON wv.id = wvs.workflow_version_id

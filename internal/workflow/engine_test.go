@@ -381,12 +381,20 @@ type mockCallbackStore struct {
 	updateRunStatusFn            func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	getWorkflowRunsByParentFn    func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 	getEventTriggerByStepRunIDFn func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	getEventTriggerByEventKeyFn  func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn   func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
 	if m.getEventTriggerByStepRunIDFn != nil {
 		return m.getEventTriggerByStepRunIDFn(ctx, stepRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByEventKeyFn != nil {
+		return m.getEventTriggerByEventKeyFn(ctx, eventKey)
 	}
 	return nil, nil
 }
