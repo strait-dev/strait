@@ -121,16 +121,33 @@ func (c *CompensationEngine) cancelActiveSteps(ctx context.Context, workflowRunI
 			)
 		}
 
-		// If this step has a job run, cancel it too
+		// If this step has a job run, cancel it too.
+		// Try each possible non-terminal source status since we don't
+		// know the run's current state without an extra DB lookup.
 		if sr.JobRunID != "" {
-			if err := c.store.UpdateRunStatus(ctx, sr.JobRunID, domain.StatusExecuting, domain.StatusCanceling, map[string]any{
+			cancelFields := map[string]any{
+				"finished_at": now,
+				"error":       "workflow canceled",
+			}
+			cancelingFields := map[string]any{
 				"error": "workflow canceled",
-			}); err != nil {
-				// Try other source statuses
-				_ = c.store.UpdateRunStatus(ctx, sr.JobRunID, domain.StatusQueued, domain.StatusCanceled, map[string]any{
-					"finished_at": now,
-					"error":       "workflow canceled",
-				})
+			}
+
+			// Try executing/waiting → canceling (graceful)
+			canceled := false
+			for _, from := range []domain.RunStatus{domain.StatusExecuting, domain.StatusWaiting} {
+				if err := c.store.UpdateRunStatus(ctx, sr.JobRunID, from, domain.StatusCanceling, cancelingFields); err == nil {
+					canceled = true
+					break
+				}
+			}
+			// Fallback: try direct cancel from queued/dequeued/delayed
+			if !canceled {
+				for _, from := range []domain.RunStatus{domain.StatusQueued, domain.StatusDequeued, domain.StatusDelayed} {
+					if err := c.store.UpdateRunStatus(ctx, sr.JobRunID, from, domain.StatusCanceled, cancelFields); err == nil {
+						break
+					}
+				}
 			}
 		}
 	}

@@ -82,6 +82,7 @@ func (m *mockCompQueue) Enqueue(_ context.Context, run *domain.JobRun) error {
 }
 
 func TestCancelWorkflowRun_NoCompensation(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	store := &mockCompensationStore{
 		workflowRun: &domain.WorkflowRun{
@@ -126,6 +127,7 @@ func TestCancelWorkflowRun_NoCompensation(t *testing.T) {
 }
 
 func TestCancelWorkflowRun_WithCompensation(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	earlier := now.Add(-time.Minute)
 	store := &mockCompensationStore{
@@ -185,6 +187,7 @@ func TestCancelWorkflowRun_WithCompensation(t *testing.T) {
 }
 
 func TestCancelWorkflowRun_MultipleCompensation_ReverseOrder(t *testing.T) {
+	t.Parallel()
 	t1 := time.Now().Add(-3 * time.Minute)
 	t2 := time.Now().Add(-2 * time.Minute)
 	t3 := time.Now().Add(-1 * time.Minute)
@@ -235,6 +238,7 @@ func TestCancelWorkflowRun_MultipleCompensation_ReverseOrder(t *testing.T) {
 }
 
 func TestCancelWorkflowRun_AlreadyTerminal(t *testing.T) {
+	t.Parallel()
 	store := &mockCompensationStore{
 		workflowRun: &domain.WorkflowRun{
 			ID:     "wfr-1",
@@ -252,6 +256,7 @@ func TestCancelWorkflowRun_AlreadyTerminal(t *testing.T) {
 }
 
 func TestCancelWorkflowRun_NotFound(t *testing.T) {
+	t.Parallel()
 	store := &mockCompensationStore{}
 	queue := &mockCompQueue{}
 	engine := NewCompensationEngine(store, queue, nil)
@@ -263,6 +268,7 @@ func TestCancelWorkflowRun_NotFound(t *testing.T) {
 }
 
 func TestCompensateFailedWorkflow(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	store := &mockCompensationStore{
 		workflowRun: &domain.WorkflowRun{

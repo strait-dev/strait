@@ -4,6 +4,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,14 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+)
+
+var (
+	// ErrNotConnected is returned when Execute is called before Connect.
+	ErrNotConnected = fmt.Errorf("sandbox client not connected")
+
+	// ErrNoResult is returned when the sandbox stream ends without a result event.
+	ErrNoResult = fmt.Errorf("sandbox execution completed without a result event")
 )
 
 // Client connects to the Forge sandbox service via gRPC.
@@ -35,8 +44,9 @@ func NewClient(addr string, logger *slog.Logger) *Client {
 	}
 }
 
-// Connect establishes the gRPC connection to Forge.
-func (c *Client) Connect(ctx context.Context) error {
+// Connect establishes the gRPC connection to Forge. If a previous connection
+// exists, it is closed first to prevent resource leaks.
+func (c *Client) Connect(_ context.Context) error {
 	conn, err := grpc.NewClient(
 		c.addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -46,8 +56,15 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	c.mu.Lock()
+	old := c.conn
 	c.conn = conn
 	c.mu.Unlock()
+
+	if old != nil {
+		if closeErr := old.Close(); closeErr != nil {
+			c.logger.Warn("failed to close previous connection", "error", closeErr)
+		}
+	}
 
 	c.logger.Info("connected to forge", "addr", c.addr)
 	return nil
@@ -107,7 +124,7 @@ func (c *Client) Execute(ctx context.Context, req *ExecuteRequest) (*ExecuteResu
 	}
 
 	if finalResult == nil {
-		return nil, fmt.Errorf("sandbox execution completed without a result event")
+		return nil, ErrNoResult
 	}
 
 	execResult := &ExecuteResult{
@@ -134,7 +151,7 @@ func (c *Client) ExecuteStream(ctx context.Context, req *ExecuteRequest, handler
 	c.mu.RUnlock()
 
 	if conn == nil {
-		return fmt.Errorf("sandbox client not connected")
+		return ErrNotConnected
 	}
 
 	// Build the gRPC request
@@ -155,7 +172,7 @@ func (c *Client) ExecuteStream(ctx context.Context, req *ExecuteRequest, handler
 	// codegen while maintaining the same wire format.
 	stream, err := conn.NewStream(ctx, &grpc.StreamDesc{
 		StreamName:    "Execute",
-		ServerStreams:  true,
+		ServerStreams: true,
 	}, "/sandbox.v1.SandboxExecutor/Execute")
 	if err != nil {
 		return fmt.Errorf("open sandbox stream: %w", err)
@@ -177,7 +194,7 @@ func (c *Client) ExecuteStream(ctx context.Context, req *ExecuteRequest, handler
 	for {
 		var eventBytes rawMessage
 		err := stream.RecvMsg(&eventBytes)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
@@ -196,7 +213,9 @@ func (c *Client) ExecuteStream(ctx context.Context, req *ExecuteRequest, handler
 	}
 }
 
-// rawMessage implements the grpc codec message interface for raw bytes.
+// rawMessage implements proto.Message for sending/receiving raw bytes over gRPC
+// streams without depending on protobuf codegen. This is used for the
+// JSON-over-gRPC approach until proper protobuf stubs are generated.
 type rawMessage struct {
 	data []byte
 }
@@ -211,6 +230,6 @@ func (r *rawMessage) Unmarshal(b []byte) error {
 	return nil
 }
 
-func (r *rawMessage) ProtoMessage()             {}
-func (r *rawMessage) Reset()                    { r.data = nil }
-func (r *rawMessage) String() string            { return string(r.data) }
+func (r *rawMessage) ProtoMessage()  {}
+func (r *rawMessage) Reset()         { r.data = nil }
+func (r *rawMessage) String() string { return string(r.data) }

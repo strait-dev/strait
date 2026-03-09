@@ -6,6 +6,8 @@ import (
 )
 
 func TestExecuteRequestJSON(t *testing.T) {
+	t.Parallel()
+
 	req := ExecuteRequest{
 		RunID:    "run-123",
 		Language: "python",
@@ -21,32 +23,36 @@ func TestExecuteRequestJSON(t *testing.T) {
 
 	data, err := json.Marshal(req)
 	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
+		t.Fatalf("marshal: %v", err)
 	}
 
 	var decoded ExecuteRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
+		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if decoded.RunID != "run-123" {
-		t.Errorf("expected run-123, got %s", decoded.RunID)
+	checks := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"RunID", decoded.RunID, "run-123"},
+		{"Language", decoded.Language, "python"},
+		{"TimeoutSecs", decoded.Limits.TimeoutSecs, int32(30)},
+		{"MemoryBytes", decoded.Limits.MemoryBytes, int64(256 * 1024 * 1024)},
+		{"NetworkEnabled", decoded.Limits.NetworkEnabled, false},
+		{"Env[FOO]", decoded.Env["FOO"], "bar"},
 	}
-	if decoded.Language != "python" {
-		t.Errorf("expected python, got %s", decoded.Language)
-	}
-	if decoded.Limits.TimeoutSecs != 30 {
-		t.Errorf("expected 30s timeout, got %d", decoded.Limits.TimeoutSecs)
-	}
-	if decoded.Limits.MemoryBytes != 256*1024*1024 {
-		t.Errorf("expected 256MB, got %d", decoded.Limits.MemoryBytes)
-	}
-	if decoded.Env["FOO"] != "bar" {
-		t.Errorf("expected FOO=bar, got %s", decoded.Env["FOO"])
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, c.got, c.want)
+		}
 	}
 }
 
-func TestExecutionEventJSON(t *testing.T) {
+func TestExecutionEventJSON_Roundtrip(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		event ExecutionEvent
@@ -99,17 +105,18 @@ func TestExecutionEventJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			data, err := json.Marshal(tt.event)
 			if err != nil {
-				t.Fatalf("marshal failed: %v", err)
+				t.Fatalf("marshal: %v", err)
 			}
 
 			var decoded ExecutionEvent
 			if err := json.Unmarshal(data, &decoded); err != nil {
-				t.Fatalf("unmarshal failed: %v", err)
+				t.Fatalf("unmarshal: %v", err)
 			}
 
-			// Re-marshal and compare
 			data2, _ := json.Marshal(decoded)
 			if string(data) != string(data2) {
 				t.Errorf("roundtrip mismatch:\n  got:  %s\n  want: %s", data2, data)
@@ -119,14 +126,16 @@ func TestExecutionEventJSON(t *testing.T) {
 }
 
 func TestResourceLimitsDefaults(t *testing.T) {
+	t.Parallel()
+
 	var limits ResourceLimits
 	if limits.TimeoutSecs != 0 {
-		t.Errorf("expected 0 default timeout")
+		t.Errorf("expected 0 default timeout, got %d", limits.TimeoutSecs)
 	}
 	if limits.MemoryBytes != 0 {
-		t.Errorf("expected 0 default memory")
+		t.Errorf("expected 0 default memory, got %d", limits.MemoryBytes)
 	}
 	if limits.NetworkEnabled {
-		t.Errorf("expected network disabled by default")
+		t.Error("expected network disabled by default")
 	}
 }

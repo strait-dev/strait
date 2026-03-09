@@ -13,6 +13,11 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// defaultSandboxMemoryMB is the default memory limit for sandbox executions.
+const defaultSandboxMemoryMB = 256
+
+var errSandboxNotConfigured = fmt.Errorf("sandbox client not configured")
+
 // dispatchSandbox executes a sandbox job via the Forge gRPC service.
 // It streams execution events into the run events store and returns
 // the final result.
@@ -21,7 +26,7 @@ func (e *Executor) dispatchSandbox(ctx context.Context, job *domain.Job, run *do
 	defer span.End()
 
 	if e.sandboxClient == nil {
-		return nil, nil, fmt.Errorf("sandbox client not configured")
+		return nil, nil, errSandboxNotConfigured
 	}
 
 	dispatchStart := time.Now()
@@ -32,7 +37,7 @@ func (e *Executor) dispatchSandbox(ctx context.Context, job *domain.Job, run *do
 		Code:     job.SandboxCode,
 		Payload:  run.Payload,
 		Timeout:  time.Duration(job.TimeoutSecs) * time.Second,
-		MemoryMB: 256,
+		MemoryMB: defaultSandboxMemoryMB,
 	}
 
 	// Resolve environment variables if present
@@ -51,10 +56,8 @@ func (e *Executor) dispatchSandbox(ctx context.Context, job *domain.Job, run *do
 
 	// Stream events and collect result
 	var finalResult *sandboxv1.ExecutionResult
-	var eventCount int
 
 	err := e.sandboxClient.ExecuteStream(ctx, req, func(event *sandboxv1.ExecutionEvent) error {
-		eventCount++
 
 		if event.Log != nil {
 			e.logger.Debug("sandbox log",

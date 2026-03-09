@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 )
 
 func TestDispatchSandbox_NoClient(t *testing.T) {
+	t.Parallel()
 	e := &Executor{
 		sandboxClient: nil,
 	}
@@ -30,98 +32,128 @@ func TestDispatchSandbox_NoClient(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when sandbox client is nil")
 	}
-	if err.Error() != "sandbox client not configured" {
-		t.Errorf("unexpected error: %v", err)
+	if !errors.Is(err, errSandboxNotConfigured) {
+		t.Errorf("expected errSandboxNotConfigured, got: %v", err)
 	}
 }
 
 func TestExecutionModeRouting(t *testing.T) {
-	// Verify that the Job struct correctly holds the new fields
-	job := domain.Job{
-		ID:              "job-sandbox",
-		ExecutionMode:   "sandbox",
-		SandboxLanguage: "python",
-		SandboxCode:     "print('test')",
-		EndpointURL:     "",
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		job             domain.Job
+		wantMode        string
+		wantLang        string
+		wantEndpointURL string
+	}{
+		{
+			name: "sandbox mode",
+			job: domain.Job{
+				ID:              "job-sandbox",
+				ExecutionMode:   "sandbox",
+				SandboxLanguage: "python",
+				SandboxCode:     "print('test')",
+			},
+			wantMode: "sandbox",
+			wantLang: "python",
+		},
+		{
+			name: "http mode",
+			job: domain.Job{
+				ID:            "job-http",
+				ExecutionMode: "http",
+				EndpointURL:   "https://example.com/webhook",
+			},
+			wantMode:        "http",
+			wantEndpointURL: "https://example.com/webhook",
+		},
+		{
+			name: "empty execution mode defaults to empty string",
+			job: domain.Job{
+				ID:          "job-default",
+				EndpointURL: "https://example.com/run",
+			},
+			wantMode:        "",
+			wantEndpointURL: "https://example.com/run",
+		},
 	}
 
-	if job.ExecutionMode != "sandbox" {
-		t.Errorf("expected sandbox mode, got %s", job.ExecutionMode)
-	}
-	if job.SandboxLanguage != "python" {
-		t.Errorf("expected python language, got %s", job.SandboxLanguage)
-	}
-
-	// HTTP mode job
-	httpJob := domain.Job{
-		ID:            "job-http",
-		ExecutionMode: "http",
-		EndpointURL:   "https://example.com/webhook",
-	}
-
-	if httpJob.ExecutionMode != "http" {
-		t.Errorf("expected http mode, got %s", httpJob.ExecutionMode)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if tt.job.ExecutionMode != tt.wantMode {
+				t.Errorf("execution mode: got %q, want %q", tt.job.ExecutionMode, tt.wantMode)
+			}
+			if tt.wantLang != "" && tt.job.SandboxLanguage != tt.wantLang {
+				t.Errorf("sandbox language: got %q, want %q", tt.job.SandboxLanguage, tt.wantLang)
+			}
+			if tt.wantEndpointURL != "" && tt.job.EndpointURL != tt.wantEndpointURL {
+				t.Errorf("endpoint URL: got %q, want %q", tt.job.EndpointURL, tt.wantEndpointURL)
+			}
+		})
 	}
 }
 
-func TestJobJSON_WithSandboxFields(t *testing.T) {
-	job := domain.Job{
-		ID:              "job-1",
-		ProjectID:       "proj-1",
-		Name:            "Sandbox Job",
-		Slug:            "sandbox-job",
-		ExecutionMode:   "sandbox",
-		SandboxLanguage: "python",
-		SandboxCode:     "import os\nprint(os.environ.get('FORGE_PAYLOAD', ''))",
-		MaxAttempts:     3,
-		TimeoutSecs:     60,
-		Enabled:         true,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+func TestJobJSON_SandboxFields_Roundtrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		job  domain.Job
+	}{
+		{
+			name: "sandbox job with all fields",
+			job: domain.Job{
+				ID:              "job-1",
+				ProjectID:       "proj-1",
+				Name:            "Sandbox Job",
+				Slug:            "sandbox-job",
+				ExecutionMode:   "sandbox",
+				SandboxLanguage: "python",
+				SandboxCode:     "import os\nprint(os.environ.get('FORGE_PAYLOAD', ''))",
+				MaxAttempts:     3,
+				TimeoutSecs:     60,
+				Enabled:         true,
+				CreatedAt:       time.Now().Truncate(time.Second),
+				UpdatedAt:       time.Now().Truncate(time.Second),
+			},
+		},
+		{
+			name: "http job omits sandbox fields",
+			job: domain.Job{
+				ID:            "job-2",
+				ExecutionMode: "http",
+				EndpointURL:   "https://example.com/run",
+				CreatedAt:     time.Now().Truncate(time.Second),
+				UpdatedAt:     time.Now().Truncate(time.Second),
+			},
+		},
 	}
 
-	data, err := json.Marshal(job)
-	if err != nil {
-		t.Fatalf("failed to marshal: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var decoded domain.Job
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
-	}
+			data, err := json.Marshal(tt.job)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
 
-	if decoded.ExecutionMode != "sandbox" {
-		t.Errorf("expected sandbox, got %s", decoded.ExecutionMode)
-	}
-	if decoded.SandboxLanguage != "python" {
-		t.Errorf("expected python, got %s", decoded.SandboxLanguage)
-	}
-	if decoded.SandboxCode != job.SandboxCode {
-		t.Errorf("code mismatch")
-	}
-}
+			var decoded domain.Job
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
 
-func TestJobJSON_HTTPMode_NoSandboxFields(t *testing.T) {
-	job := domain.Job{
-		ID:            "job-2",
-		ExecutionMode: "http",
-		EndpointURL:   "https://example.com/run",
-	}
-
-	data, err := json.Marshal(job)
-	if err != nil {
-		t.Fatalf("failed to marshal: %v", err)
-	}
-
-	var decoded domain.Job
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
-	}
-
-	if decoded.SandboxCode != "" {
-		t.Errorf("expected empty sandbox_code for http job, got %s", decoded.SandboxCode)
-	}
-	if decoded.SandboxLanguage != "" {
-		t.Errorf("expected empty sandbox_language for http job, got %s", decoded.SandboxLanguage)
+			if decoded.ExecutionMode != tt.job.ExecutionMode {
+				t.Errorf("ExecutionMode: got %q, want %q", decoded.ExecutionMode, tt.job.ExecutionMode)
+			}
+			if decoded.SandboxLanguage != tt.job.SandboxLanguage {
+				t.Errorf("SandboxLanguage: got %q, want %q", decoded.SandboxLanguage, tt.job.SandboxLanguage)
+			}
+			if decoded.SandboxCode != tt.job.SandboxCode {
+				t.Errorf("SandboxCode: got %q, want %q", decoded.SandboxCode, tt.job.SandboxCode)
+			}
+		})
 	}
 }
