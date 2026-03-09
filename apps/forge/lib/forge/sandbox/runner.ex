@@ -10,7 +10,7 @@ defmodule Forge.Sandbox.Runner do
 
   require Logger
 
-  defstruct [:run_id, :language, :code, :payload, :env, :timeout_ms, :memory_bytes, :network_enabled, :stream, :port, :timer_ref, :output, :started_at, :code_path]
+  defstruct [:run_id, :language, :code, :payload, :env, :timeout_ms, :memory_bytes, :network_enabled, :stream, :port, :timer_ref, :output, :started_at, :code_path, :send_fn]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
@@ -18,6 +18,8 @@ defmodule Forge.Sandbox.Runner do
 
   @impl true
   def init(opts) do
+    send_fn = Map.get(opts, :send_fn, &default_send/2)
+
     state = %__MODULE__{
       run_id: opts.run_id,
       language: opts.language,
@@ -28,6 +30,7 @@ defmodule Forge.Sandbox.Runner do
       memory_bytes: opts.memory_bytes,
       network_enabled: opts.network_enabled,
       stream: opts.stream,
+      send_fn: send_fn,
       output: []
     }
 
@@ -45,7 +48,7 @@ defmodule Forge.Sandbox.Runner do
         {:noreply, %{state | port: port, code_path: code_path}}
 
       {:error, reason} ->
-        send_error(state.stream, state.run_id, "failed to start runtime: #{inspect(reason)}")
+        send_error(state, "failed to start runtime: #{inspect(reason)}")
         {:stop, :normal, state}
     end
   end
@@ -53,7 +56,7 @@ defmodule Forge.Sandbox.Runner do
   @impl true
   def handle_info({port, {:data, data}}, %{port: port} = state) do
     line = String.trim(data)
-    send_log(state.stream, state.run_id, "info", line)
+    send_log(state, "info", line)
     {:noreply, %{state | output: [line | state.output]}}
   end
 
@@ -62,7 +65,7 @@ defmodule Forge.Sandbox.Runner do
     cleanup_temp(state.code_path)
     duration = elapsed_ms(state.started_at)
     output = state.output |> Enum.reverse() |> Enum.join("\n")
-    send_result(state.stream, state.run_id, true, output, nil, duration)
+    send_result(state, true, output, nil, duration)
     {:stop, :normal, state}
   end
 
@@ -71,7 +74,7 @@ defmodule Forge.Sandbox.Runner do
     cleanup_temp(state.code_path)
     duration = elapsed_ms(state.started_at)
     output = state.output |> Enum.reverse() |> Enum.join("\n")
-    send_result(state.stream, state.run_id, false, output, "process exited with code #{code}", duration)
+    send_result(state, false, output, "process exited with code #{code}", duration)
     {:stop, :normal, state}
   end
 
@@ -84,7 +87,7 @@ defmodule Forge.Sandbox.Runner do
 
     cleanup_temp(state.code_path)
     duration = elapsed_ms(state.started_at)
-    send_result(state.stream, state.run_id, false, nil, "execution timed out", duration)
+    send_result(state, false, nil, "execution timed out", duration)
     {:stop, :normal, state}
   end
 
@@ -121,7 +124,7 @@ defmodule Forge.Sandbox.Runner do
     {:error, "unsupported language: #{lang}"}
   end
 
-  defp send_log(stream, _run_id, level, message) do
+  defp send_log(state, level, message) do
     event = %Sandbox.V1.ExecutionEvent{
       event:
         {:log,
@@ -132,12 +135,12 @@ defmodule Forge.Sandbox.Runner do
          }}
     }
 
-    GRPC.Server.send_reply(stream, event)
+    state.send_fn.(state.stream, event)
   rescue
     _ -> :ok
   end
 
-  defp send_result(stream, _run_id, success, result, error, duration_ms) do
+  defp send_result(state, success, result, error, duration_ms) do
     event = %Sandbox.V1.ExecutionEvent{
       event:
         {:result,
@@ -149,13 +152,17 @@ defmodule Forge.Sandbox.Runner do
          }}
     }
 
-    GRPC.Server.send_reply(stream, event)
+    state.send_fn.(state.stream, event)
   rescue
     _ -> :ok
   end
 
-  defp send_error(stream, _run_id, error) do
-    send_result(stream, nil, false, nil, error, 0)
+  defp send_error(state, error) do
+    send_result(state, false, nil, error, 0)
+  end
+
+  defp default_send(stream, event) do
+    GRPC.Server.send_reply(stream, event)
   end
 
   defp cancel_timer(nil), do: :ok

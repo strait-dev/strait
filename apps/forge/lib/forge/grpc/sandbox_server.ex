@@ -31,6 +31,10 @@ defmodule Forge.GRPC.SandboxServer do
       {:ok, stream} ->
         {:ok, stream}
 
+      {:error, :max_children} ->
+        Logger.warning("Sandbox at capacity run=#{request.run_id}")
+        raise GRPC.RPCError, status: :resource_exhausted, message: "sandbox at capacity"
+
       {:error, reason} ->
         Logger.error("Sandbox execution failed run=#{request.run_id}: #{inspect(reason)}")
         raise GRPC.RPCError, status: :internal, message: "execution failed: #{inspect(reason)}"

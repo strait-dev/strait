@@ -9,7 +9,24 @@ defmodule Forge.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      test_coverage: [
+        ignore_modules: [
+          Sandbox.V1.Checkpoint,
+          Sandbox.V1.ExecuteRequest,
+          Sandbox.V1.ExecuteRequest.EnvEntry,
+          Sandbox.V1.ExecutionEvent,
+          Sandbox.V1.ExecutionResult,
+          Sandbox.V1.LogEntry,
+          Sandbox.V1.ResourceLimits,
+          Sandbox.V1.SandboxExecutor.Service,
+          Sandbox.V1.SandboxExecutor.Stub,
+          Sandbox.V1.ToolCall,
+          Forge.GRPC.Endpoint,
+          Forge.GRPC.SandboxServer
+        ],
+        threshold: 90.0
+      ]
     ]
   end
 
