@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/testutil"
 
@@ -6160,7 +6161,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 		t.Fatalf("len(policies) = %d, want 1", len(policies))
 	}
 
-	if err := q.DeleteResourcePolicy(ctx, p.ID); err != nil {
+	if _, _, err := q.DeleteResourcePolicy(ctx, p.ID); err != nil {
 		t.Fatalf("DeleteResourcePolicy() error = %v", err)
 	}
 
@@ -6391,7 +6392,7 @@ func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	err := q.DeleteResourcePolicy(ctx, "nonexistent-policy-id")
+	_, _, err := q.DeleteResourcePolicy(ctx, "nonexistent-policy-id")
 	if !errors.Is(err, store.ErrResourcePolicyNotFound) {
 		t.Fatalf("DeleteResourcePolicy() = %v, want ErrResourcePolicyNotFound", err)
 	}
@@ -7523,59 +7524,39 @@ func TestListWorkflowsByTag_KeyOnly(t *testing.T) {
 	}
 }
 
-// --- Tag query integration tests ---
-
-func TestListWorkflowsByTag(t *testing.T) {
-	q := newTestQueries(t)
-	ctx := context.Background()
-
-	projectID := "proj-wftag-" + newTestID()
-
-	// Create two workflows with different tags.
-	wf1 := &domain.Workflow{ProjectID: projectID, Name: "WF Tagged", Slug: "wf-tagged-" + newTestID(), Tags: map[string]string{"env": "prod"}, Enabled: true}
-	if err := q.CreateWorkflow(ctx, wf1); err != nil {
-		t.Fatalf("create workflow 1: %v", err)
-	}
-	wf2 := &domain.Workflow{ProjectID: projectID, Name: "WF Other", Slug: "wf-other-" + newTestID(), Tags: map[string]string{"env": "staging"}, Enabled: true}
-	if err := q.CreateWorkflow(ctx, wf2); err != nil {
-		t.Fatalf("create workflow 2: %v", err)
-	}
-
-	workflows, err := q.ListWorkflowsByTag(ctx, projectID, "env", "prod", 100, nil)
-	if err != nil {
-		t.Fatalf("ListWorkflowsByTag: %v", err)
-	}
-	if len(workflows) != 1 {
-		t.Fatalf("expected 1 tagged workflow, got %d", len(workflows))
-	}
-	if workflows[0].ID != wf1.ID {
-		t.Fatalf("expected workflow %s, got %s", wf1.ID, workflows[0].ID)
-	}
-}
+// --- Tag query integration tests (runs and workflow runs) ---
 
 func TestListRunsByTag(t *testing.T) {
-	q := newTestQueries(t)
 	ctx := context.Background()
-	pq := newTestQueue(t)
+	q := mustStore(t)
+	mustClean(t, ctx)
+	pq := queue.NewPostgresQueue(testDB.Pool, nil)
 
-	projectID := "proj-runtag-" + newTestID()
-	job := createTestJob(t, q, projectID, "run-tag-"+newTestID())
+	projectID := "proj-runtag-" + newID()
+	job := &domain.Job{
+		ProjectID:   projectID,
+		Name:        "RunTag Job",
+		Slug:        "run-tag-" + newID(),
+		EndpointURL: "https://example.com/hook",
+		Enabled:     true,
+	}
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
 
-	// Enqueue a run with tags.
 	run := &domain.JobRun{
-		JobID:      job.ID,
-		ProjectID:  projectID,
-		Tags:       map[string]string{"team": "infra"},
-		Status:     domain.StatusQueued,
-		Attempt:    1,
+		JobID:       job.ID,
+		ProjectID:   projectID,
+		Tags:        map[string]string{"team": "infra"},
+		Status:      domain.StatusQueued,
+		Attempt:     1,
 		TriggeredBy: domain.TriggerManual,
-		JobVersion: job.Version,
+		JobVersion:  job.Version,
 	}
 	if err := pq.Enqueue(ctx, run); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Enqueue a run without matching tags.
 	run2 := &domain.JobRun{
 		JobID:       job.ID,
 		ProjectID:   projectID,
@@ -7591,7 +7572,7 @@ func TestListRunsByTag(t *testing.T) {
 
 	runs, err := q.ListRunsByTag(ctx, projectID, "team", "infra", 100, nil)
 	if err != nil {
-		t.Fatalf("ListRunsByTag: %v", err)
+		t.Fatalf("ListRunsByTag() error = %v", err)
 	}
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 tagged run, got %d", len(runs))
@@ -7602,16 +7583,16 @@ func TestListRunsByTag(t *testing.T) {
 }
 
 func TestListWorkflowRunsByTag(t *testing.T) {
-	q := newTestQueries(t)
 	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
 
-	projectID := "proj-wfruntag-" + newTestID()
-	wf := &domain.Workflow{ProjectID: projectID, Name: "WF RunTag", Slug: "wf-runtag-" + newTestID(), Tags: map[string]string{"env": "staging"}, Enabled: true}
+	projectID := "proj-wfruntag-" + newID()
+	wf := &domain.Workflow{ProjectID: projectID, Name: "WF RunTag", Slug: "wf-runtag-" + newID(), Tags: map[string]string{"env": "staging"}, Enabled: true}
 	if err := q.CreateWorkflow(ctx, wf); err != nil {
-		t.Fatalf("create workflow: %v", err)
+		t.Fatalf("CreateWorkflow() error = %v", err)
 	}
 
-	// Create workflow run with tags.
 	wfRun := &domain.WorkflowRun{
 		WorkflowID:      wf.ID,
 		ProjectID:       projectID,
@@ -7621,10 +7602,9 @@ func TestListWorkflowRunsByTag(t *testing.T) {
 		WorkflowVersion: wf.Version,
 	}
 	if err := q.CreateWorkflowRun(ctx, wfRun); err != nil {
-		t.Fatalf("create workflow run: %v", err)
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
 	}
 
-	// Create workflow run without matching tag.
 	wfRun2 := &domain.WorkflowRun{
 		WorkflowID:      wf.ID,
 		ProjectID:       projectID,
@@ -7634,12 +7614,12 @@ func TestListWorkflowRunsByTag(t *testing.T) {
 		WorkflowVersion: wf.Version,
 	}
 	if err := q.CreateWorkflowRun(ctx, wfRun2); err != nil {
-		t.Fatalf("create workflow run 2: %v", err)
+		t.Fatalf("CreateWorkflowRun() 2 error = %v", err)
 	}
 
 	runs, err := q.ListWorkflowRunsByTag(ctx, projectID, "release", "v2", 100, nil)
 	if err != nil {
-		t.Fatalf("ListWorkflowRunsByTag: %v", err)
+		t.Fatalf("ListWorkflowRunsByTag() error = %v", err)
 	}
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 tagged workflow run, got %d", len(runs))
