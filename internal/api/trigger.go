@@ -112,8 +112,9 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 				"existing_run_id", existingRun.ID,
 				"existing_run_status", existingRun.Status)
 			respondJSON(w, http.StatusCreated, map[string]any{
-				"id":     existingRun.ID,
-				"status": existingRun.Status,
+				"id":              existingRun.ID,
+				"status":          existingRun.Status,
+				"idempotency_hit": true,
 			})
 			return
 		}
@@ -275,8 +276,9 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 					"idempotency_key", idempotencyKey,
 					"winning_run_id", existingRun.ID)
 				respondJSON(w, http.StatusCreated, map[string]any{
-					"id":     existingRun.ID,
-					"status": existingRun.Status,
+					"id":              existingRun.ID,
+					"status":          existingRun.Status,
+					"idempotency_hit": true,
 				})
 				return
 			}
@@ -289,10 +291,11 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusCreated, map[string]any{
-		"id":           run.ID,
-		"status":       run.Status,
-		"payload_hash": payloadHash,
-		"run_token":    tokenString,
+		"id":              run.ID,
+		"status":          run.Status,
+		"payload_hash":    payloadHash,
+		"run_token":       tokenString,
+		"idempotency_hit": false,
 	})
 }
 

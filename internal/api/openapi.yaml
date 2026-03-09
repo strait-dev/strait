@@ -394,18 +394,38 @@ paths:
           required: true
           schema:
             type: string
+        - name: X-Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+          description: >
+            Idempotency key for deduplication. If a non-terminal run with this
+            key already exists for this job, the existing run is returned instead
+            of creating a new one. Falls back to Idempotency-Key header.
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+          description: >
+            Standard idempotency key header (fallback). X-Idempotency-Key takes precedence.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TriggerJobRequest'
       responses:
-        '202':
-          description: Run triggered
+        '201':
+          description: Run triggered (or existing run returned if idempotency key matched)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobRun'
+                $ref: '#/components/schemas/TriggerJobResponse'
+        '400':
+          description: Bad request (e.g. idempotency key exceeds 256 characters)
 
   /v1/jobs/{jobID}/trigger/bulk:
     post:
@@ -4023,6 +4043,10 @@ components:
           type: object
         idempotency_key:
           type: string
+          maxLength: 256
+          description: >
+            Idempotency key for deduplication. For single triggers, prefer the
+            X-Idempotency-Key header. For bulk triggers, set per-item keys here.
         priority:
           type: integer
         dry_run:
@@ -4031,6 +4055,27 @@ components:
           type: object
           additionalProperties:
             type: string
+
+    TriggerJobResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Run ID
+        status:
+          type: string
+          description: Run status
+        payload_hash:
+          type: string
+          description: SHA-256 hash of the canonical payload (only on new runs)
+        run_token:
+          type: string
+          description: JWT run token (only on new runs)
+        idempotency_hit:
+          type: boolean
+          description: >
+            True if this response is a cached result from an existing run
+            (idempotency key matched). False if a new run was created.
 
     CreateJobGroupRequest:
       type: object

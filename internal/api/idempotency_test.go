@@ -248,6 +248,11 @@ func TestIdempotency_HitResponseShape(t *testing.T) {
 	if _, ok := resp["payload_hash"]; ok {
 		t.Fatal("idempotency hit response should NOT contain payload_hash")
 	}
+
+	// Hit response must have idempotency_hit=true
+	if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
+		t.Fatalf("expected idempotency_hit=true, got %v", resp["idempotency_hit"])
+	}
 }
 
 func TestIdempotency_MissResponseShape(t *testing.T) {
@@ -283,6 +288,11 @@ func TestIdempotency_MissResponseShape(t *testing.T) {
 	}
 	if resp["payload_hash"] == nil || resp["payload_hash"] == "" {
 		t.Fatal("miss response should contain payload_hash")
+	}
+
+	// Miss response must have idempotency_hit=false
+	if hit, ok := resp["idempotency_hit"].(bool); !ok || hit {
+		t.Fatalf("expected idempotency_hit=false, got %v", resp["idempotency_hit"])
 	}
 }
 
@@ -1387,6 +1397,10 @@ func TestIdempotency_EnqueueUniqueViolation_RetriesLookup(t *testing.T) {
 	if resp["id"] != "run-winner" {
 		t.Fatalf("expected winner run from retry, got %v", resp["id"])
 	}
+	// Conflict-retry response must also have idempotency_hit=true
+	if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
+		t.Fatalf("expected idempotency_hit=true on conflict retry, got %v", resp["idempotency_hit"])
+	}
 }
 
 // Bulk trigger does NOT support idempotency keys.
@@ -1477,6 +1491,15 @@ func TestIdempotency_BulkTriggerPerItemIdempotencyHit(t *testing.T) {
 	}
 	if first["status"] != "completed" {
 		t.Errorf("first item: expected completed status, got %v", first["status"])
+	}
+	// First item (hit) should have idempotency_hit=true
+	if hit, ok := first["idempotency_hit"].(bool); !ok || !hit {
+		t.Errorf("first item: expected idempotency_hit=true, got %v", first["idempotency_hit"])
+	}
+	// Second item (miss/new) should have idempotency_hit=false
+	second := results[1].(map[string]any)
+	if hit, ok := second["idempotency_hit"].(bool); !ok || hit {
+		t.Errorf("second item: expected idempotency_hit=false, got %v", second["idempotency_hit"])
 	}
 }
 

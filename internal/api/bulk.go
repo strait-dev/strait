@@ -28,9 +28,10 @@ type BulkTriggerItem struct {
 }
 
 type BulkTriggerResult struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	RunToken string `json:"run_token"`
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	RunToken       string `json:"run_token"`
+	IdempotencyHit bool   `json:"idempotency_hit"`
 }
 
 type BulkTriggerResponse struct {
@@ -139,8 +140,9 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 					"existing_run_status", existingRun.Status,
 					"item_index", itemIdx)
 				results = append(results, BulkTriggerResult{
-					ID:     existingRun.ID,
-					Status: string(existingRun.Status),
+					ID:             existingRun.ID,
+					Status:         string(existingRun.Status),
+					IdempotencyHit: true,
 				})
 				continue
 			}
@@ -277,8 +279,9 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 						"winning_run_id", existingRun.ID,
 						"item_index", itemIdx)
 					results = append(results, BulkTriggerResult{
-						ID:     existingRun.ID,
-						Status: string(existingRun.Status),
+						ID:             existingRun.ID,
+						Status:         string(existingRun.Status),
+						IdempotencyHit: true,
 					})
 					continue
 				}
@@ -292,9 +295,10 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		results = append(results, BulkTriggerResult{
-			ID:       run.ID,
-			Status:   string(run.Status),
-			RunToken: tokenString,
+			ID:             run.ID,
+			Status:         string(run.Status),
+			RunToken:       tokenString,
+			IdempotencyHit: false,
 		})
 		created++
 	}
