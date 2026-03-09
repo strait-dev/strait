@@ -190,7 +190,8 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 		       notify_url, notify_status, trigger_type
 		FROM event_triggers
 		WHERE status = 'waiting' AND expires_at <= NOW()
-		ORDER BY expires_at ASC`
+		ORDER BY expires_at ASC
+		LIMIT 1000`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
