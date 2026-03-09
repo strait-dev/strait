@@ -469,6 +469,9 @@ const (
 )
 
 // VersionPolicy controls how queued runs handle new job/workflow deployments.
+// For jobs, this is enforced at dequeue time by the executor's resolveJobForRun.
+// For workflows, version_policy is stored for future use but not currently enforced
+// because workflows execute immediately on trigger (no queue delay).
 type VersionPolicy string
 
 const (
