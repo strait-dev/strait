@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
@@ -331,6 +332,96 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	}
 	if skippedIDs["sr-d"] {
 		t.Fatal("sr-d should not be skipped (independent)")
+	}
+}
+
+func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
+	t.Parallel()
+
+	var resolvedTriggerID string
+	var resolvedPayload json.RawMessage
+	var targetStepCompleted bool
+
+	ms := &mockCallbackStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "wr-1" {
+				return &domain.WorkflowRun{
+					ID:              "wr-1",
+					WorkflowID:      "wf-1",
+					WorkflowVersion: 1,
+					Status:          domain.WfStatusRunning,
+					Payload:         json.RawMessage(`{"env":"prod"}`),
+				}, nil
+			}
+			return nil, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "emitter", EventEmitKey: "chain:{{env}}:done"},
+				{StepRef: "waiter", StepType: domain.WorkflowStepTypeWaitForEvent, EventKey: "chain:prod:done"},
+			}, nil
+		},
+		getEventTriggerByEventKeyFn: func(_ context.Context, key string) (*domain.EventTrigger, error) {
+			if key == "chain:prod:done" {
+				return &domain.EventTrigger{
+					ID:                "evt-waiter",
+					EventKey:          "chain:prod:done",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-waiter",
+					Status:            domain.EventTriggerStatusWaiting,
+					ProjectID:         "proj-1",
+				}, nil
+			}
+			return nil, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, id string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
+			if status == domain.EventTriggerStatusReceived {
+				resolvedTriggerID = id
+				resolvedPayload = payload
+			}
+			return nil
+		},
+		// OnEventReceived will list step runs to find the target
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-waiter", StepRef: "waiter", WorkflowRunID: "wr-1", Status: domain.StepWaiting},
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id == "sr-waiter" && status == domain.StepCompleted {
+				targetStepCompleted = true
+			}
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	emitterStepRun := &domain.WorkflowStepRun{
+		ID:            "sr-emitter",
+		StepRef:       "emitter",
+		WorkflowRunID: "wr-1",
+		Status:        domain.StepCompleted,
+		Output:        json.RawMessage(`{"data":"result"}`),
+	}
+
+	// Call tryEmitEvent which should resolve the waiting trigger AND resume the step.
+	cb.tryEmitEvent(context.Background(), emitterStepRun)
+
+	if resolvedTriggerID != "evt-waiter" {
+		t.Fatalf("expected trigger evt-waiter to be resolved, got %q", resolvedTriggerID)
+	}
+	if string(resolvedPayload) != `{"data":"result"}` {
+		t.Fatalf("expected resolved payload to be emitter output, got %s", string(resolvedPayload))
+	}
+	if !targetStepCompleted {
+		t.Fatal("expected the waiting step sr-waiter to be completed via OnEventReceived")
 	}
 }
 
