@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -31,6 +32,8 @@ type ReaperStore interface {
 	DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
+	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 }
 
 type WorkflowCallback interface {
@@ -107,6 +110,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapExpired(loopCtx)
 		r.reapTimedOutWorkflows(loopCtx)
 		r.reapExpiredApprovals(loopCtx)
+		r.reapExpiredEventTriggers(loopCtx)
 		r.reapOldWorkflowRuns(loopCtx)
 		if r.retentionEnabled {
 			r.reapTerminalRetention(loopCtx)
@@ -226,6 +230,72 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 				"error":       "approval timed out",
 			}); errPaused != nil {
 				slog.Error("failed to fail workflow on approval timeout", "approval_id", approval.ID, "error", errPaused)
+			}
+		}
+	}
+}
+
+func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapExpiredEventTriggers")
+	defer span.End()
+
+	triggers, err := r.store.ListExpiredEventTriggers(ctx)
+	if err != nil {
+		slog.Error("failed to list expired event triggers", "error", err)
+		return
+	}
+
+	now := time.Now()
+	for _, trigger := range triggers {
+		if err := r.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusTimedOut, nil, nil, "event trigger timed out"); err != nil {
+			slog.Error("failed to mark event trigger timed out", "trigger_id", trigger.ID, "error", err)
+			continue
+		}
+
+		switch trigger.SourceType {
+		case "workflow_step":
+			if trigger.WorkflowStepRunID == "" {
+				continue
+			}
+			if err := r.store.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepFailed, map[string]any{
+				"finished_at": now,
+				"error":       "event trigger timed out",
+			}); err != nil {
+				slog.Error("failed to mark event trigger step failed", "trigger_id", trigger.ID, "step_run_id", trigger.WorkflowStepRunID, "error", err)
+			}
+
+			if trigger.WorkflowRunID != "" {
+				if err := r.store.UpdateWorkflowRunStatus(ctx, trigger.WorkflowRunID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
+					"finished_at": now,
+					"error":       "event trigger timed out",
+				}); err != nil {
+					// Also try from paused state, like approval reaper.
+					if errPaused := r.store.UpdateWorkflowRunStatus(ctx, trigger.WorkflowRunID, domain.WfStatusPaused, domain.WfStatusFailed, map[string]any{
+						"finished_at": now,
+						"error":       "event trigger timed out",
+					}); errPaused != nil {
+						slog.Error("failed to fail workflow on event trigger timeout", "trigger_id", trigger.ID, "workflow_run_id", trigger.WorkflowRunID, "error", errPaused)
+					}
+				}
+			}
+
+		case "job_run":
+			if trigger.JobRunID == "" {
+				continue
+			}
+			jobRun, getErr := r.store.GetRun(ctx, trigger.JobRunID)
+			if getErr != nil {
+				slog.Error("failed to get job run for event trigger timeout", "trigger_id", trigger.ID, "job_run_id", trigger.JobRunID, "error", getErr)
+				continue
+			}
+			if jobRun == nil || jobRun.Status.IsTerminal() {
+				continue
+			}
+			if err := r.store.UpdateRunStatus(ctx, jobRun.ID, jobRun.Status, domain.StatusTimedOut, map[string]any{
+				"finished_at": now,
+				"error":       "event trigger timed out",
+			}); err != nil {
+				slog.Error("failed to timeout job run for event trigger", "trigger_id", trigger.ID, "job_run_id", trigger.JobRunID, "error", err)
 			}
 		}
 	}

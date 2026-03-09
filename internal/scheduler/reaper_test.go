@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -1345,5 +1346,168 @@ func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
 
 	if called.Load() != 1 {
 		t.Fatalf("retention call count = %d, want 1", called.Load())
+	}
+}
+
+func TestReapExpiredEventTriggers_WorkflowStep_TimesOut(t *testing.T) {
+	t.Parallel()
+
+	var triggerTimedOut, stepFailed, workflowFailed bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-1",
+					EventKey:          "aml:app-1",
+					SourceType:        "workflow_step",
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, id string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if id == "evt-1" && status == domain.EventTriggerStatusTimedOut {
+				triggerTimedOut = true
+			}
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id == "sr-1" && status == domain.StepFailed {
+				stepFailed = true
+			}
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, _, to domain.WorkflowRunStatus, _ map[string]any) error {
+			if id == "wr-1" && to == domain.WfStatusFailed {
+				workflowFailed = true
+			}
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+
+	if !triggerTimedOut {
+		t.Fatal("expected event trigger to be marked timed out")
+	}
+	if !stepFailed {
+		t.Fatal("expected step run to be marked failed")
+	}
+	if !workflowFailed {
+		t.Fatal("expected workflow run to be marked failed")
+	}
+}
+
+func TestReapExpiredEventTriggers_JobRun_TimesOut(t *testing.T) {
+	t.Parallel()
+
+	var triggerTimedOut, runTimedOut bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:         "evt-2",
+					EventKey:   "agent:run-1:confirm",
+					SourceType: "job_run",
+					JobRunID:   "run-1",
+					Status:     domain.EventTriggerStatusWaiting,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, id string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if id == "evt-2" && status == domain.EventTriggerStatusTimedOut {
+				triggerTimedOut = true
+			}
+			return nil
+		},
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			if id == "run-1" {
+				return &domain.JobRun{ID: "run-1", Status: domain.StatusWaiting}, nil
+			}
+			return nil, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _, to domain.RunStatus, _ map[string]any) error {
+			if id == "run-1" && to == domain.StatusTimedOut {
+				runTimedOut = true
+			}
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+
+	if !triggerTimedOut {
+		t.Fatal("expected event trigger to be marked timed out")
+	}
+	if !runTimedOut {
+		t.Fatal("expected job run to be marked timed out")
+	}
+}
+
+func TestReapExpiredEventTriggers_NoExpired(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return nil, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+}
+
+func TestReapExpiredEventTriggers_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return nil, errors.New("db down")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+}
+
+func TestReapExpiredEventTriggers_JobRunAlreadyTerminal(t *testing.T) {
+	t.Parallel()
+
+	var updateRunCalled bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:         "evt-3",
+					EventKey:   "payment:order-1",
+					SourceType: "job_run",
+					JobRunID:   "run-1",
+					Status:     domain.EventTriggerStatusWaiting,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			updateRunCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+
+	if updateRunCalled {
+		t.Fatal("should not update already-terminal job run")
 	}
 }

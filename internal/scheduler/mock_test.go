@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"strait/internal/domain"
@@ -32,20 +33,22 @@ func (m *mockPollerStore) UpdateRunStatus(ctx context.Context, id string, from, 
 
 // mockReaperStore implements ReaperStore for testing.
 type mockReaperStore struct {
-	listStaleRunsFn           func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
-	listExpiredRunsFn         func(ctx context.Context) ([]domain.JobRun, error)
-	listStaleDequeuedFn       func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
-	listTimedOutWfRunsFn      func(ctx context.Context) ([]domain.WorkflowRun, error)
-	listStepRunsByWfRunFn     func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
-	updateWorkflowRunStatusFn func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	updateStepRunStatusFn     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
-	listExpiredApprovalsFn    func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
-	getStepRunByRunAndRefFn   func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
-	updateWorkflowApprovalFn  func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
-	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	deleteOldWorkflowRunsFn   func(ctx context.Context, before time.Time, limit int) (int64, error)
-	deleteRetentionFn         func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
+	listStaleRunsFn            func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	listExpiredRunsFn          func(ctx context.Context) ([]domain.JobRun, error)
+	listStaleDequeuedFn        func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	listTimedOutWfRunsFn       func(ctx context.Context) ([]domain.WorkflowRun, error)
+	listStepRunsByWfRunFn      func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	updateWorkflowRunStatusFn  func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	updateStepRunStatusFn      func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	getRunFn                   func(ctx context.Context, id string) (*domain.JobRun, error)
+	listExpiredApprovalsFn     func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+	getStepRunByRunAndRefFn    func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	updateWorkflowApprovalFn   func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	updateRunStatusFn          func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	deleteOldWorkflowRunsFn    func(ctx context.Context, before time.Time, limit int) (int64, error)
+	deleteRetentionFn          func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
+	listExpiredEventTriggersFn func(ctx context.Context) ([]domain.EventTrigger, error)
+	updateEventTriggerStatusFn func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 }
 
 type mockCronStore struct {
@@ -206,4 +209,18 @@ func (m *mockReaperStore) DeleteTerminalRunsPastRetention(ctx context.Context, s
 		return m.deleteRetentionFn(ctx, shortRetention, longRetention)
 	}
 	return 0, nil
+}
+
+func (m *mockReaperStore) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error) {
+	if m.listExpiredEventTriggersFn != nil {
+		return m.listExpiredEventTriggersFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+	if m.updateEventTriggerStatusFn != nil {
+		return m.updateEventTriggerStatusFn(ctx, id, status, responsePayload, receivedAt, errMsg)
+	}
+	return nil
 }
