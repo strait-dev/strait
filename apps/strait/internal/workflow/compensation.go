@@ -10,6 +10,10 @@ import (
 	"strait/internal/domain"
 )
 
+// maxStepRunsPerQuery is the upper bound on step runs fetched for compensation.
+// Workflows with more step runs than this will have incomplete compensation.
+const maxStepRunsPerQuery = 10000
+
 // CompensationEngine handles the Saga compensation pattern for workflow runs.
 // When a workflow is canceled or fails, it walks completed steps in reverse
 // chronological order and triggers their compensation steps.
@@ -135,7 +139,7 @@ func (c *CompensationEngine) RetryFailedCompensation(ctx context.Context, workfl
 		return nil, fmt.Errorf("list workflow steps: %w", err)
 	}
 
-	stepRuns, err := c.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 10000, nil)
+	stepRuns, err := c.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, maxStepRunsPerQuery, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list step runs: %w", err)
 	}
@@ -235,7 +239,7 @@ func (c *CompensationEngine) RetryFailedCompensation(ctx context.Context, workfl
 
 // cancelActiveSteps cancels all running and waiting step runs in a workflow.
 func (c *CompensationEngine) cancelActiveSteps(ctx context.Context, workflowRunID string) error {
-	stepRuns, err := c.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	stepRuns, err := c.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, maxStepRunsPerQuery, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs: %w", err)
 	}
@@ -299,7 +303,7 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 		return nil, fmt.Errorf("list workflow steps: %w", err)
 	}
 
-	stepRuns, err := c.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 10000, nil)
+	stepRuns, err := c.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, maxStepRunsPerQuery, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list step runs: %w", err)
 	}
@@ -341,13 +345,18 @@ func (c *CompensationEngine) runCompensation(ctx context.Context, wfRun *domain.
 		"compensation_steps_total": len(toCompensate),
 	})
 
-	// Sort in reverse order by finish time (most recently completed first)
-	// This gives us reverse execution order for the Saga
+	// Sort in reverse order by finish time (most recently completed first).
+	// This gives us reverse execution order for the Saga pattern.
+	// Steps with nil FinishedAt sort last (created_at fallback).
 	sort.Slice(toCompensate, func(i, j int) bool {
 		ti := toCompensate[i].stepRun.FinishedAt
 		tj := toCompensate[j].stepRun.FinishedAt
-		if ti == nil || tj == nil {
-			return false
+		// Fallback to CreatedAt when FinishedAt is nil
+		if ti == nil {
+			ti = &toCompensate[i].stepRun.CreatedAt
+		}
+		if tj == nil {
+			tj = &toCompensate[j].stepRun.CreatedAt
 		}
 		return ti.After(*tj)
 	})

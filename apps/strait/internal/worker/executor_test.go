@@ -824,7 +824,7 @@ func TestExecutor_Fallback_SandboxJobSkipsFallback(t *testing.T) {
 	store := &mockExecutorStore{}
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
 		job := testJob("", 1, 5)
-		job.ExecutionMode = "sandbox"
+		job.ExecutionMode = domain.ExecutionModeSandbox
 		job.SandboxLanguage = "python"
 		job.SandboxCode = "print('hello')"
 		job.FallbackEndpointURL = fallback.URL

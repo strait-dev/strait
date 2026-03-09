@@ -45,7 +45,7 @@ func TestJobCancelEndpointURL(t *testing.T) {
 	job := Job{
 		ID:                "job-1",
 		CancelEndpointURL: "https://example.com/cancel",
-		ExecutionMode:     "http",
+		ExecutionMode:     ExecutionModeHTTP,
 	}
 	if job.CancelEndpointURL != "https://example.com/cancel" {
 		t.Errorf("expected cancel URL, got %s", job.CancelEndpointURL)

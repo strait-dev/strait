@@ -32,6 +32,24 @@ const (
 	TriggerRetry    = "retry"
 )
 
+// ExecutionMode determines how a job is executed.
+type ExecutionMode string
+
+const (
+	ExecutionModeHTTP    ExecutionMode = "http"
+	ExecutionModeSandbox ExecutionMode = "sandbox"
+)
+
+// IsValid returns true if the execution mode is a known value.
+func (m ExecutionMode) IsValid() bool {
+	switch m {
+	case ExecutionModeHTTP, ExecutionModeSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
 type EventType string
 
 const (
@@ -54,7 +72,7 @@ type Job struct {
 	EndpointURL         string            `json:"endpoint_url"`
 	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
 	CancelEndpointURL   string            `json:"cancel_endpoint_url,omitempty"`
-	ExecutionMode       string            `json:"execution_mode"`
+	ExecutionMode       ExecutionMode     `json:"execution_mode"`
 	SandboxCode         string            `json:"sandbox_code,omitempty"`
 	SandboxLanguage     string            `json:"sandbox_language,omitempty"`
 	MaxAttempts         int               `json:"max_attempts"`
@@ -305,7 +323,7 @@ func (s RunStatus) IsValid() bool {
 	switch s {
 	case StatusDelayed, StatusQueued, StatusDequeued, StatusExecuting, StatusWaiting,
 		StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed,
-		StatusCanceling, StatusCanceled, StatusExpired:
+		StatusCanceling, StatusCanceled, StatusExpired, StatusDeadLetter:
 		return true
 	default:
 		return false

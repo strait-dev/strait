@@ -171,7 +171,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 
 	var result json.RawMessage
 	var execTrace *domain.ExecutionTrace
-	if job.ExecutionMode == "sandbox" {
+	if job.ExecutionMode == domain.ExecutionModeSandbox {
 		result, execTrace, err = e.dispatchSandbox(execCtx, job, run)
 	} else {
 		result, execTrace, err = e.tracedDispatch(execCtx, job, run)
@@ -192,7 +192,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	if err != nil {
 		// HTTP fallback only applies to HTTP-dispatched jobs. Sandbox jobs
 		// execute code in Forge and have no meaningful HTTP fallback target.
-		if job.ExecutionMode != "sandbox" && job.FallbackEndpointURL != "" {
+		if job.ExecutionMode != domain.ExecutionModeSandbox && job.FallbackEndpointURL != "" {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
 				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, nil)

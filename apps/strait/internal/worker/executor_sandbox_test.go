@@ -18,7 +18,7 @@ func TestDispatchSandbox_NoClient(t *testing.T) {
 
 	job := &domain.Job{
 		ID:              "job-1",
-		ExecutionMode:   "sandbox",
+		ExecutionMode:   domain.ExecutionModeSandbox,
 		SandboxLanguage: "python",
 		SandboxCode:     "print('hello')",
 		TimeoutSecs:     30,
@@ -43,7 +43,7 @@ func TestExecutionModeRouting(t *testing.T) {
 	tests := []struct {
 		name            string
 		job             domain.Job
-		wantMode        string
+		wantMode        domain.ExecutionMode
 		wantLang        string
 		wantEndpointURL string
 	}{
@@ -51,21 +51,21 @@ func TestExecutionModeRouting(t *testing.T) {
 			name: "sandbox mode",
 			job: domain.Job{
 				ID:              "job-sandbox",
-				ExecutionMode:   "sandbox",
+				ExecutionMode:   domain.ExecutionModeSandbox,
 				SandboxLanguage: "python",
 				SandboxCode:     "print('test')",
 			},
-			wantMode: "sandbox",
+			wantMode: domain.ExecutionModeSandbox,
 			wantLang: "python",
 		},
 		{
 			name: "http mode",
 			job: domain.Job{
 				ID:            "job-http",
-				ExecutionMode: "http",
+				ExecutionMode: domain.ExecutionModeHTTP,
 				EndpointURL:   "https://example.com/webhook",
 			},
-			wantMode:        "http",
+			wantMode:        domain.ExecutionModeHTTP,
 			wantEndpointURL: "https://example.com/webhook",
 		},
 		{
@@ -109,7 +109,7 @@ func TestJobJSON_SandboxFields_Roundtrip(t *testing.T) {
 				ProjectID:       "proj-1",
 				Name:            "Sandbox Job",
 				Slug:            "sandbox-job",
-				ExecutionMode:   "sandbox",
+				ExecutionMode:   domain.ExecutionModeSandbox,
 				SandboxLanguage: "python",
 				SandboxCode:     "import os\nprint(os.environ.get('FORGE_PAYLOAD', ''))",
 				MaxAttempts:     3,
@@ -123,7 +123,7 @@ func TestJobJSON_SandboxFields_Roundtrip(t *testing.T) {
 			name: "http job omits sandbox fields",
 			job: domain.Job{
 				ID:            "job-2",
-				ExecutionMode: "http",
+				ExecutionMode: domain.ExecutionModeHTTP,
 				EndpointURL:   "https://example.com/run",
 				CreatedAt:     time.Now().Truncate(time.Second),
 				UpdatedAt:     time.Now().Truncate(time.Second),
