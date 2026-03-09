@@ -7530,7 +7530,7 @@ func TestListRunsByTag(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	pq := queue.NewPostgresQueue(testDB.Pool, nil)
+	pq := queue.NewPostgresQueue(testDB.Pool)
 
 	projectID := "proj-runtag-" + newID()
 	job := &domain.Job{
