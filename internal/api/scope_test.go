@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 )
 
 func TestRequireScope_AllowsWildcard(t *testing.T) {

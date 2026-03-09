@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"orchestrator/internal/config"
-	"orchestrator/internal/domain"
+	"strait/internal/config"
+	"strait/internal/domain"
 )
 
 type mockActorSyncer struct {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/domain"
+	"strait/internal/domain"
 
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
