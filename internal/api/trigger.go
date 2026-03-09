@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -81,6 +82,28 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Idempotency check: must happen before quotas, rate limits, and cost
+	// budgets so that retried requests with the same key always get the
+	// cached response regardless of transient limit conditions.
+	idempotencyKey := r.Header.Get("X-Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = r.Header.Get("Idempotency-Key")
+	}
+	if idempotencyKey != "" {
+		existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+		if idempErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key")
+			return
+		}
+		if existingRun != nil {
+			respondJSON(w, http.StatusCreated, map[string]any{
+				"id":     existingRun.ID,
+				"status": existingRun.Status,
+			})
+			return
+		}
+	}
+
 	var projectQuota *store.ProjectQuota
 	if s.config.FFProjectQuotas || s.config.FFExecutionWindows || s.config.FFCostBudgets {
 		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
@@ -141,25 +164,6 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		if runCount >= job.RateLimitMax {
 			respondError(w, r, http.StatusTooManyRequests, "job rate limit exceeded")
-			return
-		}
-	}
-
-	idempotencyKey := r.Header.Get("X-Idempotency-Key")
-	if idempotencyKey == "" {
-		idempotencyKey = r.Header.Get("Idempotency-Key")
-	}
-	if idempotencyKey != "" {
-		existingRun, err := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key")
-			return
-		}
-		if existingRun != nil {
-			respondJSON(w, http.StatusCreated, map[string]any{
-				"id":     existingRun.ID,
-				"status": existingRun.Status,
-			})
 			return
 		}
 	}
@@ -237,6 +241,23 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {
+		// Handle race condition: two concurrent requests with the same
+		// idempotency key both passed the app-level check but the DB
+		// unique index rejected the second INSERT. Retry the lookup.
+		if errors.Is(err, queue.ErrIdempotencyConflict) && idempotencyKey != "" {
+			existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+			if retryErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key after conflict")
+				return
+			}
+			if existingRun != nil {
+				respondJSON(w, http.StatusCreated, map[string]any{
+					"id":     existingRun.ID,
+					"status": existingRun.Status,
+				})
+				return
+			}
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to enqueue run")
 		return
 	}

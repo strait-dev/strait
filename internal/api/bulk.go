@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -21,9 +22,10 @@ type BulkTriggerRequest struct {
 }
 
 type BulkTriggerItem struct {
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
-	Priority    int             `json:"priority,omitempty"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	ScheduledAt    *time.Time      `json:"scheduled_at,omitempty"`
+	Priority       int             `json:"priority,omitempty"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
 }
 
 type BulkTriggerResult struct {
@@ -113,6 +115,22 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		if payloadErr != nil {
 			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("invalid payload for item %d: %v", created, payloadErr))
 			return
+		}
+
+		// Per-item idempotency check.
+		if item.IdempotencyKey != "" {
+			existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+			if idempErr != nil {
+				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key for item %d", len(results)))
+				return
+			}
+			if existingRun != nil {
+				results = append(results, BulkTriggerResult{
+					ID:     existingRun.ID,
+					Status: string(existingRun.Status),
+				})
+				continue
+			}
 		}
 
 		if s.config.FFProjectQuotas && projectQuota != nil {
@@ -212,20 +230,36 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		run := &domain.JobRun{
-			ID:          runID,
-			JobID:       job.ID,
-			ProjectID:   job.ProjectID,
-			Status:      status,
-			Attempt:     1,
-			Payload:     payload,
-			TriggeredBy: domain.TriggerManual,
-			ScheduledAt: scheduledAt,
-			Priority:    item.Priority,
-			JobVersion:  job.Version,
-			ExpiresAt:   &expiresAt,
+			ID:             runID,
+			JobID:          job.ID,
+			ProjectID:      job.ProjectID,
+			Status:         status,
+			Attempt:        1,
+			Payload:        payload,
+			TriggeredBy:    domain.TriggerManual,
+			ScheduledAt:    scheduledAt,
+			Priority:       item.Priority,
+			IdempotencyKey: item.IdempotencyKey,
+			JobVersion:     job.Version,
+			ExpiresAt:      &expiresAt,
 		}
 
 		if err := s.queue.Enqueue(r.Context(), run); err != nil {
+			// Handle race: concurrent bulk request with the same idempotency key.
+			if errors.Is(err, queue.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
+				existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+				if retryErr != nil {
+					respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key after conflict for item %d", len(results)))
+					return
+				}
+				if existingRun != nil {
+					results = append(results, BulkTriggerResult{
+						ID:     existingRun.ID,
+						Status: string(existingRun.Status),
+					})
+					continue
+				}
+			}
 			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", created))
 			return
 		}
