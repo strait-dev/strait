@@ -163,6 +163,14 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 
+		r.Route("/events", func(r chi.Router) {
+			r.Get("/", s.handleListEventTriggers)
+			r.Route("/{eventKey}", func(r chi.Router) {
+				r.Get("/", s.handleGetEventTrigger)
+				r.Post("/send", s.handleSendEvent)
+			})
+		})
+
 		r.Route("/workflow-runs", func(r chi.Router) {
 			r.Get("/", s.handleListWorkflowRunsByProject)
 			r.Route("/{workflowRunID}", func(r chi.Router) {

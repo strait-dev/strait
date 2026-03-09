@@ -36,6 +36,7 @@ type CallbackStore interface {
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 }
 
 // NewStepCallback creates a new step callback handler for workflow progression.
@@ -135,6 +136,57 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	default:
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
 	}
+}
+
+// OnEventReceived handles progression when an external event is received for a workflow step.
+func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnEventReceived")
+	defer span.End()
+
+	if trigger == nil || trigger.SourceType != "workflow_step" || trigger.WorkflowStepRunID == "" {
+		return nil
+	}
+
+	// Find the step run for this event trigger.
+	var targetStepRun *domain.WorkflowStepRun
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, trigger.WorkflowRunID, 1000, nil)
+	if err != nil {
+		return fmt.Errorf("list step runs for event trigger: %w", err)
+	}
+	for i := range stepRuns {
+		if stepRuns[i].ID == trigger.WorkflowStepRunID {
+			targetStepRun = &stepRuns[i]
+			break
+		}
+	}
+	if targetStepRun == nil || targetStepRun.Status.IsTerminal() {
+		return nil
+	}
+
+	// Mark step as completed with the event payload as output.
+	now := time.Now()
+	fields := map[string]any{
+		"finished_at": now,
+	}
+	if len(trigger.ResponsePayload) > 0 {
+		fields["output"] = trigger.ResponsePayload
+	}
+	if err := s.store.UpdateStepRunStatus(ctx, targetStepRun.ID, domain.StepCompleted, fields); err != nil {
+		return fmt.Errorf("update step run status for event trigger: %w", err)
+	}
+
+	targetStepRun.Status = domain.StepCompleted
+	if len(trigger.ResponsePayload) > 0 {
+		targetStepRun.Output = trigger.ResponsePayload
+	}
+
+	// Fan-in and start ready children.
+	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun); err != nil {
+		s.logger.Error("failed to process event-completed step", "step_ref", targetStepRun.StepRef, "error", err)
+		return fmt.Errorf("process event-completed step %s: %w", targetStepRun.StepRef, err)
+	}
+
+	return s.checkWorkflowCompletion(ctx, targetStepRun.WorkflowRunID)
 }
 
 func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[string]any) {

@@ -123,6 +123,9 @@ type APIStore interface {
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 }
 
 // Pinger checks service health.
@@ -133,6 +136,7 @@ type Pinger interface {
 // WorkflowCallback is called after a run reaches a terminal state via SDK or cancel.
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
+	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
 	SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error

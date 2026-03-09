@@ -101,6 +101,9 @@ type mockAPIStore struct {
 	listRunLineageFn              func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	sumRunCostMicrousdFn          func(ctx context.Context, runID string) (int64, error)
 	sumProjectDailyCostMicrousdFn func(ctx context.Context, projectID string, timezone string) (int64, error)
+	getEventTriggerByEventKeyFn   func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	updateEventTriggerStatusFn    func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	listEventTriggersByProjectFn  func(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -717,6 +720,27 @@ func (m *mockAPIStore) SumProjectDailyCostMicrousd(ctx context.Context, projectI
 		return m.sumProjectDailyCostMicrousdFn(ctx, projectID, timezone)
 	}
 	return 0, nil
+}
+
+func (m *mockAPIStore) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByEventKeyFn != nil {
+		return m.getEventTriggerByEventKeyFn(ctx, eventKey)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+	if m.updateEventTriggerStatusFn != nil {
+		return m.updateEventTriggerStatusFn(ctx, id, status, responsePayload, receivedAt, errMsg)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListEventTriggersByProject(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+	if m.listEventTriggersByProjectFn != nil {
+		return m.listEventTriggersByProjectFn(ctx, projectID, status, limit, cursor)
+	}
+	return nil, nil
 }
 
 // mockQueue implements queue.Queue for testing.
