@@ -28,50 +28,9 @@
       "timeout": 10000
     },
 
-    "playwright": {
-      "type": "local",
-      "command": [
-        "bunx",
-        "@executeautomation/playwright-mcp-server"
-      ],
-      "enabled": true
-    },
-
     "linear": {
       "type": "remote",
       "url": "https://mcp.linear.app/sse",
-      "enabled": true
-    },
-
-    "sentry": {
-      "type": "remote",
-      "url": "https://mcp.sentry.dev/mcp",
-      "oauth": {},
-      "enabled": true
-    },
-
-    "basehub": {
-      "type": "remote",
-      "url": "https://basehub.com/api/mcp",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer {env:BASEHUB_MCP_TOKEN}"
-      }
-    },
-
-    "filesystem": {
-      "type": "local",
-      "command": [
-        "bunx",
-        "@modelcontextprotocol/server-filesystem"
-      ],
-      "enabled": true,
-      "timeout": 10000
-    },
-
-    "shadcn": {
-      "type": "remote",
-      "url": "https://shadcn.com/api/mcp",
       "enabled": true
     }
   }
