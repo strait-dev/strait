@@ -296,15 +296,22 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 			slog.Error("failed to mark approval step failed", "approval_id", approval.ID, "error", err)
 		}
 
-		if err := r.store.UpdateWorkflowRunStatus(ctx, approval.WorkflowRunID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
-			"finished_at": now,
-			"error":       "approval timed out",
-		}); err != nil {
-			if errPaused := r.store.UpdateWorkflowRunStatus(ctx, approval.WorkflowRunID, domain.WfStatusPaused, domain.WfStatusFailed, map[string]any{
+		// Delegate to the workflow callback, which respects on_failure policy
+		// (continue, skip_dependents, fail_workflow). Falls back to directly
+		// failing the workflow run when the callback is nil.
+		if r.workflowCallback != nil {
+			r.workflowCallback.OnStepFailed(ctx, approval.WorkflowRunID, approval.WorkflowStepRunID)
+		} else {
+			if err := r.store.UpdateWorkflowRunStatus(ctx, approval.WorkflowRunID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
 				"finished_at": now,
 				"error":       "approval timed out",
-			}); errPaused != nil {
-				slog.Error("failed to fail workflow on approval timeout", "approval_id", approval.ID, "error", errPaused)
+			}); err != nil {
+				if errPaused := r.store.UpdateWorkflowRunStatus(ctx, approval.WorkflowRunID, domain.WfStatusPaused, domain.WfStatusFailed, map[string]any{
+					"finished_at": now,
+					"error":       "approval timed out",
+				}); errPaused != nil {
+					slog.Error("failed to fail workflow on approval timeout", "approval_id", approval.ID, "error", errPaused)
+				}
 			}
 		}
 	}
