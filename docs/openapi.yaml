@@ -2124,6 +2124,18 @@ components:
           type: string
         version:
           type: integer
+        version_id:
+          type: string
+          description: Nanoid-based public version identifier (e.g. ver_k8f2m9x1p3)
+        version_policy:
+          type: string
+          enum: [pin, latest]
+        backwards_compatible:
+          type: boolean
+        created_by:
+          type: string
+        updated_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2243,6 +2255,14 @@ components:
           type: string
         lineage_depth:
           type: integer
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        job_version_id:
+          type: string
+        created_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2311,6 +2331,21 @@ components:
           type: string
         skip_if_running:
           type: boolean
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_id:
+          type: string
+        version_policy:
+          type: string
+          enum: [pin, latest]
+        backwards_compatible:
+          type: boolean
+        created_by:
+          type: string
+        updated_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2351,6 +2386,14 @@ components:
         retry_of_run_id:
           type: string
         parent_workflow_run_id:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        workflow_version_id:
+          type: string
+        created_by:
           type: string
         created_at:
           type: string

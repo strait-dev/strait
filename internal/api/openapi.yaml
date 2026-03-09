@@ -2579,6 +2579,208 @@ paths:
         '204':
           description: API key revoked
 
+  /v1/roles:
+    post:
+      tags: [RBAC]
+      summary: Create a custom project role
+      operationId: createRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Role created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    get:
+      tags: [RBAC]
+      summary: List all roles for the project
+      operationId: listRoles
+      responses:
+        '200':
+          description: List of roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+
+  /v1/roles/{roleID}:
+    parameters:
+      - name: roleID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [RBAC]
+      summary: Get a role by ID
+      operationId: getRole
+      responses:
+        '200':
+          description: Role details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    patch:
+      tags: [RBAC]
+      summary: Update a custom role
+      operationId: updateRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Updated role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    delete:
+      tags: [RBAC]
+      summary: Delete a custom role
+      operationId: deleteRole
+      responses:
+        '204':
+          description: Role deleted
+
+  /v1/members:
+    post:
+      tags: [RBAC]
+      summary: Assign a role to a user in the project
+      operationId: assignMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMemberRequest'
+      responses:
+        '200':
+          description: Member assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMember'
+    get:
+      tags: [RBAC]
+      summary: List all members in the project
+      operationId: listMembers
+      responses:
+        '200':
+          description: List of members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectMember'
+
+  /v1/members/{userID}:
+    parameters:
+      - name: userID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Remove a member from the project
+      operationId: removeMember
+      responses:
+        '204':
+          description: Member removed
+
+  /v1/seed-roles:
+    post:
+      tags: [RBAC]
+      summary: Seed system roles (admin, editor, viewer) — idempotent
+      operationId: seedSystemRoles
+      responses:
+        '200':
+          description: System roles seeded
+
+  /v1/resource-policies:
+    post:
+      tags: [RBAC]
+      summary: Create a resource-level policy
+      operationId: createResourcePolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourcePolicyRequest'
+      responses:
+        '201':
+          description: Resource policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourcePolicy'
+    get:
+      tags: [RBAC]
+      summary: List resource policies for the project
+      operationId: listResourcePolicies
+      responses:
+        '200':
+          description: List of resource policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResourcePolicy'
+
+  /v1/resource-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete a resource policy
+      operationId: deleteResourcePolicy
+      responses:
+        '204':
+          description: Resource policy deleted
+
+  /v1/jobs/{jobID}/versions/{versionID}:
+    parameters:
+      - name: jobID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Jobs]
+      summary: Get a specific job version by its nanoid version ID
+      operationId: getJobVersion
+      responses:
+        '200':
+          description: Job version details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobVersion'
+
   /v1/stats:
     get:
       tags:
@@ -3374,6 +3576,22 @@ components:
           type: string
         version:
           type: integer
+        version_id:
+          type: string
+          description: Nanoid-based public version identifier (e.g. ver_k8f2m9x1p3)
+        version_policy:
+          type: string
+          enum: [pin, latest]
+          description: How queued runs resolve the job version at execution time
+        backwards_compatible:
+          type: boolean
+          description: Whether the latest version is backwards compatible with prior versions
+        created_by:
+          type: string
+          description: Actor who created this resource
+        updated_by:
+          type: string
+          description: Actor who last updated this resource
         created_at:
           type: string
           format: date-time
@@ -3493,6 +3711,17 @@ components:
           type: string
         lineage_depth:
           type: integer
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Tags inherited from the job, optionally overridden at trigger time
+        job_version_id:
+          type: string
+          description: Nanoid version identifier of the job at trigger time
+        created_by:
+          type: string
+          description: Actor who triggered this run
         created_at:
           type: string
           format: date-time
@@ -3561,6 +3790,22 @@ components:
           type: string
         skip_if_running:
           type: boolean
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_id:
+          type: string
+          description: Nanoid-based public version identifier
+        version_policy:
+          type: string
+          enum: [pin, latest]
+        backwards_compatible:
+          type: boolean
+        created_by:
+          type: string
+        updated_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -3602,6 +3847,17 @@ components:
           type: string
         parent_workflow_run_id:
           type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Tags inherited from the workflow
+        workflow_version_id:
+          type: string
+          description: Nanoid version identifier of the workflow at trigger time
+        created_by:
+          type: string
+          description: Actor who triggered this workflow run
         created_at:
           type: string
           format: date-time
@@ -3991,6 +4247,13 @@ components:
             type: integer
         environment_id:
           type: string
+        version_policy:
+          type: string
+          enum: [pin, latest]
+          description: How queued runs resolve the job version at execution time (default pin)
+        backwards_compatible:
+          type: boolean
+          description: Whether the latest version is backwards compatible with prior versions
 
     UpdateJobRequest:
       type: object
@@ -4045,6 +4308,11 @@ components:
             type: integer
         environment_id:
           type: string
+        version_policy:
+          type: string
+          enum: [pin, latest]
+        backwards_compatible:
+          type: boolean
 
     TriggerJobRequest:
       type: object
@@ -4064,6 +4332,11 @@ components:
           type: object
           additionalProperties:
             type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional tags to merge onto the job's tags for this run
 
     BulkTriggerItem:
       type: object
@@ -4377,3 +4650,105 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RunOutput'
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        is_system:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    CreateRoleRequest:
+      type: object
+      required: [name, permissions]
+      properties:
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+
+    ProjectMember:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        user_id:
+          type: string
+        role_id:
+          type: string
+        role_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AssignMemberRequest:
+      type: object
+      required: [user_id, role_id]
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+
+    ResourcePolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        user_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateResourcePolicyRequest:
+      type: object
+      required: [user_id, resource_type, resource_id, permissions]
+      properties:
+        user_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
