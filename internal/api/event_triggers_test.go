@@ -402,6 +402,121 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	}
 }
 
+func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Add(-time.Minute)
+	var resolvedCount int
+
+	ms := &mockAPIStore{
+		listEventTriggersByKeyPrefixFn: func(_ context.Context, prefix string, _ string) ([]domain.EventTrigger, error) {
+			if prefix == "order:" {
+				return []domain.EventTrigger{
+					{ID: "evt-1", EventKey: "order:100", ProjectID: "proj-1", SourceType: "job_run", JobRunID: "run-1", Status: domain.EventTriggerStatusWaiting, RequestedAt: now},
+					{ID: "evt-2", EventKey: "order:200", ProjectID: "proj-1", SourceType: "job_run", JobRunID: "run-2", Status: domain.EventTriggerStatusWaiting, RequestedAt: now},
+				}, nil
+			}
+			return nil, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			resolvedCount++
+			return nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/events/prefix/order:/send", strings.NewReader(`{"payload":{"batch":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", "test-secret")
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if resolvedCount != 2 {
+		t.Fatalf("resolved count = %d, want 2", resolvedCount)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["resolved"].(float64) != 2 {
+		t.Fatalf("resolved = %v, want 2", resp["resolved"])
+	}
+}
+
+func TestHandleSendEventByPrefix_NoMatches(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		listEventTriggersByKeyPrefixFn: func(_ context.Context, _ string, _ string) ([]domain.EventTrigger, error) {
+			return nil, nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/events/prefix/nonexistent:/send", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["resolved"].(float64) != 0 {
+		t.Fatalf("resolved = %v, want 0", resp["resolved"])
+	}
+}
+
+func TestHandleSendEvent_ProjectScoping_Forbidden(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-1",
+				EventKey:  "my-event",
+				ProjectID: "proj-other",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-mine"}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	// Use API key auth to set project context.
+	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+}
+
 func TestPayloadsMatch(t *testing.T) {
 	t.Parallel()
 
@@ -416,6 +531,8 @@ func TestPayloadsMatch(t *testing.T) {
 		{"whitespace diff", json.RawMessage(`{ "k" : "v" }`), json.RawMessage(`{"k":"v"}`), true},
 		{"different", json.RawMessage(`{"a":1}`), json.RawMessage(`{"a":2}`), false},
 		{"one nil", json.RawMessage(`{"a":1}`), nil, false},
+		{"nil vs null literal", nil, json.RawMessage(`null`), false},
+		{"null vs null", json.RawMessage(`null`), json.RawMessage(`null`), true},
 	}
 
 	for _, tt := range tests {

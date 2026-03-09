@@ -1552,3 +1552,143 @@ func TestReapExpiredEventTriggers_SleepCompletesStep(t *testing.T) {
 		t.Fatalf("expected step status=completed, got %s", updatedStepStatus)
 	}
 }
+
+func TestReapExpiredEventTriggers_SleepCallsOnStepCompleted(t *testing.T) {
+	t.Parallel()
+
+	var callbackCalled bool
+	var callbackRunID, callbackStepID string
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "slp:sr-1",
+					EventKey:          "sleep:wr-1:wait-step",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeSleep,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := &mockWorkflowCallback{
+		onStepCompletedFn: func(_ context.Context, wfRunID string, stepRunID string) {
+			callbackCalled = true
+			callbackRunID = wfRunID
+			callbackStepID = stepRunID
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
+	r.ReapOnce(context.Background())
+
+	if !callbackCalled {
+		t.Fatal("expected OnStepCompleted callback to be called")
+	}
+	if callbackRunID != "wr-1" {
+		t.Fatalf("expected workflow run ID wr-1, got %s", callbackRunID)
+	}
+	if callbackStepID != "sr-1" {
+		t.Fatalf("expected step run ID sr-1, got %s", callbackStepID)
+	}
+}
+
+func TestReapExpiredEventTriggers_DelegatesOnStepFailed(t *testing.T) {
+	t.Parallel()
+
+	var failedCallbackCalled bool
+	var failedRunID, failedStepID string
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt:sr-1",
+					EventKey:          "approval:wr-1:check",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeEvent,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := &mockWorkflowCallback{
+		onStepFailedFn: func(_ context.Context, wfRunID string, stepRunID string) {
+			failedCallbackCalled = true
+			failedRunID = wfRunID
+			failedStepID = stepRunID
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
+	r.ReapOnce(context.Background())
+
+	if !failedCallbackCalled {
+		t.Fatal("expected OnStepFailed callback to be called")
+	}
+	if failedRunID != "wr-1" {
+		t.Fatalf("expected workflow run ID wr-1, got %s", failedRunID)
+	}
+	if failedStepID != "sr-1" {
+		t.Fatalf("expected step run ID sr-1, got %s", failedStepID)
+	}
+}
+
+func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
+	t.Parallel()
+
+	var wfStatusUpdated bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt:sr-1",
+					EventKey:          "approval:wr-1:check",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeEvent,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			wfStatusUpdated = true
+			return nil
+		},
+	}
+
+	// nil callback → direct workflow failure
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if !wfStatusUpdated {
+		t.Fatal("expected direct workflow run status update when callback is nil")
+	}
+}

@@ -105,7 +105,7 @@ type mockAPIStore struct {
 	getEventTriggerByEventKeyFn    func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn     func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	listEventTriggersByProjectFn   func(ctx context.Context, projectID string, status string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
-	listEventTriggersByKeyPrefixFn func(ctx context.Context, prefix string) ([]domain.EventTrigger, error)
+	listEventTriggersByKeyPrefixFn func(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -754,7 +754,7 @@ func (m *mockAPIStore) ListEventTriggersByProject(ctx context.Context, projectID
 
 func (m *mockAPIStore) ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error) {
 	if m.listEventTriggersByKeyPrefixFn != nil {
-		return m.listEventTriggersByKeyPrefixFn(ctx, prefix)
+		return m.listEventTriggersByKeyPrefixFn(ctx, prefix, projectID)
 	}
 	return nil, nil
 }

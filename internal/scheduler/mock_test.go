@@ -236,3 +236,37 @@ func (m *mockReaperStore) ListReceivedEventTriggersWithStaleSteps(_ context.Cont
 func (m *mockReaperStore) DeleteEventTriggersFinishedBefore(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+
+// mockWorkflowCallback implements WorkflowCallback for testing.
+type mockWorkflowCallback struct {
+	onJobRunTerminalFn func(ctx context.Context, run *domain.JobRun) error
+	onEventReceivedFn  func(ctx context.Context, trigger *domain.EventTrigger) error
+	onStepCompletedFn  func(ctx context.Context, workflowRunID string, stepRunID string)
+	onStepFailedFn     func(ctx context.Context, workflowRunID string, stepRunID string)
+}
+
+func (m *mockWorkflowCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
+	if m.onJobRunTerminalFn != nil {
+		return m.onJobRunTerminalFn(ctx, run)
+	}
+	return nil
+}
+
+func (m *mockWorkflowCallback) OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error {
+	if m.onEventReceivedFn != nil {
+		return m.onEventReceivedFn(ctx, trigger)
+	}
+	return nil
+}
+
+func (m *mockWorkflowCallback) OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string) {
+	if m.onStepCompletedFn != nil {
+		m.onStepCompletedFn(ctx, workflowRunID, stepRunID)
+	}
+}
+
+func (m *mockWorkflowCallback) OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string) {
+	if m.onStepFailedFn != nil {
+		m.onStepFailedFn(ctx, workflowRunID, stepRunID)
+	}
+}
