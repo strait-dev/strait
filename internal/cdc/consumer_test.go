@@ -429,3 +429,19 @@ func decodeAckIDs(t *testing.T, r *http.Request) []string {
 	}
 	return body.AckIDs
 }
+
+func TestConsumerDefaultWaitTimeMs(t *testing.T) {
+	t.Parallel()
+	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
+	if consumer.config.WaitTimeMs != 1000 {
+		t.Fatalf("default WaitTimeMs = %d, want 1000", consumer.config.WaitTimeMs)
+	}
+}
+
+func TestConsumerDefaultBatchSize(t *testing.T) {
+	t.Parallel()
+	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
+	if consumer.config.BatchSize != 10 {
+		t.Fatalf("default BatchSize = %d, want 10", consumer.config.BatchSize)
+	}
+}

@@ -549,3 +549,83 @@ func TestEventTriggerHandlerPublishError(t *testing.T) {
 		t.Fatalf("expected log about publish failure, got: %s", logOutput)
 	}
 }
+
+func TestChangeEventSourceField(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{}
+	h := NewJobRunHandler(pub, slog.Default())
+
+	msg := Message{
+		Action: ActionInsert,
+		Record: json.RawMessage(`{"id":"run_1","job_id":"job_1","project_id":"proj_1","status":"queued"}`),
+		Metadata: Metadata{
+			TableName:       "job_runs",
+			CommitTimestamp: "2026-01-01T00:00:00Z",
+		},
+	}
+
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	if len(pub.calls) != 1 {
+		t.Fatalf("publish calls = %d, want 1", len(pub.calls))
+	}
+
+	var event ChangeEvent
+	if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if event.Source != "cdc" {
+		t.Fatalf("event.Source = %q, want %q", event.Source, "cdc")
+	}
+}
+
+func TestAllHandlersIncludeSource(t *testing.T) {
+	t.Parallel()
+
+	tables := []string{"job_runs", "workflow_runs", "workflow_step_runs", "event_triggers"}
+	records := map[string]json.RawMessage{
+		"job_runs":           json.RawMessage(`{"id":"1","job_id":"j","project_id":"p","status":"queued"}`),
+		"workflow_runs":      json.RawMessage(`{"id":"1","workflow_id":"w","project_id":"p","status":"running"}`),
+		"workflow_step_runs": json.RawMessage(`{"id":"1","workflow_run_id":"wr","step_ref":"s","status":"pending"}`),
+		"event_triggers":     json.RawMessage(`{"id":"1","event_key":"k","project_id":"p","status":"waiting"}`),
+	}
+
+	for _, table := range tables {
+		pub := &mockPublisher{}
+		var handler Handler
+		switch table {
+		case "job_runs":
+			handler = NewJobRunHandler(pub, slog.Default())
+		case "workflow_runs":
+			handler = NewWorkflowRunHandler(pub, slog.Default())
+		case "workflow_step_runs":
+			handler = NewWorkflowStepRunHandler(pub, slog.Default())
+		case "event_triggers":
+			handler = NewEventTriggerHandler(pub, slog.Default())
+		}
+
+		msg := Message{
+			Action:   ActionUpdate,
+			Record:   records[table],
+			Metadata: Metadata{TableName: table, CommitTimestamp: "2026-01-01T00:00:00Z"},
+		}
+
+		if err := handler.Handle(context.Background(), msg); err != nil {
+			t.Fatalf("Handle(%s) error = %v", table, err)
+		}
+
+		if len(pub.calls) != 1 {
+			t.Fatalf("publish calls for %s = %d, want 1", table, len(pub.calls))
+		}
+
+		var event ChangeEvent
+		if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
+			t.Fatalf("unmarshal %s event: %v", table, err)
+		}
+		if event.Source != "cdc" {
+			t.Fatalf("%s event.Source = %q, want %q", table, event.Source, "cdc")
+		}
+	}
+}

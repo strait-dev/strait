@@ -19,6 +19,7 @@ type ChangeEvent struct {
 	Record    json.RawMessage `json:"record"`
 	Changes   json.RawMessage `json:"changes,omitempty"`
 	Timestamp string          `json:"timestamp"`
+	Source    string          `json:"source,omitempty"`
 }
 
 type JobRunHandler struct {
@@ -65,6 +66,7 @@ func (h *JobRunHandler) Handle(ctx context.Context, msg Message) error {
 		Record:    msg.Record,
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
 	}, fmt.Sprintf("cdc:project:%s:job_runs", record.ProjectID))
 }
 
@@ -112,6 +114,7 @@ func (h *WorkflowRunHandler) Handle(ctx context.Context, msg Message) error {
 		Record:    msg.Record,
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
 	}, fmt.Sprintf("cdc:project:%s:workflow_runs", record.ProjectID))
 }
 
@@ -159,6 +162,7 @@ func (h *WorkflowStepRunHandler) Handle(ctx context.Context, msg Message) error 
 		Record:    msg.Record,
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
 	}, fmt.Sprintf("cdc:workflow_run:%s:steps", record.WorkflowRunID))
 }
 
@@ -206,6 +210,7 @@ func (h *EventTriggerHandler) Handle(ctx context.Context, msg Message) error {
 		Record:    msg.Record,
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
 	}, fmt.Sprintf("cdc:project:%s:event_triggers", record.ProjectID))
 }
 
