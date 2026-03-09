@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -45,17 +46,28 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		run.Status = domain.StatusDelayed
 	}
 
+	tagsJSON := []byte("{}")
+	if len(run.Tags) > 0 {
+		var marshalErr error
+		tagsJSON, marshalErr = json.Marshal(run.Tags)
+		if marshalErr != nil {
+			return fmt.Errorf("enqueue run: marshal tags: %w", marshalErr)
+		}
+	}
+
 	query := `
 		INSERT INTO job_runs (
 			id, job_id, project_id, status, attempt, payload, result, error,
 			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
-			debug_mode, continuation_of, lineage_depth
+			debug_mode, continuation_of, lineage_depth,
+			tags, job_version_id, created_by
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-			$21, $22, $23
+			$21, $22, $23,
+			$24::jsonb, $25, $26
 		)
 		RETURNING created_at`
 
@@ -85,6 +97,9 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		run.DebugMode,
 		dbscan.NilIfEmptyString(run.ContinuationOf),
 		run.LineageDepth,
+		tagsJSON,
+		dbscan.NilIfEmptyString(run.JobVersionID),
+		dbscan.NilIfEmptyString(run.CreatedBy),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("enqueue run: %w", err)

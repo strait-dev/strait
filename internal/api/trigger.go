@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"time"
 
@@ -20,10 +21,11 @@ import (
 )
 
 type TriggerRequest struct {
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
-	Priority    int             `json:"priority,omitempty" validate:"min=0,max=10"`
-	DryRun      bool            `json:"dry_run,omitempty"`
+	Payload     json.RawMessage   `json:"payload,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	ScheduledAt *time.Time        `json:"scheduled_at,omitempty"`
+	Priority    int               `json:"priority,omitempty" validate:"min=0,max=10"`
+	DryRun      bool              `json:"dry_run,omitempty"`
 }
 
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
@@ -221,10 +223,16 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		status = domain.StatusDelayed
 	}
 
+	// Inherit job tags, then overlay with trigger-specific tags.
+	runTags := make(map[string]string, len(job.Tags)+len(req.Tags))
+	maps.Copy(runTags, job.Tags)
+	maps.Copy(runTags, req.Tags)
+
 	run := &domain.JobRun{
 		ID:             runID,
 		JobID:          job.ID,
 		ProjectID:      job.ProjectID,
+		Tags:           runTags,
 		Status:         status,
 		Attempt:        1,
 		Payload:        payload,
@@ -233,6 +241,8 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		Priority:       req.Priority,
 		IdempotencyKey: idempotencyKey,
 		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		CreatedBy:      actorFromContext(r.Context()),
 		ExpiresAt:      &expiresAt,
 	}
 
