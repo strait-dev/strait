@@ -104,6 +104,9 @@ func (q *Queries) DeleteProjectRole(ctx context.Context, id string) error {
 	return nil
 }
 
+// AssignMemberRole assigns (or reassigns) a user to a role in a project.
+// On conflict, the existing role is updated. Note: created_at is not
+// updated on reassignment; the table lacks an updated_at column.
 func (q *Queries) AssignMemberRole(ctx context.Context, m *domain.ProjectMemberRole) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.AssignMemberRole")
 	defer span.End()

@@ -169,7 +169,19 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		return fmt.Errorf("update workflow: %w", err)
 	}
 
+	snapshotID := fmt.Sprintf("%s:v%d-pre", w.ID, w.Version)
+
 	query := `
+		WITH snapshot AS (
+			INSERT INTO workflow_versions (
+				id, workflow_id, version, project_id, name, slug, description, enabled,
+				timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+			)
+			SELECT $15, id, version, project_id, name, slug, description, enabled,
+			       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+			FROM workflows WHERE id = $11
+			ON CONFLICT (workflow_id, version) DO NOTHING
+		)
 		UPDATE workflows
 		SET name = $1,
 		    slug = $2,
@@ -206,6 +218,7 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		tagsJSON,
 		newVersionID,
 		dbscan.NilIfEmptyString(w.UpdatedBy),
+		snapshotID,
 	).Scan(&w.UpdatedAt, &w.Version, &w.VersionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

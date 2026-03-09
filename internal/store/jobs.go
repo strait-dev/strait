@@ -285,14 +285,33 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	return nil
 }
 
+// ErrJobHasActiveRuns is returned when attempting to delete a job that has
+// queued, dequeued, or executing runs.
+var ErrJobHasActiveRuns = errors.New("job has active runs")
+
 func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJob")
 	defer span.End()
 
-	query := `DELETE FROM jobs WHERE id = $1`
+	// Guard: refuse to delete if there are non-terminal runs.
+	var activeCount int
+	err := q.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','delayed','dequeued','executing','waiting')`,
+		id,
+	).Scan(&activeCount)
+	if err != nil {
+		return fmt.Errorf("delete job check active runs: %w", err)
+	}
+	if activeCount > 0 {
+		return ErrJobHasActiveRuns
+	}
 
-	if _, err := q.db.Exec(ctx, query, id); err != nil {
+	tag, err := q.db.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, id)
+	if err != nil {
 		return fmt.Errorf("delete job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrJobNotFound
 	}
 
 	return nil

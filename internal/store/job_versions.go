@@ -123,6 +123,9 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 // It reads from the job_versions snapshot table. If no snapshot exists for the
 // requested version (e.g., version 1 before snapshotting was enabled), it falls
 // back to the live jobs table.
+//
+// Note: version_policy, created_by, and updated_by are read from the live jobs
+// table since they are not stored per-version in job_versions.
 func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int) (*domain.Job, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobAtVersion")
 	defer span.End()
