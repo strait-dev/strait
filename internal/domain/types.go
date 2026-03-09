@@ -130,6 +130,7 @@ type Job struct {
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       string            `json:"environment_id,omitempty"`
 	Version             int               `json:"version"`
+	VersionID           string            `json:"version_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	UpdatedBy           string            `json:"updated_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
@@ -198,6 +199,7 @@ type JobRun struct {
 	Priority              int               `json:"priority"`
 	IdempotencyKey        string            `json:"idempotency_key,omitempty"`
 	JobVersion            int               `json:"job_version"`
+	JobVersionID          string            `json:"job_version_id,omitempty"`
 	WorkflowStepRunID     string            `json:"workflow_step_run_id,omitempty"`
 	MaxAttemptsOverride   int               `json:"max_attempts_override,omitempty"`
 	TimeoutSecsOverride   int               `json:"timeout_secs_override,omitempty"`
@@ -336,6 +338,7 @@ type JobVersion struct {
 	ID                  string            `json:"id"`
 	JobID               string            `json:"job_id"`
 	Version             int               `json:"version"`
+	VersionID           string            `json:"version_id,omitempty"`
 	Name                string            `json:"name"`
 	Slug                string            `json:"slug"`
 	Description         string            `json:"description,omitempty"`
@@ -489,6 +492,7 @@ type Workflow struct {
 	Cron              string    `json:"cron,omitempty"`
 	CronTimezone      string    `json:"cron_timezone,omitempty"`
 	SkipIfRunning     bool      `json:"skip_if_running,omitempty"`
+	VersionID         string    `json:"version_id,omitempty"`
 	CreatedBy         string    `json:"created_by,omitempty"`
 	UpdatedBy         string    `json:"updated_by,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
@@ -535,6 +539,7 @@ type WorkflowRun struct {
 	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
 	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
+	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
