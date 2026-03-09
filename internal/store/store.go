@@ -237,6 +237,7 @@ type EventTriggerStore interface {
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	CancelEventTriggerByJobRun(ctx context.Context, jobRunID string) error
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
+	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
 type Store interface {

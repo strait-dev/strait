@@ -106,6 +106,10 @@ func (m *mockSchedulerStore) ListReceivedEventTriggersWithStaleSteps(ctx context
 	return m.reaper.ListReceivedEventTriggersWithStaleSteps(ctx)
 }
 
+func (m *mockSchedulerStore) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	return m.reaper.DeleteEventTriggersFinishedBefore(ctx, before, limit)
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval: 100 * time.Millisecond,

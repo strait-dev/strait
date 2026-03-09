@@ -10,25 +10,26 @@ import (
 )
 
 type Config struct {
-	DatabaseURL              string        `mapstructure:"DATABASE_URL"`
-	RedisURL                 string        `mapstructure:"REDIS_URL"`
-	RedisSentinelMaster      string        `mapstructure:"REDIS_SENTINEL_MASTER"`
-	RedisSentinelAddrs       []string      `mapstructure:"REDIS_SENTINEL_ADDRS"`
-	Mode                     string        `mapstructure:"MODE"`
-	Port                     int           `mapstructure:"PORT"`
-	WorkerConcurrency        int           `mapstructure:"WORKER_CONCURRENCY"`
-	InternalSecret           string        `mapstructure:"INTERNAL_SECRET"`
-	JWTSigningKey            string        `mapstructure:"JWT_SIGNING_KEY"`
-	SecretEncryptionKey      string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
-	LogLevel                 string        `mapstructure:"LOG_LEVEL"`
-	HeartbeatInterval        time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
-	ReaperInterval           time.Duration `mapstructure:"REAPER_INTERVAL"`
-	StaleThreshold           time.Duration `mapstructure:"STALE_THRESHOLD"`
-	PollerInterval           time.Duration `mapstructure:"POLLER_INTERVAL"`
-	RunRetentionShort        time.Duration `mapstructure:"RUN_RETENTION_SHORT"`
-	RunRetentionLong         time.Duration `mapstructure:"RUN_RETENTION_LONG"`
-	OTELEndpoint             string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	WorkflowRunRetentionDays int           `mapstructure:"WORKFLOW_RUN_RETENTION_DAYS"`
+	DatabaseURL               string        `mapstructure:"DATABASE_URL"`
+	RedisURL                  string        `mapstructure:"REDIS_URL"`
+	RedisSentinelMaster       string        `mapstructure:"REDIS_SENTINEL_MASTER"`
+	RedisSentinelAddrs        []string      `mapstructure:"REDIS_SENTINEL_ADDRS"`
+	Mode                      string        `mapstructure:"MODE"`
+	Port                      int           `mapstructure:"PORT"`
+	WorkerConcurrency         int           `mapstructure:"WORKER_CONCURRENCY"`
+	InternalSecret            string        `mapstructure:"INTERNAL_SECRET"`
+	JWTSigningKey             string        `mapstructure:"JWT_SIGNING_KEY"`
+	SecretEncryptionKey       string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
+	LogLevel                  string        `mapstructure:"LOG_LEVEL"`
+	HeartbeatInterval         time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
+	ReaperInterval            time.Duration `mapstructure:"REAPER_INTERVAL"`
+	StaleThreshold            time.Duration `mapstructure:"STALE_THRESHOLD"`
+	PollerInterval            time.Duration `mapstructure:"POLLER_INTERVAL"`
+	RunRetentionShort         time.Duration `mapstructure:"RUN_RETENTION_SHORT"`
+	RunRetentionLong          time.Duration `mapstructure:"RUN_RETENTION_LONG"`
+	OTELEndpoint              string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	WorkflowRunRetentionDays  int           `mapstructure:"WORKFLOW_RUN_RETENTION_DAYS"`
+	EventTriggerRetentionDays int           `mapstructure:"EVENT_TRIGGER_RETENTION_DAYS"`
 
 	// Database connection pool tuning
 	DBMaxConns        int32         `mapstructure:"DB_MAX_CONNS"`

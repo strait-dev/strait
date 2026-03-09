@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	defaultWorkflowRetention = 30 * 24 * time.Hour
-	defaultDeleteBatchLimit  = 100
+	defaultWorkflowRetention     = 30 * 24 * time.Hour
+	defaultEventTriggerRetention = 30 * 24 * time.Hour
+	defaultDeleteBatchLimit      = 100
 )
 
 // ReaperStore is the subset of store operations needed by Reaper.
@@ -36,6 +37,7 @@ type ReaperStore interface {
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
+	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
 type WorkflowCallback interface {
@@ -44,16 +46,17 @@ type WorkflowCallback interface {
 }
 
 type Reaper struct {
-	store             ReaperStore
-	interval          time.Duration
-	staleThreshold    time.Duration
-	workflowRetention time.Duration
-	deleteBatchLimit  int
-	shortRetention    time.Duration
-	longRetention     time.Duration
-	retentionEnabled  bool
-	workflowCallback  WorkflowCallback
-	logger            *slog.Logger
+	store                 ReaperStore
+	interval              time.Duration
+	staleThreshold        time.Duration
+	workflowRetention     time.Duration
+	eventTriggerRetention time.Duration
+	deleteBatchLimit      int
+	shortRetention        time.Duration
+	longRetention         time.Duration
+	retentionEnabled      bool
+	workflowCallback      WorkflowCallback
+	logger                *slog.Logger
 }
 
 // NewReaper creates a new stale and expired run reaper.
@@ -65,16 +68,17 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		longRetention = 90 * 24 * time.Hour
 	}
 	return &Reaper{
-		store:             s,
-		interval:          interval,
-		staleThreshold:    staleThreshold,
-		workflowRetention: defaultWorkflowRetention,
-		deleteBatchLimit:  defaultDeleteBatchLimit,
-		shortRetention:    shortRetention,
-		longRetention:     longRetention,
-		retentionEnabled:  retentionEnabled,
-		workflowCallback:  workflowCallback,
-		logger:            slog.Default(),
+		store:                 s,
+		interval:              interval,
+		staleThreshold:        staleThreshold,
+		workflowRetention:     defaultWorkflowRetention,
+		eventTriggerRetention: defaultEventTriggerRetention,
+		deleteBatchLimit:      defaultDeleteBatchLimit,
+		shortRetention:        shortRetention,
+		longRetention:         longRetention,
+		retentionEnabled:      retentionEnabled,
+		workflowCallback:      workflowCallback,
+		logger:                slog.Default(),
 	}
 }
 
@@ -83,6 +87,14 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 func (r *Reaper) WithWorkflowRetention(d time.Duration) *Reaper {
 	if d > 0 {
 		r.workflowRetention = d
+	}
+	return r
+}
+
+// WithEventTriggerRetention sets the retention period for completed event triggers.
+func (r *Reaper) WithEventTriggerRetention(d time.Duration) *Reaper {
+	if d > 0 {
+		r.eventTriggerRetention = d
 	}
 	return r
 }
@@ -115,6 +127,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapExpiredEventTriggers(ctx)
 	r.reapInconsistentEventTriggers(ctx)
 	r.reapOldWorkflowRuns(ctx)
+	r.reapOldEventTriggers(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -128,6 +141,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapExpiredEventTriggers(loopCtx)
 		r.reapInconsistentEventTriggers(loopCtx)
 		r.reapOldWorkflowRuns(loopCtx)
+		r.reapOldEventTriggers(loopCtx)
 		if r.retentionEnabled {
 			r.reapTerminalRetention(loopCtx)
 		}
@@ -359,6 +373,25 @@ func (r *Reaper) reapInconsistentEventTriggers(ctx context.Context) {
 				slog.Info("reconciled inconsistent event trigger", "trigger_id", trigger.ID, "source_type", trigger.SourceType)
 			}
 		}
+	}
+}
+
+func (r *Reaper) reapOldEventTriggers(ctx context.Context) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapOldEventTriggers")
+	defer span.End()
+
+	if r.eventTriggerRetention <= 0 {
+		return
+	}
+
+	before := time.Now().Add(-r.eventTriggerRetention)
+	count, err := r.store.DeleteEventTriggersFinishedBefore(ctx, before, r.deleteBatchLimit)
+	if err != nil {
+		slog.Error("failed to delete old event triggers", "error", err)
+		return
+	}
+	if count > 0 {
+		slog.Info("deleted old event triggers", "count", count, "before", before.UTC())
 	}
 }
 

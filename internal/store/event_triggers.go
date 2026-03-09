@@ -351,6 +351,28 @@ func (q *Queries) CancelEventTriggerByJobRun(ctx context.Context, jobRunID strin
 	return nil
 }
 
+// DeleteEventTriggersFinishedBefore deletes terminal event triggers older than the given time.
+func (q *Queries) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEventTriggersFinishedBefore")
+	defer span.End()
+
+	query := `
+		DELETE FROM event_triggers
+		WHERE id IN (
+			SELECT id FROM event_triggers
+			WHERE status IN ('received', 'timed_out', 'canceled')
+			  AND COALESCE(received_at, expires_at) < $1
+			LIMIT $2
+		)`
+
+	tag, err := q.db.Exec(ctx, query, before, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete old event triggers: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
 func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	var trigger domain.EventTrigger
 	var workflowRunID *string
