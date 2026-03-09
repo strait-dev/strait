@@ -430,11 +430,14 @@ func (r *Reaper) reapInconsistentEventTriggers(ctx context.Context) {
 		switch trigger.SourceType {
 		case domain.EventSourceWorkflowStep:
 			if r.workflowCallback != nil {
-				if err := r.workflowCallback.OnEventReceived(ctx, &trigger); err != nil {
+				// Sleep triggers use OnStepCompleted; event triggers use OnEventReceived.
+				if trigger.TriggerType == domain.TriggerTypeSleep {
+					r.workflowCallback.OnStepCompleted(ctx, trigger.WorkflowRunID, trigger.WorkflowStepRunID)
+				} else if err := r.workflowCallback.OnEventReceived(ctx, &trigger); err != nil {
 					slog.Error("failed to reconcile event trigger step completion", "trigger_id", trigger.ID, "error", err)
-				} else {
-					slog.Info("reconciled inconsistent event trigger", "trigger_id", trigger.ID, "source_type", trigger.SourceType)
+					continue
 				}
+				slog.Info("reconciled inconsistent event trigger", "trigger_id", trigger.ID, "source_type", trigger.SourceType, "trigger_type", trigger.TriggerType)
 			}
 
 		case domain.EventSourceJobRun:
