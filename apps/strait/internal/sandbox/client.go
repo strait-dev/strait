@@ -178,6 +178,53 @@ func (c *Client) WaitForReady(ctx context.Context) error {
 	}
 }
 
+// reconnect parameters.
+const (
+	reconnectInitial = 1 * time.Second
+	reconnectMax     = 16 * time.Second
+	reconnectFactor  = 2
+)
+
+// Reconnect closes the existing connection and re-establishes it.
+// It is safe to call from any goroutine.
+func (c *Client) Reconnect(ctx context.Context) error {
+	c.logger.Info("reconnecting to forge", "addr", c.addr)
+	return c.Connect(ctx)
+}
+
+// StartReconnectLoop watches the connection state and automatically
+// reconnects with exponential backoff when the connection drops.
+// It blocks until the context is canceled.
+func (c *Client) StartReconnectLoop(ctx context.Context) {
+	backoff := reconnectInitial
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(c.cfg.keepaliveTime):
+		}
+
+		if c.IsConnected() {
+			backoff = reconnectInitial // reset on healthy connection
+			continue
+		}
+
+		c.logger.Warn("forge connection lost, reconnecting", "addr", c.addr, "backoff", backoff)
+
+		if err := c.Reconnect(ctx); err != nil {
+			c.logger.Error("reconnect failed", "addr", c.addr, "error", err, "next_retry", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff = min(backoff*reconnectFactor, reconnectMax)
+		} else {
+			backoff = reconnectInitial
+		}
+	}
+}
+
 // EventHandler is called for each streamed event during sandbox execution.
 type EventHandler func(event *sandboxv1.ExecutionEvent) error
 

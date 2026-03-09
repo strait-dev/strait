@@ -292,6 +292,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		}
 	}
 
+	if sandboxClient != nil {
+		g.Go(func(ctx context.Context) error {
+			sandboxClient.StartReconnectLoop(ctx)
+			return nil
+		})
+	}
+
 	g.Go(func(ctx context.Context) error {
 		exec.Run(ctx)
 		return nil

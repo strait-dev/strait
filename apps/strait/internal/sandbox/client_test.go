@@ -163,3 +163,81 @@ func TestClientClose_Idempotent(t *testing.T) {
 		}
 	}
 }
+
+func TestReconnect_Success(t *testing.T) {
+	t.Parallel()
+	c := NewClient("localhost:50051", nil)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("initial connect: %v", err)
+	}
+	defer c.Close()
+
+	if err := c.Reconnect(context.Background()); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	if !c.IsConnected() {
+		t.Error("expected connected after reconnect")
+	}
+}
+
+func TestReconnect_AfterClose(t *testing.T) {
+	t.Parallel()
+	c := NewClient("localhost:50051", nil)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if c.IsConnected() {
+		t.Error("expected not connected after close")
+	}
+
+	if err := c.Reconnect(context.Background()); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	if !c.IsConnected() {
+		t.Error("expected connected after reconnect")
+	}
+	c.Close()
+}
+
+func TestStartReconnectLoop_ExitsOnCancel(t *testing.T) {
+	t.Parallel()
+	c := NewClient("localhost:50051", nil,
+		WithKeepaliveInterval(10*time.Millisecond),
+	)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		c.StartReconnectLoop(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good — loop exited
+	case <-time.After(2 * time.Second):
+		t.Fatal("reconnect loop did not exit after context cancel")
+	}
+}
+
+func TestReconnectBackoff_Constants(t *testing.T) {
+	t.Parallel()
+	if reconnectInitial != 1*time.Second {
+		t.Errorf("initial backoff: got %v, want 1s", reconnectInitial)
+	}
+	if reconnectMax != 16*time.Second {
+		t.Errorf("max backoff: got %v, want 16s", reconnectMax)
+	}
+	if reconnectFactor != 2 {
+		t.Errorf("backoff factor: got %d, want 2", reconnectFactor)
+	}
+}
