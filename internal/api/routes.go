@@ -161,6 +161,7 @@ func (s *Server) routes() chi.Router {
 
 		r.Route("/members", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Post("/", s.handleAssignMember)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/bulk", s.handleBulkAssignMembers)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListMembers)
 			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Delete("/{userID}", s.handleRemoveMember)
 		})

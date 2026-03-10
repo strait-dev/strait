@@ -155,6 +155,17 @@ type assignMemberRequest struct {
 	RoleID string `json:"role_id" validate:"required"`
 }
 
+type bulkAssignMembersRequest struct {
+	Items []assignMemberRequest `json:"items" validate:"required,min=1"`
+}
+
+type bulkAssignMemberResult struct {
+	UserID string `json:"user_id"`
+	RoleID string `json:"role_id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
 func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
 	var req assignMemberRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxRequestBodySize)).Decode(&req); err != nil {
@@ -189,6 +200,53 @@ func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
 
 	s.permCache.Invalidate(m.ProjectID, m.UserID)
 	respondJSON(w, http.StatusCreated, m)
+}
+
+func (s *Server) handleBulkAssignMembers(w http.ResponseWriter, r *http.Request) {
+	var req bulkAssignMembersRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+
+	projectID := projectIDFromContext(r.Context())
+	actor := actorFromContext(r.Context())
+	results := make([]bulkAssignMemberResult, 0, len(req.Items))
+
+	for _, item := range req.Items {
+		if item.UserID == "" || item.RoleID == "" {
+			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "user_id and role_id are required"})
+			continue
+		}
+
+		if _, err := s.store.GetProjectRole(r.Context(), item.RoleID); err != nil {
+			if errors.Is(err, store.ErrRoleNotFound) {
+				results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "role not found"})
+				continue
+			}
+			respondError(w, r, http.StatusInternalServerError, "failed to verify role")
+			return
+		}
+
+		m := &domain.ProjectMemberRole{
+			ProjectID: projectID,
+			UserID:    item.UserID,
+			RoleID:    item.RoleID,
+			GrantedBy: actor,
+		}
+		if err := s.store.AssignMemberRole(r.Context(), m); err != nil {
+			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "failed to assign role"})
+			continue
+		}
+
+		s.permCache.Invalidate(projectID, item.UserID)
+		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(results)})
 }
 
 func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
