@@ -1,6 +1,6 @@
 # Event Triggers — Production Readiness Plan
 
-14 items across 4 priority tiers. Each item specifies exact files, interfaces, SQL, tests, and acceptance criteria.
+13 items across 4 priority tiers. Each item specifies exact files, interfaces, SQL, tests, and acceptance criteria.
 
 **Constraints**: Same as the original PR — `go build ./...`, `go vet ./...`, `golangci-lint run --timeout=5m ./...`, `go test -race ./...` must pass after each item. Commit after each item.
 
@@ -230,9 +230,9 @@ WHERE et.status = 'received'
 
 ---
 
-## P1 — First Week in Production (Items 4–6)
+## P1 — First Week in Production (Items 4–5)
 
-These items improve reliability and observability for the first production deployment.
+These items improve reliability for the first production deployment.
 
 ---
 
@@ -316,62 +316,7 @@ srv := api.NewServer(api.ServerDeps{
 
 ---
 
-### Item 5: Grafana Dashboard Definitions
-
-**Why**: Prometheus metrics are emitted but have no dashboards. Operators need visibility into event trigger health from day one.
-
-**Files**:
-- `deploy/grafana/event-triggers.json` — new Grafana dashboard JSON
-
-**Dashboard panels**:
-
-**Row 1 — Throughput**:
-1. **Triggers Created Rate** — `rate(strait_event_triggers_created_total[5m])` by `source_type`
-2. **Triggers Resolved Rate** — `rate(strait_event_triggers_received_total[5m])` by `source_type`
-3. **Triggers Timed Out Rate** — `rate(strait_event_triggers_timed_out_total[5m])` by `project_id`
-
-**Row 2 — Latency**:
-4. **Wait Duration p50/p95/p99** — `histogram_quantile(0.5/0.95/0.99, rate(strait_event_triggers_wait_duration_seconds_bucket[5m]))`
-5. **Wait Duration Heatmap** — native histogram heatmap
-
-**Row 3 — Active State**:
-6. **Active Waiting Triggers** — requires new gauge metric (see below)
-7. **Webhook DLQ Size** — `count(webhook_deliveries WHERE status = 'dead')` (via custom query or additional metric)
-
-**New metric needed** (`internal/telemetry/metrics.go`):
-```go
-EventTriggersWaiting int64Gauge // Gauge: current count of waiting triggers
-```
-
-This gauge is updated by the reaper on each pass:
-```go
-// In reapExpiredEventTriggers, after listing expired triggers:
-if r.metrics != nil {
-    // Count remaining waiting triggers (can be a lightweight COUNT query)
-    count, _ := r.store.CountWaitingEventTriggers(ctx)
-    r.metrics.EventTriggersWaiting.Record(ctx, count)
-}
-```
-
-**New store method** (`internal/store/event_triggers.go`):
-```go
-func (q *Queries) CountWaitingEventTriggers(ctx context.Context) (int64, error) {
-    var count int64
-    err := q.db.QueryRow(ctx,
-        `SELECT COUNT(*) FROM event_triggers WHERE status = 'waiting'`).Scan(&count)
-    return count, err
-}
-```
-
-**Tests**:
-- Verify dashboard JSON is valid (parse with `encoding/json`)
-- Verify new gauge metric is recorded
-
-**Acceptance**: Dashboard importable in Grafana. All 7 panels render with test data. Gauge metric accurately reflects waiting trigger count.
-
----
-
-### Item 6: SSE Auth for Browser Clients
+### Item 5: SSE Auth for Browser Clients
 
 **Why**: Browser `EventSource` API doesn't support custom headers. The SSE stream endpoint currently requires `Authorization` header, making it unusable from browser JavaScript.
 
@@ -418,13 +363,13 @@ r.With(s.sseTokenAuth).Get("/stream", s.handleEventTriggerStream)
 
 ---
 
-## P2 — First Month (Items 7–10)
+## P2 — First Month (Items 6–9)
 
 These items address operational visibility, SDK ergonomics, and production tuning.
 
 ---
 
-### Item 7: SDK Language Bindings
+### Item 6: SDK Language Bindings
 
 **Why**: Without typed SDK methods, users must make raw HTTP calls to `wait-for-event`. TypeScript and Python are the primary SDK languages.
 
@@ -485,7 +430,7 @@ class StraitSDK:
 
 ---
 
-### Item 8: Event Trigger Retention Tuning
+### Item 7: Event Trigger Retention Tuning
 
 **Why**: The current retention default is 30 days for all terminal triggers. In production, `received` triggers (happy path) can be cleaned up faster than `timed_out`/`canceled` (useful for debugging).
 
@@ -528,7 +473,7 @@ func (r *Reaper) reapOldEventTriggers(ctx context.Context) {
 
 ---
 
-### Item 9: Webhook DLQ Visibility
+### Item 8: Webhook DLQ Visibility
 
 **Why**: Dead-lettered webhook deliveries sit in the database with no way to inspect or retry them via API.
 
@@ -587,7 +532,7 @@ strait webhooks retry <delivery-id>
 
 ---
 
-### Item 10: Reaper Load Testing
+### Item 9: Reaper Load Testing
 
 **Why**: The reaper runs every 30 seconds with `LIMIT 1000`. Under heavy load after an outage, thousands of triggers may expire simultaneously, creating a thundering herd of workflow progressions.
 
@@ -636,13 +581,13 @@ func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 
 ---
 
-## P3 — Post-GA Improvements (Items 11–14)
+## P3 — Post-GA Improvements (Items 10–13)
 
 These items are enhancements for scale, compliance, and advanced use cases.
 
 ---
 
-### Item 11: Event Trigger Archival
+### Item 10: Event Trigger Archival
 
 **Why**: For compliance use cases (SOC2, HIPAA), event trigger records with `sent_by` audit data must be preserved beyond the retention period.
 
@@ -698,7 +643,7 @@ GET /v1/events/archive?project_id=...&from=...&to=...
 
 ---
 
-### Item 12: Wildcard Event Subscriptions
+### Item 11: Wildcard Event Subscriptions
 
 **Why**: Currently prefix matching only works on the send side. A trigger that can wait for any event matching a pattern enables fan-in from multiple sources.
 
@@ -747,7 +692,7 @@ LIMIT 100
 
 ---
 
-### Item 13: Event Trigger Quotas
+### Item 12: Event Trigger Quotas
 
 **Why**: A project creating millions of waiting triggers could degrade database performance for all projects.
 
@@ -796,7 +741,7 @@ if s.config.MaxWaitingTriggersPerProject > 0 {
 
 ---
 
-### Item 14: Distributed Reaper Coordination
+### Item 13: Distributed Reaper Coordination
 
 **Why**: Multiple worker instances each run their own reaper, doing redundant work. `LIMIT 1000` and optimistic locking prevent double-processing but waste CPU.
 
@@ -860,18 +805,17 @@ func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
 ```
 Item 1  (migration squash)     → must be first, before any deploy
 Item 2  (key validation)       → quick, high safety value
-Item 3  (index benchmark)      → informs Items 4 and 10
+Item 3  (index benchmark)      → informs Items 4 and 9
 Item 4  (tx safety)            → reliability improvement
-Item 5  (Grafana dashboards)   → observability for launch
-Item 6  (SSE browser auth)     → enables frontend integration
-Item 7  (SDK bindings)         → developer experience
-Item 8  (retention tuning)     → operational control
-Item 9  (webhook DLQ)          → operational visibility
-Item 10 (load testing)         → validates production readiness
-Item 11 (archival)             → compliance
-Item 12 (wildcards)            → advanced feature
-Item 13 (quotas)               → abuse prevention
-Item 14 (reaper coordination)  → efficiency at scale
+Item 5  (SSE browser auth)     → enables frontend integration
+Item 6  (SDK bindings)         → developer experience
+Item 7  (retention tuning)     → operational control
+Item 8  (webhook DLQ)          → operational visibility
+Item 9  (load testing)         → validates production readiness
+Item 10 (archival)             → compliance
+Item 11 (wildcards)            → advanced feature
+Item 12 (quotas)               → abuse prevention
+Item 13 (reaper coordination)  → efficiency at scale
 ```
 
 ## Validation After Each Item
