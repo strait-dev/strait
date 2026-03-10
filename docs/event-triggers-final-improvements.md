@@ -206,12 +206,24 @@ Commit 8 (docs)              → commit
 
 ## Implementation Status
 
-All 8 commits implemented and passing CI:
-- ✅ Commit 1: Rate limiting on send endpoints
-- ✅ Commit 2: Trigger-before-step ordering
-- ✅ Commit 3: SDK notify_url
-- ✅ Commit 4: Sleep step output
-- ✅ Commit 5: List filtering
-- ✅ Commit 6: Cancel endpoint
-- ✅ Commit 7: Unit tests
-- ✅ Commit 8: Documentation
+All items implemented and passing CI:
+
+### Batch 1 (original 8 commits):
+- ✅ Rate limiting on send endpoints
+- ✅ Trigger-before-step ordering fix
+- ✅ SDK notify_url field
+- ✅ Sleep step output metadata
+- ✅ List filtering (workflow_run_id, source_type)
+- ✅ DELETE endpoint for trigger cancellation
+- ✅ Unit tests for OnStepCompleted/OnStepFailed
+
+### Batch 2 (deferred items — now implemented):
+- ✅ Transaction safety for job run event receives (`ReceiveEventAndRequeueRun`)
+- ✅ Webhook retry with exponential backoff (3 attempts, 1s/2s, 4xx not retried)
+- ✅ SSE streaming endpoint (`GET /v1/events/{eventKey}/stream`)
+- ✅ Audit log (`sent_by` column, migration 000054)
+- ✅ Stats endpoint (`GET /v1/events/stats`)
+- ✅ Batch resolve atomicity (`BatchReceiveEventTriggers`)
+
+### Deferred to release:
+- Migration squash (000049–000054) — deployment-time concern, not code
