@@ -106,6 +106,9 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	trigger.SentBy = sentBy
 
+	// Direct publish for sub-millisecond SSE delivery (CDC is the catch-all).
+	s.publishTriggerStatusChange(r.Context(), trigger)
+
 	// Record metrics.
 	if s.metrics != nil {
 		attrs := metric.WithAttributes(
@@ -214,6 +217,9 @@ func (s *Server) handleCancelEventTrigger(w http.ResponseWriter, r *http.Request
 
 	trigger.Status = domain.EventTriggerStatusCanceled
 	trigger.Error = "canceled by user"
+
+	// Direct publish for sub-millisecond SSE delivery.
+	s.publishTriggerStatusChange(r.Context(), trigger)
 
 	// Drive step/run progression for the cancellation.
 	switch trigger.SourceType {
@@ -383,6 +389,9 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 		if err := s.resumeEventSource(ctx, trigger); err != nil {
 			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "error", err)
 		}
+
+		// Direct publish for sub-millisecond SSE delivery.
+		s.publishTriggerStatusChange(ctx, trigger)
 
 		resolved = append(resolved, *trigger)
 	}

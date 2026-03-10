@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,8 +14,10 @@ import (
 )
 
 // handleEventTriggerStream streams SSE updates for a specific event trigger.
-// The client receives updates whenever the trigger's status changes via the
-// CDC pubsub channel for the trigger's project.
+// Subscribes to the trigger-specific channel ("event_trigger:{id}") which receives
+// direct publishes from send/cancel handlers for sub-millisecond delivery.
+// CDC also publishes to the project-level channel as a reliable catch-all;
+// we subscribe to the trigger-specific channel for targeted, low-latency updates.
 func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request) {
 	eventKey := chi.URLParam(r, "eventKey")
 	if eventKey == "" {
@@ -53,8 +57,8 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Subscribe to the project's event_triggers CDC channel.
-	channel := fmt.Sprintf("cdc:project:%s:event_triggers", trigger.ProjectID)
+	// Subscribe to the trigger-specific channel (same pattern as run:{runID}).
+	channel := fmt.Sprintf("event_trigger:%s", trigger.ID)
 	sub, err := s.pubsub.Subscribe(r.Context(), channel)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to subscribe")
@@ -90,25 +94,17 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				return
 			}
-			// Filter: only forward messages about this specific trigger.
-			var envelope struct {
-				ID       string `json:"id"`
-				EventKey string `json:"event_key"`
-				Status   string `json:"status"`
-			}
-			if err := json.Unmarshal(msg, &envelope); err != nil {
-				continue
-			}
-			if envelope.ID != trigger.ID && envelope.EventKey != trigger.EventKey {
-				continue
-			}
-
 			fmt.Fprintf(w, "event: status\ndata: %s\n\n", msg)
 			flusher.Flush()
 
 			// Close stream when trigger reaches terminal state.
-			if envelope.Status != domain.EventTriggerStatusWaiting {
-				return
+			var envelope struct {
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal(msg, &envelope); err == nil {
+				if envelope.Status != "" && envelope.Status != domain.EventTriggerStatusWaiting {
+					return
+				}
 			}
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
@@ -135,4 +131,32 @@ func (s *Server) writeTerminalTriggerSSE(w http.ResponseWriter, trigger *domain.
 		fmt.Fprintf(w, "event: status\ndata: %s\n\n", data)
 	}
 	flusher.Flush()
+}
+
+// publishTriggerStatusChange publishes a status change to the trigger-specific
+// Redis pubsub channel for real-time SSE delivery. Non-fatal on error.
+func (s *Server) publishTriggerStatusChange(ctx context.Context, trigger *domain.EventTrigger) {
+	if s.pubsub == nil {
+		return
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"id":          trigger.ID,
+		"event_key":   trigger.EventKey,
+		"status":      trigger.Status,
+		"project_id":  trigger.ProjectID,
+		"source_type": trigger.SourceType,
+		"received_at": trigger.ReceivedAt,
+		"error":       trigger.Error,
+		"timestamp":   time.Now().UTC(),
+	})
+	if err != nil {
+		slog.Warn("failed to marshal trigger status payload", "trigger_id", trigger.ID, "error", err)
+		return
+	}
+
+	channel := fmt.Sprintf("event_trigger:%s", trigger.ID)
+	if err := s.pubsub.Publish(ctx, channel, payload); err != nil {
+		slog.Warn("failed to publish trigger status change", "trigger_id", trigger.ID, "channel", channel, "error", err)
+	}
 }
