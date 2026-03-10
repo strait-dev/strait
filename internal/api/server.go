@@ -228,6 +228,7 @@ type Server struct {
 	validate           *validator.Validate
 	maxRequestBodySize int64
 	permCache          *permissionCache
+	oidcVerifier       *oidcVerifier
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -250,6 +251,13 @@ func NewServer(deps ServerDeps) *Server {
 	if maxBody <= 0 {
 		maxBody = 1 << 20 // 1MB default
 	}
+
+	verifier, err := newOIDCVerifier(deps.Config)
+	if err != nil {
+		slog.Warn("failed to initialize OIDC verifier; disabling OIDC auth", "error", err)
+		verifier = &oidcVerifier{enabled: false}
+	}
+
 	srv := &Server{
 		store:              deps.Store,
 		queue:              deps.Queue,
@@ -264,6 +272,7 @@ func NewServer(deps ServerDeps) *Server {
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
 		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
+		oidcVerifier:       verifier,
 	}
 	srv.router = srv.routes()
 	return srv

@@ -92,8 +92,50 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 			s.apiKeyAuth(next).ServeHTTP(w, r)
 			return
 		}
+		if strings.HasPrefix(authHeader, "Bearer ") && s.oidcVerifier != nil && s.oidcVerifier.enabled {
+			s.oidcAuth(next).ServeHTTP(w, r)
+			return
+		}
 
 		s.internalSecretAuth(next).ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) oidcAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		if token == "" {
+			respondError(w, r, http.StatusUnauthorized, "missing bearer token")
+			return
+		}
+
+		claims, err := s.oidcVerifier.verify(token)
+		if err != nil {
+			respondError(w, r, http.StatusUnauthorized, "invalid bearer token")
+			return
+		}
+
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, ctxActorIDKey, claims.Subject)
+		ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+		ctx = context.WithValue(ctx, ctxScopesKey, []string{}) // non-nil => enforce RBAC path in requirePermission
+		if projectID := strings.TrimSpace(r.Header.Get("X-Project-Id")); projectID != "" {
+			ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+		}
+
+		if s.actorSyncer != nil {
+			syncCtx := context.WithoutCancel(ctx)
+			go func() {
+				syncCtx2, cancel := context.WithTimeout(syncCtx, 2*time.Second)
+				defer cancel()
+				if err := s.actorSyncer.UpsertKnownActor(syncCtx2, claims.Subject, claims.Email, claims.Name); err != nil {
+					slog.Warn("failed to sync actor from oidc", "actor_id", claims.Subject, "error", err)
+				}
+			}()
+		}
+
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
