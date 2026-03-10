@@ -156,6 +156,18 @@ func TestEvaluateCondition(t *testing.T) {
 			want: true,
 		},
 		{
+			name:         "step_status_in: one allowed status -> true",
+			cond:         mustJSON(`{"type":"step_status_in","step_ref":"validate-data","statuses":["failed","completed"]}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         true,
+		},
+		{
+			name:         "not: inverts nested result",
+			cond:         mustJSON(`{"type":"not","condition":{"type":"step_status","step_ref":"validate-data","status":"failed"}}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         true,
+		},
+		{
 			name:         "unknown type -> error",
 			cond:         mustJSON(`{"type":"foobar"}`),
 			stepStatuses: map[string]domain.StepRunStatus{},

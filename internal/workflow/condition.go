@@ -18,6 +18,17 @@ type compositeCondition struct {
 	Conditions []json.RawMessage `json:"conditions"`
 }
 
+type stepStatusInCondition struct {
+	Type     string   `json:"type"`
+	StepRef  string   `json:"step_ref"`
+	Statuses []string `json:"statuses"`
+}
+
+type notCondition struct {
+	Type      string          `json:"type"`
+	Condition json.RawMessage `json:"condition"`
+}
+
 // EvaluateCondition evaluates a workflow step condition against current step statuses.
 // Returns true if the condition is met and the step should run.
 // Returns true if cond is nil or empty (unconditional step).
@@ -52,6 +63,39 @@ func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.Step
 		}
 
 		return actualStatus == domain.StepRunStatus(c.Status), nil
+
+	case "step_status_in":
+		var c stepStatusInCondition
+		if err := json.Unmarshal(cond, &c); err != nil {
+			return false, fmt.Errorf("unmarshal step_status_in condition: %w", err)
+		}
+		if c.StepRef == "" {
+			return false, fmt.Errorf("step_ref is required for step_status_in condition")
+		}
+		actualStatus, found := stepStatuses[c.StepRef]
+		if !found {
+			return false, fmt.Errorf("step %q not found in statuses", c.StepRef)
+		}
+		for _, allowed := range c.Statuses {
+			if actualStatus == domain.StepRunStatus(allowed) {
+				return true, nil
+			}
+		}
+		return false, nil
+
+	case "not":
+		var c notCondition
+		if err := json.Unmarshal(cond, &c); err != nil {
+			return false, fmt.Errorf("unmarshal not condition: %w", err)
+		}
+		if len(c.Condition) == 0 {
+			return false, fmt.Errorf("condition is required for not condition")
+		}
+		ok, err := EvaluateCondition(c.Condition, stepStatuses)
+		if err != nil {
+			return false, err
+		}
+		return !ok, nil
 
 	case "all_of":
 		var c compositeCondition

@@ -617,6 +617,135 @@ func (s *Server) handleDryRunWorkflow(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"valid": true, "step_count": len(steps)})
 }
 
+type workflowPlanRequest struct {
+	StepOverrides []domain.StepOverride `json:"step_overrides,omitempty"`
+}
+
+func (s *Server) handleWorkflowPlan(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowID")
+
+	var req workflowPlanRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	wf, err := s.store.GetWorkflow(r.Context(), workflowID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+	if wf == nil {
+		respondError(w, r, http.StatusNotFound, "workflow not found")
+		return
+	}
+
+	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, wf.Version)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to load workflow steps")
+		return
+	}
+
+	if len(req.StepOverrides) > 0 {
+		steps, err = applyStepOverridesForPlan(steps, req.StepOverrides)
+		if err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	if err := workflow.ValidateDAG(steps); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	indegree := make(map[string]int, len(steps))
+	adj := make(map[string][]string, len(steps))
+	for _, st := range steps {
+		indegree[st.StepRef] = 0
+		adj[st.StepRef] = []string{}
+	}
+	for _, st := range steps {
+		for _, dep := range st.DependsOn {
+			adj[dep] = append(adj[dep], st.StepRef)
+			indegree[st.StepRef]++
+		}
+	}
+
+	queue := make([]string, 0, len(steps))
+	roots := make([]string, 0)
+	for ref, deg := range indegree {
+		if deg == 0 {
+			queue = append(queue, ref)
+			roots = append(roots, ref)
+		}
+	}
+	sort.Strings(queue)
+	sort.Strings(roots)
+
+	topo := make([]string, 0, len(steps))
+	for len(queue) > 0 {
+		ref := queue[0]
+		queue = queue[1:]
+		topo = append(topo, ref)
+		for _, dep := range adj[ref] {
+			indegree[dep]--
+			if indegree[dep] == 0 {
+				queue = append(queue, dep)
+			}
+		}
+		sort.Strings(queue)
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"workflow_id":       workflowID,
+		"workflow_version":  wf.Version,
+		"step_count":        len(steps),
+		"roots":             roots,
+		"topological_order": topo,
+	})
+}
+
+func applyStepOverridesForPlan(steps []domain.WorkflowStep, overrides []domain.StepOverride) ([]domain.WorkflowStep, error) {
+	disabled := make(map[string]struct{})
+	known := make(map[string]struct{}, len(steps))
+	for _, s := range steps {
+		known[s.StepRef] = struct{}{}
+	}
+	for _, o := range overrides {
+		if _, ok := known[o.StepRef]; !ok {
+			return nil, fmt.Errorf("step override references unknown step_ref %q", o.StepRef)
+		}
+		if !o.Enabled {
+			disabled[o.StepRef] = struct{}{}
+		}
+	}
+	if len(disabled) == 0 {
+		return steps, nil
+	}
+
+	filtered := make([]domain.WorkflowStep, 0, len(steps))
+	for _, s := range steps {
+		if _, skip := disabled[s.StepRef]; skip {
+			continue
+		}
+		if len(s.DependsOn) > 0 {
+			deps := make([]string, 0, len(s.DependsOn))
+			for _, dep := range s.DependsOn {
+				if _, skip := disabled[dep]; !skip {
+					deps = append(deps, dep)
+				}
+			}
+			s.DependsOn = deps
+		}
+		filtered = append(filtered, s)
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("all steps disabled by overrides")
+	}
+	return filtered, nil
+}
+
 func (s *Server) handleWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowID")
 	format := strings.ToLower(r.URL.Query().Get("format"))

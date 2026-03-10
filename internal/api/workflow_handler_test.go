@@ -709,6 +709,40 @@ func TestHandleDryRunWorkflow(t *testing.T) {
 	})
 }
 
+func TestHandleWorkflowPlan(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getWorkflowFn: func(_ context.Context, workflowID string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: workflowID, Version: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" || version != 1 {
+				t.Fatalf("unexpected workflow/version %s/%d", workflowID, version)
+			}
+			return []domain.WorkflowStep{
+				{StepRef: "a"},
+				{StepRef: "b", DependsOn: []string{"a"}},
+			}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/plan", `{}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	roots, ok := resp["roots"].([]any)
+	if !ok || len(roots) != 1 || roots[0] != "a" {
+		t.Fatalf("unexpected roots: %v", resp["roots"])
+	}
+}
+
 func TestHandleWorkflowGraph(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
