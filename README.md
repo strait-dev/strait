@@ -44,6 +44,20 @@ The strait solves the complexity of background job processing by combining queue
 - **Health Scoring** — Aggregate metrics for success rate, timeout rate, and latency stability
 - **Dead Letter Queue** — Isolate permanently failed runs for inspection and replay
 
+## Development Checks
+
+Run OpenAPI route parity manually before committing docs/API changes:
+
+```bash
+go run ./scripts/check_openapi_parity.go
+```
+
+Then run hooks/checks:
+
+```bash
+lefthook run pre-commit
+```
+
 ## Project Status
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/leonardomso/strait)](https://goreportcard.com/report/github.com/leonardomso/strait)

@@ -76,6 +76,12 @@ Current pre-commit checks include:
 - `golangci-lint`
 - OpenAPI parity check (`scripts/check_openapi_parity.go`) to ensure `internal/api/routes.go`, `internal/api/openapi.yaml`, and `docs/openapi.yaml` stay in sync.
 
+Manual parity check command:
+
+```bash
+go run ./scripts/check_openapi_parity.go
+```
+
 If `lefthook` fails, you must fix the issues before you can commit your changes.
 
 ## Pull Request Guidelines
