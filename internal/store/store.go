@@ -239,6 +239,7 @@ type EventTriggerStore interface {
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
+	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
 }
 
 type Store interface {

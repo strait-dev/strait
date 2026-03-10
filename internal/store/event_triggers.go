@@ -27,7 +27,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 			workflow_run_id, workflow_step_run_id, job_run_id,
 			status, request_payload, response_payload,
 			timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status, trigger_type
+		       notify_url, notify_status, trigger_type, sent_by
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`
 
@@ -73,7 +73,7 @@ func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status, trigger_type
+		       notify_url, notify_status, trigger_type, sent_by
 		FROM event_triggers
 		WHERE event_key = $1`
 
@@ -98,7 +98,7 @@ func (q *Queries) GetEventTriggerByStepRunID(ctx context.Context, stepRunID stri
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status, trigger_type
+		       notify_url, notify_status, trigger_type, sent_by
 		FROM event_triggers
 		WHERE workflow_step_run_id = $1`
 
@@ -123,7 +123,7 @@ func (q *Queries) GetEventTriggerByJobRunID(ctx context.Context, jobRunID string
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status, trigger_type
+		       notify_url, notify_status, trigger_type, sent_by
 		FROM event_triggers
 		WHERE job_run_id = $1`
 
@@ -177,6 +177,18 @@ func (q *Queries) UpdateEventTriggerStatus(
 	return nil
 }
 
+// SetEventTriggerSentBy records who resolved an event trigger (audit trail).
+func (q *Queries) SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetEventTriggerSentBy")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx, `UPDATE event_triggers SET sent_by = $1 WHERE id = $2`, sentBy, id)
+	if err != nil {
+		return fmt.Errorf("set event trigger sent_by: %w", err)
+	}
+	return nil
+}
+
 // ListExpiredEventTriggers returns all event triggers in waiting status whose expires_at has passed.
 func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListExpiredEventTriggers")
@@ -187,7 +199,7 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status, trigger_type
+		       notify_url, notify_status, trigger_type, sent_by
 		FROM event_triggers
 		WHERE status = 'waiting' AND expires_at <= NOW()
 		ORDER BY expires_at ASC
@@ -226,7 +238,7 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, sta
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
-		       notify_url, notify_status, trigger_type
+		       notify_url, notify_status, trigger_type, sent_by
 		FROM event_triggers
 		WHERE project_id = $1`
 
@@ -310,7 +322,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 			       workflow_run_id, workflow_step_run_id, job_run_id,
 			       status, request_payload, response_payload,
 			       timeout_secs, requested_at, received_at, expires_at, error,
-			       notify_url, notify_status, trigger_type
+			       notify_url, notify_status, trigger_type, sent_by
 			FROM event_triggers
 			WHERE event_key LIKE $1 ESCAPE '\'
 			  AND status = 'waiting'
@@ -324,7 +336,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 			       workflow_run_id, workflow_step_run_id, job_run_id,
 			       status, request_payload, response_payload,
 			       timeout_secs, requested_at, received_at, expires_at, error,
-			       notify_url, notify_status, trigger_type
+			       notify_url, notify_status, trigger_type, sent_by
 			FROM event_triggers
 			WHERE event_key LIKE $1 ESCAPE '\'
 			  AND status = 'waiting'
@@ -498,6 +510,7 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	var notifyURL *string
 	var notifyStatus *string
 	var triggerType *string
+	var sentBy *string
 
 	err := scanner.Scan(
 		&trigger.ID,
@@ -518,6 +531,7 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 		&notifyURL,
 		&notifyStatus,
 		&triggerType,
+		&sentBy,
 	)
 	if err != nil {
 		return nil, err
@@ -549,6 +563,9 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	}
 	if triggerType != nil {
 		trigger.TriggerType = *triggerType
+	}
+	if sentBy != nil {
+		trigger.SentBy = *sentBy
 	}
 
 	return &trigger, nil

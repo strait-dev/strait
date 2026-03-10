@@ -131,6 +131,7 @@ type APIStore interface {
 	ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
+	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
 }
 
 // Pinger checks service health.

@@ -92,6 +92,13 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 	trigger.ResponsePayload = req.Payload
 	trigger.ReceivedAt = &now
 
+	// Record who sent the event (audit trail — non-fatal on error).
+	sentBy := senderIdentity(r.Context())
+	if err := s.store.SetEventTriggerSentBy(r.Context(), trigger.ID, sentBy); err != nil {
+		slog.Warn("failed to set sent_by", "trigger_id", trigger.ID, "error", err)
+	}
+	trigger.SentBy = sentBy
+
 	// Record metrics.
 	if s.metrics != nil {
 		attrs := metric.WithAttributes(
@@ -281,6 +288,14 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	return string(ea) == string(eb)
 }
 
+// senderIdentity returns a string identifying who is making the current request.
+func senderIdentity(ctx context.Context) string {
+	if pid := projectIDFromContext(ctx); pid != "" {
+		return "api-key:" + pid
+	}
+	return "internal"
+}
+
 // handleSendEventByPrefix delivers an event to all waiting triggers matching a prefix.
 func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -325,6 +340,12 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 		}
 		trigger.Status = domain.EventTriggerStatusReceived
 		trigger.ReceivedAt = &now
+
+		sentBy := senderIdentity(ctx)
+		if err := s.store.SetEventTriggerSentBy(ctx, trigger.ID, sentBy); err != nil {
+			slog.Warn("failed to set sent_by on prefix resolve", "trigger_id", trigger.ID, "error", err)
+		}
+		trigger.SentBy = sentBy
 
 		// Resume the source.
 		trigger.ResponsePayload = req.Payload

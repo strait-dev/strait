@@ -553,4 +553,5 @@ type EventTrigger struct {
 	NotifyURL         string          `json:"notify_url,omitempty"`    // optional webhook URL to call on creation
 	NotifyStatus      string          `json:"notify_status,omitempty"` // pending, sent, failed
 	TriggerType       string          `json:"trigger_type,omitempty"`  // "event" (default) or "sleep"
+	SentBy            string          `json:"sent_by,omitempty"`       // who resolved the trigger (API key ID, "internal", or "auto-emit")
 }
