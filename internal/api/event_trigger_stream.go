@@ -20,8 +20,8 @@ import (
 // we subscribe to the trigger-specific channel for targeted, low-latency updates.
 func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request) {
 	eventKey := chi.URLParam(r, "eventKey")
-	if eventKey == "" {
-		respondError(w, r, http.StatusBadRequest, "event key is required")
+	if errMsg := validateEventKey(eventKey); errMsg != "" {
+		respondError(w, r, http.StatusBadRequest, errMsg)
 		return
 	}
 

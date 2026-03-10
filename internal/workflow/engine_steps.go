@@ -178,6 +178,14 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	if renderedKey == "" {
 		return fmt.Errorf("event_key is empty for step %s", step.StepRef)
 	}
+	if len(renderedKey) > 512 {
+		return fmt.Errorf("event_key exceeds 512 characters for step %s", step.StepRef)
+	}
+	for i := 0; i < len(renderedKey); i++ {
+		if renderedKey[i] < 0x20 {
+			return fmt.Errorf("event_key contains invalid control characters for step %s", step.StepRef)
+		}
+	}
 
 	timeoutSecs := step.EventTimeoutSecs
 	if timeoutSecs <= 0 {

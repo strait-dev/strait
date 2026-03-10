@@ -1501,3 +1501,44 @@ func TestResumeEventSource_UnknownSourceType(t *testing.T) {
 		t.Fatalf("expected no error for unknown source, got %v", err)
 	}
 }
+
+func TestValidateEventKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{"valid simple", "aml:user-123", false},
+		{"valid with dots", "app.check.v2:order-456", false},
+		{"valid 512 chars", string(make([]byte, 512)), true}, // all null bytes → control char
+		{"empty", "", true},
+		{"too long", string(make([]byte, 513)), true},
+		{"null byte", "key\x00bad", true},
+		{"newline", "key\nbad", true},
+		{"tab", "key\tbad", true},
+		{"carriage return", "key\rbad", true},
+		{"valid unicode", "clé:événement-42", false},
+		{"valid 512 exactly", func() string {
+			b := make([]byte, 512)
+			for i := range b {
+				b[i] = 'a'
+			}
+			return string(b)
+		}(), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := validateEventKey(tt.key)
+			if tt.wantErr && result == "" {
+				t.Fatalf("expected error for key %q, got none", tt.key)
+			}
+			if !tt.wantErr && result != "" {
+				t.Fatalf("expected no error for key %q, got %q", tt.key, result)
+			}
+		})
+	}
+}

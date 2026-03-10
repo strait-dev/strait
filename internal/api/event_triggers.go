@@ -19,11 +19,27 @@ type SendEventRequest struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// validateEventKey returns an error string if the key is invalid, empty string if OK.
+func validateEventKey(key string) string {
+	if len(key) == 0 {
+		return "event key is required"
+	}
+	if len(key) > 512 {
+		return "event key must be at most 512 characters"
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < 0x20 { // control characters including \x00
+			return "event key contains invalid characters (control characters not allowed)"
+		}
+	}
+	return ""
+}
+
 // handleSendEvent delivers an event to a waiting event trigger.
 func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 	eventKey := chi.URLParam(r, "eventKey")
-	if eventKey == "" {
-		respondError(w, r, http.StatusBadRequest, "event key is required")
+	if errMsg := validateEventKey(eventKey); errMsg != "" {
+		respondError(w, r, http.StatusBadRequest, errMsg)
 		return
 	}
 
@@ -155,8 +171,8 @@ func (s *Server) resumeEventSource(ctx context.Context, trigger *domain.EventTri
 // handleGetEventTrigger returns a single event trigger by key.
 func (s *Server) handleGetEventTrigger(w http.ResponseWriter, r *http.Request) {
 	eventKey := chi.URLParam(r, "eventKey")
-	if eventKey == "" {
-		respondError(w, r, http.StatusBadRequest, "event key is required")
+	if errMsg := validateEventKey(eventKey); errMsg != "" {
+		respondError(w, r, http.StatusBadRequest, errMsg)
 		return
 	}
 
@@ -182,8 +198,8 @@ func (s *Server) handleGetEventTrigger(w http.ResponseWriter, r *http.Request) {
 // handleCancelEventTrigger cancels a waiting event trigger by key.
 func (s *Server) handleCancelEventTrigger(w http.ResponseWriter, r *http.Request) {
 	eventKey := chi.URLParam(r, "eventKey")
-	if eventKey == "" {
-		respondError(w, r, http.StatusBadRequest, "event key is required")
+	if errMsg := validateEventKey(eventKey); errMsg != "" {
+		respondError(w, r, http.StatusBadRequest, errMsg)
 		return
 	}
 
@@ -330,12 +346,8 @@ func senderIdentity(ctx context.Context) string {
 func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	prefix := chi.URLParam(r, "prefix")
-	if prefix == "" {
-		respondError(w, r, http.StatusBadRequest, "prefix is required")
-		return
-	}
-	if len(prefix) > 512 {
-		respondError(w, r, http.StatusBadRequest, "prefix must be at most 512 characters")
+	if errMsg := validateEventKey(prefix); errMsg != "" {
+		respondError(w, r, http.StatusBadRequest, errMsg)
 		return
 	}
 

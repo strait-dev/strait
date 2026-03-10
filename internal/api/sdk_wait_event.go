@@ -47,8 +47,8 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.EventKey) > 512 {
-		respondError(w, r, http.StatusBadRequest, "event_key must be at most 512 characters")
+	if errMsg := validateEventKey(req.EventKey); errMsg != "" {
+		respondError(w, r, http.StatusBadRequest, errMsg)
 		return
 	}
 
