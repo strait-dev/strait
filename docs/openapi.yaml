@@ -1620,19 +1620,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                grace_period_seconds:
-                  type: integer
+              $ref: '#/components/schemas/RotateAPIKeyRequest'
       responses:
         '201':
           description: Rotated API key created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/APIKey'
+                $ref: '#/components/schemas/RotateAPIKeyResponse'
 
   /v1/roles:
     post:
@@ -1743,14 +1738,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/BulkAssignMembersRequest'
       responses:
         '200':
           description: Bulk assignment result
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/BulkAssignMembersResponse'
 
   /v1/members/{userID}:
     parameters:
@@ -1804,13 +1799,14 @@ paths:
           in: query
           schema:
             type: string
+            format: date-time
       responses:
         '200':
           description: Audit events
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/ListAuditEventsResponse'
 
   /v1/resource-policies:
     post:
@@ -1850,13 +1846,14 @@ paths:
           in: query
           schema:
             type: string
+            format: date-time
       responses:
         '200':
           description: Policies
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/ListResourcePoliciesResponse'
 
   /v1/resource-policies/{policyID}:
     parameters:
@@ -1881,14 +1878,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/CreateTagPolicyRequest'
       responses:
         '201':
           description: Created
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/TagPolicy'
     get:
       tags: [RBAC]
       summary: List tag policies
@@ -1914,13 +1911,14 @@ paths:
           in: query
           schema:
             type: string
+            format: date-time
       responses:
         '200':
           description: Policies
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/ListTagPoliciesResponse'
 
   /v1/tag-policies/{policyID}:
     parameters:
@@ -1995,7 +1993,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
+                  $ref: '#/components/schemas/WorkflowVersion'
 
   /v1/workflows/{workflowID}/versions/{versionID}:
     parameters:
@@ -2018,7 +2016,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/WorkflowVersion'
 
   /v1/workflows/{workflowID}/versions/{versionID}/steps:
     parameters:
@@ -2043,7 +2041,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
+                  $ref: '#/components/schemas/WorkflowStep'
 
   /v1/workflow-runs/{workflowRunID}/labels:
     parameters:
@@ -2589,7 +2587,7 @@ components:
           description: Nanoid-based public version identifier (e.g. ver_k8f2m9x1p3)
         version_policy:
           type: string
-          enum: [pin, latest]
+          enum: [pin, latest, minor]
         backwards_compatible:
           type: boolean
         created_by:
@@ -2799,7 +2797,7 @@ components:
           type: string
         version_policy:
           type: string
-          enum: [pin, latest]
+          enum: [pin, latest, minor]
         backwards_compatible:
           type: boolean
         created_by:
@@ -2985,6 +2983,361 @@ components:
           type: string
           format: date-time
         revoked_at:
+          type: string
+          format: date-time
+        replaced_by_key_id:
+          type: string
+        grace_expires_at:
+          type: string
+          format: date-time
+
+    RotateAPIKeyRequest:
+      type: object
+      properties:
+        grace_period_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+
+    RotateAPIKeyResponse:
+      type: object
+      properties:
+        old_key_id:
+          type: string
+        new_key_id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        key:
+          type: string
+        key_prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        grace_expires_at:
+          type: string
+          format: date-time
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+        is_system:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateRoleRequest:
+      type: object
+      required:
+        - project_id
+        - name
+        - permissions
+      properties:
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+
+    ProjectMember:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        user_id:
+          type: string
+        role_id:
+          type: string
+        granted_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AssignMemberRequest:
+      type: object
+      required:
+        - user_id
+        - role_id
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+
+    BulkAssignMembersRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignMemberRequest'
+
+    BulkAssignMemberResult:
+      type: object
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+        status:
+          type: string
+        error:
+          type: string
+
+    BulkAssignMembersResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkAssignMemberResult'
+        total:
+          type: integer
+
+    ResourcePolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        user_id:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateResourcePolicyRequest:
+      type: object
+      required:
+        - project_id
+        - resource_type
+        - resource_id
+        - user_id
+        - actions
+      properties:
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        user_id:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    TagPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        user_id:
+          type: string
+        tag_key:
+          type: string
+        tag_value:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateTagPolicyRequest:
+      type: object
+      required:
+        - project_id
+        - resource_type
+        - user_id
+        - tag_key
+        - actions
+      properties:
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        user_id:
+          type: string
+        tag_key:
+          type: string
+        tag_value:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        actor_id:
+          type: string
+        actor_type:
+          type: string
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        details:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    ListAuditEventsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    ListResourcePoliciesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourcePolicy'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    ListTagPoliciesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagPolicy'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    WorkflowVersion:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        project_id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        timeout_secs:
+          type: integer
+        max_concurrent_runs:
+          type: integer
+        max_parallel_steps:
+          type: integer
+        cron:
+          type: string
+        cron_timezone:
+          type: string
+        skip_if_running:
+          type: boolean
+        version_id:
+          type: string
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        created_at:
           type: string
           format: date-time
 
