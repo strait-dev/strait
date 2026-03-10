@@ -294,14 +294,58 @@ Rules:
 4. use `!` for breaking changes and explain in body
 5. avoid vague messages (`update`, `misc`, `fix stuff`)
 
-### 10.2 PR expectations
+### 10.2 PR expectations (quality bar)
 
-Include in PR description:
-- Context/problem
-- What changed
-- Validation commands + results
-- Docs/contract impact
-- Known limitations/follow-ups (if any)
+PR descriptions must be clear, complete, and easy to review. Avoid short/vague descriptions.
+
+Every PR description should include:
+- **Summary**: what this PR does in plain language
+- **Why**: context/problem and motivation
+- **What changed**: key implementation points (grouped by area)
+- **Validation**: exact commands run + outcomes
+- **Testing impact**: what tests were added/updated and why
+- **Docs/contract impact**: OpenAPI/CLI/docs/env changes (or explicit “none”)
+- **Risk & rollout notes**: risks, mitigations, follow-ups
+
+### 10.2.1 PR description template (recommended)
+
+```md
+## Summary
+
+## Why
+
+## What Changed
+- 
+- 
+
+## Validation
+- Commands run:
+  - `go test ./...`
+  - `go test -race ./...`
+  - `golangci-lint run --timeout=5m ./...`
+- Result summary:
+
+## Testing Impact
+- New tests:
+- Updated tests:
+- Regression coverage:
+
+## Docs / Contract Impact
+- Docs updated:
+- OpenAPI updated:
+- Env/config updates:
+
+## Risks / Follow-ups
+- Risks:
+- Follow-up work:
+```
+
+### 10.2.2 PR description DON'Ts
+
+- Don’t omit **why** the change is needed.
+- Don’t paste generic text that could apply to any PR.
+- Don’t claim validation without listing commands/results.
+- Don’t skip test impact details for behavior changes.
 
 ### 10.3 PR testing notes template (mandatory)
 
