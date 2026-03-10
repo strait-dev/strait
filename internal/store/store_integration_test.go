@@ -6153,7 +6153,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 		t.Fatalf("len(actions) = %d, want 2", len(actions))
 	}
 
-	policies, err := q.ListResourcePolicies(ctx, "job", "job-123")
+	policies, err := q.ListResourcePolicies(ctx, "job", "job-123", 50, nil)
 	if err != nil {
 		t.Fatalf("ListResourcePolicies() error = %v", err)
 	}
@@ -6747,7 +6747,7 @@ func TestListResourcePolicies_Empty(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	policies, err := q.ListResourcePolicies(ctx, "job", "nonexistent")
+	policies, err := q.ListResourcePolicies(ctx, "job", "nonexistent", 50, nil)
 	if err != nil {
 		t.Fatalf("ListResourcePolicies() error = %v", err)
 	}
@@ -6777,7 +6777,7 @@ func TestListResourcePolicies_MultipleUsers(t *testing.T) {
 		}
 	}
 
-	policies, err := q.ListResourcePolicies(ctx, "workflow", "wf-1")
+	policies, err := q.ListResourcePolicies(ctx, "workflow", "wf-1", 50, nil)
 	if err != nil {
 		t.Fatalf("ListResourcePolicies() error = %v", err)
 	}
