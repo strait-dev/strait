@@ -81,6 +81,12 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Update in-memory trigger BEFORE calling resumeEventSource,
+		// so OnEventReceived sees the correct payload and status.
+		trigger.Status = domain.EventTriggerStatusReceived
+		trigger.ResponsePayload = req.Payload
+		trigger.ReceivedAt = &now
+
 		// Resume the workflow step via callback.
 		if err := s.resumeEventSource(r.Context(), trigger); err != nil {
 			slog.Error("event received but failed to resume execution",
@@ -88,6 +94,7 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Ensure in-memory trigger is up-to-date for the response (covers both branches).
 	trigger.Status = domain.EventTriggerStatusReceived
 	trigger.ResponsePayload = req.Payload
 	trigger.ReceivedAt = &now
