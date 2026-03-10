@@ -17,15 +17,19 @@ API keys continue to use scope-based authorization.
 ### Roles
 - `POST /v1/roles`
 - `GET /v1/roles`
+- `GET /v1/roles/{roleID}`
 - `PATCH /v1/roles/{roleID}`
 - `DELETE /v1/roles/{roleID}`
-- `POST /v1/roles/seed`
+- `POST /v1/seed-roles`
 
 ### Members
 - `POST /v1/members`
 - `POST /v1/members/bulk`
 - `GET /v1/members`
 - `DELETE /v1/members/{userID}`
+
+### Role Lineage Introspection
+- `GET /v1/roles/{roleID}?include_lineage=true`
 
 ### Resource Policies
 - `POST /v1/resource-policies`

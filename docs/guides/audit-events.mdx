@@ -14,10 +14,13 @@ Strait records security-sensitive and control-plane operations in the `audit_eve
 - `actor_id`
 - `resource_type`
 - `resource_id`
+- `from` (RFC3339)
+- `to` (RFC3339)
+- `order` (`asc` or `desc`, default `desc`)
 - `limit`
 - `cursor`
 
-Results are returned in descending time order and support cursor pagination.
+Results support cursor pagination and optional time-window filtering.
 
 ## Event Coverage (examples)
 

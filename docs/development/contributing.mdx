@@ -70,9 +70,13 @@ The linter checks for code duplication, unhandled errors, security vulnerabiliti
 
 ## Pre-commit Hooks
 
-We use `lefthook` to run linters automatically before every commit. This ensures that all code entering the repository meets our quality standards.
+We use `lefthook` to run checks automatically before every commit. This ensures that all code entering the repository meets our quality standards.
 
-If `lefthook` fails, you must fix the linting errors before you can commit your changes.
+Current pre-commit checks include:
+- `golangci-lint`
+- OpenAPI parity check (`scripts/check_openapi_parity.go`) to ensure `internal/api/routes.go`, `internal/api/openapi.yaml`, and `docs/openapi.yaml` stay in sync.
+
+If `lefthook` fails, you must fix the issues before you can commit your changes.
 
 ## Pull Request Guidelines
 
