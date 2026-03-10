@@ -310,9 +310,19 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 }
 
 func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
-	// Lock the job row and check for active runs atomically.
+	// Lock the job row first to prevent concurrent enqueues while we check and delete.
+	var exists bool
+	err := q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE id = $1 FOR UPDATE)`, id).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("delete job lock: %w", err)
+	}
+	if !exists {
+		return ErrJobNotFound
+	}
+
+	// Now check for active runs under the job-row lock.
 	var activeCount int
-	err := q.db.QueryRow(ctx,
+	err = q.db.QueryRow(ctx,
 		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','delayed','dequeued','executing','waiting')`,
 		id,
 	).Scan(&activeCount)
@@ -321,16 +331,6 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	}
 	if activeCount > 0 {
 		return ErrJobHasActiveRuns
-	}
-
-	// Lock the job row to prevent concurrent enqueues.
-	var exists bool
-	err = q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE id = $1 FOR UPDATE)`, id).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("delete job lock: %w", err)
-	}
-	if !exists {
-		return ErrJobNotFound
 	}
 
 	// Delete related data before removing the job (FK constraints).
