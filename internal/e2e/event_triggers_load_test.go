@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package e2e
+package e2e_test
 
 import (
 	"context"
