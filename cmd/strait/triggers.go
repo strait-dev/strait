@@ -16,6 +16,7 @@ func newTriggersCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newTriggersListCommand(state))
 	cmd.AddCommand(newTriggersGetCommand(state))
 	cmd.AddCommand(newTriggersSendCommand(state))
+	cmd.AddCommand(newTriggersPurgeCommand(state))
 
 	return cmd
 }
@@ -144,6 +145,42 @@ func newTriggersSendCommand(state *appState) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&payload, "payload", "", "JSON payload to send with the event")
+
+	return cmd
+}
+
+func newTriggersPurgeCommand(state *appState) *cobra.Command {
+	var olderThanDays int
+	var dryRun bool
+
+	cmd := &cobra.Command{
+		Use:   "purge",
+		Short: "Purge terminal event triggers older than a given age",
+		Long:  "Deletes event triggers in terminal state (received, timed_out, canceled) older than --older-than days. Use --dry-run to preview.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if olderThanDays < 1 {
+				return fmt.Errorf("--older-than must be >= 1 day")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			count, err := cli.PurgeEventTriggers(cmd.Context(), olderThanDays, dryRun)
+			if err != nil {
+				return err
+			}
+
+			if dryRun {
+				return printData(state, map[string]any{"dry_run": true, "would_delete": count})
+			}
+			return printData(state, map[string]any{"deleted": count})
+		},
+	}
+
+	cmd.Flags().IntVar(&olderThanDays, "older-than", 30, "delete triggers older than N days")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview without deleting")
 
 	return cmd
 }

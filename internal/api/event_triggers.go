@@ -453,3 +453,43 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 		"triggers": resolved,
 	})
 }
+
+// handlePurgeEventTriggers deletes terminal triggers older than N days.
+func (s *Server) handlePurgeEventTriggers(w http.ResponseWriter, r *http.Request) {
+	type purgeRequest struct {
+		OlderThanDays int  `json:"older_than_days"`
+		DryRun        bool `json:"dry_run"`
+	}
+
+	var req purgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.OlderThanDays < 1 {
+		respondError(w, r, http.StatusBadRequest, "older_than_days must be >= 1")
+		return
+	}
+
+	before := time.Now().Add(-time.Duration(req.OlderThanDays) * 24 * time.Hour)
+
+	if req.DryRun {
+		// For dry run, return a count estimate.
+		count, err := s.store.CountEventTriggersFinishedBefore(r.Context(), before)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to count triggers")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"dry_run": true, "would_delete": count})
+		return
+	}
+
+	deleted, err := s.store.DeleteEventTriggersFinishedBefore(r.Context(), before, 10000)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to purge triggers")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+}

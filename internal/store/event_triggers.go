@@ -479,6 +479,22 @@ func (q *Queries) UpdateEventTriggerNotifyStatus(ctx context.Context, id string,
 }
 
 // DeleteEventTriggersFinishedBefore deletes terminal event triggers older than the given time.
+func (q *Queries) CountEventTriggersFinishedBefore(ctx context.Context, before time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountEventTriggersFinishedBefore")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*) FROM event_triggers
+		WHERE status IN ('received', 'timed_out', 'canceled')
+		  AND COALESCE(received_at, expires_at) < $1`
+
+	var count int64
+	if err := q.db.QueryRow(ctx, query, before).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count old event triggers: %w", err)
+	}
+	return count, nil
+}
+
 func (q *Queries) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEventTriggersFinishedBefore")
 	defer span.End()

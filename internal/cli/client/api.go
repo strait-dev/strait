@@ -339,3 +339,24 @@ func (c *Client) SendEvent(ctx context.Context, eventKey string, payload map[str
 	}
 	return &out, nil
 }
+
+func (c *Client) PurgeEventTriggers(ctx context.Context, olderThanDays int, dryRun bool) (int64, error) {
+	body := map[string]any{
+		"older_than_days": olderThanDays,
+		"dry_run":         dryRun,
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/events/purge", nil, body, &out); err != nil {
+		return 0, err
+	}
+	if dryRun {
+		if v, ok := out["would_delete"].(float64); ok {
+			return int64(v), nil
+		}
+		return 0, nil
+	}
+	if v, ok := out["deleted"].(float64); ok {
+		return int64(v), nil
+	}
+	return 0, nil
+}
