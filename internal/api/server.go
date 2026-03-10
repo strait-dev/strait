@@ -76,6 +76,7 @@ type JobStore interface {
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
 	ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	DeleteJobDependency(ctx context.Context, id string) error
+	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 }
 
 // RunStore handles job runs, events, checkpoints, and related data.

@@ -724,6 +724,98 @@ func TestHandleTriggerJob_Success(t *testing.T) {
 	}
 }
 
+func TestHandleTriggerJob_WaitsForUnsatisfiedDependencies(t *testing.T) {
+	t.Parallel()
+
+	createdRunStatus := domain.StatusQueued
+	enqueueCalled := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "Dependent",
+				Slug:        "dependent",
+				EndpointURL: "https://example.com/callback",
+				Enabled:     true,
+				TimeoutSecs: 300,
+				MaxAttempts: 3,
+			}, nil
+		},
+		areJobDependenciesSatisfiedFn: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return false, nil
+		},
+		createRunFn: func(_ context.Context, run *domain.JobRun) error {
+			createdRunStatus = run.Status
+			return nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueCalled = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if createdRunStatus != domain.StatusWaiting {
+		t.Fatalf("created run status = %s, want waiting", createdRunStatus)
+	}
+	if enqueueCalled {
+		t.Fatal("enqueue should not be called for waiting dependency run")
+	}
+}
+
+func TestHandleTriggerJob_QueuesWhenDependenciesSatisfied(t *testing.T) {
+	t.Parallel()
+
+	enqueueCalled := false
+	createRunCalled := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "Dependent",
+				Slug:        "dependent",
+				EndpointURL: "https://example.com/callback",
+				Enabled:     true,
+				TimeoutSecs: 300,
+				MaxAttempts: 3,
+			}, nil
+		},
+		areJobDependenciesSatisfiedFn: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+		createRunFn: func(_ context.Context, _ *domain.JobRun) error {
+			createRunCalled = true
+			return nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueCalled = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueueCalled {
+		t.Fatal("expected enqueue to be called")
+	}
+	if createRunCalled {
+		t.Fatal("create run should not be called when dependencies are satisfied")
+	}
+}
+
 func TestHandleTriggerJob_DisabledJob(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{

@@ -244,6 +244,8 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		status = domain.StatusDelayed
 	}
 
+	dependencyKey := extractDependencyKey(payload)
+
 	// Inherit job tags, then overlay with trigger-specific tags.
 	runTags := make(map[string]string, len(job.Tags)+len(req.Tags))
 	maps.Copy(runTags, job.Tags)
@@ -265,6 +267,32 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		JobVersionID:   job.VersionID,
 		CreatedBy:      actorFromContext(r.Context()),
 		ExpiresAt:      &expiresAt,
+	}
+	if dependencyKey != "" {
+		run.Metadata = map[string]string{"dependency_key": dependencyKey}
+	}
+
+	if status == domain.StatusQueued {
+		satisfied, depErr := s.store.AreJobDependenciesSatisfied(r.Context(), run)
+		if depErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job dependencies")
+			return
+		}
+		if !satisfied {
+			run.Status = domain.StatusWaiting
+			if err := s.store.CreateRun(r.Context(), run); err != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to create waiting run")
+				return
+			}
+			respondJSON(w, http.StatusCreated, map[string]any{
+				"id":              run.ID,
+				"status":          run.Status,
+				"payload_hash":    payloadHash,
+				"run_token":       tokenString,
+				"idempotency_hit": false,
+			})
+			return
+		}
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {
@@ -327,6 +355,20 @@ func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, erro
 
 	hash := sha256.Sum256(canonical)
 	return canonical, hex.EncodeToString(hash[:]), nil
+}
+
+func extractDependencyKey(payload json.RawMessage) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return ""
+	}
+	if key, ok := body["dependency_key"].(string); ok {
+		return key
+	}
+	return ""
 }
 
 func alignToExecutionWindow(requested *time.Time, now time.Time, expr, tz string) (*time.Time, error) {

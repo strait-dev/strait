@@ -36,6 +36,7 @@ type mockAPIStore struct {
 	createJobDependencyFn               func(ctx context.Context, dep *domain.JobDependency) error
 	listJobDependenciesFn               func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	deleteJobDependencyFn               func(ctx context.Context, id string) error
+	areJobDependenciesSatisfiedFn       func(ctx context.Context, run *domain.JobRun) (bool, error)
 	updateJobFn                         func(ctx context.Context, job *domain.Job) error
 	getRunFn                            func(ctx context.Context, id string) (*domain.JobRun, error)
 	getRunByIdempotencyKeyFn            func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
@@ -289,6 +290,13 @@ func (m *mockAPIStore) DeleteJobDependency(ctx context.Context, id string) error
 		return m.deleteJobDependencyFn(ctx, id)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error) {
+	if m.areJobDependenciesSatisfiedFn != nil {
+		return m.areJobDependenciesSatisfiedFn(ctx, run)
+	}
+	return true, nil
 }
 
 func (m *mockAPIStore) UpdateJob(ctx context.Context, job *domain.Job) error {
