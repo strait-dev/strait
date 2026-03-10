@@ -47,8 +47,12 @@ Callers are responsible for namespacing event keys to avoid collisions. Use a pa
 ### Key Constraints
 
 - Maximum length: 512 characters
+- Must not be empty
+- Must not contain control characters (bytes below `0x20`, including null bytes and newlines)
 - Must be unique across all waiting triggers
 - Template rendering supported (e.g., `aml-check:{{payload.user_id}}`)
+
+Validation is enforced at all API entry points — `handleSendEvent`, `handleGetEventTrigger`, `handleCancelEventTrigger`, `handleEventTriggerStream`, `handleSendEventByPrefix`, and `handleSDKWaitForEvent` — as well as during template rendering in the workflow engine.
 
 ## Trigger Lifecycle
 
@@ -194,14 +198,21 @@ When the event arrives, the run is re-queued with the event payload as checkpoin
 
 ## Sending Events
 
+### Transaction Safety
+
+When sending an event that resolves a workflow step trigger, the API wraps both the trigger status update and the step completion in a single database transaction. If either operation fails, both roll back atomically — preventing inconsistency where a trigger is marked `received` but the step remains in `waiting` status.
+
+Fan-in progression (starting downstream steps) runs outside the transaction since it involves queues and multiple tables. The reconciliation reaper acts as a safety net for any edge cases.
+
+For job run sources, the existing `ReceiveEventAndRequeueRun` atomic path handles trigger update and run re-queue in a single operation.
+
 ### By Exact Key
 
 ```bash
-curl -X POST https://strait.dev/v1/events/send \
+curl -X POST https://strait.dev/v1/events/{eventKey}/send \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
-    "event_key": "aml-check:user-123",
     "payload": {"result": "approved", "risk_score": 0.12}
   }'
 ```
@@ -244,6 +255,22 @@ When a trigger is created with a `notify_url`, the system sends a webhook when t
 - **4xx errors**: Dead-lettered immediately (not retryable)
 - **5xx / network errors**: Retried up to max attempts
 
+### Webhook DLQ Management
+
+Failed webhook deliveries can be inspected and retried via the API:
+
+```bash
+# List failed deliveries
+curl "https://strait.dev/v1/webhook-deliveries?project_id=proj_1&status=failed" \
+  -H "Authorization: Bearer strait_..."
+
+# Retry a failed delivery
+curl -X POST https://strait.dev/v1/webhook-deliveries/{deliveryID}/retry \
+  -H "Authorization: Bearer strait_..."
+```
+
+The retry endpoint resets the delivery to `pending` status with zero attempts and immediate next retry time. Only deliveries in `failed` status can be retried.
+
 ## Real-Time Streaming
 
 Stream trigger status changes via Server-Sent Events (SSE):
@@ -260,6 +287,23 @@ The stream receives:
 - Automatic close on terminal state
 
 The SSE stream uses a direct Redis pubsub channel (`event_trigger:{id}`) for sub-millisecond delivery. CDC also publishes to a project-level channel as a reliable catch-all.
+
+### Browser Authentication
+
+The browser `EventSource` API cannot set custom headers. For browser-based SSE clients, pass the auth token as a query parameter:
+
+```javascript
+const source = new EventSource(
+  "https://strait.dev/v1/events/aml-check:user-123/stream?token=strait_your_api_key"
+);
+
+source.addEventListener("status", (event) => {
+  const trigger = JSON.parse(event.data);
+  console.log("Trigger status:", trigger.status);
+});
+```
+
+The `?token=` parameter is converted to an `Authorization: Bearer` header by the `sseTokenAuth` middleware before the standard auth middleware runs. Header-based auth continues to work unchanged — the query param is only used when no `Authorization` or `X-Internal-Secret` header is present.
 
 ## Monitoring
 
@@ -289,6 +333,92 @@ curl "https://strait.dev/v1/events?status=waiting&workflow_run_id=wfr_123" \
 
 Supports filtering by `status`, `workflow_run_id`, and `source_type`.
 
+## Per-Project Quotas
+
+When `FF_PROJECT_QUOTAS` is enabled and a project has a `MaxActiveEventTriggers` quota configured, the SDK `wait-for-event` endpoint enforces the limit:
+
+```bash
+# Response when quota is exceeded:
+HTTP/1.1 429 Too Many Requests
+{"error": "project has reached maximum active event triggers (100)"}
+```
+
+The quota only counts triggers in `waiting` status. Resolved, timed-out, and canceled triggers do not count toward the limit.
+
+## Data Retention & Purge
+
+Terminal event triggers (received, timed_out, canceled) are automatically cleaned up by the reaper based on the `EVENT_TRIGGER_RETENTION` setting (default: 30 days).
+
+For manual control, use the purge API or CLI:
+
+```bash
+# Preview what would be deleted (dry run)
+strait triggers purge --older-than 30 --dry-run
+
+# Delete triggers older than 30 days
+strait triggers purge --older-than 30
+```
+
+Or via the API:
+
+```bash
+curl -X POST https://strait.dev/v1/events/purge \
+  -H "Authorization: Bearer strait_..." \
+  -H "Content-Type: application/json" \
+  -d '{"older_than_days": 30, "dry_run": false}'
+```
+
+## SDK Client Libraries
+
+Official SDK clients are available for TypeScript and Python in the `sdk/` directory:
+
+### TypeScript
+
+```typescript
+import { EventsClient } from "@strait/sdk";
+
+const events = new EventsClient("https://strait.dev", {
+  Authorization: "Bearer strait_...",
+});
+
+// Pause a run and wait for an external event
+const trigger = await events.waitForEvent("run-123", {
+  eventKey: "approval:order-789",
+  timeoutSecs: 7200,
+});
+
+// Send an event to resolve the trigger
+const resolved = await events.sendEvent({
+  eventKey: "approval:order-789",
+  payload: { approved: true, reviewer: "alice" },
+});
+```
+
+### Python
+
+```python
+from strait import EventsClient, WaitForEventOptions, SendEventOptions
+
+client = EventsClient(
+    "https://strait.dev",
+    {"Authorization": "Bearer strait_..."}
+)
+
+# Pause a run and wait for an external event
+trigger = client.wait_for_event("run-123", WaitForEventOptions(
+    event_key="approval:order-789",
+    timeout_secs=7200,
+))
+
+# Send an event to resolve the trigger
+resolved = client.send_event(SendEventOptions(
+    event_key="approval:order-789",
+    payload={"approved": True, "reviewer": "alice"},
+))
+```
+
+Both SDKs support `waitForEvent`, `sendEvent`, `getEventTrigger`, and `cancelEventTrigger`.
+
 ## Feature Flag
 
 Event trigger endpoints are gated by the `FF_EVENT_TRIGGERS` feature flag:
@@ -306,6 +436,12 @@ A background reconciliation reaper runs every 30 seconds to catch edge cases:
 - **Expired triggers**: Triggers past their `expires_at` are timed out
 - **Stale steps**: Triggers marked `received` but whose step/run is still in `waiting` status (30-second grace period) are re-resolved
 - **Expired approvals**: Approval steps past their timeout are failed
+
+### Distributed Reaper
+
+In multi-instance deployments, the reaper uses PostgreSQL advisory locks (`pg_try_advisory_lock`) to ensure exactly one instance runs the reaper cycle at a time. Other instances skip the cycle gracefully and try again on the next interval.
+
+This requires no external coordination service — the database itself provides leader election. If the active instance crashes, another instance acquires the lock on the next tick.
 
 ## Prometheus Metrics
 

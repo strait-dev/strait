@@ -50,6 +50,30 @@ strait triggers send aml-check:user-123 --payload '{"result": "approved", "risk_
 strait triggers send aml-check:user-123
 ```
 
+### triggers purge
+
+Purge terminal event triggers older than a given age. Deletes triggers in `received`, `timed_out`, or `canceled` status.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --older-than | int | 30 | Delete triggers older than N days |
+| --dry-run | bool | false | Preview without deleting |
+
+```bash
+# Preview what would be deleted
+strait triggers purge --older-than 90 --dry-run
+
+# Delete triggers older than 90 days
+strait triggers purge --older-than 90
+
+# Use default 30-day threshold
+strait triggers purge
+```
+
+<Note>
+The reaper also automatically cleans up terminal triggers based on the `EVENT_TRIGGER_RETENTION` environment variable (default: 30 days). The `purge` command is for manual ad-hoc cleanup or when you need to purge with a different retention threshold.
+</Note>
+
 ## strait send
 
 Send a raw event payload to the strait. This is a lower-level command for publishing events.

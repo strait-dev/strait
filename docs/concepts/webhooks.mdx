@@ -85,6 +85,22 @@ Event trigger webhooks are configured per trigger:
 - `notify_url`: Set when creating a wait-for-event step or SDK call.
 - Delivery status is tracked in the `webhook_deliveries` table with `event_trigger_id`.
 
+### Dead Letter Queue (DLQ) Management
+
+Failed webhook deliveries are stored in the database and can be inspected and retried:
+
+```bash
+# List all failed deliveries for a project
+curl "https://strait.dev/v1/webhook-deliveries?project_id=proj_1&status=failed" \
+  -H "Authorization: Bearer strait_..."
+
+# Retry a specific failed delivery
+curl -X POST https://strait.dev/v1/webhook-deliveries/{deliveryID}/retry \
+  -H "Authorization: Bearer strait_..."
+```
+
+The retry endpoint resets the delivery to `pending` status with zero attempts and immediate next retry time. Only deliveries in `failed` status can be retried — attempting to retry a `pending` or `delivered` delivery returns `409 Conflict`.
+
 <Warning>
 Always use HTTPS for your webhook URLs to protect the payload and signature in transit.
 </Warning>

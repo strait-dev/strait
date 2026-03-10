@@ -3,7 +3,7 @@ title: "Database Schema"
 description: "Detailed reference of the PostgreSQL database schema and migration system."
 ---
 
-The strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by 55 migrations that run automatically on startup.
+The strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by 49 migrations that run automatically on startup.
 
 ## Core Tables
 
@@ -104,10 +104,10 @@ updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 ### webhook_deliveries Extensions
 
-Migration 000055 extends the existing `webhook_deliveries` table:
+The `webhook_deliveries` table is shared between job run webhooks and event trigger webhooks:
 
-- Added `event_trigger_id TEXT` column (FK to event_triggers)
-- Relaxed `run_id` and `job_id` NOT NULL constraints to support event trigger deliveries
+- `event_trigger_id TEXT` column (FK to event_triggers)
+- `run_id` and `job_id` are nullable to support event trigger deliveries
 - Same table serves both job run and event trigger webhook deliveries
 
 ## Migrations
@@ -117,19 +117,17 @@ We use `golang-migrate` for schema evolution.
 ### Numbering Convention
 
 Migrations follow a sequential 6-digit numbering scheme:
-`000001_init.up.sql` through `000055_webhook_delivery_queue.up.sql`.
+`000001_init.up.sql` through `000049_event_trigger_support.up.sql`.
 
-### Event Trigger Migrations
+### Event Trigger Migration
 
 | Migration | Description |
 | :--- | :--- |
-| `000049_event_trigger_support` | Core `event_triggers` table and indexes |
-| `000050_event_trigger_improvements` | Additional columns and constraints |
-| `000051_durable_sleep` | `trigger_type` and `sleep_duration` columns |
-| `000052_event_trigger_prefix_index` | `text_pattern_ops` index for prefix queries |
-| `000053_event_emit_key` | `event_emit_key` column for event chaining |
-| `000054_event_trigger_sent_by` | `sent_by` audit column |
-| `000055_webhook_delivery_queue` | Extend `webhook_deliveries` for event trigger webhooks |
+| `000049_event_trigger_support` | Complete event triggers schema — table, all columns, indexes, webhook delivery extensions. Squashed from 7 development migrations into one production-ready migration. |
+
+<Note>
+The event trigger schema was developed across 7 incremental migrations (000049–000055) during development. These were squashed into a single `000049_event_trigger_support` migration before the first production deploy to reduce startup time and rollback complexity.
+</Note>
 
 ### Adding New Migrations
 

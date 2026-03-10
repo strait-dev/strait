@@ -705,6 +705,22 @@ The DLQ is modeled as a first-class FSM state (`dead_letter`) rather than a sepa
 - Enables DLQ replay using the same state transition mechanism as retries
 - Maintains FSM invariants—all state transitions go through the same validation logic
 
+### Transactional Event Sends
+
+When an event resolves a workflow step trigger, the trigger status update and step completion are wrapped in a single database transaction (`store.WithTx`). If either operation fails, both roll back atomically. This prevents the inconsistency where a trigger is marked `received` but the step remains `waiting`.
+
+Fan-in progression (starting downstream steps) runs outside the transaction because it involves queue operations and multiple tables. The reconciliation reaper acts as a safety net for edge cases where progression fails.
+
+### Distributed Reaper with Advisory Locks
+
+In multi-instance deployments, the reaper uses `pg_try_advisory_lock` to ensure single-leader execution. Each reaper cycle:
+
+1. Attempts to acquire session-level advisory lock `0x5374726169745265` ("StraitRe")
+2. If acquired: runs all reaper passes, then releases the lock
+3. If not acquired: skips the cycle entirely
+
+This provides leader election without external coordination (no ZooKeeper, no etcd). If the active instance crashes, the lock is released when its PostgreSQL session ends, and another instance acquires it on the next tick.
+
 ### Interface Segregation
 
 Store packages define small, focused interfaces (`JobStore`, `RunStore`, `WorkflowStore`, etc.) that only include methods needed by callers. This improves:
@@ -819,6 +835,8 @@ The scheduler package runs several background goroutines:
     - **Sleep triggers**: Marks expired sleep triggers as `received` and completes the step via `OnStepCompleted`
     - **Inconsistent triggers**: Finds `received` triggers with still-`waiting` steps/runs (30s grace period) and re-resolves them
     - **Expired approvals**: Fails approval steps past their timeout
+
+    In multi-instance deployments, the reaper uses PostgreSQL advisory locks (`pg_try_advisory_lock`) to ensure exactly one instance runs the reaper cycle at a time. Other instances skip the cycle and try again on the next interval — no external coordination service required.
   </Tab>
   <Tab title="Retention Worker">
     Every hour, deletes terminal runs based on retention policy:

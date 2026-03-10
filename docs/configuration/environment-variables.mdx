@@ -100,7 +100,8 @@ This page documents all environment variables available for configuring the stra
 | `RUN_RETENTION_LONG` | Duration | `90d` | Long-term retention period for job runs. |
 | `WORKFLOW_RUN_RETENTION_DAYS` | Integer | `30` | Number of days to retain workflow run data. |
 | `WORKFLOW_RETENTION` | Duration | `30d` | Retention period for workflow definitions. |
-| `EVENT_TRIGGER_RETENTION` | Duration | `0` | Retention period for terminal event triggers. `0` disables cleanup. |
+| `EVENT_TRIGGER_RETENTION` | Duration | `720h` (30d) | Retention period for terminal event triggers. Terminal triggers older than this are purged by the reaper. Set to `0` to disable automatic cleanup. |
+| `EVENT_TRIGGER_RETENTION_DAYS` | Integer | - | Legacy alternative: retention in days (e.g., `90`). Only used when `EVENT_TRIGGER_RETENTION` is not set. |
 
 ## Redis Sentinel
 

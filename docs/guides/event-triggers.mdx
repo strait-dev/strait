@@ -247,6 +247,83 @@ If a `notify_url` is configured and delivery fails:
 5. **Monitor waiting triggers**: Set up alerts for triggers approaching their timeout
 6. **Use prefix patterns for batch operations**: Design event keys with a common prefix when items are part of the same batch
 
+## Pattern 7: TypeScript SDK Client
+
+Use the official TypeScript SDK for type-safe event trigger operations:
+
+```typescript
+import { EventsClient } from "@strait/sdk";
+
+const events = new EventsClient("https://strait.dev", {
+  Authorization: "Bearer strait_...",
+});
+
+// Inside your job executor — pause and wait for human review
+const trigger = await events.waitForEvent(runId, {
+  eventKey: `review:${documentId}`,
+  timeoutSecs: 172800, // 48 hours
+  notifyUrl: "https://myapp.com/webhook/review-ready",
+});
+
+// In your review dashboard — approve the document
+const resolved = await events.sendEvent({
+  eventKey: `review:${documentId}`,
+  payload: { approved: true, reviewer: "alice", comments: "Looks good" },
+});
+
+// Check trigger status
+const status = await events.getEventTrigger(`review:${documentId}`);
+console.log(status.status); // "received"
+```
+
+## Pattern 8: Data Retention & Purge
+
+For compliance or cost management, periodically purge old terminal triggers:
+
+```bash
+# Preview what would be deleted
+strait triggers purge --older-than 90 --dry-run
+
+# Purge triggers older than 90 days
+strait triggers purge --older-than 90
+```
+
+The reaper also automatically cleans up based on `EVENT_TRIGGER_RETENTION` (default: 30 days). Adjust for your compliance requirements:
+
+```bash
+# Keep triggers for 1 year
+export EVENT_TRIGGER_RETENTION=8760h
+
+# Or use the legacy days-based setting
+export EVENT_TRIGGER_RETENTION_DAYS=365
+```
+
+## Pattern 9: Browser SSE Dashboard
+
+Build a real-time dashboard that monitors trigger status using Server-Sent Events:
+
+```html
+<script>
+  // Browser EventSource API cannot set custom headers,
+  // so pass the auth token as a query parameter
+  const source = new EventSource(
+    "/v1/events/aml:user-123/stream?token=strait_your_api_key"
+  );
+
+  source.addEventListener("status", (event) => {
+    const trigger = JSON.parse(event.data);
+    document.getElementById("status").textContent = trigger.status;
+    if (["received", "timed_out", "canceled"].includes(trigger.status)) {
+      source.close(); // Terminal state — stop streaming
+    }
+  });
+
+  source.addEventListener("keepalive", () => {
+    console.log("Connection alive");
+  });
+</script>
+```
+
 ## Feature Flag
 
 Event triggers require `FF_EVENT_TRIGGERS=true` in your environment configuration. All event trigger API endpoints return 404 when the flag is disabled.
