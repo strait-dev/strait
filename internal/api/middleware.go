@@ -102,6 +102,11 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
+		// Optionally carry explicit project context for internal calls (e.g. RBAC management).
+		if projectID := strings.TrimSpace(r.Header.Get("X-Project-Id")); projectID != "" {
+			ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+		}
+
 		// Internal secret is trusted — extract actor identity from headers.
 		// Only internal services (the app) can set X-Actor-Id to act on behalf of users.
 		if actorID := r.Header.Get("X-Actor-Id"); actorID != "" {

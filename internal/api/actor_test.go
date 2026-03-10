@@ -133,11 +133,13 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 
 	var capturedActor string
 	var capturedType string
+	var capturedProjectID string
 
 	ms := &mockAPIStore{}
 	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
-		// Capture actor context set by middleware.
+		// Capture actor/project context set by middleware.
 		capturedActor = actorFromContext(ctx)
+		capturedProjectID = projectIDFromContext(ctx)
 		if v, ok := ctx.Value(ctxActorTypeKey).(string); ok {
 			capturedType = v
 		}
@@ -153,6 +155,7 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 	r.Header.Set("X-Actor-Id", "user_leo")
 	r.Header.Set("X-Actor-Email", "leo@example.com")
 	r.Header.Set("X-Actor-Name", "Leonardo")
+	r.Header.Set("X-Project-Id", "proj-internal")
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
@@ -167,6 +170,9 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 	}
 	if capturedType != "user" {
 		t.Fatalf("actorType = %q, want %q", capturedType, "user")
+	}
+	if capturedProjectID != "proj-internal" {
+		t.Fatalf("projectID = %q, want %q", capturedProjectID, "proj-internal")
 	}
 
 	// Wait for async syncer goroutine.
