@@ -1334,8 +1334,12 @@ func TestSendWebhookOnce_ClientError(t *testing.T) {
 func TestSendWebhookOnce_WithSignature(t *testing.T) {
 	t.Parallel()
 	var gotSig string
+	var gotStraitSig string
+	var gotTimestamp string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSig = r.Header.Get("X-Webhook-Signature")
+		gotStraitSig = r.Header.Get("X-Strait-Signature")
+		gotTimestamp = r.Header.Get("X-Strait-Timestamp")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -1352,6 +1356,12 @@ func TestSendWebhookOnce_WithSignature(t *testing.T) {
 	}
 	if len(gotSig) < 10 || gotSig[:7] != "sha256=" {
 		t.Errorf("signature format wrong: %s", gotSig)
+	}
+	if gotStraitSig == "" {
+		t.Error("expected X-Strait-Signature header")
+	}
+	if gotTimestamp == "" {
+		t.Error("expected X-Strait-Timestamp header")
 	}
 }
 
