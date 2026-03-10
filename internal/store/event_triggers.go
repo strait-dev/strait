@@ -29,7 +29,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 			timeout_secs, requested_at, received_at, expires_at, error,
 		       notify_url, notify_status, trigger_type, sent_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
 
 	if _, err := q.db.Exec(
 		ctx,
@@ -52,6 +52,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 		dbscan.NilIfEmptyString(trigger.NotifyURL),
 		defaultIfEmpty(trigger.NotifyStatus, ""),
 		defaultIfEmpty(trigger.TriggerType, "event"),
+		defaultIfEmpty(trigger.SentBy, ""),
 	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
