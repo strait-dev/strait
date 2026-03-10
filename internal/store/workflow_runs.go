@@ -443,6 +443,47 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 	})
 }
 
+func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStalledWorkflowRuns")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, project_id, status, triggered_by, payload,
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		FROM workflow_runs wr
+		WHERE wr.status = 'running'
+		  AND wr.started_at IS NOT NULL
+		  AND wr.started_at < NOW() - ($1::interval)
+		  AND NOT EXISTS (
+			SELECT 1 FROM workflow_step_runs sr
+			WHERE sr.workflow_run_id = wr.id
+			  AND sr.status = 'running'
+		  )
+		ORDER BY wr.started_at ASC
+		LIMIT 200`
+
+	interval := fmt.Sprintf("%f seconds", threshold.Seconds())
+	rows, err := q.db.Query(ctx, query, interval)
+	if err != nil {
+		return nil, fmt.Errorf("list stalled workflow runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.WorkflowRun, 0, 16)
+	for rows.Next() {
+		run, scanErr := scanWorkflowRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list stalled workflow runs scan: %w", scanErr)
+		}
+		runs = append(runs, *run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list stalled workflow runs rows: %w", err)
+	}
+	return runs, nil
+}
+
 func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRunsByTag")
 	defer span.End()

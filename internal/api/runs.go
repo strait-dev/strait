@@ -162,6 +162,39 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
+func (s *Server) handleGetRunDependencyStatus(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	deps, err := s.store.ListJobDependencies(r.Context(), run.JobID, 1000, nil)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list job dependencies")
+		return
+	}
+
+	satisfied, err := s.store.AreJobDependenciesSatisfied(r.Context(), run)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to evaluate dependencies")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"run_id":                 run.ID,
+		"job_id":                 run.JobID,
+		"status":                 run.Status,
+		"dependencies":           deps,
+		"dependencies_satisfied": satisfied,
+	})
+}
+
 func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 	if !s.config.FFRunReplay {
 		respondError(w, r, http.StatusNotFound, "run replay is not enabled")

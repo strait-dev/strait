@@ -839,6 +839,43 @@ func TestHandleTriggerJob_DisabledJob(t *testing.T) {
 	}
 }
 
+func TestHandleGetRunDependencyStatus_Success(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, JobID: "job-1", Status: domain.StatusWaiting}, nil
+		},
+		listJobDependenciesFn: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
+			if jobID != "job-1" {
+				t.Fatalf("jobID = %s, want job-1", jobID)
+			}
+			return []domain.JobDependency{{ID: "dep-1", JobID: "job-1", DependsOnJobID: "job-2", Condition: "completed"}}, nil
+		},
+		areJobDependenciesSatisfiedFn: func(_ context.Context, run *domain.JobRun) (bool, error) {
+			if run.ID != "run-1" {
+				t.Fatalf("run.ID = %s, want run-1", run.ID)
+			}
+			return false, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/dependency-status", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp["dependencies_satisfied"] != false {
+		t.Fatalf("dependencies_satisfied = %v, want false", resp["dependencies_satisfied"])
+	}
+}
+
 func TestHandleStats_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{

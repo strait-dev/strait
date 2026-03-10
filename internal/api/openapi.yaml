@@ -1140,6 +1140,27 @@ paths:
                 items:
                   $ref: '#/components/schemas/JobRun'
 
+  /v1/runs/{runID}/dependency-status:
+    get:
+      tags:
+        - Runs
+      summary: Get dependency status for a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dependency status details
+          content:
+            application/json:
+              schema:
+                type: object
+
   /v1/workflows:
     get:
       tags:
@@ -2037,6 +2058,24 @@ paths:
       responses:
         '200':
           description: Dry run result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/plan:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Build topological workflow plan preview
+      responses:
+        '200':
+          description: Plan preview
           content:
             application/json:
               schema:

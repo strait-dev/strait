@@ -68,6 +68,7 @@ type Reaper struct {
 	staleThreshold        time.Duration
 	workflowRetention     time.Duration
 	eventTriggerRetention time.Duration
+	stalledThreshold      time.Duration
 	deleteBatchLimit      int
 	advisoryLocker        AdvisoryLocker
 	shortRetention        time.Duration
@@ -92,6 +93,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		staleThreshold:        staleThreshold,
 		workflowRetention:     defaultWorkflowRetention,
 		eventTriggerRetention: defaultEventTriggerRetention,
+		stalledThreshold:      15 * time.Minute,
 		deleteBatchLimit:      defaultDeleteBatchLimit,
 		shortRetention:        shortRetention,
 		longRetention:         longRetention,
@@ -132,6 +134,13 @@ func (r *Reaper) WithDeleteBatchSize(n int) *Reaper {
 	return r
 }
 
+func (r *Reaper) WithStalledThreshold(d time.Duration) *Reaper {
+	if d > 0 {
+		r.stalledThreshold = d
+	}
+	return r
+}
+
 // WithAdvisoryLocker enables distributed single-leader reaping using pg_try_advisory_lock.
 func (r *Reaper) WithAdvisoryLocker(locker AdvisoryLocker) *Reaper {
 	r.advisoryLocker = locker
@@ -157,6 +166,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapExpiredApprovals(ctx)
 	r.reapExpiredEventTriggers(ctx)
 	r.reapInconsistentEventTriggers(ctx)
+	r.reapStalledWorkflows(ctx)
 	r.reapOldWorkflowRuns(ctx)
 	r.reapOldEventTriggers(ctx)
 }
@@ -188,6 +198,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapExpiredApprovals(loopCtx)
 		r.reapExpiredEventTriggers(loopCtx)
 		r.reapInconsistentEventTriggers(loopCtx)
+		r.reapStalledWorkflows(loopCtx)
 		r.reapOldWorkflowRuns(loopCtx)
 		r.reapOldEventTriggers(loopCtx)
 		if r.retentionEnabled {
@@ -496,6 +507,28 @@ func (r *Reaper) reapInconsistentEventTriggers(ctx context.Context) {
 				slog.Info("reconciled inconsistent event trigger", "trigger_id", trigger.ID, "source_type", trigger.SourceType)
 			}
 		}
+	}
+}
+
+func (r *Reaper) reapStalledWorkflows(ctx context.Context) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapStalledWorkflows")
+	defer span.End()
+
+	type stalledLister interface {
+		ListStalledWorkflowRuns(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error)
+	}
+	lister, ok := r.store.(stalledLister)
+	if !ok {
+		return
+	}
+
+	runs, err := lister.ListStalledWorkflowRuns(ctx, r.stalledThreshold)
+	if err != nil {
+		slog.Error("failed to list stalled workflow runs", "error", err)
+		return
+	}
+	for _, run := range runs {
+		slog.Warn("detected stalled workflow run", "workflow_run_id", run.ID, "workflow_id", run.WorkflowID, "started_at", run.StartedAt)
 	}
 }
 

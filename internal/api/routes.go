@@ -147,6 +147,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/debug-bundle", s.handleGetDebugBundle)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/debug", s.handleSetDebugMode)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/lineage", s.handleListRunLineage)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dependency-status", s.handleGetRunDependencyStatus)
 			})
 		})
 
@@ -200,6 +201,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Patch("/", s.handleUpdateWorkflow)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Delete("/", s.handleDeleteWorkflow)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/dry-run", s.handleDryRunWorkflow)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/plan", s.handleWorkflowPlan)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", s.handleWorkflowGraph)
 				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/trigger", s.handleTriggerWorkflow)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/clone", s.handleCloneWorkflow)
