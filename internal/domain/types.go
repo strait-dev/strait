@@ -338,16 +338,18 @@ type WebhookDelivery struct {
 
 // APIKey represents a per-project API key for authentication.
 type APIKey struct {
-	ID         string     `json:"id"`
-	ProjectID  string     `json:"project_id"`
-	Name       string     `json:"name"`
-	KeyHash    string     `json:"-"`
-	KeyPrefix  string     `json:"key_prefix"`
-	Scopes     []string   `json:"scopes"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	ID              string     `json:"id"`
+	ProjectID       string     `json:"project_id"`
+	Name            string     `json:"name"`
+	KeyHash         string     `json:"-"`
+	KeyPrefix       string     `json:"key_prefix"`
+	Scopes          []string   `json:"scopes"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+	ReplacedByKeyID string     `json:"replaced_by_key_id,omitempty"`
+	GraceExpiresAt  *time.Time `json:"grace_expires_at,omitempty"`
 }
 
 type JobVersion struct {

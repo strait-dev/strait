@@ -146,6 +146,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/api-keys", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage), httprate.LimitByIP(10, time.Minute)).Post("/", s.handleCreateAPIKey)
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", s.handleListAPIKeys)
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/{keyID}/rotate", s.handleRotateAPIKey)
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Delete("/{keyID}", s.handleRevokeAPIKey)
 		})
 

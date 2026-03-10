@@ -67,6 +67,8 @@ type mockAPIStore struct {
 	revokeAPIKeyFn                func(ctx context.Context, id string) error
 	listJobVersionsByJobFn        func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	getAPIKeyByHashFn             func(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	getAPIKeyByIDFn               func(ctx context.Context, id string) (*domain.APIKey, error)
+	markAPIKeyRotatedFn           func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	touchAPIKeyLastUsedFn         func(ctx context.Context, id string) error
 	updateHeartbeatFn             func(ctx context.Context, id string) error
 	queueStatsFn                  func(ctx context.Context) (*store.QueueStats, error)
@@ -497,6 +499,20 @@ func (m *mockAPIStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (*do
 		return m.getAPIKeyByHashFn(ctx, keyHash)
 	}
 	return nil, fmt.Errorf("api key not found")
+}
+
+func (m *mockAPIStore) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error) {
+	if m.getAPIKeyByIDFn != nil {
+		return m.getAPIKeyByIDFn(ctx, id)
+	}
+	return nil, fmt.Errorf("api key not found")
+}
+
+func (m *mockAPIStore) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error {
+	if m.markAPIKeyRotatedFn != nil {
+		return m.markAPIKeyRotatedFn(ctx, oldKeyID, newKeyID, graceExpiresAt)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) TouchAPIKeyLastUsed(ctx context.Context, id string) error {

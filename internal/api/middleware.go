@@ -52,8 +52,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
+		now := time.Now()
+		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
 			respondError(w, r, http.StatusUnauthorized, "api key has expired")
+			return
+		}
+		if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
+			respondError(w, r, http.StatusUnauthorized, "api key rotation grace period has ended")
 			return
 		}
 
