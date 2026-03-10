@@ -3,7 +3,7 @@ title: "Architecture"
 description: "Deep dive into strait internals, design decisions, and component interactions."
 ---
 
-The strait is designed as a distributed job strait that uses PostgreSQL as its primary state store and message queue.
+Strait is designed as a distributed job orchestration service that uses PostgreSQL as its primary state store and message queue.
 
 ## System Overview
 
@@ -109,11 +109,11 @@ The core logic resides in `internal/` directory, organized into specialized pack
 
 **Why This Technology:**
 
-Go is ideal for a distributed job strait because it combines enterprise-grade performance with operational simplicity. The single binary distribution eliminates runtime dependency management—no Python venvs, no node_modules, no container images required. This dramatically reduces deployment complexity and attack surface.
+Go is ideal for a distributed job orchestration service because it combines enterprise-grade performance with operational simplicity. The single binary distribution eliminates runtime dependency management—no Python venvs, no node_modules, no container images required. This dramatically reduces deployment complexity and attack surface.
 
 Go's concurrency primitives—goroutines, channels, and the sync package—provide a robust foundation for parallel job execution without external dependencies. The worker pool can spin up hundreds of concurrent goroutines with minimal overhead, each handling independent job dispatches. Channels enable elegant coordination between the executor, scheduler, and background maintenance tasks without complex distributed coordination systems.
 
-For a job strait, cold start performance matters. Go compiles to native code that starts instantly, crucial for rapid worker scaling during traffic spikes. Unlike interpreted languages, there's no JIT warmup period or garbage collection tuning needed at scale.
+For a job orchestration service, cold start performance matters. Go compiles to native code that starts instantly, crucial for rapid worker scaling during traffic spikes. Unlike interpreted languages, there's no JIT warmup period or garbage collection tuning needed at scale.
 
 The standard library provides production-ready HTTP server, JSON handling, and cryptographic primitives without external dependencies. This reduces vulnerability surface and ensures long-term stability—critical infrastructure that won't be abandoned in 3 years.
 
@@ -153,7 +153,7 @@ Prepared statements are automatically used for repeated queries, reducing parsin
 
 **Why This Technology:**
 
-Chi is a lightweight, composable HTTP router that provides excellent performance with minimal allocations in the hot request path. For a job strait API handling thousands of requests per second, memory allocation efficiency translates directly to better throughput and lower GC pressure.
+Chi is a lightweight, composable HTTP router that provides excellent performance with minimal allocations in the hot request path. For a job orchestration service API handling thousands of requests per second, memory allocation efficiency translates directly to better throughput and lower GC pressure.
 
 The middleware chain composes independently—RequestID generation, real IP extraction, OTel tracing, request logging, panic recovery, rate limiting, and authentication can each be developed, tested, and debugged separately. This modularity enables adding cross-cutting concerns without modifying route handlers.
 
@@ -161,9 +161,9 @@ The middleware chain composes independently—RequestID generation, real IP extr
 
 **Why This Technology:**
 
-The `sourcegraph/conc` library provides panic-safe goroutine pools and context-aware execution patterns. In a job strait, background goroutines handle scheduling, heartbeat monitoring, webhook dispatch, and retention cleanup. If any of these goroutines panic, `conc` automatically recovers and logs the stack trace without crashing the entire process.
+The `sourcegraph/conc` library provides panic-safe goroutine pools and context-aware execution patterns. In a job orchestration service, background goroutines handle scheduling, heartbeat monitoring, webhook dispatch, and retention cleanup. If any of these goroutines panic, `conc` automatically recovers and logs the stack trace without crashing the entire process.
 
-Context-aware pools automatically cancel all work when the parent context is canceled. This is crucial for graceful shutdown—when the strait receives SIGTERM, all in-flight operations complete before the process exits. Pools also enforce size limits, preventing unbounded goroutine spawns that could exhaust process memory under error conditions.
+Context-aware pools automatically cancel all work when the parent context is canceled. This is crucial for graceful shutdown—when Strait receives SIGTERM, all in-flight operations complete before the process exits. Pools also enforce size limits, preventing unbounded goroutine spawns that could exhaust process memory under error conditions.
 
 ### alitto/pond/v2 (Worker Pool)
 
@@ -177,7 +177,7 @@ The pool exposes Prometheus metrics for active workers, queued tasks, and task c
 
 **Why This Technology:**
 
-Sequin captures Postgres Write-Ahead Log (WAL) events in real-time and streams them through Redis. This enables applications to react to data changes without polling. For a job strait, this means real-time dashboards, audit trails, and trigger-based workflows without adding application-level triggers that run within transactions.
+Sequin captures Postgres Write-Ahead Log (WAL) events in real-time and streams them through Redis. This enables applications to react to data changes without polling. For a job orchestration service, this means real-time dashboards, audit trails, and trigger-based workflows without adding application-level triggers that run within transactions.
 
 Logical replication slots provide the CDC stream without affecting transaction performance. Multiple consumers can subscribe to the same slot for different purposes—SSE streaming, cache invalidation, and external event forwarding.
 
@@ -237,7 +237,7 @@ Containers are provisioned with deterministic ports and automatically cleaned up
 
 ## Queue Mechanics
 
-The strait uses PostgreSQL as a message queue to minimize operational complexity and ensure transactional consistency.
+Strait uses PostgreSQL as a message queue to minimize operational complexity and ensure transactional consistency.
 
 ### SKIP LOCKED Dequeue
 
@@ -671,7 +671,7 @@ Migrations run automatically on startup, checking `schema_migrations` table for 
 
 ### Single Binary, Three Modes
 
-The strait compiles to a single executable that can run in three modes:
+Strait compiles to a single executable that can run in three modes:
 
 - **api**: HTTP server only, for scaling API endpoints independently
 - **worker**: Executor and scheduler only, for scaling job processing independently

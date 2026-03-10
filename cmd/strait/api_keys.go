@@ -128,14 +128,14 @@ func splitCSV(raw string) []string {
 }
 
 func newAPIKeysRotateCommand(state *appState) *cobra.Command {
-	var name string
+	var gracePeriodMinutes int
 
 	cmd := &cobra.Command{
 		Use:   "rotate <key-id>",
-		Short: "Rotate an API key (create new, revoke old)",
-		Long: `Creates a new API key with the same project scope and revokes the old key.
+		Short: "Rotate an API key with a grace window",
+		Long: `Rotates an API key via the API rotate endpoint.
 
-The new key is printed to stdout. The old key is immediately revoked.`,
+The command returns the newly issued key and keeps the old key valid until the grace window expires.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := newAPIClient(state)
@@ -143,59 +143,19 @@ The new key is printed to stdout. The old key is immediately revoked.`,
 				return err
 			}
 
-			// Get the old key info to determine project ID
-			keys, err := cli.ListAPIKeys(cmd.Context(), state.opts.projectID)
+			resp, err := cli.RotateAPIKey(cmd.Context(), args[0], client.RotateAPIKeyRequest{GracePeriodMinutes: gracePeriodMinutes})
 			if err != nil {
-				return fmt.Errorf("failed to list keys: %w", err)
-			}
-
-			var oldKey *struct {
-				ID        string
-				ProjectID string
-				Name      string
-			}
-			for _, k := range keys {
-				if k.ID == args[0] {
-					oldKey = &struct {
-						ID        string
-						ProjectID string
-						Name      string
-					}{ID: k.ID, ProjectID: k.ProjectID, Name: k.Name}
-					break
-				}
-			}
-			if oldKey == nil {
-				return fmt.Errorf("API key %s not found", args[0])
-			}
-
-			keyName := name
-			if keyName == "" {
-				keyName = oldKey.Name + "-rotated"
-			}
-
-			// Create new key
-			newKey, err := cli.CreateAPIKey(cmd.Context(), client.CreateAPIKeyRequest{
-				ProjectID: oldKey.ProjectID,
-				Name:      keyName,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create replacement key: %w", err)
-			}
-
-			// Revoke old key
-			if err := cli.RevokeAPIKey(cmd.Context(), args[0]); err != nil {
-				return fmt.Errorf("created new key %s but failed to revoke old key: %w", newKey.ID, err)
+				return fmt.Errorf("failed to rotate key: %w", err)
 			}
 
 			return printData(state, map[string]any{
-				"rotated":    true,
-				"old_key_id": args[0],
-				"new_key":    newKey,
+				"rotated": true,
+				"result":  resp,
 			})
 		},
 	}
 
-	cmd.Flags().StringVar(&name, "name", "", "name for the new key (default: <old-name>-rotated)")
+	cmd.Flags().IntVar(&gracePeriodMinutes, "grace-period-minutes", 60, "grace period in minutes for old key validity")
 
 	return cmd
 }

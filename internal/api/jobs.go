@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -37,6 +38,7 @@ type CreateJobRequest struct {
 	RetryStrategy       string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       string            `json:"environment_id,omitempty"`
+	VersionPolicy       string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 }
 
 type UpdateJobRequest struct {
@@ -62,6 +64,8 @@ type UpdateJobRequest struct {
 	RetryDelaysSecs     *[]int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       *string            `json:"environment_id,omitempty"`
 	Enabled             *bool              `json:"enabled,omitempty"`
+	VersionPolicy       *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	BackwardsCompatible *bool              `json:"backwards_compatible,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +153,13 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		RetryDelaysSecs:     req.RetryDelaysSecs,
 		EnvironmentID:       req.EnvironmentID,
 		Enabled:             true,
+		VersionPolicy:       domain.VersionPolicyPin,
+		CreatedBy:           actorFromContext(r.Context()),
+		UpdatedBy:           actorFromContext(r.Context()),
+	}
+
+	if req.VersionPolicy != "" {
+		job.VersionPolicy = domain.VersionPolicy(req.VersionPolicy)
 	}
 
 	if err := s.store.CreateJob(r.Context(), job); err != nil {
@@ -347,6 +358,12 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled
 	}
+	if req.VersionPolicy != nil {
+		job.VersionPolicy = domain.VersionPolicy(*req.VersionPolicy)
+	}
+	if req.BackwardsCompatible != nil {
+		job.BackwardsCompatible = *req.BackwardsCompatible
+	}
 
 	if job.FallbackEndpointURL != "" {
 		if err := validateURL(job.FallbackEndpointURL); err != nil {
@@ -354,6 +371,8 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	job.UpdatedBy = actorFromContext(r.Context())
 
 	if err := s.store.UpdateJob(r.Context(), job); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to update job")
@@ -365,23 +384,27 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
-	job, err := s.store.GetJob(r.Context(), jobID)
-	if err != nil {
+
+	if err := s.store.DeleteJob(r.Context(), jobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
-	}
-
-	job.Enabled = false
-	if err := s.store.UpdateJob(r.Context(), job); err != nil {
+		if errors.Is(err, store.ErrJobHasActiveRuns) {
+			respondError(w, r, http.StatusConflict, "job has active runs — cancel them first or wait for completion")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to delete job")
 		return
 	}
 
-	respondJSON(w, http.StatusNoContent, nil)
+	slog.Info("job deleted",
+		"job_id", jobID,
+		"actor", actorFromContext(r.Context()),
+		"project_id", projectIDFromContext(r.Context()))
+	s.emitAuditEvent(r.Context(), "job.delete", "job", jobID, nil)
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type CloneJobRequest struct {
@@ -438,6 +461,10 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		RetryDelaysSecs:     source.RetryDelaysSecs,
 		EnvironmentID:       source.EnvironmentID,
 		Enabled:             true,
+		VersionPolicy:       source.VersionPolicy,
+		BackwardsCompatible: source.BackwardsCompatible,
+		CreatedBy:           actorFromContext(r.Context()),
+		UpdatedBy:           actorFromContext(r.Context()),
 	}
 
 	if err := s.store.CreateJob(r.Context(), clone); err != nil {

@@ -1,9 +1,9 @@
 ---
 title: "Introduction"
-description: "A production-grade Go job strait for engineering teams and AI agents."
+description: "A production-grade Go job orchestration service for engineering teams and AI agents."
 ---
 
-The strait is a production-grade Go job strait designed for teams building reliable, scalable background job processing. Accept job definitions via REST API, queue runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED`—no external message broker required—and dispatch them via HTTP to your endpoints with intelligent retry strategies.
+Strait is a production-grade Go job orchestration service designed for teams building reliable, scalable background job processing. It accepts job definitions via REST API, queues runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED` (no external message broker required), and dispatches them via HTTP to your endpoints with intelligent retry strategies.
 
 **Everything you need in one binary.** Single Go executable. No runtime dependencies. Deploy and scale horizontally.
 
@@ -17,7 +17,7 @@ Engineering teams face challenges with background job processing:
 - **Orchestration**: Coordinating multi-step workflows with dependencies and conditions
 - **Infrastructure**: Managing message brokers, queues, and job state stores separately
 
-The strait combines queue, state, scheduler, and executor in one system—eliminating operational complexity while providing production-grade features.
+Strait combines queue, state, scheduler, and executor in one system—eliminating operational complexity while providing production-grade features.
 
 ## Key Capabilities
 
@@ -119,7 +119,7 @@ The strait combines queue, state, scheduler, and executor in one system—elimin
                     └──────────────────────────────────┘
 ```
 
-The strait runs in three modes:
+Strait runs in three modes:
 
 <Info>
 **api**: Handles HTTP requests, job management, and triggering. Scale horizontally for API throughput.
@@ -156,7 +156,7 @@ The strait runs in three modes:
 
 ## Use Cases
 
-The strait fits these patterns:
+Strait fits these patterns:
 
 **Background Jobs**: Scheduled data imports, report generation, cache warming, cleanup tasks, and recurring maintenance operations.
 
@@ -233,7 +233,7 @@ Step-by-step guides for common tasks:
 
 ## Development
 
-Contributing to the strait or running it locally:
+Contributing to Strait or running it locally:
 
 <CardGroup cols={2}>
   <Card title="Contributing" icon="users" href="/docs/development/contributing">

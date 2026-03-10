@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"strait/internal/domain"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -173,6 +175,74 @@ func (q *Queries) CountRunningWorkflowRuns(ctx context.Context, workflowID strin
 	return count, nil
 }
 
+// ListWorkflowVersions returns version snapshots for a workflow, newest first.
+func (q *Queries) ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowVersions")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, version, project_id, name, slug, description, enabled,
+		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+		       version_id, created_by, updated_by, created_at
+		FROM workflow_versions
+		WHERE workflow_id = $1
+		ORDER BY version DESC
+		LIMIT $2`
+
+	rows, err := q.db.Query(ctx, query, workflowID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow versions: %w", err)
+	}
+	defer rows.Close()
+
+	versions := make([]domain.WorkflowVersion, 0, limit)
+	for rows.Next() {
+		var v domain.WorkflowVersion
+		if err := rows.Scan(
+			&v.ID, &v.WorkflowID, &v.Version, &v.ProjectID, &v.Name, &v.Slug,
+			&v.Description, &v.Enabled, &v.TimeoutSecs, &v.MaxConcurrentRuns,
+			&v.MaxParallelSteps, &v.Cron, &v.CronTimezone, &v.SkipIfRunning,
+			&v.VersionID, &v.CreatedBy, &v.UpdatedBy, &v.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan workflow version: %w", err)
+		}
+		versions = append(versions, v)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflow versions rows: %w", err)
+	}
+	return versions, nil
+}
+
+// GetWorkflowVersionByVersionID retrieves a single workflow version by its nanoid version_id.
+func (q *Queries) GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowVersionByVersionID")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, version, project_id, name, slug, description, enabled,
+		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+		       version_id, created_by, updated_by, created_at
+		FROM workflow_versions
+		WHERE workflow_id = $1 AND version_id = $2`
+
+	var v domain.WorkflowVersion
+	err := q.db.QueryRow(ctx, query, workflowID, versionID).Scan(
+		&v.ID, &v.WorkflowID, &v.Version, &v.ProjectID, &v.Name, &v.Slug,
+		&v.Description, &v.Enabled, &v.TimeoutSecs, &v.MaxConcurrentRuns,
+		&v.MaxParallelSteps, &v.Cron, &v.CronTimezone, &v.SkipIfRunning,
+		&v.VersionID, &v.CreatedBy, &v.UpdatedBy, &v.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrWorkflowVersionNotFound
+		}
+		return nil, fmt.Errorf("get workflow version by version_id: %w", err)
+	}
+	return &v, nil
+}
+
 func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListTimedOutWorkflowRuns")
 	defer span.End()
@@ -180,7 +250,7 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL

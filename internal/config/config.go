@@ -20,6 +20,10 @@ type Config struct {
 	InternalSecret            string        `mapstructure:"INTERNAL_SECRET"`
 	JWTSigningKey             string        `mapstructure:"JWT_SIGNING_KEY"`
 	SecretEncryptionKey       string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
+	OIDCEnabled               bool          `mapstructure:"OIDC_ENABLED"`
+	OIDCIssuer                string        `mapstructure:"OIDC_ISSUER"`
+	OIDCAudience              string        `mapstructure:"OIDC_AUDIENCE"`
+	OIDCPublicKeyPEM          string        `mapstructure:"OIDC_PUBLIC_KEY_PEM"`
 	LogLevel                  string        `mapstructure:"LOG_LEVEL"`
 	HeartbeatInterval         time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
 	ReaperInterval            time.Duration `mapstructure:"REAPER_INTERVAL"`
@@ -95,6 +99,9 @@ type Config struct {
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
 	FFEventTriggers    bool `mapstructure:"FF_EVENT_TRIGGERS"`
 
+	// RBAC permission cache
+	PermissionCacheTTL time.Duration `mapstructure:"PERMISSION_CACHE_TTL"`
+
 	// Worker/Executor timeouts
 	WebhookTimeout          time.Duration `mapstructure:"WEBHOOK_TIMEOUT"`
 	WebhookIdleConnTimeout  time.Duration `mapstructure:"WEBHOOK_IDLE_CONN_TIMEOUT"`
@@ -145,6 +152,10 @@ func setDefaults() {
 	viper.SetDefault("TRIGGER_RATE_LIMIT_WINDOW", time.Minute)
 	viper.SetDefault("REQUEST_TIMEOUT", 30*time.Second)
 	viper.SetDefault("MAX_REQUEST_BODY_SIZE", int64(1<<20))
+	viper.SetDefault("OIDC_ENABLED", false)
+	viper.SetDefault("OIDC_ISSUER", "")
+	viper.SetDefault("OIDC_AUDIENCE", "")
+	viper.SetDefault("OIDC_PUBLIC_KEY_PEM", "")
 	viper.SetDefault("SEQUIN_BATCH_SIZE", 10)
 	viper.SetDefault("SEQUIN_WAIT_TIME_MS", 5000)
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", []string{"*"})
@@ -263,6 +274,10 @@ func Load() (*Config, error) {
 	cfg.TriggerRateLimitWindow = viper.GetDuration("TRIGGER_RATE_LIMIT_WINDOW")
 	cfg.RequestTimeout = viper.GetDuration("REQUEST_TIMEOUT")
 	cfg.MaxRequestBodySize = viper.GetInt64("MAX_REQUEST_BODY_SIZE")
+	cfg.OIDCEnabled = viper.GetBool("OIDC_ENABLED")
+	cfg.OIDCIssuer = viper.GetString("OIDC_ISSUER")
+	cfg.OIDCAudience = viper.GetString("OIDC_AUDIENCE")
+	cfg.OIDCPublicKeyPEM = viper.GetString("OIDC_PUBLIC_KEY_PEM")
 	cfg.CORSAllowedOrigins = viper.GetStringSlice("CORS_ALLOWED_ORIGINS")
 	cfg.CORSAllowCredentials = viper.GetBool("CORS_ALLOW_CREDENTIALS")
 	cfg.RedisSentinelAddrs = viper.GetStringSlice("REDIS_SENTINEL_ADDRS")
@@ -302,6 +317,17 @@ func Load() (*Config, error) {
 	}
 	if cfg.FFSecretInjection && cfg.SecretEncryptionKey == "" {
 		return nil, &domain.ConfigError{Field: "SECRET_ENCRYPTION_KEY", Message: "is required when FF_SECRET_INJECTION is enabled"}
+	}
+	if cfg.OIDCEnabled {
+		if cfg.OIDCIssuer == "" {
+			return nil, &domain.ConfigError{Field: "OIDC_ISSUER", Message: "is required when OIDC is enabled"}
+		}
+		if cfg.OIDCAudience == "" {
+			return nil, &domain.ConfigError{Field: "OIDC_AUDIENCE", Message: "is required when OIDC is enabled"}
+		}
+		if cfg.OIDCPublicKeyPEM == "" {
+			return nil, &domain.ConfigError{Field: "OIDC_PUBLIC_KEY_PEM", Message: "is required when OIDC is enabled"}
+		}
 	}
 
 	return &cfg, nil

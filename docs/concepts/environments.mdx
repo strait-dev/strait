@@ -23,7 +23,7 @@ The `Environment` struct (defined in `internal/domain/types.go`) includes:
 Environments support a hierarchical structure via the `parent_id` field.
 - **Inheritance**: An environment inherits all variables from its parent.
 - **Overrides**: If an environment defines a variable with the same key as its parent, the local value takes precedence.
-- **Resolution**: The strait recursively resolves variables up the parent chain to provide a final, flattened set of variables at execution time.
+- **Resolution**: Strait recursively resolves variables up the parent chain to provide a final, flattened set of variables at execution time.
 
 ## Endpoint URL Overrides
 

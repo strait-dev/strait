@@ -24,17 +24,26 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	}
 	job.Version = 1
 
+	if job.VersionID == "" {
+		job.VersionID = domain.NewVersionID()
+	}
+	if job.VersionPolicy == "" {
+		job.VersionPolicy = domain.VersionPolicyPin
+	}
+
 	query := `
 		INSERT INTO jobs (
 			id, project_id, group_id, name, slug, description, cron, payload_schema,
 			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
-			webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version
+			webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version,
+			version_id, version_policy, backwards_compatible, created_by, updated_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1,
+			$27, $28, $29, $30, $31)
 		RETURNING created_at, updated_at, version`
 
-	tagsJSON, err := marshalJobTags(job.Tags)
+	tagsJSON, err := marshalTags(job.Tags)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
 	}
@@ -73,6 +82,11 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.RetryStrategy),
 		dbscan.NilIfEmptyIntSlice(job.RetryDelaysSecs),
 		dbscan.NilIfEmptyString(job.EnvironmentID),
+		job.VersionID,
+		string(job.VersionPolicy),
+		job.BackwardsCompatible,
+		dbscan.NilIfEmptyString(job.CreatedBy),
+		dbscan.NilIfEmptyString(job.UpdatedBy),
 	).Scan(&job.CreatedAt, &job.UpdatedAt, &job.Version)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
@@ -89,7 +103,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM jobs
 		WHERE id = $1`
 
@@ -112,7 +126,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -135,7 +149,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1`
 
@@ -177,14 +191,18 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJob")
 	defer span.End()
 
+	newVersionID := domain.NewVersionID()
+
 	query := `
 		WITH snapshot AS (
-			INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
+			INSERT INTO job_versions (id, job_id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
-				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id)
-			SELECT $26, id, version, name, slug, description, cron, payload_schema,
+				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
+				group_id, project_id, enabled, backwards_compatible, created_by, updated_by)
+			SELECT $29, id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
-				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id
+				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
+				group_id, project_id, enabled, backwards_compatible, created_by, updated_by
 			FROM jobs WHERE id = $25
 		)
 		UPDATE jobs
@@ -213,11 +231,15 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    retry_delays_secs = $23,
 		    environment_id = $24,
 		    version = version + 1,
+		    version_id = $26,
+		    updated_by = $27,
+		    version_policy = $28,
+		    backwards_compatible = $30,
 		    updated_at = NOW()
 		WHERE id = $25
-		RETURNING updated_at, version`
+		RETURNING updated_at, version, version_id`
 
-	tagsJSON, err := marshalJobTags(job.Tags)
+	tagsJSON, err := marshalTags(job.Tags)
 	if err != nil {
 		return fmt.Errorf("update job: %w", err)
 	}
@@ -255,8 +277,12 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyIntSlice(job.RetryDelaysSecs),
 		dbscan.NilIfEmptyString(job.EnvironmentID),
 		job.ID,
+		newVersionID,
+		dbscan.NilIfEmptyString(job.UpdatedBy),
+		string(job.VersionPolicy),
 		uuid.Must(uuid.NewV7()).String(),
-	).Scan(&job.UpdatedAt, &job.Version)
+		job.BackwardsCompatible,
+	).Scan(&job.UpdatedAt, &job.Version, &job.VersionID)
 	if err != nil {
 		return fmt.Errorf("update job: %w", err)
 	}
@@ -264,14 +290,66 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	return nil
 }
 
+// ErrJobHasActiveRuns is returned when attempting to delete a job that has
+// queued, dequeued, or executing runs.
+var ErrJobHasActiveRuns = errors.New("job has active runs")
+
 func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJob")
 	defer span.End()
 
-	query := `DELETE FROM jobs WHERE id = $1`
+	// If the underlying connection supports transactions, wrap the whole
+	// delete in one so a crash mid-way doesn't leave orphaned data.
+	if txb, ok := q.db.(TxBeginner); ok {
+		return WithTx(ctx, txb, func(tx *Queries) error {
+			return tx.deleteJobTx(ctx, id)
+		})
+	}
+	// Already inside a transaction — execute directly.
+	return q.deleteJobTx(ctx, id)
+}
 
-	if _, err := q.db.Exec(ctx, query, id); err != nil {
+func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
+	// Lock the job row first to prevent concurrent enqueues while we check and delete.
+	var exists bool
+	err := q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE id = $1 FOR UPDATE)`, id).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("delete job lock: %w", err)
+	}
+	if !exists {
+		return ErrJobNotFound
+	}
+
+	// Now check for active runs under the job-row lock.
+	var activeCount int
+	err = q.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','delayed','dequeued','executing','waiting')`,
+		id,
+	).Scan(&activeCount)
+	if err != nil {
+		return fmt.Errorf("delete job check active runs: %w", err)
+	}
+	if activeCount > 0 {
+		return ErrJobHasActiveRuns
+	}
+
+	// Delete related data before removing the job (FK constraints).
+	if _, err := q.db.Exec(ctx, `DELETE FROM job_runs WHERE job_id = $1`, id); err != nil {
+		return fmt.Errorf("delete job runs: %w", err)
+	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM job_versions WHERE job_id = $1`, id); err != nil {
+		return fmt.Errorf("delete job versions: %w", err)
+	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM job_dependencies WHERE job_id = $1 OR depends_on_job_id = $1`, id); err != nil {
+		return fmt.Errorf("delete job dependencies: %w", err)
+	}
+
+	tag, err := q.db.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, id)
+	if err != nil {
 		return fmt.Errorf("delete job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrJobNotFound
 	}
 
 	return nil
@@ -302,7 +380,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -441,6 +519,10 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var retryStrategy *string
 	var retryDelaysSecs []int
 	var environmentID *string
+	var versionID *string
+	var versionPolicy *string
+	var createdBy *string
+	var updatedBy *string
 
 	err := scanner.Scan(
 		&job.ID,
@@ -470,6 +552,11 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&retryDelaysSecs,
 		&environmentID,
 		&job.Version,
+		&versionID,
+		&versionPolicy,
+		&job.BackwardsCompatible,
+		&createdBy,
+		&updatedBy,
 		&job.CreatedAt,
 		&job.UpdatedAt,
 	)
@@ -490,7 +577,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		job.PayloadSchema = json.RawMessage(payloadSchema)
 	}
 	if len(tagsJSON) > 0 {
-		tags, err := unmarshalJobTags(tagsJSON)
+		tags, err := unmarshalTags(tagsJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -535,6 +622,18 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	if environmentID != nil {
 		job.EnvironmentID = *environmentID
 	}
+	if versionID != nil {
+		job.VersionID = *versionID
+	}
+	if versionPolicy != nil {
+		job.VersionPolicy = domain.VersionPolicy(*versionPolicy)
+	}
+	if createdBy != nil {
+		job.CreatedBy = *createdBy
+	}
+	if updatedBy != nil {
+		job.UpdatedBy = *updatedBy
+	}
 
 	return &job, nil
 }
@@ -547,7 +646,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
 		FROM jobs
 		WHERE project_id = $1`
 
@@ -592,7 +691,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 	return jobs, nil
 }
 
-func marshalJobTags(tags map[string]string) ([]byte, error) {
+func marshalTags(tags map[string]string) ([]byte, error) {
 	if len(tags) == 0 {
 		return []byte(`{}`), nil
 	}
@@ -604,7 +703,7 @@ func marshalJobTags(tags map[string]string) ([]byte, error) {
 	return encoded, nil
 }
 
-func unmarshalJobTags(raw []byte) (map[string]string, error) {
+func unmarshalTags(raw []byte) (map[string]string, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}

@@ -8,3 +8,7 @@ pre-commit:
       run: golangci-lint run --timeout=5m ./...
       glob: "*.go"
       fail_text: "golangci-lint failed — fix lint errors before committing"
+    openapi_parity:
+      run: go run ./scripts/check_openapi_parity.go
+      glob: "{internal/api/routes.go,internal/api/openapi.yaml,docs/openapi.yaml,scripts/check_openapi_parity.go}"
+      fail_text: "OpenAPI parity check failed — sync routes.go with both OpenAPI specs before committing"

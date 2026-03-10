@@ -2443,7 +2443,7 @@ type mockWorkflowEngineForIdem struct {
 	triggerFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 }
 
-func (m *mockWorkflowEngineForIdem) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
+func (m *mockWorkflowEngineForIdem) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error) {
 	if m.triggerFn != nil {
 		return m.triggerFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
 	}

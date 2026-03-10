@@ -3,7 +3,7 @@ title: "Quick Start"
 description: "Get strait up and running in minutes."
 ---
 
-Follow these steps to set up strait locally and run your first job. You'll have a production-grade job strait running in under 10 minutes.
+Follow these steps to set up strait locally and run your first job. You'll have a production-grade job orchestration service running in under 10 minutes.
 
 ## Prerequisites
 
@@ -65,7 +65,7 @@ sequin            Up
 Configure necessary environment variables for strait to connect to infrastructure.
 
 <Info>
-The strait validates required environment variables on startup. Missing variables cause a clear error message with configuration instructions.
+Strait validates required environment variables on startup. Missing variables cause a clear error message with configuration instructions.
 </Info>
 
 ```bash
@@ -103,7 +103,7 @@ export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
 
 ## Step 3: Build and Run Strait
 
-Build the strait binary and start it in `all` mode (API + worker combined).
+Build Strait binary and start it in `all` mode (API + worker combined).
 
 ```bash
 # Build from source
@@ -166,7 +166,7 @@ Jobs are the core unit of work. They define the endpoint URL, timeout, retry str
   ```
 
   ```bash CLI
-  # Using the strait CLI (recommended)
+  # Using Strait CLI (recommended)
   ./strait jobs create \
     --name "Hello World" \
     --slug "hello-world" \
@@ -194,7 +194,7 @@ Expected response:
 
 ## Step 5: Trigger a Job
 
-Trigger a run for the job you just created. The strait will enqueue the run and a worker will dispatch it to the endpoint.
+Trigger a run for the job you just created. Strait will enqueue the run and a worker will dispatch it to the endpoint.
 
 ```bash
 # Trigger with a payload
@@ -285,7 +285,7 @@ curl -X POST http://localhost:8080/v1/workflows \
 ```
 
 <Info>
-**Workflow Execution**: When triggered, the strait creates a `workflow_run`. Step `extract` executes first, then `transform` executes only after `extract` completes. The DAG engine handles fan-in automatically when multiple steps depend on the same parent.
+**Workflow Execution**: When triggered, Strait creates a `workflow_run`. Step `extract` executes first, then `transform` executes only after `extract` completes. The DAG engine handles fan-in automatically when multiple steps depend on the same parent.
 </Info>
 
 ## Troubleshooting

@@ -223,6 +223,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	g.Go(func(ctx context.Context) error {
 		<-ctx.Done()
 		slog.Info("shutting down api server")
+		srv.Close()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)

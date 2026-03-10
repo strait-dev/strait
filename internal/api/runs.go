@@ -47,10 +47,28 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		status = &parsed
 	}
 
+	tagKey := query.Get("tag_key")
+	tagValue := query.Get("tag_value")
+	if tagValue != "" && tagKey == "" {
+		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
+		return
+	}
+	if tagKey != "" {
+		if err := validateTags(map[string]string{tagKey: tagValue}); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	metadataKeyRaw := query.Get("metadata_key")
 	metadataValueRaw := query.Get("metadata_value")
 	if metadataValueRaw != "" && metadataKeyRaw == "" {
 		respondError(w, r, http.StatusBadRequest, "metadata_key is required when metadata_value is provided")
+		return
+	}
+
+	if tagKey != "" && metadataKeyRaw != "" {
+		respondError(w, r, http.StatusBadRequest, "tag_key and metadata_key filters are mutually exclusive")
 		return
 	}
 
@@ -70,7 +88,12 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runs, err := s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, limit+1, cursor)
+	var runs []domain.JobRun
+	if tagKey != "" {
+		runs, err = s.store.ListRunsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
+	} else {
+		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, limit+1, cursor)
+	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list runs")
 		return
@@ -223,9 +246,12 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 		// operations. Copying the key would conflict with any active run
 		// that shares the same key (the DB unique partial index only covers
 		// non-terminal statuses).
-		JobVersion: originalRun.JobVersion,
-		ExpiresAt:  &expiresAt,
-		DebugMode:  debugMode,
+		JobVersion:   originalRun.JobVersion,
+		JobVersionID: job.VersionID,
+		Tags:         originalRun.Tags,
+		CreatedBy:    actorFromContext(r.Context()),
+		ExpiresAt:    &expiresAt,
+		DebugMode:    debugMode,
 	}
 
 	if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {

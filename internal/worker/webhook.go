@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -221,14 +222,7 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
-
-	// HMAC-SHA256 signature if webhook secret is configured
-	if job.WebhookSecret != "" {
-		mac := hmac.New(sha256.New, []byte(job.WebhookSecret))
-		mac.Write(body)
-		sig := hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
-	}
+	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := webhookClient.Do(req)
 	if err != nil {
@@ -241,6 +235,23 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 	}
 
 	return WebhookResult{StatusCode: resp.StatusCode, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+}
+
+func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte) {
+	if webhookSecret == "" {
+		return
+	}
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	payload := append([]byte(ts+"."), body...)
+	mac := hmac.New(sha256.New, []byte(webhookSecret))
+	_, _ = mac.Write(payload)
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	// New headers.
+	req.Header.Set("X-Strait-Timestamp", ts)
+	req.Header.Set("X-Strait-Signature", "sha256="+sig)
+	// Backwards compatibility header.
+	req.Header.Set("X-Webhook-Signature", "sha256="+sig)
 }
 
 func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun) WebhookResult {
@@ -274,14 +285,7 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
-
-	// HMAC-SHA256 signature if webhook secret is configured
-	if job.WebhookSecret != "" {
-		mac := hmac.New(sha256.New, []byte(job.WebhookSecret))
-		mac.Write(body)
-		sig := hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
-	}
+	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := client.Do(req)
 	if err != nil {

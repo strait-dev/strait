@@ -3,15 +3,15 @@ title: "Idempotency"
 description: "Preventing duplicate job executions using idempotency keys and payload hashing."
 ---
 
-The strait provides robust mechanisms to ensure that the same job is not executed multiple times accidentally, which is critical for non-idempotent operations like processing payments or sending notifications.
+Strait provides robust mechanisms to ensure that the same job is not executed multiple times accidentally, which is critical for non-idempotent operations like processing payments or sending notifications.
 
 ## Idempotency Keys
 
 The primary way to ensure idempotency is by providing an `X-Idempotency-Key` (or `Idempotency-Key`) header when triggering a job.
 
 ### How it Works
-1. When a trigger request includes an idempotency key, the strait checks if a run with the same `job_id` and `idempotency_key` already exists.
-2. If a match is found, the strait returns the details of the **existing run** instead of creating a new one.
+1. When a trigger request includes an idempotency key, Strait checks if a run with the same `job_id` and `idempotency_key` already exists.
+2. If a match is found, Strait returns the details of the **existing run** instead of creating a new one.
 3. If no match is found, a new run is created and associated with that key.
 
 ### Example
@@ -27,13 +27,13 @@ curl -X POST https://strait.dev/v1/jobs/{jobID}/trigger \
 
 ## Payload-Based Deduplication
 
-In addition to explicit keys, the strait can automatically deduplicate runs based on their payload content.
+In addition to explicit keys, Strait can automatically deduplicate runs based on their payload content.
 
 ### Dedup Window
-This is configured per-job via the `dedup_window_secs` field. If set, the strait will look for any recent run (within the window) that has the exact same payload hash.
+This is configured per-job via the `dedup_window_secs` field. If set, Strait will look for any recent run (within the window) that has the exact same payload hash.
 
 ### How it Works
-1. The strait canonicalizes the JSON payload and generates a SHA-256 hash.
+1. Strait canonicalizes the JSON payload and generates a SHA-256 hash.
 2. It searches for a run of the same job with the same payload hash within the configured `dedup_window_secs`.
 3. If found, it returns the existing run.
 

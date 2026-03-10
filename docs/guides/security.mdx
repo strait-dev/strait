@@ -1,9 +1,13 @@
 ---
 title: "Security"
-description: "Security features and protections implemented in the strait."
+description: "Security features and protections implemented in Strait."
 ---
 
-The strait includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
+Strait includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
+
+<Info>
+  Related guides: [Authentication & Authorization](/docs/guides/authentication), [OIDC Authentication](/docs/guides/oidc), [RBAC & Policy Authorization](/docs/guides/rbac), [Audit Events](/docs/guides/audit-events), [API Key Rotation](/docs/guides/api-key-rotation).
+</Info>
 
 ## SSRF Protection
 
@@ -27,13 +31,16 @@ To further restrict outbound traffic, only a specific set of standard and common
 
 ## Rate Limiting
 
-The strait implements rate limiting at two levels using the `httprate` middleware.
+Strait implements rate limiting at multiple levels using the `httprate` middleware.
 
 ### Global Rate Limit
 Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This limits the total number of requests a single IP can make within the `RATE_LIMIT_WINDOW`.
 
 ### Per-Trigger Rate Limit
 Controlled by `TRIGGER_RATE_LIMIT_REQUESTS`. This specifically limits the `/trigger` endpoints to prevent accidental or malicious job flooding.
+
+### RBAC Control-Plane Rate Limits
+Mutating RBAC endpoints (role/member/tag-policy/resource-policy management and seed-role operations) have stricter per-route limits to reduce abuse risk on authorization control paths.
 
 ## Request Protections
 
@@ -61,6 +68,32 @@ The system uses a strict approach to input:
 - **Type Safety**: Strong typing in Go ensures that input data matches the expected domain models.
 - **Constant-Time Comparison**: Used for internal secret validation to prevent timing attacks.
 
+## API Key Scope Enforcement
+
+Every API key has a set of scopes that restrict what it can do. Scopes are checked on every request by the `requirePermission` middleware. See [Authentication & Authorization](/docs/guides/authentication) for the full scope list.
+
+Keys with empty scopes (`[]`) retain full access for backwards compatibility.
+
+## Role-Based Access Control
+
+Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four system roles (admin, operator, viewer, triggerer) are available, and custom roles can be created per-project.
+
+RBAC also supports role inheritance and policy-based grants (resource policies and tag policies) for finer-grained authorization without over-broad static roles.
+
+See [Authentication & Authorization](/docs/guides/authentication#role-based-access-control-rbac) for details.
+
+## Actor Identity & Audit Trail
+
+Every mutation records which actor performed it:
+- **API key requests:** actor is `apikey:<key-id>`
+- **User requests:** actor is the `X-Actor-Id` header value (set by the app)
+
+These are stored as `created_by` and `updated_by` columns on jobs, workflows, and runs.
+
+## Impersonation Protection
+
+API key requests **never** honor `X-Actor-Id` headers. This prevents an API key holder from setting `X-Actor-Id: admin_user` to gain that user's RBAC permissions. Actor headers are only trusted on internal secret authentication (service-to-service).
+
 <Note>
-  Security is a shared responsibility. While the strait provides these protections, ensure your job endpoints also implement proper authentication and input validation.
+  Security is a shared responsibility. While Strait provides these protections, ensure your job endpoints also implement proper authentication and input validation.
 </Note>
