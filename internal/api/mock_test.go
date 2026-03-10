@@ -936,6 +936,22 @@ func (m *mockAPIStore) ListResourcePolicies(_ context.Context, _, _ string, _ in
 	return nil, nil
 }
 
+func (m *mockAPIStore) CreateTagPolicy(_ context.Context, _ *domain.TagPolicy) error {
+	return nil
+}
+
+func (m *mockAPIStore) ListTagPolicies(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.TagPolicy, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteTagPolicy(_ context.Context, _ string) (string, string, error) {
+	return "", "", store.ErrTagPolicyNotFound
+}
+
+func (m *mockAPIStore) GetTagPolicyActions(_ context.Context, _, _, _ string, _ map[string]string) ([]string, error) {
+	return nil, nil
+}
+
 func (m *mockAPIStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
 	return nil
 }

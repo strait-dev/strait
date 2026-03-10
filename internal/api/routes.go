@@ -176,6 +176,12 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{policyID}", s.handleDeleteResourcePolicy)
 		})
 
+		r.Route("/tag-policies", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateTagPolicy)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListTagPolicies)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{policyID}", s.handleDeleteTagPolicy)
+		})
+
 		r.Route("/workflows", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", s.handleCreateWorkflow)
 			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListWorkflows)

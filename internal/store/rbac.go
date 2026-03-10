@@ -18,6 +18,7 @@ var (
 	ErrRoleNotFound           = errors.New("role not found")
 	ErrMemberNotFound         = errors.New("member not found")
 	ErrResourcePolicyNotFound = errors.New("resource policy not found")
+	ErrTagPolicyNotFound      = errors.New("tag policy not found")
 )
 
 func (q *Queries) CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
@@ -407,6 +408,136 @@ func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resour
 	}
 
 	return policies, rows.Err()
+}
+
+func (q *Queries) CreateTagPolicy(ctx context.Context, p *domain.TagPolicy) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateTagPolicy")
+	defer span.End()
+
+	if p.ID == "" {
+		p.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	query := `
+		INSERT INTO tag_policies (id, project_id, resource_type, user_id, tag_key, tag_value, actions)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (project_id, resource_type, user_id, tag_key, tag_value)
+		DO UPDATE SET actions = EXCLUDED.actions
+		RETURNING created_at`
+	if err := q.db.QueryRow(ctx, query, p.ID, p.ProjectID, p.ResourceType, p.UserID, p.TagKey, dbscan.NilIfEmptyString(p.TagValue), p.Actions).Scan(&p.CreatedAt); err != nil {
+		return fmt.Errorf("create tag policy: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) ListTagPolicies(ctx context.Context, projectID, resourceType, userID string, limit int, cursor *time.Time) ([]domain.TagPolicy, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListTagPolicies")
+	defer span.End()
+
+	query := `
+		SELECT id, project_id, resource_type, user_id, tag_key, tag_value, actions, created_at
+		FROM tag_policies
+		WHERE project_id = $1`
+	args := []any{projectID}
+	param := 2
+	if resourceType != "" {
+		query += fmt.Sprintf(" AND resource_type = $%d", param)
+		args = append(args, resourceType)
+		param++
+	}
+	if userID != "" {
+		query += fmt.Sprintf(" AND user_id = $%d", param)
+		args = append(args, userID)
+		param++
+	}
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tag policies: %w", err)
+	}
+	defer rows.Close()
+
+	policies := make([]domain.TagPolicy, 0, limit)
+	for rows.Next() {
+		var p domain.TagPolicy
+		var tagValue *string
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.ResourceType, &p.UserID, &p.TagKey, &tagValue, &p.Actions, &p.CreatedAt); err != nil {
+			return nil, fmt.Errorf("list tag policies scan: %w", err)
+		}
+		if tagValue != nil {
+			p.TagValue = *tagValue
+		}
+		policies = append(policies, p)
+	}
+	return policies, rows.Err()
+}
+
+func (q *Queries) DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteTagPolicy")
+	defer span.End()
+
+	query := `DELETE FROM tag_policies WHERE id = $1 RETURNING project_id, user_id`
+	err = q.db.QueryRow(ctx, query, id).Scan(&projectID, &userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", ErrTagPolicyNotFound
+		}
+		return "", "", fmt.Errorf("delete tag policy: %w", err)
+	}
+	return projectID, userID, nil
+}
+
+func (q *Queries) GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetTagPolicyActions")
+	defer span.End()
+
+	query := `
+		SELECT tag_key, tag_value, actions
+		FROM tag_policies
+		WHERE project_id = $1 AND resource_type = $2 AND user_id = $3`
+	rows, err := q.db.Query(ctx, query, projectID, resourceType, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get tag policy actions: %w", err)
+	}
+	defer rows.Close()
+
+	seen := make(map[string]struct{}, 8)
+	actions := make([]string, 0, 8)
+	for rows.Next() {
+		var key string
+		var val *string
+		var policyActions []string
+		if err := rows.Scan(&key, &val, &policyActions); err != nil {
+			return nil, fmt.Errorf("scan tag policy actions: %w", err)
+		}
+		tagVal, ok := tags[key]
+		if !ok {
+			continue
+		}
+		if val != nil && *val != "" && tagVal != *val {
+			continue
+		}
+		for _, action := range policyActions {
+			if _, exists := seen[action]; exists {
+				continue
+			}
+			seen[action] = struct{}{}
+			actions = append(actions, action)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get tag policy actions rows: %w", err)
+	}
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	return actions, nil
 }
 
 func (q *Queries) wouldCreateRoleCycle(ctx context.Context, roleID, parentRoleID string) (bool, error) {

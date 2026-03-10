@@ -304,6 +304,15 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 						next.ServeHTTP(w, r)
 						return
 					}
+
+					// Fallback: check tag-based policies for matching resources.
+					if tags, ok := s.resourceTags(ctx, resType, resID); ok {
+						tagActions, tpErr := s.store.GetTagPolicyActions(ctx, projectID, resType, actorID, tags)
+						if tpErr == nil && domain.HasScope(tagActions, permission) {
+							next.ServeHTTP(w, r)
+							return
+						}
+					}
 				}
 
 				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
@@ -338,6 +347,25 @@ func resourceFromRequest(r *http.Request) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID string) (map[string]string, bool) {
+	switch resourceType {
+	case "job":
+		job, err := s.store.GetJob(ctx, resourceID)
+		if err != nil || job == nil || len(job.Tags) == 0 {
+			return nil, false
+		}
+		return job.Tags, true
+	case "workflow":
+		wf, err := s.store.GetWorkflow(ctx, resourceID)
+		if err != nil || wf == nil || len(wf.Tags) == 0 {
+			return nil, false
+		}
+		return wf.Tags, true
+	default:
+		return nil, false
+	}
 }
 
 // apiVersionHeader injects X-API-Version into every response.

@@ -446,6 +446,96 @@ func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type createTagPolicyRequest struct {
+	ProjectID    string   `json:"project_id" validate:"required"`
+	ResourceType string   `json:"resource_type" validate:"required"`
+	UserID       string   `json:"user_id" validate:"required"`
+	TagKey       string   `json:"tag_key" validate:"required"`
+	TagValue     string   `json:"tag_value,omitempty"`
+	Actions      []string `json:"actions" validate:"required,min=1"`
+}
+
+func (s *Server) handleCreateTagPolicy(w http.ResponseWriter, r *http.Request) {
+	var req createTagPolicyRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+	if err := validateTags(map[string]string{req.TagKey: req.TagValue}); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	for _, action := range req.Actions {
+		if !domain.ValidScopes[action] {
+			respondError(w, r, http.StatusBadRequest, "invalid action: "+action)
+			return
+		}
+	}
+
+	policy := &domain.TagPolicy{
+		ProjectID:    req.ProjectID,
+		ResourceType: req.ResourceType,
+		UserID:       req.UserID,
+		TagKey:       req.TagKey,
+		TagValue:     req.TagValue,
+		Actions:      req.Actions,
+	}
+	if err := s.store.CreateTagPolicy(r.Context(), policy); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to create tag policy")
+		return
+	}
+	s.permCache.Invalidate(req.ProjectID, req.UserID)
+	s.emitAuditEvent(r.Context(), "rbac.tag_policy.create", "tag_policy", policy.ID, map[string]any{"tag_key": req.TagKey, "tag_value": req.TagValue})
+	respondJSON(w, http.StatusCreated, policy)
+}
+
+func (s *Server) handleListTagPolicies(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	projectID := query.Get("project_id")
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+	resourceType := query.Get("resource_type")
+	userID := query.Get("user_id")
+
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	policies, err := s.store.ListTagPolicies(r.Context(), projectID, resourceType, userID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list tag policies")
+		return
+	}
+	respondJSON(w, http.StatusOK, paginatedResult(policies, limit, func(p domain.TagPolicy) string {
+		return p.CreatedAt.Format(time.RFC3339Nano)
+	}))
+}
+
+func (s *Server) handleDeleteTagPolicy(w http.ResponseWriter, r *http.Request) {
+	policyID := chi.URLParam(r, "policyID")
+	projectID, userID, err := s.store.DeleteTagPolicy(r.Context(), policyID)
+	if err != nil {
+		if errors.Is(err, store.ErrTagPolicyNotFound) {
+			respondError(w, r, http.StatusNotFound, "tag policy not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to delete tag policy")
+		return
+	}
+	if projectID != "" && userID != "" {
+		s.permCache.Invalidate(projectID, userID)
+	}
+	s.emitAuditEvent(r.Context(), "rbac.tag_policy.delete", "tag_policy", policyID, nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	projectID := query.Get("project_id")

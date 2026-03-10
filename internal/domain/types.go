@@ -75,6 +75,18 @@ type ResourcePolicy struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// TagPolicy grants actions on resources matching tags (e.g. team=payments).
+type TagPolicy struct {
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	ResourceType string    `json:"resource_type"`
+	UserID       string    `json:"user_id"`
+	TagKey       string    `json:"tag_key"`
+	TagValue     string    `json:"tag_value,omitempty"`
+	Actions      []string  `json:"actions"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // SystemRolePermissions defines the default permission sets for system roles.
 var SystemRolePermissions = map[string][]string{
 	"admin": {"*"},
