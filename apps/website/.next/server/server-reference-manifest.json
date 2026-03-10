@@ -1,0 +1,167 @@
+{
+  "node": {
+    "00efaf46640199f6f217cc29a80b5118da42e8d094": {
+      "workers": {
+        "app/(landing)/blog/(list)/page": {
+          "moduleId": 2705,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/[slug]/page": {
+          "moduleId": 27387,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/author/[slug]/page": {
+          "moduleId": 74855,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        }
+      },
+      "layer": {
+        "app/(landing)/blog/(list)/page": "rsc",
+        "app/(landing)/blog/[slug]/page": "rsc",
+        "app/(landing)/blog/author/[slug]/page": "rsc"
+      },
+      "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js",
+      "exportedName": "$$RSC_SERVER_ACTION_2"
+    },
+    "60422e143dd6779afa24fd44a156b431e0fd31fa48": {
+      "workers": {
+        "app/(landing)/blog/(list)/page": {
+          "moduleId": 2705,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_3",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/[slug]/page": {
+          "moduleId": 27387,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_3",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/author/[slug]/page": {
+          "moduleId": 74855,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_3",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        }
+      },
+      "layer": {
+        "app/(landing)/blog/(list)/page": "rsc",
+        "app/(landing)/blog/[slug]/page": "rsc",
+        "app/(landing)/blog/author/[slug]/page": "rsc"
+      },
+      "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js",
+      "exportedName": "$$RSC_SERVER_ACTION_3"
+    },
+    "6093606a06bf6581930f2732f793f819113d709679": {
+      "workers": {
+        "app/(landing)/blog/(list)/page": {
+          "moduleId": 2705,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/[slug]/page": {
+          "moduleId": 27387,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/author/[slug]/page": {
+          "moduleId": 74855,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        }
+      },
+      "layer": {
+        "app/(landing)/blog/(list)/page": "rsc",
+        "app/(landing)/blog/[slug]/page": "rsc",
+        "app/(landing)/blog/author/[slug]/page": "rsc"
+      },
+      "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js",
+      "exportedName": "$$RSC_SERVER_ACTION_0"
+    },
+    "60e46a825035365acabeebe2b86b7419bbe0fcce9e": {
+      "workers": {
+        "app/(landing)/blog/(list)/page": {
+          "moduleId": 2705,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/[slug]/page": {
+          "moduleId": 27387,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        },
+        "app/(landing)/blog/author/[slug]/page": {
+          "moduleId": 74855,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js"
+        }
+      },
+      "layer": {
+        "app/(landing)/blog/(list)/page": "rsc",
+        "app/(landing)/blog/[slug]/page": "rsc",
+        "app/(landing)/blog/author/[slug]/page": "rsc"
+      },
+      "filename": "node_modules/.bun/basehub@9.5.3+7111ff09de72ce5c/node_modules/basehub/dist/next/toolbar/index.js",
+      "exportedName": "$$RSC_SERVER_ACTION_1"
+    },
+    "60db73e37965e186ddb6649aedb2c93fb9556a8325": {
+      "workers": {
+        "app/(landing)/blog/(list)/page": {
+          "moduleId": 2705,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "apps/website/src/app/(landing)/blog/(list)/page.tsx"
+        }
+      },
+      "layer": {
+        "app/(landing)/blog/(list)/page": "rsc"
+      },
+      "filename": "apps/website/src/app/(landing)/blog/(list)/page.tsx",
+      "exportedName": "$$RSC_SERVER_ACTION_0"
+    },
+    "405c39eef034ea8ffe2fa4cfaef5ef9427a108eb18": {
+      "workers": {
+        "app/(landing)/blog/[slug]/page": {
+          "moduleId": 27387,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "apps/website/src/app/(landing)/blog/[slug]/page.tsx"
+        }
+      },
+      "layer": {
+        "app/(landing)/blog/[slug]/page": "rsc"
+      },
+      "filename": "apps/website/src/app/(landing)/blog/[slug]/page.tsx",
+      "exportedName": "$$RSC_SERVER_ACTION_0"
+    },
+    "603b40cc70694ee8d67881c2799edff4738b78af0c": {
+      "workers": {
+        "app/(landing)/blog/author/[slug]/page": {
+          "moduleId": 74855,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "apps/website/src/app/(landing)/blog/author/[slug]/page.tsx"
+        }
+      },
+      "layer": {
+        "app/(landing)/blog/author/[slug]/page": "rsc"
+      },
+      "filename": "apps/website/src/app/(landing)/blog/author/[slug]/page.tsx",
+      "exportedName": "$$RSC_SERVER_ACTION_0"
+    }
+  },
+  "edge": {},
+  "encryptionKey": "m7tyqNIoASHzwgcuV8q701R3mTYq1J6H9gCPlSqUmCk="
+}

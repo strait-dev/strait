@@ -1,0 +1,10 @@
+{
+  "pages": {},
+  "app": {
+    "[project]/apps/website/src/app/(landing)/privacy/page": [
+      "static/media/Geist_Variable-s.p.92592eb2.woff2"
+    ]
+  },
+  "appUsingSizeAdjust": true,
+  "pagesUsingSizeAdjust": false
+}

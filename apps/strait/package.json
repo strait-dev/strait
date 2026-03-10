@@ -6,6 +6,7 @@
     "test": "go test ./...",
     "lint": "golangci-lint run --timeout=5m ./...",
     "typecheck": "go vet ./...",
-    "dev": "go run ./cmd/strait"
+    "dev": "go run ./cmd/strait",
+    "clean": "git clean -xdf .turbo node_modules"
   }
 }

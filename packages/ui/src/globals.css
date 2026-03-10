@@ -1,0 +1,772 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@config "../tailwind.config.ts";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
+:root {
+  --radius: 0.375rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.72 0.12 195);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.145 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --success: oklch(0.7 0.18 145);
+  --success-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.643 0.215 27.33);
+  --destructive-foreground: oklch(0.985 0 0);
+  --info: oklch(0.55 0.2 260);
+  --info-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.75 0.18 85);
+  --warning-foreground: oklch(0.985 0 0);
+  --invert: oklch(0.205 0 0);
+  --invert-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.72 0.12 195);
+  --chart-1: oklch(50.48% 0.293568 285.7028);
+  --chart-2: oklch(87.19% 0.254 147.75);
+  --chart-3: oklch(46.16% 0.306714 264.1718);
+  --chart-4: oklch(91.88% 0.1922 101.78);
+  --chart-5: oklch(65.3% 0.26805 355.0526);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.72 0.12 195);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --success: oklch(0.7 0.18 145);
+  --success-foreground: oklch(0.145 0 0);
+  --destructive: oklch(0.629 0.257 25.331);
+  --destructive-foreground: oklch(0.985 0 0);
+  --info: oklch(0.55 0.2 260);
+  --info-foreground: oklch(0.145 0 0);
+  --warning: oklch(0.75 0.18 85);
+  --warning-foreground: oklch(0.145 0 0);
+  --invert: oklch(0.985 0 0);
+  --invert-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.72 0.12 195);
+  --chart-1: oklch(50.48% 0.293568 285.7028);
+  --chart-2: oklch(87.19% 0.254 147.75);
+  --chart-3: oklch(46.16% 0.306714 264.1718);
+  --chart-4: oklch(91.88% 0.1922 101.78);
+  --chart-5: oklch(65.3% 0.26805 355.0526);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+:root[data-accent="blue"] {
+  --primary: oklch(0.67 0.15 255);
+  --ring: oklch(0.67 0.15 255);
+}
+
+:root[data-accent="teal"] {
+  --primary: oklch(0.72 0.12 195);
+  --ring: oklch(0.72 0.12 195);
+}
+
+:root[data-accent="violet"] {
+  --primary: oklch(0.69 0.16 300);
+  --ring: oklch(0.69 0.16 300);
+}
+
+:root[data-accent="emerald"] {
+  --primary: oklch(0.73 0.12 160);
+  --ring: oklch(0.73 0.12 160);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-invert: var(--invert);
+  --color-invert-foreground: var(--invert-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    font-family: "Geist", system-ui, sans-serif;
+    @apply bg-background text-foreground;
+  }
+  /* https://tailwindcss.com/docs/upgrade-guide#buttons-use-the-default-cursor */
+  /* button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  } */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+[type="search"]::-webkit-search-cancel-button,
+[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+@keyframes dialog-overlay-show {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-overlay-hide {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-content-show {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes dialog-content-hide {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+}
+
+.PopoverContent {
+  width: var(--radix-popover-trigger-width);
+  max-height: var(--radix-popover-content-available-height);
+}
+
+.popover-content-width-same-as-its-trigger {
+  width: var(--radix-popover-trigger-width);
+  max-height: var(--radix-popover-content-available-height);
+}
+
+.PhoneInputInput {
+  background: none;
+}
+
+.PhoneInputInput:focus {
+  outline: none;
+}
+
+/* Add styles for virtuoso component in SelectWithSearch */
+.select-virtuoso {
+  width: 100%;
+  height: 100%;
+  transition: height 0.2s ease-in-out; /* Smooth height transition */
+}
+
+/* Ensure no double scrollbars */
+.select-virtuoso [data-virtuoso-scroller="true"] {
+  scrollbar-width: thin;
+}
+
+/* Fix item height for better performance */
+.select-virtuoso [data-virtuoso-item] {
+  contain: content;
+}
+
+/* Minimize empty space at the footer when not needed - using a less aggressive approach */
+.select-virtuoso [data-virtuoso-list-bottom-spacer] {
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+}
+
+/* ============================================
+   Landing Page Utilities
+   ============================================ */
+
+/* Gradient Border Utility */
+.orchestration-grid {
+  background-image:
+    linear-gradient(
+      color-mix(in oklch, var(--primary) 10%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--primary) 10%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 24px 24px;
+}
+
+.section-wash {
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 14%, transparent),
+    transparent 55%
+  );
+}
+
+.gradient-warm {
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 90%, white 10%),
+    var(--primary)
+  );
+}
+
+.gradient-border {
+  position: relative;
+  background:
+    linear-gradient(var(--background), var(--background)) padding-box,
+    linear-gradient(
+      135deg,
+      var(--primary),
+      color-mix(in oklch, var(--primary) 40%, transparent)
+    )
+    border-box;
+  border: 2px solid transparent;
+}
+
+.gradient-border-subtle {
+  position: relative;
+  background:
+    linear-gradient(var(--background), var(--background)) padding-box,
+    linear-gradient(
+      135deg,
+      oklch(1 0 0 / 0.2),
+      var(--primary),
+      oklch(1 0 0 / 0.2)
+    )
+    border-box;
+  border: 1px solid transparent;
+}
+
+/* Section Divider */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--border) 20%,
+    var(--border) 80%,
+    transparent
+  );
+}
+
+/* Fade Masks */
+.fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+}
+
+.fade-edges {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 10%,
+    black 90%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 10%,
+    black 90%,
+    transparent
+  );
+}
+
+/* ============================================
+   Landing Page Animations
+   ============================================ */
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Animation Utility Classes */
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.3s ease-out forwards;
+}
+
+/* ============================================
+   Kicker Label Utility
+   ============================================ */
+
+.kicker {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+.icon-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 25%, transparent);
+  border-radius: 0.5rem;
+}
+
+/* ============================================
+   Hover Lift Effect
+   ============================================ */
+
+.hover-lift {
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  box-shadow:
+    0 10px 40px -10px oklch(0 0 0 / 0.1),
+    0 4px 6px -4px oklch(0 0 0 / 0.05);
+  transform: translateY(-4px);
+}
+
+/* ============================================
+   Fade In Up Animation (scroll reveal)
+   ============================================ */
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
+}
+
+/* Staggered animation delays */
+.animate-delay-100 {
+  animation-delay: 100ms;
+}
+.animate-delay-200 {
+  animation-delay: 200ms;
+}
+.animate-delay-300 {
+  animation-delay: 300ms;
+}
+.animate-delay-400 {
+  animation-delay: 400ms;
+}
+
+/* ============================================
+   Section Background Variants
+   ============================================ */
+
+.section-muted {
+  background-color: oklch(0.98 0 0);
+}
+
+.dark .section-muted {
+  background-color: oklch(0.18 0 0);
+}
+
+/* ============================================
+   Logo Wall Styles
+   ============================================ */
+
+.logo-grayscale {
+  opacity: 0.6;
+  filter: grayscale(100%);
+  transition:
+    filter 0.3s ease,
+    opacity 0.3s ease;
+}
+
+.logo-grayscale:hover {
+  opacity: 1;
+  filter: grayscale(0%);
+}
+
+/* ============================================
+   Connected Grid System (Tailwind CSS-inspired)
+   ============================================ */
+
+/* Full-bleed horizontal border sections */
+.border-section {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.border-section-top {
+  border-top: 1px solid var(--border);
+}
+
+.border-section-bottom {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Grid with connected vertical lines (within content container) */
+.connected-grid {
+  position: relative;
+  display: grid;
+}
+
+/* Vertical dividers between grid columns */
+.connected-grid > * {
+  position: relative;
+}
+
+.connected-grid-cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.connected-grid-cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.connected-grid-cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.connected-grid-cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.connected-grid-cols-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+/* Blueprint-style grid background */
+.grid-blueprint {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+}
+
+.grid-blueprint-subtle {
+  background-image:
+    linear-gradient(to right, oklch(0 0 0 / 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0 0 0 / 0.03) 1px, transparent 1px);
+  background-size: 2rem 2rem;
+}
+
+.dark .grid-blueprint-subtle {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 0.03) 1px, transparent 1px);
+}
+
+/* ============================================
+   Missing Landing Visual Utilities + Motion
+   ============================================ */
+
+.paper-texture {
+  background-image:
+    radial-gradient(oklch(0 0 0 / 0.025) 0.6px, transparent 0.6px),
+    radial-gradient(oklch(0 0 0 / 0.02) 0.6px, transparent 0.6px);
+  background-position:
+    0 0,
+    10px 10px;
+  background-size: 20px 20px;
+}
+
+.dark .paper-texture {
+  background-image:
+    radial-gradient(oklch(1 0 0 / 0.03) 0.6px, transparent 0.6px),
+    radial-gradient(oklch(1 0 0 / 0.02) 0.6px, transparent 0.6px);
+}
+
+.showcase-dots {
+  background-image: radial-gradient(oklch(1 0 0 / 0.18) 1px, transparent 1px);
+  background-size: 10px 10px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 75%);
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+}
+
+@keyframes slow-float-y {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.parallax-slow {
+  animation: slow-float-y 14s ease-in-out infinite;
+  will-change: transform;
+}
+
+.demo-line {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+[data-visible] .demo-line {
+  animation: fade-in-up 500ms ease-out var(--line-delay, 0ms) forwards;
+}
+
+.demo-chat-msg {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+[data-visible] .demo-chat-msg {
+  animation: fade-in-up 420ms ease-out var(--msg-delay, 0ms) forwards;
+}
+
+@keyframes cursor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.2;
+  }
+}
+
+.demo-cursor {
+  animation: cursor-blink 1s steps(1, end) infinite;
+}
+
+.hero-tl {
+  display: block;
+  width: 0;
+  max-width: max-content;
+  overflow: hidden;
+  color: var(--color-foreground);
+  white-space: nowrap;
+  opacity: 0;
+  animation:
+    hero-type var(--dur, 1s) steps(var(--chars, 20), end) var(--delay, 0s)
+    forwards,
+    hero-fade 150ms linear var(--delay, 0s) forwards,
+    hero-hide 120ms linear var(--end, 2s) forwards;
+}
+
+.hero-tl-last {
+  animation:
+    hero-type var(--dur, 1s) steps(var(--chars, 20), end) var(--delay, 0s)
+    forwards,
+    hero-fade 150ms linear var(--delay, 0s) forwards;
+}
+
+@keyframes hero-type {
+  from {
+    width: 0;
+  }
+  to {
+    width: calc(var(--chars, 20) * 1ch);
+  }
+}
+
+@keyframes hero-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hero-hide {
+  to {
+    opacity: 0;
+  }
+}
+
+.hero-draft-card {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+}
+
+[data-visible] .hero-draft-card {
+  animation: scale-in 420ms ease-out var(--card-delay, 0ms) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .parallax-slow,
+  .demo-cursor,
+  .hero-tl,
+  .hero-tl-last,
+  .hero-draft-card,
+  .demo-line,
+  .demo-chat-msg,
+  .animate-fade-in-up,
+  .animate-float,
+  .animate-shimmer,
+  .animate-slide-up,
+  .animate-scale-in {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}

@@ -1,0 +1,69 @@
+# Strait
+
+> Strait is a business platform that helps you manage everything in one place—sales, customers, inventory, suppliers, and finances. We use smart technology to give you insights that help you make better decisions and grow your business.
+
+Our north star is helping you sell more. Everything we build is designed to help you bring in more revenue.
+
+Key things to know about Strait:
+
+- All-in-one platform: sales, customers, inventory, suppliers, and finances in one place
+- Built around sales: we help you understand what's working so you can do more of what brings results
+- Works anywhere in the world: multiple currencies, tax rules, and payment methods supported
+- Easy to use: powerful doesn't mean complicated—your team can get started quickly
+- Access from anywhere: cloud-based and mobile-friendly
+- Scales with you: whether you're starting out or expanding globally
+- Unlimited data retention on all plans
+
+What you can do with Strait:
+
+- **Sales & Checkout**: Fast checkout, promotions, multiple payment methods, real-time tracking
+- **Products & Catalog**: Organize with groups, brands, tags, and variants (sizes, colors)
+- **Customers**: Complete profiles, purchase history, build relationships that drive repeat business
+- **Suppliers**: Manage suppliers, track orders and communications in one place
+- **Inventory & Stock**: Stock counts, purchases, returns, transfers between stores
+- **Finance**: Track receipts, manage payments, know where your money is at all times
+- **Reports & Insights**: Custom reports, see the numbers that matter, make data-driven decisions
+
+Who it's for:
+
+- Small and medium businesses looking to compete with bigger players
+- Growing companies that need a platform that scales with them
+- Retail businesses wanting to optimize sales and inventory
+- Service companies that need to manage customer relationships well
+- Multi-location businesses that want everything in one place
+
+Pricing plans (all save 20% with annual billing):
+
+- **Starter** ($79/mo): 1 store, 1 register, 200 products, basic POS & inventory, email support
+- **Growth** ($149/mo): 2 stores, 1,000 products, AI Assistant, stock transfers, priority support
+- **Professional** ($349/mo): 3 stores, 5,000 products, 3 AI agents, quotes, loyalty program, dedicated manager
+- **Enterprise** ($599/mo): 5 stores, unlimited products, full AI suite (5 agents), gift cards, store credit, 24/7 support
+
+AI Agents (available by plan):
+
+- **AI Assistant**: Natural language help, task automation, smart search
+- **AI Sales Agent**: Upsell suggestions, customer pattern analysis, product recommendations
+- **AI Reports Agent**: Auto-generated insights, anomaly detection, plain-English summaries
+- **AI Inventory Agent**: Demand forecasting, reorder suggestions, seasonal predictions
+- **AI Marketing Agent**: Customer segmentation, campaign suggestions, win-back recommendations
+
+## Features
+
+- [Sales & POS](https://getshopwyse.com/features/sales): Checkout, promotions, payments, real-time sales tracking
+- [Inventory Management](https://getshopwyse.com/features/inventory): Stock counts, purchases, returns, transfers between stores
+- [Financial Tools](https://getshopwyse.com/features/finance): Receipts, payments, cash management, financial visibility
+- [Reports & Analytics](https://getshopwyse.com/features/reports): Custom reports, insights, data-driven decisions
+
+## Pricing
+
+- [Pricing & Plans](https://getshopwyse.com/pricing): Compare all tiers, features, and limits
+
+## Getting Started
+
+- [Start Free Trial](https://getshopwyse.com/get-started): Try Strait free for 14 days
+- [Contact Sales](https://getshopwyse.com/contact): Talk to our team for enterprise or custom needs
+
+## Resources
+
+- [Blog](https://getshopwyse.com/blog): Product updates, best practices, industry insights
+- [Customer Stories](https://getshopwyse.com/customers): See how businesses use Strait to grow

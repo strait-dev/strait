@@ -1,0 +1,15 @@
+{
+  "/(landing)/blog/(list)/page": "app/(landing)/blog/(list)/page.js",
+  "/(landing)/blog/[slug]/page": "app/(landing)/blog/[slug]/page.js",
+  "/(landing)/blog/author/[slug]/page": "app/(landing)/blog/author/[slug]/page.js",
+  "/(landing)/home/page": "app/(landing)/home/page.js",
+  "/(landing)/page": "app/(landing)/page.js",
+  "/(landing)/pricing/page": "app/(landing)/pricing/page.js",
+  "/(landing)/privacy/page": "app/(landing)/privacy/page.js",
+  "/(landing)/terms/page": "app/(landing)/terms/page.js",
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/feed.xml/route": "app/feed.xml/route.js",
+  "/robots.txt/route": "app/robots.txt/route.js",
+  "/sitemap.xml/route": "app/sitemap.xml/route.js"
+}

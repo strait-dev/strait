@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///Users/leonardomaldonado/conductor/workspaces/orchestrator/san-antonio-v2/apps/website/src/app/%28landing%29/layout.tsx"],"sourcesContent":["import Footer from \"./components/common/footer/footer\";\nimport Header from \"./components/common/header/header\";\n\ntype Props = {\n  children: React.ReactNode;\n};\n\nconst Layout = ({ children }: Props) => (\n  <>\n    <Header />\n    {children}\n    <Footer />\n  </>\n);\n\nexport default Layout;\n"],"names":[],"mappings":";;;;;AAAA;AACA;;;;AAMA,MAAM,SAAS,CAAC,EAAE,QAAQ,EAAS,iBACjC;;0BACE,mTAAC,oMAAM;;;;;YACN;0BACD,mTAAC,oMAAM;;;;;;;uCAII"}}]
+}

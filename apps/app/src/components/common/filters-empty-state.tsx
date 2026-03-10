@@ -1,0 +1,41 @@
+import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+
+type FiltersEmptyStateProps = {
+  title?: string;
+  description?: string;
+  icon?: "search" | "x";
+};
+
+const FiltersEmptyState = ({
+  title = "No results found",
+  description = "No results found for your search. Try changing the filters or search for another term.",
+  icon = "search",
+}: FiltersEmptyStateProps) => (
+  <div className="flex h-[300px] flex-col items-center justify-center gap-4 rounded-xl border border-muted-foreground/10 border-dashed p-8 text-center">
+    <div>
+      <div className="flex aspect-square h-14 items-center justify-center rounded-xl bg-muted/70">
+        {icon === "search" ? (
+          <HugeiconsIcon
+            className="h-6 w-6 text-muted-foreground"
+            icon={Search01Icon}
+          />
+        ) : (
+          <HugeiconsIcon
+            className="h-6 w-6 text-muted-foreground"
+            icon={Cancel01Icon}
+          />
+        )}
+      </div>
+    </div>
+
+    <div className="flex max-w-xs flex-col items-center gap-2 text-center">
+      <h2 className="font-semibold text-lg text-secondary-foreground tracking-tight">
+        {title}
+      </h2>
+      <p className="text-muted-foreground text-sm">{description}</p>
+    </div>
+  </div>
+);
+
+export default FiltersEmptyState;

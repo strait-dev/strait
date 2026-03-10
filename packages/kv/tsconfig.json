@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "display": "@strait/kv",
+  "include": ["."],
+  "exclude": ["node_modules"]
+}

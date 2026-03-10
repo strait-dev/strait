@@ -1,0 +1,17 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(landing)/layout,_N_T_/(landing)/blog/layout,_N_T_/(landing)/blog/[slug]/layout,_N_T_/(landing)/blog/[slug]/page,_N_T_/blog/5-simple-ways-to-reduce-checkout-line-wait-times-and-improve-customer-satisfaction-2,basehub-487374752,basehub-1572982582,basehub-496629972,basehub-278726024"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGxhbmRpbmcp/blog/$d$slug/__PAGE__",
+    "/!KGxhbmRpbmcp/blog/$d$slug",
+    "/!KGxhbmRpbmcp/blog",
+    "/!KGxhbmRpbmcp",
+    "/_index",
+    "/_head"
+  ]
+}
