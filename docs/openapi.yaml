@@ -1850,6 +1850,21 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
       responses:
         '200':
           description: Audit events

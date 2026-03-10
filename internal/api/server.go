@@ -178,7 +178,7 @@ type RBACStore interface {
 	DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error)
 	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
-	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.AuditEvent, error)
+	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 }
 
 // ActorSyncer lazily persists actor profile information from request headers.

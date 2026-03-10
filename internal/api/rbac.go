@@ -574,6 +574,12 @@ func (s *Server) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
 	actorID := query.Get("actor_id")
 	resourceType := query.Get("resource_type")
 	resourceID := query.Get("resource_id")
+	order := query.Get("order")
+	ascending := order == "asc"
+	if order != "" && order != "asc" && order != "desc" {
+		respondError(w, r, http.StatusBadRequest, "order must be one of: asc, desc")
+		return
+	}
 
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
@@ -581,7 +587,29 @@ func (s *Server) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, err := s.store.ListAuditEvents(r.Context(), projectID, actorID, resourceType, resourceID, limit+1, cursor)
+	var from, to *time.Time
+	if raw := query.Get("from"); raw != "" {
+		parsed, parseErr := time.Parse(time.RFC3339Nano, raw)
+		if parseErr != nil {
+			respondError(w, r, http.StatusBadRequest, "from must be a valid RFC3339 timestamp")
+			return
+		}
+		from = &parsed
+	}
+	if raw := query.Get("to"); raw != "" {
+		parsed, parseErr := time.Parse(time.RFC3339Nano, raw)
+		if parseErr != nil {
+			respondError(w, r, http.StatusBadRequest, "to must be a valid RFC3339 timestamp")
+			return
+		}
+		to = &parsed
+	}
+	if from != nil && to != nil && from.After(*to) {
+		respondError(w, r, http.StatusBadRequest, "from must be <= to")
+		return
+	}
+
+	events, err := s.store.ListAuditEvents(r.Context(), projectID, actorID, resourceType, resourceID, limit+1, cursor, from, to, ascending)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list audit events")
 		return

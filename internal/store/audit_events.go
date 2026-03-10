@@ -39,7 +39,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	return nil
 }
 
-func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.AuditEvent, error) {
+func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAuditEvents")
 	defer span.End()
 
@@ -66,12 +66,30 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 		param++
 	}
 	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
+		if ascending {
+			query += fmt.Sprintf(" AND created_at > $%d", param)
+		} else {
+			query += fmt.Sprintf(" AND created_at < $%d", param)
+		}
 		args = append(args, *cursor)
 		param++
 	}
+	if from != nil {
+		query += fmt.Sprintf(" AND created_at >= $%d", param)
+		args = append(args, *from)
+		param++
+	}
+	if to != nil {
+		query += fmt.Sprintf(" AND created_at <= $%d", param)
+		args = append(args, *to)
+		param++
+	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	order := "DESC"
+	if ascending {
+		order = "ASC"
+	}
+	query += fmt.Sprintf(" ORDER BY created_at %s LIMIT $%d", order, param)
 	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, query, args...)

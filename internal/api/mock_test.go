@@ -956,6 +956,6 @@ func (m *mockAPIStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent)
 	return nil
 }
 
-func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ int, _ *time.Time) ([]domain.AuditEvent, error) {
+func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ int, _, _, _ *time.Time, _ bool) ([]domain.AuditEvent, error) {
 	return nil, nil
 }
