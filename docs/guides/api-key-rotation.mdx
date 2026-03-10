@@ -10,7 +10,7 @@ Strait supports API key rotation with grace periods.
 - `POST /v1/api-keys/{keyID}/rotate`
 
 <Note>
-  The API endpoint supports grace windows. The current CLI `strait api-keys rotate` command performs create + immediate revoke flow.
+  CLI parity is supported via `strait api-keys rotate --grace-period-minutes <n>` which uses the same API rotation endpoint.
 </Note>
 
 ## Request

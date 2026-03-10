@@ -47,18 +47,14 @@ strait api-keys revoke <key-id>
 
 ## api-keys rotate
 
-Create a new API key and revoke the old one.
-
-<Note>
-The CLI rotation command currently revokes the old key immediately. If you need grace-window rotation, use the API endpoint directly.
-</Note>
+Rotate an API key using the API rotation endpoint with a configurable grace window.
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| --name | string | | Name for the new API key |
+| --grace-period-minutes | int | 60 | How long the old key remains valid |
 
 ```bash
-strait api-keys rotate <key-id> --name "New CI/CD Key"
+strait api-keys rotate <key-id> --grace-period-minutes 120
 ```
 
 <Note>

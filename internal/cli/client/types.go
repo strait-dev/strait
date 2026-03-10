@@ -129,6 +129,23 @@ type APIKeyCreateResponse struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type RotateAPIKeyRequest struct {
+	GracePeriodMinutes int `json:"grace_period_minutes,omitempty"`
+}
+
+type RotateAPIKeyResponse struct {
+	OldKeyID       string     `json:"old_key_id"`
+	NewKeyID       string     `json:"new_key_id"`
+	ProjectID      string     `json:"project_id"`
+	Name           string     `json:"name"`
+	Key            string     `json:"key"`
+	KeyPrefix      string     `json:"key_prefix"`
+	Scopes         []string   `json:"scopes"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	GraceExpiresAt time.Time  `json:"grace_expires_at"`
+}
+
 type QueueStats struct {
 	Queued    int `json:"queued"`
 	Executing int `json:"executing"`
