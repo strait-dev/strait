@@ -401,6 +401,8 @@ If a cycle is detected, the workflow is rejected before any runs are created. Th
 
 When multiple parent steps complete concurrently, their child step must start only when all dependencies are satisfied. The engine uses a `deps_completed` counter on each `workflow_step_run`. As each parent completes, an `UPDATE ... RETURNING` query atomically increments the counter and identifies runs where `deps_completed == deps_required`. This ensures exactly one parent triggers the child, even with concurrent completions.
 
+Step-level concurrency groups (`concurrency_key`) are enforced during scheduling. Steps that share the same key are serialized even when dependency fan-in says they are ready.
+
 ### Payload Merging
 
 Step payloads are constructed by merging three layers:
@@ -451,7 +453,7 @@ Callback handler `OnJobRunTerminal` drives workflow progression when any job run
 
 ## Data Model
 
-The system uses PostgreSQL with the following primary tables (61 migrations):
+The system uses PostgreSQL with the following primary tables (63 migrations):
 
 ### jobs
 
@@ -551,6 +553,7 @@ payload             JSONB
 error               TEXT
 retry_of_run_id     TEXT                          -- FK to workflow_runs
 parent_workflow_run_id TEXT                       -- FK for sub-workflows
+parent_step_run_id  TEXT                          -- FK to workflow_step_runs
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 started_at          TIMESTAMPTZ
 finished_at         TIMESTAMPTZ
@@ -566,7 +569,7 @@ workflow_id         TEXT NOT NULL REFERENCES workflows(id)
 job_id              TEXT                          -- FK to jobs
 step_ref            TEXT NOT NULL                 -- Unique within workflow
 depends_on          TEXT[] NOT NULL DEFAULT '{}'  -- Array of step_refs
-condition           JSONB                         -- step_status|all_of|any_of
+condition           JSONB                         -- step_status|step_status_in|not|all_of|any_of
 on_failure          TEXT NOT NULL DEFAULT 'fail_workflow'
 payload             JSONB                         -- Static payload + templates
 step_type           TEXT NOT NULL DEFAULT 'job'   -- job|approval|sub_workflow|wait_for_event|sleep
@@ -582,7 +585,8 @@ sub_workflow_id     TEXT                          -- FK to workflows
 max_nesting_depth   INT NOT NULL DEFAULT 10
 event_key           TEXT                          -- Event trigger key (wait_for_event)
 event_emit_key      TEXT                          -- Auto-emit event on completion
-sleep_duration      TEXT                          -- Go duration string (sleep)
+sleep_duration_secs INT                           -- Sleep duration in seconds
+concurrency_key     TEXT                          -- Step-level concurrency group key
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 -- workflow_step_runs table

@@ -65,6 +65,11 @@ Rate limits are applied per IP address:
 - `project_id`: Required for most list endpoints to scope results to a specific project.
 - `status`: Used on run and workflow-run listings to filter by current state.
 
+## DAG and Dependency Diagnostics Endpoints
+
+- `POST /v1/workflows/{workflowID}/plan`: Returns a topological plan preview for the current workflow version (supports step overrides).
+- `GET /v1/runs/{runID}/dependency-status`: Returns dependency details and whether a waiting run is currently unblocked.
+
 ## Example Request
 
 ```bash

@@ -12,6 +12,8 @@ A workflow is defined as a Directed Acyclic Graph (DAG) where:
 - **Dependencies**: The edges of the graph, defined by the `depends_on` field.
 - **Fan-in/Fan-out**: Multiple steps can depend on one (fan-out), or one step can depend on many (fan-in).
 
+Validation guardrail: a workflow can include up to **1000** steps.
+
 ## Step Types
 
 | Type | Description |
@@ -30,6 +32,8 @@ Workflows use a snapshotting mechanism. Every time a workflow's steps are update
 
 Steps can define a `condition` (JSON) that must evaluate to true before the step starts.
 - **step_status**: Check the status of a dependency (e.g., `completed`, `failed`).
+- **step_status_in**: Check a dependency against a set of statuses.
+- **not**: Invert a nested condition.
 - **Composite Logic**: Use `all_of` or `any_of` for complex boolean logic.
 
 If a condition is false, the step is marked as `skipped`.
@@ -63,6 +67,7 @@ The `on_failure` field determines the workflow's behavior when a step fails:
 
 - `max_concurrent_runs`: Limits how many instances of the workflow can run simultaneously.
 - `max_parallel_steps`: Limits the number of steps that can execute in parallel within a single workflow run.
+- `concurrency_key` (step-level): Serializes steps that share the same key, even if they are otherwise ready to run.
 
 ## Sub-workflow Nesting
 
@@ -73,6 +78,8 @@ Workflows can trigger other workflows using the `sub_workflow` step type.
 ## Step Overrides
 
 At trigger time, you can provide `step_overrides` to selectively enable or disable specific steps for that specific run.
+
+For previewing the resulting execution order (after overrides), use `POST /v1/workflows/{workflowID}/plan`.
 
 ## Workflow FSMs
 
