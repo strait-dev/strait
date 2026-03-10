@@ -3005,7 +3005,7 @@ components:
         event_key:
           type: string
           description: Globally unique key for the event trigger.
-        timeout_sec:
+        timeout_secs:
           type: integer
           default: 3600
           description: Timeout in seconds before the trigger expires.

@@ -19,7 +19,7 @@ import (
 // SDKWaitForEventRequest is the payload for POST /sdk/v1/runs/{runID}/wait-for-event.
 type SDKWaitForEventRequest struct {
 	EventKey   string `json:"event_key" validate:"required"`
-	TimeoutSec int    `json:"timeout_sec,omitempty"`
+	TimeoutSec int    `json:"timeout_secs,omitempty"`
 	NotifyURL  string `json:"notify_url,omitempty"`
 }
 

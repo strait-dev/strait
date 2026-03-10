@@ -380,7 +380,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
-		       et.notify_url, et.notify_status, et.trigger_type
+		       et.notify_url, et.notify_status, et.trigger_type, et.sent_by
 		FROM event_triggers et
 		JOIN workflow_step_runs wsr ON wsr.id = et.workflow_step_run_id
 		WHERE et.status = 'received'
@@ -394,7 +394,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
-		       et.notify_url, et.notify_status, et.trigger_type
+		       et.notify_url, et.notify_status, et.trigger_type, et.sent_by
 		FROM event_triggers et
 		JOIN runs r ON r.id = et.job_run_id
 		WHERE et.status = 'received'

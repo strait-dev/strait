@@ -64,7 +64,7 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 
 	srv := newSDKWaitEventTestServer(t, ms, true)
 
-	body := `{"event_key":"aml:app-123","timeout_sec":7200}`
+	body := `{"event_key":"aml:app-123","timeout_secs":7200}`
 	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+makeSDKRunToken(t, "run-1"))

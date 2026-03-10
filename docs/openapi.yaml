@@ -2513,7 +2513,7 @@ paths:
               properties:
                 event_key:
                   type: string
-                timeout_sec:
+                timeout_secs:
                   type: integer
                   default: 3600
                 notify_url:
