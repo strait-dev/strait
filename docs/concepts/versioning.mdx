@@ -158,6 +158,18 @@ Response:
 ]
 ```
 
+## Workflow Versioning
+
+Workflows use the same dual version model (`version` + `version_id`) and snapshot workflow definitions, including step graphs.
+
+Useful endpoints:
+
+- `GET /v1/workflows/{workflowID}/versions`
+- `GET /v1/workflows/{workflowID}/versions/{versionID}`
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/steps`
+
+This lets you inspect the exact workflow graph and step configuration used by a historical workflow run.
+
 ## Run Provenance
 
 Every run records which version it was enqueued under:

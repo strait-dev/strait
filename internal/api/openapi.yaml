@@ -2,41 +2,7 @@ openapi: 3.0.3
 info:
   title: Strait API
   version: 1.0.0
-  description: |
-    A production-grade Go job strait API.
-
-    ## API Versioning
-
-    All responses include an `X-API-Version` header indicating the current API version.
-    The current version is `v1`. Breaking changes will be introduced under new version prefixes.
-
-    ## Authentication
-
-    The API supports two authentication methods:
-    - **Bearer token**: Use `Authorization: Bearer strait_<key>` with a project API key
-    - **Internal secret**: Use `X-Internal-Secret: <secret>` for service-to-service calls
-
-    ## Pagination
-
-    All list endpoints return paginated results using cursor-based pagination:
-    ```json
-    {
-      "data": [...],
-      "has_more": true,
-      "next_cursor": "2024-01-15T10:30:00.123456789Z"
-    }
-    ```
-    Pass `?cursor=<next_cursor>&limit=50` to fetch the next page. Default limit is 50, max is 100.
-
-    ## Webhook HMAC Signing
-
-    When a job has a `webhook_secret` configured, webhook deliveries include an HMAC-SHA256
-    signature in the `X-Webhook-Signature` header:
-    ```
-    X-Webhook-Signature: sha256=<hex-encoded-hmac>
-    ```
-    Verify by computing `HMAC-SHA256(webhook_secret, request_body)` and comparing the hex digest.
-    The `X-Run-ID` header is also included for correlation.
+  description: A production-grade Go job orchestration service API.
 servers:
   - url: http://localhost:8080
     description: Local development server
@@ -127,23 +93,7 @@ paths:
       summary: List jobs
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -262,23 +212,7 @@ paths:
       summary: Get a job
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -297,23 +231,7 @@ paths:
       summary: Update a job
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -338,23 +256,7 @@ paths:
       summary: Delete a job
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -372,60 +274,24 @@ paths:
       description: Rate limited to 10 requests per minute.
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
           schema:
             type: string
-        - name: X-Idempotency-Key
-          in: header
-          required: false
-          schema:
-            type: string
-            maxLength: 256
-          description: >
-            Idempotency key for deduplication. If a non-terminal run with this
-            key already exists for this job, the existing run is returned instead
-            of creating a new one. Falls back to Idempotency-Key header.
-        - name: Idempotency-Key
-          in: header
-          required: false
-          schema:
-            type: string
-            maxLength: 256
-          description: >
-            Standard idempotency key header (fallback). X-Idempotency-Key takes precedence.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TriggerJobRequest'
       responses:
-        '201':
-          description: Run triggered (or existing run returned if idempotency key matched)
+        '202':
+          description: Run triggered
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TriggerJobResponse'
-        '400':
-          description: Bad request (e.g. idempotency key exceeds 256 characters)
+                $ref: '#/components/schemas/JobRun'
 
   /v1/jobs/{jobID}/trigger/bulk:
     post:
@@ -435,23 +301,7 @@ paths:
       description: Rate limited to 30 requests per minute.
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -462,28 +312,18 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                items:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/BulkTriggerItem'
+              type: array
+              items:
+                $ref: '#/components/schemas/TriggerJobRequest'
       responses:
-        '201':
-          description: Runs triggered (with per-item idempotency deduplication)
+        '202':
+          description: Runs triggered
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  results:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/TriggerJobResponse'
-                  total:
-                    type: integer
-                  created:
-                    type: integer
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobRun'
 
   /v1/jobs/{jobID}/versions:
     get:
@@ -492,23 +332,7 @@ paths:
       summary: List job versions
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -531,23 +355,7 @@ paths:
       summary: Clone a job
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -578,23 +386,7 @@ paths:
       summary: Get job health score
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -620,23 +412,7 @@ paths:
       summary: List job dependencies
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -657,23 +433,7 @@ paths:
       summary: Create a job dependency
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -705,23 +465,7 @@ paths:
       summary: Delete a job dependency
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: jobID
           in: path
           required: true
@@ -743,23 +487,7 @@ paths:
       summary: List job groups
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -801,23 +529,7 @@ paths:
       summary: Get a job group
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: groupID
           in: path
           required: true
@@ -836,23 +548,7 @@ paths:
       summary: Update a job group
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: groupID
           in: path
           required: true
@@ -877,23 +573,7 @@ paths:
       summary: Delete a job group
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: groupID
           in: path
           required: true
@@ -910,23 +590,7 @@ paths:
       summary: List jobs in a group
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: groupID
           in: path
           required: true
@@ -949,23 +613,7 @@ paths:
       summary: List environments
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -1007,23 +655,7 @@ paths:
       summary: Get an environment
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: envID
           in: path
           required: true
@@ -1042,23 +674,7 @@ paths:
       summary: Update an environment
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: envID
           in: path
           required: true
@@ -1083,23 +699,7 @@ paths:
       summary: Delete an environment
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: envID
           in: path
           required: true
@@ -1116,23 +716,7 @@ paths:
       summary: Get resolved variables
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: envID
           in: path
           required: true
@@ -1155,23 +739,7 @@ paths:
       summary: List runs
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -1216,23 +784,7 @@ paths:
       summary: List dead-lettered runs
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -1277,23 +829,7 @@ paths:
       summary: Get a run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1312,23 +848,7 @@ paths:
       summary: Cancel a run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1345,23 +865,7 @@ paths:
       summary: Replay a failed run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1382,23 +886,7 @@ paths:
       summary: Replay a dead-lettered run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1419,23 +907,7 @@ paths:
       summary: SSE event stream
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1456,23 +928,7 @@ paths:
       summary: List child runs
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1495,23 +951,7 @@ paths:
       summary: List run events
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1542,23 +982,7 @@ paths:
       summary: List run checkpoints
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1581,23 +1005,7 @@ paths:
       summary: List run AI model usage
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1620,23 +1028,7 @@ paths:
       summary: List run tool calls
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1659,23 +1051,7 @@ paths:
       summary: List run structured outputs
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1699,23 +1075,7 @@ paths:
       description: Requires FF_DEBUG_BUNDLE feature flag.
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1736,23 +1096,7 @@ paths:
       summary: Enable/disable debug mode
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1778,23 +1122,7 @@ paths:
       summary: List run continuation lineage
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -1817,23 +1145,7 @@ paths:
       summary: List workflows
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -1875,23 +1187,7 @@ paths:
       summary: Get a workflow
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowID
           in: path
           required: true
@@ -1910,23 +1206,7 @@ paths:
       summary: Update a workflow
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowID
           in: path
           required: true
@@ -1951,23 +1231,7 @@ paths:
       summary: Delete a workflow
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowID
           in: path
           required: true
@@ -1984,23 +1248,7 @@ paths:
       summary: Trigger a workflow run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowID
           in: path
           required: true
@@ -2026,23 +1274,7 @@ paths:
       summary: List runs for a workflow
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowID
           in: path
           required: true
@@ -2065,23 +1297,7 @@ paths:
       summary: Get DAG visualization
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowID
           in: path
           required: true
@@ -2102,23 +1318,7 @@ paths:
       summary: List workflow runs
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -2150,23 +1350,7 @@ paths:
       summary: Get a workflow run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2185,23 +1369,7 @@ paths:
       summary: Cancel a workflow run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2218,23 +1386,7 @@ paths:
       summary: List step runs
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2257,23 +1409,7 @@ paths:
       summary: Pause a workflow run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2290,23 +1426,7 @@ paths:
       summary: Resume a workflow run
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2323,23 +1443,7 @@ paths:
       summary: Retry from first failed step
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2360,23 +1464,7 @@ paths:
       summary: Approve an approval step
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2398,23 +1486,7 @@ paths:
       summary: Skip a step
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2444,23 +1516,7 @@ paths:
       summary: Force-complete a step
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: workflowRunID
           in: path
           required: true
@@ -2490,23 +1546,7 @@ paths:
       summary: List API keys
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -2553,23 +1593,7 @@ paths:
       summary: Revoke an API key
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: keyID
           in: path
           required: true
@@ -2579,11 +1603,41 @@ paths:
         '204':
           description: API key revoked
 
+  /v1/api-keys/{keyID}/rotate:
+    post:
+      tags: [APIKeys]
+      summary: Rotate an API key with optional grace period
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keyID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                grace_period_seconds:
+                  type: integer
+      responses:
+        '201':
+          description: Rotated API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+
   /v1/roles:
     post:
       tags: [RBAC]
       summary: Create a custom project role
-      operationId: createRole
       requestBody:
         required: true
         content:
@@ -2599,11 +1653,10 @@ paths:
                 $ref: '#/components/schemas/Role'
     get:
       tags: [RBAC]
-      summary: List all roles for the project
-      operationId: listRoles
+      summary: List roles for a project
       responses:
         '200':
-          description: List of roles
+          description: Roles
           content:
             application/json:
               schema:
@@ -2620,19 +1673,17 @@ paths:
           type: string
     get:
       tags: [RBAC]
-      summary: Get a role by ID
-      operationId: getRole
+      summary: Get role by ID
       responses:
         '200':
-          description: Role details
+          description: Role
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Role'
     patch:
       tags: [RBAC]
-      summary: Update a custom role
-      operationId: updateRole
+      summary: Update role
       requestBody:
         required: true
         content:
@@ -2648,8 +1699,7 @@ paths:
                 $ref: '#/components/schemas/Role'
     delete:
       tags: [RBAC]
-      summary: Delete a custom role
-      operationId: deleteRole
+      summary: Delete role
       responses:
         '204':
           description: Role deleted
@@ -2657,8 +1707,7 @@ paths:
   /v1/members:
     post:
       tags: [RBAC]
-      summary: Assign a role to a user in the project
-      operationId: assignMember
+      summary: Assign member role
       requestBody:
         required: true
         content:
@@ -2674,17 +1723,34 @@ paths:
                 $ref: '#/components/schemas/ProjectMember'
     get:
       tags: [RBAC]
-      summary: List all members in the project
-      operationId: listMembers
+      summary: List project members
       responses:
         '200':
-          description: List of members
+          description: Members
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/ProjectMember'
+
+  /v1/members/bulk:
+    post:
+      tags: [RBAC]
+      summary: Bulk assign members
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Bulk assignment result
+          content:
+            application/json:
+              schema:
+                type: object
 
   /v1/members/{userID}:
     parameters:
@@ -2695,8 +1761,7 @@ paths:
           type: string
     delete:
       tags: [RBAC]
-      summary: Remove a member from the project
-      operationId: removeMember
+      summary: Remove project member
       responses:
         '204':
           description: Member removed
@@ -2704,17 +1769,53 @@ paths:
   /v1/seed-roles:
     post:
       tags: [RBAC]
-      summary: Seed system roles (admin, editor, viewer) — idempotent
-      operationId: seedSystemRoles
+      summary: Seed system roles
       responses:
         '200':
-          description: System roles seeded
+          description: Seeded
+
+  /v1/audit-events:
+    get:
+      tags: [RBAC]
+      summary: List audit events
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: object
 
   /v1/resource-policies:
     post:
       tags: [RBAC]
-      summary: Create a resource-level policy
-      operationId: createResourcePolicy
+      summary: Create resource policy
       requestBody:
         required: true
         content:
@@ -2723,24 +1824,39 @@ paths:
               $ref: '#/components/schemas/CreateResourcePolicyRequest'
       responses:
         '201':
-          description: Resource policy created
+          description: Created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourcePolicy'
     get:
       tags: [RBAC]
-      summary: List resource policies for the project
-      operationId: listResourcePolicies
+      summary: List resource policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
       responses:
         '200':
-          description: List of resource policies
+          description: Policies
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ResourcePolicy'
+                type: object
 
   /v1/resource-policies/{policyID}:
     parameters:
@@ -2751,11 +1867,74 @@ paths:
           type: string
     delete:
       tags: [RBAC]
-      summary: Delete a resource policy
-      operationId: deleteResourcePolicy
+      summary: Delete resource policy
       responses:
         '204':
-          description: Resource policy deleted
+          description: Deleted
+
+  /v1/tag-policies:
+    post:
+      tags: [RBAC]
+      summary: Create tag policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags: [RBAC]
+      summary: List tag policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/tag-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete tag policy
+      responses:
+        '204':
+          description: Deleted
 
   /v1/jobs/{jobID}/versions/{versionID}:
     parameters:
@@ -2771,15 +1950,118 @@ paths:
           type: string
     get:
       tags: [Jobs]
-      summary: Get a specific job version by its nanoid version ID
-      operationId: getJobVersion
+      summary: Get job version by version ID
       responses:
         '200':
-          description: Job version details
+          description: Job version
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobVersion'
+
+  /v1/workflows/{workflowID}/dry-run:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Validate and render a workflow execution plan
+      responses:
+        '200':
+          description: Dry run result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow versions
+      responses:
+        '200':
+          description: Workflow versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/workflows/{workflowID}/versions/{versionID}:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow version by version ID
+      responses:
+        '200':
+          description: Workflow version
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions/{versionID}/steps:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow version steps
+      responses:
+        '200':
+          description: Workflow version steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/workflow-runs/{workflowRunID}/labels:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run labels
+      responses:
+        '200':
+          description: Workflow run labels
+          content:
+            application/json:
+              schema:
+                type: object
 
   /v1/stats:
     get:
@@ -2803,23 +2085,7 @@ paths:
       summary: List webhook deliveries
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -2851,23 +2117,7 @@ paths:
       summary: List secrets
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: project_id
           in: query
           required: true
@@ -2917,23 +2167,7 @@ paths:
       summary: Delete a secret
       security:
         - bearerAuth: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: secretID
           in: path
           required: true
@@ -2950,23 +2184,7 @@ paths:
       summary: Log an event
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -2996,23 +2214,7 @@ paths:
       summary: Report progress
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3044,23 +2246,7 @@ paths:
       summary: Send heartbeat
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3077,23 +2263,7 @@ paths:
       summary: Attach annotations
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3118,23 +2288,7 @@ paths:
       summary: Save a checkpoint
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3162,23 +2316,7 @@ paths:
       summary: Report AI model usage
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3201,23 +2339,7 @@ paths:
       summary: Record a tool call
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3251,23 +2373,7 @@ paths:
       summary: Upsert structured output
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3297,23 +2403,7 @@ paths:
       summary: Mark run completed
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3338,23 +2428,7 @@ paths:
       summary: Mark run failed
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3380,23 +2454,7 @@ paths:
       summary: Spawn a child job run
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3431,23 +2489,7 @@ paths:
       description: Requires FF_RUN_CONTINUATION feature flag.
       security:
         - runToken: []
-      headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
+      parameters:
         - name: runID
           in: path
           required: true
@@ -3479,40 +2521,6 @@ components:
       type: http
       scheme: bearer
       description: JWT run token issued by the trigger response.
-
-  headers:
-    X-API-Version:
-      description: Current API version
-      schema:
-        type: string
-        example: v1
-    X-Webhook-Signature:
-      description: "HMAC-SHA256 signature of the request body: sha256=<hex>"
-      schema:
-        type: string
-        example: "sha256=a1b2c3d4..."
-    X-Run-ID:
-      description: Run ID for webhook correlation
-      schema:
-        type: string
-
-  parameters:
-    limitParam:
-      name: limit
-      in: query
-      description: Maximum number of items to return (default 50, max 100)
-      schema:
-        type: integer
-        default: 50
-        minimum: 1
-        maximum: 100
-    cursorParam:
-      name: cursor
-      in: query
-      description: Pagination cursor from previous response's next_cursor field
-      schema:
-        type: string
-        format: date-time
 
   schemas:
     Job:
@@ -3582,16 +2590,12 @@ components:
         version_policy:
           type: string
           enum: [pin, latest]
-          description: How queued runs resolve the job version at execution time
         backwards_compatible:
           type: boolean
-          description: Whether the latest version is backwards compatible with prior versions
         created_by:
           type: string
-          description: Actor who created this resource
         updated_by:
           type: string
-          description: Actor who last updated this resource
         created_at:
           type: string
           format: date-time
@@ -3715,13 +2719,10 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: Tags inherited from the job, optionally overridden at trigger time
         job_version_id:
           type: string
-          description: Nanoid version identifier of the job at trigger time
         created_by:
           type: string
-          description: Actor who triggered this run
         created_at:
           type: string
           format: date-time
@@ -3796,7 +2797,6 @@ components:
             type: string
         version_id:
           type: string
-          description: Nanoid-based public version identifier
         version_policy:
           type: string
           enum: [pin, latest]
@@ -3851,13 +2851,10 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: Tags inherited from the workflow
         workflow_version_id:
           type: string
-          description: Nanoid version identifier of the workflow at trigger time
         created_by:
           type: string
-          description: Actor who triggered this workflow run
         created_at:
           type: string
           format: date-time
@@ -4155,26 +3152,6 @@ components:
         delayed:
           type: integer
 
-    PaginatedResponse:
-      type: object
-      description: Cursor-based paginated response envelope used by all list endpoints.
-      required:
-        - data
-        - has_more
-      properties:
-        data:
-          type: array
-          items:
-            type: object
-          description: Array of result items
-        next_cursor:
-          type: string
-          description: Opaque cursor for fetching the next page (RFC 3339 timestamp)
-          example: "2024-01-15T10:30:00.123456789Z"
-        has_more:
-          type: boolean
-          description: Whether more results exist beyond this page
-
     ErrorResponse:
       type: object
       required:
@@ -4247,13 +3224,6 @@ components:
             type: integer
         environment_id:
           type: string
-        version_policy:
-          type: string
-          enum: [pin, latest]
-          description: How queued runs resolve the job version at execution time (default pin)
-        backwards_compatible:
-          type: boolean
-          description: Whether the latest version is backwards compatible with prior versions
 
     UpdateJobRequest:
       type: object
@@ -4308,22 +3278,14 @@ components:
             type: integer
         environment_id:
           type: string
-        version_policy:
-          type: string
-          enum: [pin, latest]
-        backwards_compatible:
-          type: boolean
 
     TriggerJobRequest:
       type: object
-      description: >
-        Request body for triggering a job run. For single triggers, idempotency
-        keys must be provided via the X-Idempotency-Key or Idempotency-Key HTTP
-        headers (not in the body). For bulk triggers, use BulkTriggerItem with
-        per-item idempotency_key fields.
       properties:
         payload:
           type: object
+        idempotency_key:
+          type: string
         priority:
           type: integer
         dry_run:
@@ -4332,50 +3294,6 @@ components:
           type: object
           additionalProperties:
             type: string
-        tags:
-          type: object
-          additionalProperties:
-            type: string
-          description: Additional tags to merge onto the job's tags for this run
-
-    BulkTriggerItem:
-      type: object
-      properties:
-        payload:
-          type: object
-        idempotency_key:
-          type: string
-          maxLength: 256
-          description: >
-            Per-item idempotency key for bulk trigger deduplication. If a
-            non-terminal run with this key exists for the job, the existing
-            run is returned instead of creating a new one.
-        priority:
-          type: integer
-        scheduled_at:
-          type: string
-          format: date-time
-
-    TriggerJobResponse:
-      type: object
-      properties:
-        id:
-          type: string
-          description: Run ID
-        status:
-          type: string
-          description: Run status
-        payload_hash:
-          type: string
-          description: SHA-256 hash of the canonical payload (only on new runs)
-        run_token:
-          type: string
-          description: JWT run token (only on new runs)
-        idempotency_hit:
-          type: boolean
-          description: >
-            True if this response is a cached result from an existing run
-            (idempotency key matched). False if a new run was created.
 
     CreateJobGroupRequest:
       type: object
@@ -4650,105 +3568,3 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RunOutput'
-
-    Role:
-      type: object
-      properties:
-        id:
-          type: string
-        project_id:
-          type: string
-        name:
-          type: string
-        permissions:
-          type: array
-          items:
-            type: string
-        is_system:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-
-    CreateRoleRequest:
-      type: object
-      required: [name, permissions]
-      properties:
-        name:
-          type: string
-        permissions:
-          type: array
-          items:
-            type: string
-
-    UpdateRoleRequest:
-      type: object
-      properties:
-        name:
-          type: string
-        permissions:
-          type: array
-          items:
-            type: string
-
-    ProjectMember:
-      type: object
-      properties:
-        id:
-          type: string
-        project_id:
-          type: string
-        user_id:
-          type: string
-        role_id:
-          type: string
-        role_name:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-
-    AssignMemberRequest:
-      type: object
-      required: [user_id, role_id]
-      properties:
-        user_id:
-          type: string
-        role_id:
-          type: string
-
-    ResourcePolicy:
-      type: object
-      properties:
-        id:
-          type: string
-        project_id:
-          type: string
-        user_id:
-          type: string
-        resource_type:
-          type: string
-        resource_id:
-          type: string
-        permissions:
-          type: array
-          items:
-            type: string
-        created_at:
-          type: string
-          format: date-time
-
-    CreateResourcePolicyRequest:
-      type: object
-      required: [user_id, resource_type, resource_id, permissions]
-      properties:
-        user_id:
-          type: string
-        resource_type:
-          type: string
-        resource_id:
-          type: string
-        permissions:
-          type: array
-          items:
-            type: string

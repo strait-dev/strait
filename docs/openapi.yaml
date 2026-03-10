@@ -1603,6 +1603,466 @@ paths:
         '204':
           description: API key revoked
 
+  /v1/api-keys/{keyID}/rotate:
+    post:
+      tags: [APIKeys]
+      summary: Rotate an API key with optional grace period
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keyID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                grace_period_seconds:
+                  type: integer
+      responses:
+        '201':
+          description: Rotated API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+
+  /v1/roles:
+    post:
+      tags: [RBAC]
+      summary: Create a custom project role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Role created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    get:
+      tags: [RBAC]
+      summary: List roles for a project
+      responses:
+        '200':
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+
+  /v1/roles/{roleID}:
+    parameters:
+      - name: roleID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [RBAC]
+      summary: Get role by ID
+      responses:
+        '200':
+          description: Role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    patch:
+      tags: [RBAC]
+      summary: Update role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Updated role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    delete:
+      tags: [RBAC]
+      summary: Delete role
+      responses:
+        '204':
+          description: Role deleted
+
+  /v1/members:
+    post:
+      tags: [RBAC]
+      summary: Assign member role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMemberRequest'
+      responses:
+        '200':
+          description: Member assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMember'
+    get:
+      tags: [RBAC]
+      summary: List project members
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectMember'
+
+  /v1/members/bulk:
+    post:
+      tags: [RBAC]
+      summary: Bulk assign members
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Bulk assignment result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/members/{userID}:
+    parameters:
+      - name: userID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Remove project member
+      responses:
+        '204':
+          description: Member removed
+
+  /v1/seed-roles:
+    post:
+      tags: [RBAC]
+      summary: Seed system roles
+      responses:
+        '200':
+          description: Seeded
+
+  /v1/audit-events:
+    get:
+      tags: [RBAC]
+      summary: List audit events
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/resource-policies:
+    post:
+      tags: [RBAC]
+      summary: Create resource policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourcePolicyRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourcePolicy'
+    get:
+      tags: [RBAC]
+      summary: List resource policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/resource-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete resource policy
+      responses:
+        '204':
+          description: Deleted
+
+  /v1/tag-policies:
+    post:
+      tags: [RBAC]
+      summary: Create tag policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags: [RBAC]
+      summary: List tag policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/tag-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete tag policy
+      responses:
+        '204':
+          description: Deleted
+
+  /v1/jobs/{jobID}/versions/{versionID}:
+    parameters:
+      - name: jobID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Jobs]
+      summary: Get job version by version ID
+      responses:
+        '200':
+          description: Job version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobVersion'
+
+  /v1/workflows/{workflowID}/dry-run:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Validate and render a workflow execution plan
+      responses:
+        '200':
+          description: Dry run result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow versions
+      responses:
+        '200':
+          description: Workflow versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/workflows/{workflowID}/versions/{versionID}:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow version by version ID
+      responses:
+        '200':
+          description: Workflow version
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions/{versionID}/steps:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow version steps
+      responses:
+        '200':
+          description: Workflow version steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /v1/workflow-runs/{workflowRunID}/labels:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run labels
+      responses:
+        '200':
+          description: Workflow run labels
+          content:
+            application/json:
+              schema:
+                type: object
+
   /v1/stats:
     get:
       tags:
