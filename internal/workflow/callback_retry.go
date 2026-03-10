@@ -141,21 +141,10 @@ func (s *StepCallback) failWorkflowAndCancel(ctx context.Context, wfRun *domain.
 }
 
 func (s *StepCallback) cancelRemainingSteps(ctx context.Context, workflowRunID string) error {
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
-	if err != nil {
-		return fmt.Errorf("list step runs by workflow run: %w", err)
-	}
-
 	now := time.Now()
-	for _, sr := range stepRuns {
-		if sr.Status.IsTerminal() {
-			continue
-		}
-		if err := s.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepCanceled, map[string]any{"finished_at": now}); err != nil {
-			return fmt.Errorf("cancel step run %s: %w", sr.ID, err)
-		}
+	if _, err := s.store.CancelNonTerminalStepRuns(ctx, workflowRunID, now, ""); err != nil {
+		return fmt.Errorf("cancel non-terminal step runs: %w", err)
 	}
-
 	return nil
 }
 
@@ -194,23 +183,14 @@ func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID, wo
 		return nil
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
-	if err != nil {
-		return fmt.Errorf("list step runs by workflow run: %w", err)
+	refs := make([]string, 0, len(toSkip))
+	for ref := range toSkip {
+		refs = append(refs, ref)
 	}
 
 	now := time.Now()
-	for _, sr := range stepRuns {
-		if _, ok := toSkip[sr.StepRef]; !ok {
-			continue
-		}
-		if sr.Status.IsTerminal() {
-			continue
-		}
-
-		if err := s.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepSkipped, map[string]any{"finished_at": now}); err != nil {
-			return fmt.Errorf("skip step run %s: %w", sr.ID, err)
-		}
+	if _, err := s.store.SkipStepRunsByRefs(ctx, workflowRunID, refs, now); err != nil {
+		return fmt.Errorf("skip step runs by refs: %w", err)
 	}
 
 	return nil

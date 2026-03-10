@@ -21,12 +21,17 @@ type StepCallback struct {
 
 type CallbackStore interface {
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
+	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]storepkg.StepDepResult, error)
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	CountNonTerminalStepRuns(ctx context.Context, workflowRunID string) (int, error)
+	ListFailedStepRunRefs(ctx context.Context, workflowRunID string) ([]string, error)
+	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	SkipStepRunsByRefs(ctx context.Context, workflowRunID string, refs []string, finishedAt time.Time) (int64, error)
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
@@ -35,6 +40,9 @@ type CallbackStore interface {
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	ListDependentsByDependencyJob(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error)
+	ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, limit int) ([]domain.JobRun, error)
+	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
@@ -58,7 +66,12 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnJobRunTerminal")
 	defer span.End()
 
-	if run == nil || run.WorkflowStepRunID == "" {
+	if run == nil {
+		return nil
+	}
+	defer s.tryReleaseDependencyRuns(ctx, run)
+
+	if run.WorkflowStepRunID == "" {
 		return nil
 	}
 
@@ -152,18 +165,9 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 		return nil
 	}
 
-	// Find the step run for this event trigger via the step runs list.
-	// We filter to a small window since we only need the one matching step run.
-	var targetStepRun *domain.WorkflowStepRun
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, trigger.WorkflowRunID, 500, nil)
+	targetStepRun, err := s.store.GetWorkflowStepRun(ctx, trigger.WorkflowStepRunID)
 	if err != nil {
-		return fmt.Errorf("list step runs for event trigger: %w", err)
-	}
-	for i := range stepRuns {
-		if stepRuns[i].ID == trigger.WorkflowStepRunID {
-			targetStepRun = &stepRuns[i]
-			break
-		}
+		return fmt.Errorf("get step run for event trigger: %w", err)
 	}
 	if targetStepRun == nil || targetStepRun.Status.IsTerminal() {
 		return nil
@@ -204,18 +208,10 @@ func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnStepCompleted")
 	defer span.End()
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 500, nil)
+	target, err := s.store.GetWorkflowStepRun(ctx, stepRunID)
 	if err != nil {
-		s.logger.Error("OnStepCompleted: failed to list step runs", "workflow_run_id", workflowRunID, "error", err)
+		s.logger.Error("OnStepCompleted: failed to get step run", "workflow_run_id", workflowRunID, "step_run_id", stepRunID, "error", err)
 		return
-	}
-
-	var target *domain.WorkflowStepRun
-	for i := range stepRuns {
-		if stepRuns[i].ID == stepRunID {
-			target = &stepRuns[i]
-			break
-		}
 	}
 	if target == nil {
 		return
@@ -239,18 +235,10 @@ func (s *StepCallback) OnStepFailed(ctx context.Context, workflowRunID string, s
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnStepFailed")
 	defer span.End()
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 500, nil)
+	target, err := s.store.GetWorkflowStepRun(ctx, stepRunID)
 	if err != nil {
-		s.logger.Error("OnStepFailed: failed to list step runs", "workflow_run_id", workflowRunID, "error", err)
+		s.logger.Error("OnStepFailed: failed to get step run", "workflow_run_id", workflowRunID, "step_run_id", stepRunID, "error", err)
 		return
-	}
-
-	var target *domain.WorkflowStepRun
-	for i := range stepRuns {
-		if stepRuns[i].ID == stepRunID {
-			target = &stepRuns[i]
-			break
-		}
 	}
 	if target == nil {
 		s.logger.Warn("OnStepFailed: step run not found", "step_run_id", stepRunID)
@@ -362,4 +350,50 @@ func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domai
 	}
 
 	s.logger.Info("auto-emitted event on step completion", "step_ref", step.StepRef, "event_key", emitKey, "trigger_id", trigger.ID)
+}
+
+func (s *StepCallback) tryReleaseDependencyRuns(ctx context.Context, run *domain.JobRun) {
+	if run == nil || !run.Status.IsTerminal() {
+		return
+	}
+
+	deps, err := s.store.ListDependentsByDependencyJob(ctx, run.JobID)
+	if err != nil {
+		s.logger.Error("dependency release: list dependents failed", "job_id", run.JobID, "error", err)
+		return
+	}
+	if len(deps) == 0 {
+		return
+	}
+
+	dependentJobIDs := make([]string, 0, len(deps))
+	seen := make(map[string]struct{}, len(deps))
+	for _, dep := range deps {
+		if _, ok := seen[dep.JobID]; ok {
+			continue
+		}
+		seen[dep.JobID] = struct{}{}
+		dependentJobIDs = append(dependentJobIDs, dep.JobID)
+	}
+
+	waitingRuns, err := s.store.ListWaitingRunsByJobIDs(ctx, dependentJobIDs, 1000)
+	if err != nil {
+		s.logger.Error("dependency release: list waiting runs failed", "job_ids", dependentJobIDs, "error", err)
+		return
+	}
+
+	for i := range waitingRuns {
+		candidate := &waitingRuns[i]
+		satisfied, checkErr := s.store.AreJobDependenciesSatisfied(ctx, candidate)
+		if checkErr != nil {
+			s.logger.Error("dependency release: dependency check failed", "run_id", candidate.ID, "error", checkErr)
+			continue
+		}
+		if !satisfied {
+			continue
+		}
+		if err := s.store.UpdateRunStatus(ctx, candidate.ID, domain.StatusWaiting, domain.StatusQueued, nil); err != nil {
+			s.logger.Error("dependency release: failed to queue waiting run", "run_id", candidate.ID, "error", err)
+		}
+	}
 }

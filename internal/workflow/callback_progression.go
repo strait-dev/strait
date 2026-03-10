@@ -109,15 +109,12 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 }
 
 func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunID string) error {
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	nonTerminalCount, err := s.store.CountNonTerminalStepRuns(ctx, workflowRunID)
 	if err != nil {
-		return fmt.Errorf("list step runs by workflow run: %w", err)
+		return fmt.Errorf("count non-terminal step runs: %w", err)
 	}
-
-	for _, sr := range stepRuns {
-		if !sr.Status.IsTerminal() {
-			return nil
-		}
+	if nonTerminalCount > 0 {
+		return nil
 	}
 
 	wfRun, err := s.store.GetWorkflowRun(ctx, workflowRunID)
@@ -137,16 +134,22 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return step.StepRef, step.OnFailure
 	})
 
-	hasFailingStep := false
-	for _, sr := range stepRuns {
-		if sr.Status != domain.StepFailed {
-			continue
-		}
+	failedStepRefs, err := s.store.ListFailedStepRunRefs(ctx, workflowRunID)
+	if err != nil {
+		return fmt.Errorf("list failed step refs: %w", err)
+	}
 
-		if policyByRef[sr.StepRef] != domain.Continue {
+	hasFailingStep := false
+	for _, stepRef := range failedStepRefs {
+		if policyByRef[stepRef] != domain.Continue {
 			hasFailingStep = true
 			break
 		}
+	}
+
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	if err != nil {
+		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
 
 	now := time.Now()
@@ -189,31 +192,39 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		return nil
 	}
 
-	// Get parent's step definitions to find which step is a sub_workflow that matches this child.
-	parentSteps, err := s.store.ListStepsByWorkflowVersion(ctx, parentRun.WorkflowID, parentRun.WorkflowVersion)
-	if err != nil {
-		return fmt.Errorf("list parent workflow steps: %w", err)
-	}
-
-	// Find the sub_workflow step whose SubWorkflowID matches the child's workflow ID.
-	var matchingStepRef string
-	for _, step := range parentSteps {
-		if step.StepType == domain.WorkflowStepTypeSubWorkflow && step.SubWorkflowID == childRun.WorkflowID {
-			matchingStepRef = step.StepRef
-			break
+	var parentStepRun *domain.WorkflowStepRun
+	if childRun.ParentStepRunID != "" {
+		parentStepRun, err = s.store.GetWorkflowStepRun(ctx, childRun.ParentStepRunID)
+		if err != nil {
+			return fmt.Errorf("get parent step run by id for sub-workflow: %w", err)
 		}
 	}
-	if matchingStepRef == "" {
-		s.logger.Warn("no matching sub_workflow step found in parent",
-			"child_run_id", childRun.ID, "child_workflow_id", childRun.WorkflowID,
-			"parent_run_id", parentRun.ID)
-		return nil
-	}
 
-	// Find the parent step run for this sub_workflow step.
-	parentStepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, parentRun.ID, matchingStepRef)
-	if err != nil {
-		return fmt.Errorf("get parent step run for sub-workflow: %w", err)
+	if parentStepRun == nil {
+		// Backward-compatible fallback for runs created before parent_step_run_id existed.
+		parentSteps, listErr := s.store.ListStepsByWorkflowVersion(ctx, parentRun.WorkflowID, parentRun.WorkflowVersion)
+		if listErr != nil {
+			return fmt.Errorf("list parent workflow steps: %w", listErr)
+		}
+
+		var matchingStepRef string
+		for _, step := range parentSteps {
+			if step.StepType == domain.WorkflowStepTypeSubWorkflow && step.SubWorkflowID == childRun.WorkflowID {
+				matchingStepRef = step.StepRef
+				break
+			}
+		}
+		if matchingStepRef == "" {
+			s.logger.Warn("no matching sub_workflow step found in parent",
+				"child_run_id", childRun.ID, "child_workflow_id", childRun.WorkflowID,
+				"parent_run_id", parentRun.ID)
+			return nil
+		}
+
+		parentStepRun, err = s.store.GetStepRunByWorkflowRunAndRef(ctx, parentRun.ID, matchingStepRef)
+		if err != nil {
+			return fmt.Errorf("get parent step run for sub-workflow fallback: %w", err)
+		}
 	}
 	if parentStepRun == nil || parentStepRun.Status.IsTerminal() {
 		return nil
@@ -249,7 +260,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		}
 
 		if err := s.fanInAndStartReadyChildren(ctx, parentStepRun); err != nil {
-			return fmt.Errorf("fan-in after sub-workflow completion for step %s: %w", matchingStepRef, err)
+			return fmt.Errorf("fan-in after sub-workflow completion for step %s: %w", parentStepRun.StepRef, err)
 		}
 		return s.checkWorkflowCompletion(ctx, parentRun.ID)
 
