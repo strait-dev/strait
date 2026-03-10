@@ -152,20 +152,20 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", s.handleStats)
 
 		r.Route("/roles", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateRole)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/", s.handleCreateRole)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListRoles)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{roleID}", s.handleGetRole)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Patch("/{roleID}", s.handleUpdateRole)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{roleID}", s.handleDeleteRole)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Patch("/{roleID}", s.handleUpdateRole)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Delete("/{roleID}", s.handleDeleteRole)
 		})
 
 		r.Route("/members", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleAssignMember)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Post("/", s.handleAssignMember)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListMembers)
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{userID}", s.handleRemoveMember)
+			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(40, time.Minute)).Delete("/{userID}", s.handleRemoveMember)
 		})
 
-		r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/seed-roles", s.handleSeedSystemRoles)
+		r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(5, time.Minute)).Post("/seed-roles", s.handleSeedSystemRoles)
 
 		r.Route("/resource-policies", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateResourcePolicy)
