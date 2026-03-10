@@ -1692,3 +1692,173 @@ func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
 		t.Fatal("expected direct workflow run status update when callback is nil")
 	}
 }
+
+func TestReapInconsistentEventTriggers_WorkflowStepReconciled(t *testing.T) {
+	t.Parallel()
+
+	var onEventCalled bool
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-stale",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeEvent,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusReceived,
+				},
+			}, nil
+		},
+	}
+
+	wfCb := &mockWorkflowCallback{
+		onEventReceivedFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			onEventCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.workflowCallback = wfCb
+	r.ReapOnce(context.Background())
+
+	if !onEventCalled {
+		t.Fatal("expected OnEventReceived to be called for inconsistent event trigger")
+	}
+}
+
+func TestReapInconsistentEventTriggers_SleepReconciled(t *testing.T) {
+	t.Parallel()
+
+	var onStepCompletedCalled bool
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-sleep-stale",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeSleep,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusReceived,
+				},
+			}, nil
+		},
+	}
+
+	wfCb := &mockWorkflowCallback{
+		onStepCompletedFn: func(_ context.Context, _ string, _ string) {
+			onStepCompletedCalled = true
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.workflowCallback = wfCb
+	r.ReapOnce(context.Background())
+
+	if !onStepCompletedCalled {
+		t.Fatal("expected OnStepCompleted for inconsistent sleep trigger")
+	}
+}
+
+func TestReapInconsistentEventTriggers_JobRunReconciled(t *testing.T) {
+	t.Parallel()
+
+	var requeuedRunID string
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:         "evt-jr-stale",
+					SourceType: domain.EventSourceJobRun,
+					JobRunID:   "run-stale",
+					Status:     domain.EventTriggerStatusReceived,
+				},
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
+			requeuedRunID = id
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if requeuedRunID != "run-stale" {
+		t.Fatalf("expected run-stale to be requeued, got %q", requeuedRunID)
+	}
+}
+
+func TestReapInconsistentEventTriggers_ListError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return nil, errors.New("db error")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background()) // should not panic
+}
+
+func TestCompleteSleepTrigger_StepUpdateError(t *testing.T) {
+	t.Parallel()
+
+	var triggerUpdated bool
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-sleep-err",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeSleep,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					RequestedAt:       time.Now().Add(-10 * time.Minute),
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			triggerUpdated = true
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return errors.New("step update failed")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if !triggerUpdated {
+		t.Fatal("expected trigger status to be updated even if step update fails")
+	}
+}
+
+func TestReapOldEventTriggers_RetentionDisabled(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	// eventTriggerRetention defaults to 0 → skip
+	r.ReapOnce(context.Background()) // should not panic or call delete
+}
+
+func TestReapOldEventTriggers_DeleteError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+			return 0, errors.New("delete failed")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.eventTriggerRetention = 24 * time.Hour
+	r.ReapOnce(context.Background()) // should not panic
+}

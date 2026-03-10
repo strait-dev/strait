@@ -33,22 +33,24 @@ func (m *mockPollerStore) UpdateRunStatus(ctx context.Context, id string, from, 
 
 // mockReaperStore implements ReaperStore for testing.
 type mockReaperStore struct {
-	listStaleRunsFn            func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
-	listExpiredRunsFn          func(ctx context.Context) ([]domain.JobRun, error)
-	listStaleDequeuedFn        func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
-	listTimedOutWfRunsFn       func(ctx context.Context) ([]domain.WorkflowRun, error)
-	listStepRunsByWfRunFn      func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
-	updateWorkflowRunStatusFn  func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	updateStepRunStatusFn      func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	getRunFn                   func(ctx context.Context, id string) (*domain.JobRun, error)
-	listExpiredApprovalsFn     func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
-	getStepRunByRunAndRefFn    func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
-	updateWorkflowApprovalFn   func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
-	updateRunStatusFn          func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	deleteOldWorkflowRunsFn    func(ctx context.Context, before time.Time, limit int) (int64, error)
-	deleteRetentionFn          func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
-	listExpiredEventTriggersFn func(ctx context.Context) ([]domain.EventTrigger, error)
-	updateEventTriggerStatusFn func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	listStaleRunsFn                           func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	listExpiredRunsFn                         func(ctx context.Context) ([]domain.JobRun, error)
+	listStaleDequeuedFn                       func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
+	listTimedOutWfRunsFn                      func(ctx context.Context) ([]domain.WorkflowRun, error)
+	listStepRunsByWfRunFn                     func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	updateWorkflowRunStatusFn                 func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	updateStepRunStatusFn                     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	getRunFn                                  func(ctx context.Context, id string) (*domain.JobRun, error)
+	listExpiredApprovalsFn                    func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+	getStepRunByRunAndRefFn                   func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	updateWorkflowApprovalFn                  func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	updateRunStatusFn                         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	deleteOldWorkflowRunsFn                   func(ctx context.Context, before time.Time, limit int) (int64, error)
+	deleteRetentionFn                         func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
+	listExpiredEventTriggersFn                func(ctx context.Context) ([]domain.EventTrigger, error)
+	updateEventTriggerStatusFn                func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	listReceivedEventTriggersWithStaleStepsFn func(ctx context.Context) ([]domain.EventTrigger, error)
+	deleteEventTriggersFinishedBeforeFn       func(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
 type mockCronStore struct {
@@ -229,11 +231,17 @@ func (m *mockReaperStore) CancelEventTriggersByWorkflowRun(_ context.Context, _ 
 	return 0, nil
 }
 
-func (m *mockReaperStore) ListReceivedEventTriggersWithStaleSteps(_ context.Context) ([]domain.EventTrigger, error) {
+func (m *mockReaperStore) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error) {
+	if m.listReceivedEventTriggersWithStaleStepsFn != nil {
+		return m.listReceivedEventTriggersWithStaleStepsFn(ctx)
+	}
 	return nil, nil
 }
 
-func (m *mockReaperStore) DeleteEventTriggersFinishedBefore(_ context.Context, _ time.Time, _ int) (int64, error) {
+func (m *mockReaperStore) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	if m.deleteEventTriggersFinishedBeforeFn != nil {
+		return m.deleteEventTriggersFinishedBeforeFn(ctx, before, limit)
+	}
 	return 0, nil
 }
 
