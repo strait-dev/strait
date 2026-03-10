@@ -40,6 +40,10 @@
             "group": "Guides",
             "pages": [
               "guides/authentication",
+              "guides/oidc",
+              "guides/rbac",
+              "guides/audit-events",
+              "guides/api-key-rotation",
               "guides/security",
               "guides/deployment",
               "guides/job-dependencies",
@@ -62,7 +66,8 @@
             "pages": [
               "development/contributing",
               "development/testing",
-              "development/database-schema"
+              "development/database-schema",
+              "migrations"
             ]
           }
         ]

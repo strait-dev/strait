@@ -1,0 +1,34 @@
+---
+title: "OIDC Authentication"
+description: "Optional OpenID Connect bearer-token validation for user API access."
+---
+
+Strait can validate non-`strait_` bearer tokens using OIDC when enabled.
+
+## When to use OIDC
+
+Use OIDC when user requests should be authenticated directly with tokens from your IdP, while service-to-service traffic can still use `X-Internal-Secret`.
+
+## Behavior
+
+- Bearer token starts with `strait_` → API key auth path
+- Other bearer token → OIDC verifier path (if configured)
+- Internal secret header/bearer → internal secret auth path
+
+## Configuration
+
+Enable OIDC verifier settings in server config (issuer/audience/public-key related options).
+
+## Context Mapping
+
+On successful verification, Strait maps claims into:
+- actor identity context (user)
+- project context (when provided by claim/header mapping)
+
+Authorization still goes through `requirePermission()` and RBAC policies.
+
+## Rollout Tip
+
+Run OIDC and internal-secret user identity in parallel during migration, then phase out internal headers for user traffic when your app is fully token-based.
+
+See [Authentication & Authorization](/docs/guides/authentication).

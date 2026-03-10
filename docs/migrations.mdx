@@ -1,4 +1,7 @@
-# Migration Strategy
+---
+title: "Migration Strategy"
+description: "How Strait manages immutable migrations and baseline bootstraps."
+---
 
 ## Current Policy
 
@@ -10,13 +13,13 @@
 
 To speed up fresh installs while preserving safety for existing deployments:
 
-1. Keep historical migrations (000001..current) for upgrades.
-2. Introduce a periodic **baseline snapshot** migration for fresh databases only.
-3. Keep incremental migrations after the baseline for active development.
+1. Keep historical migrations (`000001..current`) for upgrades.
+2. Introduce periodic **baseline snapshot** migrations for fresh databases only.
+3. Keep incremental migrations after each baseline for active development.
 
-Example (next major baseline):
+Example baseline pattern:
 
-- `001000_baseline_schema.up.sql` — complete schema as of release cut
+- `001000_baseline_schema.up.sql` — complete schema at release cut
 - `001001_*.sql` onward — normal incremental migrations
 
 ## Operational Rules
@@ -29,14 +32,14 @@ Example (next major baseline):
 
 ## Tooling Notes
 
-- Baseline generation should be automated from a migrated reference DB.
+- Baseline generation should be automated from a fully migrated reference DB.
 - CI should test both paths:
-  1. from empty DB through full historical chain
-  2. from baseline through latest increments
+  1. empty DB through full historical chain
+  2. baseline through latest increments
 
 ## Safety Checklist Before Releasing a Baseline
 
-- [ ] Full schema diff against reference DB is empty
+- [ ] Schema diff against reference DB is empty
 - [ ] Integration/E2E pass on baseline bootstrap path
 - [ ] Integration/E2E pass on historical upgrade path
 - [ ] Rollback scripts verified for latest increment set
