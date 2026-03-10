@@ -1,0 +1,31 @@
+---
+title: "Monitoring & Alerts"
+description: "Production monitoring baselines for auth, RBAC, audit events, and webhooks."
+---
+
+Use the monitoring assets in `ops/monitoring/` as a baseline:
+
+- `grafana-authz-rbac-dashboard.json`
+- `alerts-authz-rbac.yaml`
+
+## Core Signals
+
+- HTTP authz failures (`401`, `403`)
+- Permission cache hits/misses/evictions
+- RBAC control-plane mutation rate
+- Audit event insert errors
+- Webhook delivery failures
+
+## Recommended SLO Checks
+
+- 403 rate remains near baseline after RBAC or policy changes
+- Permission cache hit ratio >= 0.80 under normal load
+- Audit event write error rate = 0
+- Webhook terminal failure rate stays within agreed threshold
+
+## Related Runbooks
+
+- [OIDC Rollout](/docs/operations/oidc-rollout)
+- [RBAC Policy Rollout](/docs/operations/rbac-policy-rollout)
+- [API Key Rotation Rollout](/docs/operations/api-key-rotation-rollout)
+- [Auth Incident Response](/docs/operations/incident-response-authz)

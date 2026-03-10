@@ -1,0 +1,30 @@
+groups:
+  - name: strait-authz-rbac
+    interval: 30s
+    rules:
+      - alert: StraitHighForbiddenRate
+        expr: sum(rate(http_server_requests_total{status="403"}[10m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 403 rate in Strait"
+          description: "Authorization failures are elevated. Check RBAC changes, OIDC claims, and policy cache invalidation."
+
+      - alert: StraitPermissionCacheLowHitRatio
+        expr: (sum(rate(strait_permission_cache_hits_total[10m])) / clamp_min(sum(rate(strait_permission_cache_hits_total[10m])) + sum(rate(strait_permission_cache_misses_total[10m])), 1)) < 0.8
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Permission cache hit ratio is low"
+          description: "Cache churn may increase DB pressure. Inspect RBAC mutation volume and invalidation behavior."
+
+      - alert: StraitAuditEventInsertErrors
+        expr: sum(rate(strait_audit_event_insert_errors_total[10m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit event write failures"
+          description: "Security event recording is degraded. Investigate DB health and store errors immediately."
