@@ -1,8 +1,12 @@
 package api
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // permissionCache is a short-lived, concurrency-safe cache for user permissions.
@@ -13,6 +17,11 @@ type permissionCache struct {
 	entries map[string]permCacheEntry
 	ttl     time.Duration
 	stop    chan struct{}
+
+	hits      metric.Int64Counter
+	misses    metric.Int64Counter
+	evictions metric.Int64Counter
+	entriesUp metric.Int64UpDownCounter
 }
 
 type permCacheEntry struct {
@@ -21,10 +30,20 @@ type permCacheEntry struct {
 }
 
 func newPermissionCache(ttl time.Duration) *permissionCache {
+	meter := otel.Meter("strait")
+	hits, _ := meter.Int64Counter("strait.permission_cache.hits_total")
+	misses, _ := meter.Int64Counter("strait.permission_cache.misses_total")
+	evictions, _ := meter.Int64Counter("strait.permission_cache.evictions_total")
+	entriesUp, _ := meter.Int64UpDownCounter("strait.permission_cache.entries")
+
 	c := &permissionCache{
-		entries: make(map[string]permCacheEntry),
-		ttl:     ttl,
-		stop:    make(chan struct{}),
+		entries:   make(map[string]permCacheEntry),
+		ttl:       ttl,
+		stop:      make(chan struct{}),
+		hits:      hits,
+		misses:    misses,
+		evictions: evictions,
+		entriesUp: entriesUp,
 	}
 	go c.sweepLoop()
 	return c
@@ -51,10 +70,17 @@ func (c *permissionCache) sweep() {
 	defer c.mu.Unlock()
 
 	now := time.Now()
+	evicted := int64(0)
 	for k, entry := range c.entries {
 		if now.Sub(entry.cachedAt) > c.ttl {
 			delete(c.entries, k)
+			evicted++
 		}
+	}
+	if evicted > 0 {
+		ctx := context.Background()
+		c.evictions.Add(ctx, evicted)
+		c.entriesUp.Add(ctx, -evicted)
 	}
 }
 
@@ -84,12 +110,18 @@ func (c *permissionCache) Get(projectID, userID string) ([]string, bool) {
 
 	entry, ok := c.entries[k]
 	if !ok {
+		c.misses.Add(context.Background(), 1)
 		return nil, false
 	}
 	if time.Since(entry.cachedAt) > c.ttl {
 		delete(c.entries, k)
+		ctx := context.Background()
+		c.misses.Add(ctx, 1)
+		c.evictions.Add(ctx, 1)
+		c.entriesUp.Add(ctx, -1)
 		return nil, false
 	}
+	c.hits.Add(context.Background(), 1)
 	return entry.permissions, true
 }
 
@@ -98,9 +130,14 @@ func (c *permissionCache) Set(projectID, userID string, permissions []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.entries[c.key(projectID, userID)] = permCacheEntry{
+	k := c.key(projectID, userID)
+	_, existed := c.entries[k]
+	c.entries[k] = permCacheEntry{
 		permissions: permissions,
 		cachedAt:    time.Now(),
+	}
+	if !existed {
+		c.entriesUp.Add(context.Background(), 1)
 	}
 }
 
@@ -109,5 +146,11 @@ func (c *permissionCache) Invalidate(projectID, userID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	delete(c.entries, c.key(projectID, userID))
+	k := c.key(projectID, userID)
+	if _, ok := c.entries[k]; ok {
+		delete(c.entries, k)
+		ctx := context.Background()
+		c.evictions.Add(ctx, 1)
+		c.entriesUp.Add(ctx, -1)
+	}
 }
