@@ -82,13 +82,16 @@ func TestEventNotifier_NotifyAsync_Success(t *testing.T) {
 	mu.Unlock()
 }
 
-func TestEventNotifier_NotifyAsync_ServerError(t *testing.T) {
+func TestEventNotifier_NotifyAsync_ServerError_Retries(t *testing.T) {
 	t.Parallel()
 
-	done := make(chan struct{})
+	var attempts int32
+	var attemptsMu sync.Mutex
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attemptsMu.Lock()
+		attempts++
+		attemptsMu.Unlock()
 		w.WriteHeader(http.StatusInternalServerError)
-		close(done)
 	}))
 	defer ts.Close()
 
@@ -105,13 +108,68 @@ func TestEventNotifier_NotifyAsync_ServerError(t *testing.T) {
 
 	notifier.NotifyAsync(trigger)
 
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for notify")
+	// Wait for all 3 retries to complete (1s + 2s backoff + execution).
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for retries")
+		case <-time.After(100 * time.Millisecond):
+			attemptsMu.Lock()
+			n := attempts
+			attemptsMu.Unlock()
+			if n >= int32(maxNotifyAttempts) {
+				goto done
+			}
+		}
+	}
+done:
+	time.Sleep(100 * time.Millisecond) // Allow goroutine to finish store update.
+
+	attemptsMu.Lock()
+	if attempts != int32(maxNotifyAttempts) {
+		t.Fatalf("expected %d attempts, got %d", maxNotifyAttempts, attempts)
+	}
+	attemptsMu.Unlock()
+
+	if ms.getStatus() != "failed" {
+		t.Fatalf("expected notify_status=failed, got %s", ms.getStatus())
+	}
+}
+
+func TestEventNotifier_NotifyAsync_ClientError_NoRetry(t *testing.T) {
+	t.Parallel()
+
+	var attempts int32
+	var attemptsMu sync.Mutex
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attemptsMu.Lock()
+		attempts++
+		attemptsMu.Unlock()
+		w.WriteHeader(http.StatusBadRequest) // 400 → not retryable
+	}))
+	defer ts.Close()
+
+	ms := &mockNotifyStore{}
+	notifier := NewEventNotifier(ms, slog.Default())
+
+	trigger := &domain.EventTrigger{
+		ID:        "evt-4",
+		EventKey:  "client-err-key",
+		ProjectID: "proj-1",
+		NotifyURL: ts.URL,
+		ExpiresAt: time.Now().Add(time.Hour),
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	notifier.NotifyAsync(trigger)
+	time.Sleep(500 * time.Millisecond)
+
+	attemptsMu.Lock()
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt for 4xx, got %d", attempts)
+	}
+	attemptsMu.Unlock()
+
 	if ms.getStatus() != "failed" {
 		t.Fatalf("expected notify_status=failed, got %s", ms.getStatus())
 	}
