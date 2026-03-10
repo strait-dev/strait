@@ -110,6 +110,7 @@ type Config struct {
 
 	// Scheduler settings
 	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
+	EventTriggerRetention time.Duration `mapstructure:"EVENT_TRIGGER_RETENTION"`
 	ReaperDeleteBatchSize int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
 
 	// Workflow settings
@@ -274,6 +275,11 @@ func Load() (*Config, error) {
 	cfg.ExecutorIdleConnTimeout = viper.GetDuration("EXECUTOR_IDLE_CONN_TIMEOUT")
 	cfg.WebhookDispatchTimeout = viper.GetDuration("WEBHOOK_DISPATCH_TIMEOUT")
 	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
+	cfg.EventTriggerRetention = viper.GetDuration("EVENT_TRIGGER_RETENTION")
+	// Legacy: support EVENT_TRIGGER_RETENTION_DAYS as days → duration.
+	if cfg.EventTriggerRetention == 0 && cfg.EventTriggerRetentionDays > 0 {
+		cfg.EventTriggerRetention = time.Duration(cfg.EventTriggerRetentionDays) * 24 * time.Hour
+	}
 	cfg.CDCBatchSize = viper.GetInt("CDC_BATCH_SIZE")
 	cfg.CDCWaitTimeMs = viper.GetInt("CDC_WAIT_TIME_MS")
 	cfg.SSEKeepaliveInterval = viper.GetDuration("SSE_KEEPALIVE_INTERVAL")

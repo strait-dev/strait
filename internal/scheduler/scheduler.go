@@ -33,6 +33,7 @@ func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback Workflo
 		poller: NewDelayedPoller(s, cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
+			WithEventTriggerRetention(cfg.EventTriggerRetention).
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize),
 	}
 	for _, opt := range opts {
