@@ -1290,6 +1290,40 @@ paths:
                 items:
                   $ref: '#/components/schemas/WorkflowRun'
 
+  /v1/workflows/{workflowID}/clone:
+    post:
+      tags:
+        - Workflows
+      summary: Clone a workflow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workflowID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: string
+                name:
+                  type: string
+                slug:
+                  type: string
+      responses:
+        '201':
+          description: Workflow cloned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+
   /v1/workflows/{workflowID}/graph:
     get:
       tags:
