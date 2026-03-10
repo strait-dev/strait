@@ -239,8 +239,9 @@ type EndpointCircuitState struct {
 
 type WebhookDelivery struct {
 	ID             string     `json:"id"`
-	RunID          string     `json:"run_id"`
-	JobID          string     `json:"job_id"`
+	RunID          string     `json:"run_id,omitempty"`
+	JobID          string     `json:"job_id,omitempty"`
+	EventTriggerID string     `json:"event_trigger_id,omitempty"`
 	WebhookURL     string     `json:"webhook_url"`
 	Status         string     `json:"status"`
 	Attempts       int        `json:"attempts"`
@@ -420,6 +421,13 @@ const (
 
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
 const DefaultEventTimeoutSecs = 3600
+
+const (
+	WebhookStatusPending   = "pending"
+	WebhookStatusDelivered = "delivered"
+	WebhookStatusFailed    = "failed"
+	WebhookStatusDead      = "dead"
+)
 
 type RetryBackoffPolicy string
 

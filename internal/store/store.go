@@ -149,6 +149,7 @@ type WebhookDeliveryStore interface {
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
+	DeleteOldWebhookDeliveries(ctx context.Context, before time.Time, limit int) (int, error)
 }
 
 type APIKeyStore interface {

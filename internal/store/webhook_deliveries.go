@@ -23,13 +23,17 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 	}
 
 	query := `
-		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING created_at, updated_at`
 
 	return q.db.QueryRow(ctx, query,
-		d.ID, d.RunID, d.JobID, d.WebhookURL, d.Status, d.Attempts, d.MaxAttempts,
+		d.ID,
+		dbscan.NilIfEmptyString(d.RunID),
+		dbscan.NilIfEmptyString(d.JobID),
+		d.WebhookURL, d.Status, d.Attempts, d.MaxAttempts,
 		d.LastStatusCode, dbscan.NilIfEmptyString(d.LastError), d.NextRetryAt, d.DeliveredAt,
+		dbscan.NilIfEmptyString(d.EventTriggerID),
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
 }
 
@@ -55,7 +59,8 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.We
 	defer span.End()
 
 	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
-					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at
+					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
+					 event_trigger_id
 			  FROM webhook_deliveries WHERE id = $1`
 
 	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, id))
@@ -73,7 +78,8 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status s
 	defer span.End()
 
 	baseQuery := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
-					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at
+					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
+					 event_trigger_id
 				  FROM webhook_deliveries
 				  WHERE job_id IN (SELECT id FROM jobs WHERE project_id = $1)`
 	args := []any{projectID}
@@ -116,10 +122,12 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 	defer span.End()
 
 	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
-					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at
+					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
+					 event_trigger_id
 			  FROM webhook_deliveries
 			  WHERE status = 'pending' AND next_retry_at IS NOT NULL AND next_retry_at <= NOW()
-			  ORDER BY next_retry_at ASC`
+			  ORDER BY next_retry_at ASC
+			  LIMIT 100`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -138,20 +146,58 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 	return deliveries, rows.Err()
 }
 
+// DeleteOldWebhookDeliveries removes delivered/dead deliveries older than the given time.
+func (q *Queries) DeleteOldWebhookDeliveries(ctx context.Context, before time.Time, limit int) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteOldWebhookDeliveries")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	query := `
+		DELETE FROM webhook_deliveries
+		WHERE id IN (
+			SELECT id FROM webhook_deliveries
+			WHERE status IN ('delivered', 'dead') AND created_at < $1
+			ORDER BY created_at ASC
+			LIMIT $2
+		)`
+
+	tag, err := q.db.Exec(ctx, query, before, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete old webhook deliveries: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 	var d domain.WebhookDelivery
 	var lastError *string
+	var runID *string
+	var jobID *string
+	var eventTriggerID *string
 
 	err := scanner.Scan(
-		&d.ID, &d.RunID, &d.JobID, &d.WebhookURL, &d.Status,
+		&d.ID, &runID, &jobID, &d.WebhookURL, &d.Status,
 		&d.Attempts, &d.MaxAttempts, &d.LastStatusCode, &lastError,
 		&d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
+		&eventTriggerID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	if lastError != nil {
 		d.LastError = *lastError
+	}
+	if runID != nil {
+		d.RunID = *runID
+	}
+	if jobID != nil {
+		d.JobID = *jobID
+	}
+	if eventTriggerID != nil {
+		d.EventTriggerID = *eventTriggerID
 	}
 	return &d, nil
 }
