@@ -2849,6 +2849,31 @@ paths:
         '409':
           description: Event trigger is not in waiting state
 
+  /v1/events/{eventKey}/stream:
+    get:
+      tags:
+        - EventTriggers
+      summary: Stream event trigger status updates via SSE
+      description: |
+        Opens a Server-Sent Events stream for a specific event trigger.
+        Sends the current state immediately, then streams status changes
+        until the trigger reaches a terminal state.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE stream of trigger status updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          description: Event trigger not found
+
   /v1/events/{eventKey}/send:
     post:
       tags:

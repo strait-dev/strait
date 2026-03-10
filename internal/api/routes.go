@@ -171,6 +171,7 @@ func (s *Server) routes() chi.Router {
 			r.Route("/{eventKey}", func(r chi.Router) {
 				r.Get("/", s.handleGetEventTrigger)
 				r.Delete("/", s.handleCancelEventTrigger)
+				r.Get("/stream", s.handleEventTriggerStream)
 				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", s.handleSendEvent)
 			})
 		})
