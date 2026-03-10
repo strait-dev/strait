@@ -106,6 +106,7 @@ type mockAPIStore struct {
 	updateEventTriggerStatusFn     func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	listEventTriggersByProjectFn   func(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 	listEventTriggersByKeyPrefixFn func(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
+	batchReceiveEventTriggersFn    func(ctx context.Context, ids []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -773,6 +774,13 @@ func (m *mockAPIStore) SetEventTriggerSentBy(_ context.Context, _, _ string) err
 
 func (m *mockAPIStore) GetEventTriggerStats(_ context.Context, _ string) (*store.EventTriggerStats, error) {
 	return &store.EventTriggerStats{}, nil
+}
+
+func (m *mockAPIStore) BatchReceiveEventTriggers(ctx context.Context, ids []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error) {
+	if m.batchReceiveEventTriggersFn != nil {
+		return m.batchReceiveEventTriggersFn(ctx, ids, payload, receivedAt, sentBy)
+	}
+	return ids, nil
 }
 
 // mockQueue implements queue.Queue for testing.

@@ -240,6 +240,7 @@ type EventTriggerStore interface {
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
 	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
+	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
 }
 
 type Store interface {

@@ -133,6 +133,7 @@ type APIStore interface {
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
 	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
 	GetEventTriggerStats(ctx context.Context, projectID string) (*store.EventTriggerStats, error)
+	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
 }
 
 // Pinger checks service health.

@@ -406,7 +406,7 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().Add(-time.Minute)
-	var resolvedCount int
+	var batchResolvedIDs []string
 
 	ms := &mockAPIStore{
 		listEventTriggersByKeyPrefixFn: func(_ context.Context, prefix string, _ string) ([]domain.EventTrigger, error) {
@@ -418,9 +418,9 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 			}
 			return nil, nil
 		},
-		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			resolvedCount++
-			return nil
+		batchReceiveEventTriggersFn: func(_ context.Context, ids []string, _ json.RawMessage, _ time.Time, _ string) ([]string, error) {
+			batchResolvedIDs = ids
+			return ids, nil
 		},
 		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
@@ -439,8 +439,8 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	if resolvedCount != 2 {
-		t.Fatalf("resolved count = %d, want 2", resolvedCount)
+	if len(batchResolvedIDs) != 2 {
+		t.Fatalf("batch resolved count = %d, want 2", len(batchResolvedIDs))
 	}
 
 	var resp map[string]any

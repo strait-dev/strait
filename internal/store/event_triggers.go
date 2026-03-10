@@ -600,6 +600,46 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 	})
 }
 
+// BatchReceiveEventTriggers atomically marks multiple triggers as received
+// within a single transaction. Returns the list of trigger IDs that were
+// successfully updated. If the underlying DBTX doesn't support transactions,
+// falls back to sequential updates.
+func (q *Queries) BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BatchReceiveEventTriggers")
+	defer span.End()
+
+	if len(triggerIDs) == 0 {
+		return nil, nil
+	}
+
+	do := func(txQ *Queries) ([]string, error) {
+		var resolved []string
+		for _, id := range triggerIDs {
+			if err := txQ.UpdateEventTriggerStatus(ctx, id, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+				return resolved, fmt.Errorf("update trigger %s: %w", id, err)
+			}
+			if sentBy != "" {
+				_ = txQ.SetEventTriggerSentBy(ctx, id, sentBy) // non-fatal
+			}
+			resolved = append(resolved, id)
+		}
+		return resolved, nil
+	}
+
+	txb, ok := q.db.(TxBeginner)
+	if !ok {
+		return do(q)
+	}
+
+	var resolved []string
+	err := WithTx(ctx, txb, func(txQ *Queries) error {
+		var txErr error
+		resolved, txErr = do(txQ)
+		return txErr
+	})
+	return resolved, err
+}
+
 func defaultIfEmpty(s, def string) string {
 	if s == "" {
 		return def

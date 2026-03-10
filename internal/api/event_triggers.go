@@ -348,29 +348,36 @@ func (s *Server) handleSendEventByPrefix(w http.ResponseWriter, r *http.Request)
 	}
 
 	now := time.Now()
-	resolved := make([]domain.EventTrigger, 0, len(triggers))
+	sentBy := senderIdentity(ctx)
 
-	for _, trigger := range triggers {
-		if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
-			slog.Error("failed to resolve trigger by prefix", "trigger_id", trigger.ID, "error", err)
-			continue
-		}
+	// Collect trigger IDs for atomic batch update.
+	triggerIDs := make([]string, len(triggers))
+	triggerMap := make(map[string]*domain.EventTrigger, len(triggers))
+	for i := range triggers {
+		triggerIDs[i] = triggers[i].ID
+		triggerMap[triggers[i].ID] = &triggers[i]
+	}
+
+	// Atomically mark all triggers as received in a single transaction.
+	resolvedIDs, err := s.store.BatchReceiveEventTriggers(ctx, triggerIDs, req.Payload, now, sentBy)
+	if err != nil {
+		slog.Error("batch receive failed", "prefix", prefix, "error", err)
+	}
+
+	resolved := make([]domain.EventTrigger, 0, len(resolvedIDs))
+	for _, id := range resolvedIDs {
+		trigger := triggerMap[id]
 		trigger.Status = domain.EventTriggerStatusReceived
 		trigger.ReceivedAt = &now
-
-		sentBy := senderIdentity(ctx)
-		if err := s.store.SetEventTriggerSentBy(ctx, trigger.ID, sentBy); err != nil {
-			slog.Warn("failed to set sent_by on prefix resolve", "trigger_id", trigger.ID, "error", err)
-		}
+		trigger.ResponsePayload = req.Payload
 		trigger.SentBy = sentBy
 
-		// Resume the source.
-		trigger.ResponsePayload = req.Payload
-		if err := s.resumeEventSource(ctx, &trigger); err != nil {
+		// Resume each source outside the transaction.
+		if err := s.resumeEventSource(ctx, trigger); err != nil {
 			slog.Error("failed to resume event source by prefix", "trigger_id", trigger.ID, "error", err)
 		}
 
-		resolved = append(resolved, trigger)
+		resolved = append(resolved, *trigger)
 	}
 
 	// Record metrics for each resolved trigger.
