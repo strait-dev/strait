@@ -148,6 +148,7 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Get("/webhook-deliveries", s.handleListWebhookDeliveries)
+		r.Post("/webhook-deliveries/{deliveryID}/retry", s.handleRetryWebhookDelivery)
 
 		r.Route("/api-keys", func(r chi.Router) {
 			r.With(httprate.LimitByIP(10, time.Minute)).Post("/", s.handleCreateAPIKey)

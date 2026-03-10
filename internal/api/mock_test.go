@@ -61,6 +61,8 @@ type mockAPIStore struct {
 	insertEventFn                  func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn      func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn        func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
+	getWebhookDeliveryFn           func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	updateWebhookDeliveryFn        func(ctx context.Context, d *domain.WebhookDelivery) error
 	createAPIKeyFn                 func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn         func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	revokeAPIKeyFn                 func(ctx context.Context, id string) error
@@ -444,6 +446,20 @@ func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, projectID, sta
 		return m.listWebhookDeliveriesFn(ctx, projectID, status, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+	if m.getWebhookDeliveryFn != nil {
+		return m.getWebhookDeliveryFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error {
+	if m.updateWebhookDeliveryFn != nil {
+		return m.updateWebhookDeliveryFn(ctx, d)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
