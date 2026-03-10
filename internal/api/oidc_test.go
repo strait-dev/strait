@@ -17,9 +17,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func TestOIDCAuth_AllowsValidToken(t *testing.T) {
-	t.Parallel()
-
+func mustOIDCKeyPair(t *testing.T) (*rsa.PrivateKey, []byte) {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate rsa key: %v", err)
@@ -29,18 +28,29 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 		t.Fatalf("marshal pub key: %v", err)
 	}
 	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+	return key, pubPEM
+}
 
-	claims := jwt.RegisteredClaims{
-		Subject:   "user-oidc-1",
-		Issuer:    "https://issuer.example",
-		Audience:  []string{"strait-api"},
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-	}
+func mustSignOIDCToken(t *testing.T, key *rsa.PrivateKey, claims jwt.RegisteredClaims) string {
+	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := token.SignedString(key)
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}
+	return signed
+}
+
+func TestOIDCAuth_AllowsValidToken(t *testing.T) {
+	t.Parallel()
+
+	key, pubPEM := mustOIDCKeyPair(t)
+	signed := mustSignOIDCToken(t, key, jwt.RegisteredClaims{
+		Subject:   "user-oidc-1",
+		Issuer:    "https://issuer.example",
+		Audience:  []string{"strait-api"},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+	})
 
 	ms := &mockAPIStore{}
 	ms.queueStatsFn = func(ctx context.Context) (*store.QueueStats, error) {
@@ -79,5 +89,73 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
+	t.Parallel()
+
+	key, pubPEM := mustOIDCKeyPair(t)
+	signed := mustSignOIDCToken(t, key, jwt.RegisteredClaims{
+		Subject:   "user-oidc-2",
+		Issuer:    "https://issuer.example",
+		Audience:  []string{"strait-api"},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+	})
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:   "test-secret",
+			JWTSigningKey:    "01234567890123456789012345678901",
+			OIDCEnabled:      true,
+			OIDCIssuer:       "https://issuer.example",
+			OIDCAudience:     "strait-api",
+			OIDCPublicKeyPEM: string(pubPEM),
+		},
+		Store: &mockAPIStore{},
+	})
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("Authorization", "Bearer "+signed)
+	r.Header.Set("X-Project-Id", "proj-oidc")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
+	t.Parallel()
+
+	key, pubPEM := mustOIDCKeyPair(t)
+	signed := mustSignOIDCToken(t, key, jwt.RegisteredClaims{
+		Subject:   "user-oidc-3",
+		Issuer:    "https://issuer.example",
+		Audience:  []string{"other-audience"},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+	})
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:   "test-secret",
+			JWTSigningKey:    "01234567890123456789012345678901",
+			OIDCEnabled:      true,
+			OIDCIssuer:       "https://issuer.example",
+			OIDCAudience:     "strait-api",
+			OIDCPublicKeyPEM: string(pubPEM),
+		},
+		Store: &mockAPIStore{},
+	})
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	r.Header.Set("Authorization", "Bearer "+signed)
+	r.Header.Set("X-Project-Id", "proj-oidc")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
 	}
 }
