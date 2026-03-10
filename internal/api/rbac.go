@@ -108,7 +108,31 @@ func (s *Server) handleGetRole(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "failed to get role")
 		return
 	}
-	respondJSON(w, http.StatusOK, role)
+
+	if r.URL.Query().Get("include_lineage") != "true" {
+		respondJSON(w, http.StatusOK, role)
+		return
+	}
+
+	lineage := make([]domain.ProjectRole, 0, 4)
+	currentParent := role.ParentRoleID
+	for depth := 0; depth < 20 && currentParent != ""; depth++ {
+		parent, parentErr := s.store.GetProjectRole(r.Context(), currentParent)
+		if parentErr != nil {
+			if errors.Is(parentErr, store.ErrRoleNotFound) {
+				break
+			}
+			respondError(w, r, http.StatusInternalServerError, "failed to load role lineage")
+			return
+		}
+		lineage = append(lineage, *parent)
+		currentParent = parent.ParentRoleID
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"role":    role,
+		"lineage": lineage,
+	})
 }
 
 type updateRoleRequest struct {

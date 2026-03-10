@@ -100,6 +100,45 @@ func TestHandleGetRole(t *testing.T) {
 	}
 }
 
+func TestHandleGetRole_WithLineage(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	ms.getProjectRoleFn = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		switch id {
+		case "role_child":
+			return &domain.ProjectRole{ID: id, Name: "child", ParentRoleID: "role_parent", Permissions: []string{"jobs:read"}}, nil
+		case "role_parent":
+			return &domain.ProjectRole{ID: id, Name: "parent", Permissions: []string{"jobs:write"}}, nil
+		default:
+			return nil, store.ErrRoleNotFound
+		}
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/roles/role_child?include_lineage=true", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Role    domain.ProjectRole   `json:"role"`
+		Lineage []domain.ProjectRole `json:"lineage"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Role.ID != "role_child" {
+		t.Fatalf("role.id = %q, want role_child", resp.Role.ID)
+	}
+	if len(resp.Lineage) != 1 || resp.Lineage[0].ID != "role_parent" {
+		t.Fatalf("lineage = %+v, want [role_parent]", resp.Lineage)
+	}
+}
+
 func TestHandleGetRole_NotFound(t *testing.T) {
 	t.Parallel()
 

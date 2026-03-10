@@ -1703,13 +1703,29 @@ paths:
     get:
       tags: [RBAC]
       summary: Get role by ID
+      parameters:
+        - name: include_lineage
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, returns `{ role, lineage[] }` with inherited parent chain
       responses:
         '200':
           description: Role
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Role'
+                oneOf:
+                  - $ref: '#/components/schemas/Role'
+                  - type: object
+                    properties:
+                      role:
+                        $ref: '#/components/schemas/Role'
+                      lineage:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Role'
     patch:
       tags: [RBAC]
       summary: Update role
