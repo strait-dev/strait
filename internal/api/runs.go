@@ -53,6 +53,12 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
 		return
 	}
+	if tagKey != "" {
+		if err := validateTags(map[string]string{tagKey: tagValue}); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
 	metadataKeyRaw := query.Get("metadata_key")
 	metadataValueRaw := query.Get("metadata_value")
