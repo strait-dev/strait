@@ -69,6 +69,16 @@
               "development/database-schema",
               "migrations"
             ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/monitoring-and-alerts",
+              "operations/oidc-rollout",
+              "operations/rbac-policy-rollout",
+              "operations/api-key-rotation-rollout",
+              "operations/incident-response-authz"
+            ]
           }
         ]
       },
