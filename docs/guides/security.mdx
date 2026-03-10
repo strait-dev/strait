@@ -1,9 +1,9 @@
 ---
 title: "Security"
-description: "Security features and protections implemented in the strait."
+description: "Security features and protections implemented in Strait."
 ---
 
-The strait includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
+Strait includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
 
 ## SSRF Protection
 
@@ -27,13 +27,16 @@ To further restrict outbound traffic, only a specific set of standard and common
 
 ## Rate Limiting
 
-The strait implements rate limiting at two levels using the `httprate` middleware.
+Strait implements rate limiting at multiple levels using the `httprate` middleware.
 
 ### Global Rate Limit
 Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This limits the total number of requests a single IP can make within the `RATE_LIMIT_WINDOW`.
 
 ### Per-Trigger Rate Limit
 Controlled by `TRIGGER_RATE_LIMIT_REQUESTS`. This specifically limits the `/trigger` endpoints to prevent accidental or malicious job flooding.
+
+### RBAC Control-Plane Rate Limits
+Mutating RBAC endpoints (role/member/tag-policy/resource-policy management and seed-role operations) have stricter per-route limits to reduce abuse risk on authorization control paths.
 
 ## Request Protections
 
@@ -69,7 +72,9 @@ Keys with empty scopes (`[]`) retain full access for backwards compatibility.
 
 ## Role-Based Access Control
 
-Users accessing the strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four system roles (admin, operator, viewer, triggerer) are available, and custom roles can be created per-project.
+Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four system roles (admin, operator, viewer, triggerer) are available, and custom roles can be created per-project.
+
+RBAC also supports role inheritance and policy-based grants (resource policies and tag policies) for finer-grained authorization without over-broad static roles.
 
 See [Authentication & Authorization](/docs/guides/authentication#role-based-access-control-rbac) for details.
 
@@ -86,5 +91,5 @@ These are stored as `created_by` and `updated_by` columns on jobs, workflows, an
 API key requests **never** honor `X-Actor-Id` headers. This prevents an API key holder from setting `X-Actor-Id: admin_user` to gain that user's RBAC permissions. Actor headers are only trusted on internal secret authentication (service-to-service).
 
 <Note>
-  Security is a shared responsibility. While the strait provides these protections, ensure your job endpoints also implement proper authentication and input validation.
+  Security is a shared responsibility. While Strait provides these protections, ensure your job endpoints also implement proper authentication and input validation.
 </Note>

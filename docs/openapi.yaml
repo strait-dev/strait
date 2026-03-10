@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Strait API
   version: 1.0.0
-  description: A production-grade Go job strait API.
+  description: A production-grade Go job orchestration service API.
 servers:
   - url: http://localhost:8080
     description: Local development server

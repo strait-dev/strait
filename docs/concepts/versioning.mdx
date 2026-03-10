@@ -1,9 +1,9 @@
 ---
 title: "Versioning"
-description: "How the strait tracks job and workflow versions for safe updates and exact run provenance."
+description: "How Strait tracks job and workflow versions for safe updates and exact run provenance."
 ---
 
-Every job and workflow in the strait is versioned. When you update a job's configuration, the previous version is snapshotted so that in-flight runs continue to execute with the config they were enqueued under.
+Every job and workflow in Strait is versioned. When you update a job's configuration, the previous version is snapshotted so that in-flight runs continue to execute with the config they were enqueued under.
 
 ## Dual Versioning
 
@@ -103,7 +103,7 @@ curl -X PATCH https://strait.dev/v1/jobs/job_123 \
 ```
 
 <Note>
-  Version policy is currently stored but enforcement at dequeue time is planned for a future release. All runs currently behave as `pin`.
+  Version policy is enforced at dequeue time by the worker dispatch path. `pin` is still the safest default and is applied automatically when no policy is provided.
 </Note>
 
 ## Version Snapshots

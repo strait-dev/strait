@@ -3,7 +3,7 @@ title: "Authentication & Authorization"
 description: "Authentication schemes, API key scopes, actor identity, and role-based access control."
 ---
 
-The strait supports multiple authentication mechanisms and a layered authorization model: API key scopes for machine access and role-based access control (RBAC) for user access.
+Strait supports multiple authentication mechanisms and a layered authorization model: API key scopes for machine access and role-based access control (RBAC) for user access.
 
 ## Authentication Schemes
 
@@ -23,7 +23,7 @@ curl -H "X-Internal-Secret: your-secret-here" https://strait.dev/v1/jobs
 curl -H "Authorization: Bearer your-secret-here" https://strait.dev/v1/jobs
 ```
 
-Internal secret auth grants full access to all endpoints — no scope or role checks are applied. This is the path used by the app to communicate with the strait.
+Internal secret auth grants full access to all endpoints — no scope or role checks are applied. This is the path used by the app to communicate with Strait.
 
 ### 2. API Keys
 
@@ -39,6 +39,7 @@ API keys:
 - Track `last_used_at` timestamps
 - Support `expires_at` for time-limited access
 - Can be revoked at any time
+- Support rotation with grace periods (`replaced_by_key_id`, `grace_expires_at`)
 - Are scoped to a project and a set of permissions
 
 ### 3. JWT Run Tokens (SDK)
@@ -48,6 +49,14 @@ Short-lived JWTs scoped to a specific run, used by the SDK for `/sdk/v1` endpoin
 - **Algorithm:** HS256
 - **Subject:** The `runID`
 - **Signing Key:** `JWT_SIGNING_KEY` environment variable
+
+### 4. OIDC Bearer Tokens (Optional)
+
+For user-facing API calls, non-`strait_` bearer tokens can be validated via OIDC when configured.
+
+- Configure issuer/audience/public-key verifier settings in server config
+- Valid tokens are mapped to actor identity and project context
+- OIDC and internal-secret header-based identity can coexist during rollout
 
 ---
 
@@ -102,16 +111,18 @@ Every request is attributed to an actor for audit purposes.
 
 ```bash
 curl -H "X-Internal-Secret: your-secret" \
+     -H "X-Project-Id: proj_123" \
      -H "X-Actor-Id: user_abc123" \
      -H "X-Actor-Email: alice@example.com" \
      -H "X-Actor-Name: Alice" \
      https://strait.dev/v1/jobs
 ```
 
-When these headers are present, the strait:
+When these headers are present, Strait:
 1. Sets `actor_type = "user"` and `actor_id = "user_abc123"` in the request context
-2. Asynchronously syncs the actor profile to the `known_actors` table
-3. Records the actor as `created_by` or `updated_by` on mutations
+2. Applies `X-Project-Id` to request context when project-scoped authorization is required
+3. Asynchronously syncs the actor profile to the `known_actors` table
+4. Records the actor as `created_by` or `updated_by` on mutations
 
 ### Audit Columns
 
@@ -224,11 +235,12 @@ User permissions are cached for 30 seconds to avoid hitting the database on ever
 
 Authentication flows through these middleware in `internal/api/middleware.go`:
 
-1. **`apiKeyOrSecretAuth`** — Routes to `apiKeyAuth` (if Bearer starts with `strait_`) or `internalSecretAuth`
-2. **`apiKeyAuth`** — Validates key hash, checks revocation/expiration, sets scopes + `actorType=api_key` in context
-3. **`internalSecretAuth`** — Constant-time secret comparison, optionally extracts actor from `X-Actor-Id` headers
-4. **`requirePermission(scope)`** — Checks authorization based on actor type (see Permission Resolution above)
-5. **`runTokenAuth`** — JWT validation for SDK endpoints only
+1. **`apiKeyOrSecretAuth`** — Routes to API key auth (`strait_` bearer), OIDC bearer auth (optional), or internal secret auth
+2. **`apiKeyAuth`** — Validates key hash, checks revocation/expiration/rotation grace, sets scopes + `actorType=api_key` in context
+3. **`internalSecretAuth`** — Constant-time secret comparison, optionally extracts actor from `X-Actor-*` and project from `X-Project-Id`
+4. **`oidcAuth`** — Validates configured OIDC bearer tokens and maps claims into actor/project context
+5. **`requirePermission(scope)`** — Checks authorization based on actor type (see Permission Resolution above)
+6. **`runTokenAuth`** — JWT validation for SDK endpoints only
 
 ## Managing API Keys
 
@@ -271,3 +283,13 @@ curl -X DELETE https://strait.dev/v1/api-keys/key_abc \
 ```
 
 Revoked keys immediately return 401 on subsequent requests.
+
+### Rotate (with Grace Period)
+
+```bash
+curl -X POST https://strait.dev/v1/api-keys/key_abc/rotate \
+  -H "X-Internal-Secret: your-secret" \
+  -d '{"name":"ci-deploy-key-rotated","grace_period_seconds":3600}'
+```
+
+Rotation issues a new key and marks the previous key as replaced. The old key can remain valid until `grace_expires_at` to support zero-downtime credential rollouts.
