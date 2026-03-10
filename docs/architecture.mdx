@@ -429,7 +429,7 @@ Steps can define an `output_transform` using JSONPath expressions. Before persis
     Human-in-the-loop gate. Creates `workflow_step_approvals` record with `pending` status. Also creates a parallel event trigger for API-based resolution. Workflow pauses until approval via API or CLI command. Timeout specified in `approval_timeout_secs`.
   </Tab>
   <Tab title="wait_for_event">
-    Durable external event wait. Creates an `event_triggers` record with `waiting` status and a globally unique `event_key`. No goroutine is held — the wait is a database row. External systems send events via `POST /v1/events/send`. Supports template-rendered event keys and configurable timeouts.
+    Durable external event wait. Creates an `event_triggers` record with `waiting` status and a globally unique `event_key`. No goroutine is held — the wait is a database row. External systems send events via `POST /v1/events/{eventKey}/send`. Supports template-rendered event keys and configurable timeouts.
   </Tab>
   <Tab title="sleep">
     Durable sleep. Creates a sleep-type event trigger with an expiry time. The reaper completes the trigger when the duration expires, marking the step as completed and triggering downstream steps. Supports Go duration strings (e.g., `30s`, `5m`, `24h`).
@@ -451,7 +451,7 @@ Callback handler `OnJobRunTerminal` drives workflow progression when any job run
 
 ## Data Model
 
-The system uses PostgreSQL with the following primary tables (55 migrations):
+The system uses PostgreSQL with the following primary tables (61 migrations):
 
 ### jobs
 

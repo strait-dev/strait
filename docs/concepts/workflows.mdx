@@ -136,7 +136,7 @@ Pauses the workflow until an external event arrives via API. The step creates an
 }
 ```
 
-When the event arrives (via `POST /v1/events/send`), the step completes with the event payload as output, and downstream steps can access it via `{{parent_outputs.aml-check.*}}`.
+When the event arrives (via `POST /v1/events/{eventKey}/send`), the step completes with the event payload as output, and downstream steps can access it via `{{parent_outputs.aml-check.*}}`.
 
 ### sleep
 

@@ -9,15 +9,15 @@ Event triggers allow runs and workflow steps to pause execution and wait for an 
 
 1. **Create a trigger**: A workflow step or SDK call creates an event trigger with a globally unique `event_key` and optional timeout.
 2. **Wait**: The step/run transitions to `waiting` status. No goroutine is held — the wait is a database row.
-3. **External event arrives**: An external system sends the event via `POST /v1/events/send` with the matching `event_key`.
+3. **External event arrives**: An external system sends the event via `POST /v1/events/{eventKey}/send` with the matching `event_key`.
 4. **Resume**: The step/run resumes with the event payload as input data. Workflow progression continues automatically.
 
 ```text
 [step-a] → [wait_for_event: "aml-check:user-123"] ⏸ → [step-c] → [step-d]
                           ↑
                   External system sends event
-                  POST /v1/events/send
-                  {"event_key": "aml-check:user-123", "payload": {...}}
+                  POST /v1/events/aml-check:user-123/send
+                  {"payload": {...}}
 ```
 
 ## Trigger Types
@@ -222,11 +222,10 @@ curl -X POST https://strait.dev/v1/events/{eventKey}/send \
 Resolve all waiting triggers whose event key starts with a prefix:
 
 ```bash
-curl -X POST https://strait.dev/v1/events/send-by-prefix \
+curl -X POST https://strait.dev/v1/events/prefix/batch-job:run-42:/send \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
-    "prefix": "batch-job:run-42:",
     "payload": {"status": "done"}
   }'
 ```

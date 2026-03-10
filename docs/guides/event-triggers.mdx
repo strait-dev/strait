@@ -37,11 +37,10 @@ A KYC pipeline that waits for an external AML check result:
 When the AML provider completes their check, they call your webhook endpoint. Your endpoint then forwards the result to strait:
 
 ```bash
-curl -X POST https://strait.dev/v1/events/send \
+curl -X POST https://strait.dev/v1/events/aml:user-456/send \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
-    "event_key": "aml:user-456",
     "payload": {"result": "clear", "risk_score": 0.05}
   }'
 ```
@@ -173,11 +172,10 @@ Resolve multiple triggers at once using prefix matching:
 
 ```bash
 # Approve all pending items in a batch
-curl -X POST https://strait.dev/v1/events/send-by-prefix \
+curl -X POST https://strait.dev/v1/events/prefix/batch-42:/send \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
-    "prefix": "batch-42:",
     "payload": {"approved": true}
   }'
 ```

@@ -3,7 +3,7 @@ title: "Database Schema"
 description: "Detailed reference of the PostgreSQL database schema and migration system."
 ---
 
-Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000060_*` series) that run automatically on startup.
+Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000061_*` series) that run automatically on startup.
 
 ## Core Tables
 
@@ -127,17 +127,17 @@ Migrations follow a sequential 6-digit numbering scheme:
 
 | Migration | Description |
 | :--- | :--- |
-| `000049_event_trigger_support` | Complete event triggers schema — table, all columns, indexes, webhook delivery extensions. Squashed from 7 development migrations into one production-ready migration. |
+| `000061_event_trigger_support` | Complete event triggers schema — table, all columns, indexes, webhook delivery extensions. Squashed from 7 development migrations into one production-ready migration. |
 
 <Note>
-The event trigger schema was developed across 7 incremental migrations (000049–000055) during development. These were squashed into a single `000049_event_trigger_support` migration before the first production deploy to reduce startup time and rollback complexity.
+The event trigger schema was developed across 7 incremental migrations during development. These were squashed into a single `000061_event_trigger_support` migration before merge to reduce startup time and rollback complexity.
 </Note>
 
 ### Adding New Migrations
 
 1. Create a new pair of SQL files in the `migrations/` directory using the next sequence number:
-   - `000061_your_feature.up.sql`
-   - `000061_your_feature.down.sql`
+   - `000062_your_feature.up.sql`
+   - `000062_your_feature.down.sql`
 2. Ensure the migration is idempotent.
 3. The application will automatically detect and apply the new migration on the next startup.
 
