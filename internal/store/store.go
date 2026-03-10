@@ -307,3 +307,23 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 
 	return nil
 }
+
+// TryAdvisoryLock attempts to acquire a PostgreSQL session-level advisory lock.
+// Returns true if the lock was acquired, false if held by another session.
+func (q *Queries) TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error) {
+	var acquired bool
+	err := q.db.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired)
+	if err != nil {
+		return false, fmt.Errorf("pg_try_advisory_lock: %w", err)
+	}
+	return acquired, nil
+}
+
+// ReleaseAdvisoryLock releases a PostgreSQL session-level advisory lock.
+func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
+	_, err := q.db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID)
+	if err != nil {
+		return fmt.Errorf("pg_advisory_unlock: %w", err)
+	}
+	return nil
+}

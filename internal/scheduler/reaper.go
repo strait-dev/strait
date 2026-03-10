@@ -51,6 +51,17 @@ type WorkflowCallback interface {
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 }
 
+// AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
+// Returns true if the lock was acquired (caller should run reaper),
+// false if another instance holds it.
+type AdvisoryLocker interface {
+	TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
+	ReleaseAdvisoryLock(ctx context.Context, lockID int64) error
+}
+
+// reaperAdvisoryLockID is the pg_advisory_lock key for single-leader reaper.
+const reaperAdvisoryLockID int64 = 0x5374726169745265 // "StraitRe" as int64
+
 type Reaper struct {
 	store                 ReaperStore
 	interval              time.Duration
@@ -58,6 +69,7 @@ type Reaper struct {
 	workflowRetention     time.Duration
 	eventTriggerRetention time.Duration
 	deleteBatchLimit      int
+	advisoryLocker        AdvisoryLocker
 	shortRetention        time.Duration
 	longRetention         time.Duration
 	retentionEnabled      bool
@@ -120,6 +132,12 @@ func (r *Reaper) WithDeleteBatchSize(n int) *Reaper {
 	return r
 }
 
+// WithAdvisoryLocker enables distributed single-leader reaping using pg_try_advisory_lock.
+func (r *Reaper) WithAdvisoryLocker(locker AdvisoryLocker) *Reaper {
+	r.advisoryLocker = locker
+	return r
+}
+
 func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
 	if r.workflowCallback == nil {
 		return
@@ -146,6 +164,23 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 func (r *Reaper) Run(ctx context.Context) {
 	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
 	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
+		if r.advisoryLocker != nil {
+			acquired, err := r.advisoryLocker.TryAdvisoryLock(loopCtx, reaperAdvisoryLockID)
+			if err != nil {
+				r.logger.Error("advisory lock check failed, skipping cycle", "error", err)
+				return
+			}
+			if !acquired {
+				r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
+				return
+			}
+			defer func() {
+				if err := r.advisoryLocker.ReleaseAdvisoryLock(loopCtx, reaperAdvisoryLockID); err != nil {
+					r.logger.Warn("failed to release advisory lock", "error", err)
+				}
+			}()
+		}
+
 		r.reapStaleDequeued(loopCtx)
 		r.reapStale(loopCtx)
 		r.reapExpired(loopCtx)
