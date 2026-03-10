@@ -19,6 +19,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 // maxIdempotencyKeyLength is the maximum allowed length for idempotency keys.
@@ -280,6 +282,13 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		if !satisfied {
 			run.Status = domain.StatusWaiting
+			if s.metrics != nil {
+				attrs := otelmetric.WithAttributes(
+					otelattr.String("project_id", run.ProjectID),
+					otelattr.String("job_id", run.JobID),
+				)
+				s.metrics.WorkflowDependencyWaits.Add(r.Context(), 1, attrs)
+			}
 			if err := s.store.CreateRun(r.Context(), run); err != nil {
 				respondError(w, r, http.StatusInternalServerError, "failed to create waiting run")
 				return

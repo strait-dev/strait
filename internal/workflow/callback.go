@@ -9,14 +9,16 @@ import (
 
 	"strait/internal/domain"
 	storepkg "strait/internal/store"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 )
 
 type StepCallback struct {
-	store  CallbackStore
-	engine *WorkflowEngine
-	logger *slog.Logger
+	store   CallbackStore
+	engine  *WorkflowEngine
+	logger  *slog.Logger
+	metrics *telemetry.Metrics
 }
 
 type CallbackStore interface {
@@ -61,6 +63,11 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 		engine: engine,
 		logger: logger,
 	}
+}
+
+func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
+	s.metrics = m
+	return s
 }
 
 func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {

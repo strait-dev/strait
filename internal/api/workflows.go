@@ -42,6 +42,7 @@ type workflowStepRequest struct {
 	EventNotifyURL        string                    `json:"event_notify_url,omitempty"`
 	EventEmitKey          string                    `json:"event_emit_key,omitempty"`
 	SleepDurationSecs     int                       `json:"sleep_duration_secs,omitempty"`
+	ConcurrencyKey        string                    `json:"concurrency_key,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -188,6 +189,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			EventNotifyURL:        stepReq.EventNotifyURL,
 			EventEmitKey:          stepReq.EventEmitKey,
 			SleepDurationSecs:     stepReq.SleepDurationSecs,
+			ConcurrencyKey:        stepReq.ConcurrencyKey,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			slog.Error("failed to create workflow step", "error", err, "step_ref", step.StepRef, "workflow_id", wf.ID)
@@ -399,6 +401,7 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 				EventNotifyURL:        stepReq.EventNotifyURL,
 				EventEmitKey:          stepReq.EventEmitKey,
 				SleepDurationSecs:     stepReq.SleepDurationSecs,
+				ConcurrencyKey:        stepReq.ConcurrencyKey,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
 				respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
@@ -556,6 +559,9 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 		}
 		if step.TimeoutSecsOverride < 0 {
 			return errors.New("timeout_secs_override must be >= 0")
+		}
+		if len(step.ConcurrencyKey) > 128 {
+			return errors.New("concurrency_key must be at most 128 characters")
 		}
 		if len(step.DependsOn) == 0 {
 			continue
@@ -918,6 +924,7 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 			EventNotifyURL:        src.EventNotifyURL,
 			EventEmitKey:          src.EventEmitKey,
 			SleepDurationSecs:     src.SleepDurationSecs,
+			ConcurrencyKey:        src.ConcurrencyKey,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow step")

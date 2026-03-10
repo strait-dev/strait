@@ -529,6 +529,9 @@ func (r *Reaper) reapStalledWorkflows(ctx context.Context) {
 	}
 	for _, run := range runs {
 		slog.Warn("detected stalled workflow run", "workflow_run_id", run.ID, "workflow_id", run.WorkflowID, "started_at", run.StartedAt)
+		if r.metrics != nil {
+			r.metrics.WorkflowStalledRuns.Add(ctx, 1)
+		}
 	}
 }
 

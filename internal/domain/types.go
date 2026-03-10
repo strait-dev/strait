@@ -633,6 +633,7 @@ type WorkflowStep struct {
 	EventNotifyURL        string             `json:"event_notify_url,omitempty"`
 	SleepDurationSecs     int                `json:"sleep_duration_secs,omitempty"`
 	EventEmitKey          string             `json:"event_emit_key,omitempty"` // auto-send event on step completion
+	ConcurrencyKey        string             `json:"concurrency_key,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 

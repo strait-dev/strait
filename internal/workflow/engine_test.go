@@ -217,6 +217,47 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 	})
 
+	t.Run("root steps with same concurrency_key do not run in parallel", func(t *testing.T) {
+		t.Parallel()
+		started := make(map[string]struct{})
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "s1", JobID: "job-1", StepRef: "a", ConcurrencyKey: "db"},
+					{ID: "s2", JobID: "job-2", StepRef: "b", ConcurrencyKey: "db"},
+				}, nil
+			},
+			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+				run.ID = "wr-1"
+				return nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error { return nil },
+			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+				sr.ID = "sr-" + sr.StepRef
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+				if status == domain.StepRunning {
+					started[id] = struct{}{}
+				}
+				return nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error { run.ID = "jr-" + run.JobID; return nil }}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "manual", nil, nil)
+		if err != nil {
+			t.Fatalf("TriggerWorkflow() error = %v", err)
+		}
+		if len(started) != 1 {
+			t.Fatalf("running root steps = %d, want 1", len(started))
+		}
+	})
+
 	t.Run("disabled workflow", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockEngineStore{

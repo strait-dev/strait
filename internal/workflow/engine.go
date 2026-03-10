@@ -257,10 +257,18 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 
 	runningStarts := 0
+	runningByConcurrencyKey := make(map[string]int)
 	for _, root := range roots {
 		if wfRun.MaxParallelSteps > 0 && runningStarts >= wfRun.MaxParallelSteps {
 			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
 				return nil, fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
+			}
+			root.stepRun.Status = domain.StepWaiting
+			continue
+		}
+		if root.step.ConcurrencyKey != "" && runningByConcurrencyKey[root.step.ConcurrencyKey] > 0 {
+			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
+				return nil, fmt.Errorf("set root step waiting by concurrency key %s: %w", root.step.StepRef, err)
 			}
 			root.stepRun.Status = domain.StepWaiting
 			continue
@@ -270,6 +278,9 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		}
 		if root.stepRun.Status == domain.StepRunning {
 			runningStarts++
+			if root.step.ConcurrencyKey != "" {
+				runningByConcurrencyKey[root.step.ConcurrencyKey]++
+			}
 		}
 	}
 

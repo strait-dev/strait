@@ -44,9 +44,10 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			timeout_secs_override, output_transform,
 			sub_workflow_id, max_nesting_depth,
-			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key
+			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
+			concurrency_key
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -76,6 +77,7 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 		dbscan.NilIfEmptyString(step.EventNotifyURL),
 		step.SleepDurationSecs,
 		dbscan.NilIfEmptyString(step.EventEmitKey),
+		dbscan.NilIfEmptyString(step.ConcurrencyKey),
 	).Scan(&step.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step: %w", err)
@@ -95,6 +97,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		       timeout_secs_override, output_transform,
 		       sub_workflow_id, max_nesting_depth,
 		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
+		       concurrency_key,
 		       created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
@@ -134,6 +137,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 		       timeout_secs_override, output_transform,
 		       sub_workflow_id, max_nesting_depth,
 		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
+		       concurrency_key,
 		       created_at
 		FROM workflow_steps
 		WHERE id = $1`
@@ -176,6 +180,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	var eventKey *string
 	var eventNotifyURL *string
 	var eventEmitKey *string
+	var concurrencyKey *string
 
 	err := scanner.Scan(
 		&step.ID,
@@ -202,6 +207,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 		&eventNotifyURL,
 		&step.SleepDurationSecs,
 		&eventEmitKey,
+		&concurrencyKey,
 		&step.CreatedAt,
 	)
 	if err != nil {
@@ -233,6 +239,9 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	}
 	if eventEmitKey != nil {
 		step.EventEmitKey = *eventEmitKey
+	}
+	if concurrencyKey != nil {
+		step.ConcurrencyKey = *concurrencyKey
 	}
 
 	return &step, nil

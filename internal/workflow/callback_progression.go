@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/samber/lo"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun) error {
@@ -44,6 +46,15 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		return sr.StepRef, sr.Status
 	})
 	runningStepCount := lo.CountBy(stepRuns, func(sr domain.WorkflowStepRun) bool { return sr.Status == domain.StepRunning })
+	runningByConcurrencyKey := make(map[string]int)
+	for _, sr := range stepRuns {
+		if sr.Status != domain.StepRunning {
+			continue
+		}
+		if st, ok := stepByRef[sr.StepRef]; ok && st.ConcurrencyKey != "" {
+			runningByConcurrencyKey[st.ConcurrencyKey]++
+		}
+	}
 
 	for _, dep := range deps {
 		if dep.DepsCompleted != dep.DepsRequired {
@@ -63,6 +74,9 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 			continue
 		}
 		if wfRun.MaxParallelSteps > 0 && runningStepCount >= wfRun.MaxParallelSteps {
+			continue
+		}
+		if childStep.ConcurrencyKey != "" && runningByConcurrencyKey[childStep.ConcurrencyKey] > 0 {
 			continue
 		}
 
@@ -101,11 +115,34 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		}
 		stepStatuses[childStepRun.StepRef] = domain.StepRunning
 		if childRun.Status == domain.StepRunning {
+			s.recordStepWaitDuration(ctx, wfRun, childStep, childStepRun)
 			runningStepCount++
+			if childStep.ConcurrencyKey != "" {
+				runningByConcurrencyKey[childStep.ConcurrencyKey]++
+			}
 		}
 	}
 
 	return nil
+}
+
+func (s *StepCallback) recordStepWaitDuration(ctx context.Context, wfRun *domain.WorkflowRun, step domain.WorkflowStep, stepRun domain.WorkflowStepRun) {
+	if s.metrics == nil {
+		return
+	}
+	if stepRun.CreatedAt.IsZero() {
+		return
+	}
+	wait := time.Since(stepRun.CreatedAt).Seconds()
+	if wait < 0 {
+		wait = 0
+	}
+	attrs := otelmetric.WithAttributes(
+		otelattr.String("workflow_id", wfRun.WorkflowID),
+		otelattr.String("workflow_run_id", wfRun.ID),
+		otelattr.String("step_ref", step.StepRef),
+	)
+	s.metrics.WorkflowStepWaitDuration.Record(ctx, wait, attrs)
 }
 
 func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunID string) error {
@@ -433,6 +470,15 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 		return sr.StepRef, sr.Status
 	})
 	runningStepCount := lo.CountBy(stepRuns, func(sr domain.WorkflowStepRun) bool { return sr.Status == domain.StepRunning })
+	runningByConcurrencyKey := make(map[string]int)
+	for _, sr := range stepRuns {
+		if sr.Status != domain.StepRunning {
+			continue
+		}
+		if stepDef, ok := stepByRef[sr.StepRef]; ok && stepDef.ConcurrencyKey != "" {
+			runningByConcurrencyKey[stepDef.ConcurrencyKey]++
+		}
+	}
 
 	for _, sr := range stepRuns {
 		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
@@ -442,6 +488,9 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 			continue
 		}
 		if wfRun.MaxParallelSteps > 0 && runningStepCount >= wfRun.MaxParallelSteps {
+			continue
+		}
+		if stepDef, ok := stepByRef[sr.StepRef]; ok && stepDef.ConcurrencyKey != "" && runningByConcurrencyKey[stepDef.ConcurrencyKey] > 0 {
 			continue
 		}
 
@@ -483,7 +532,11 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 		}
 		stepStatuses[sr.StepRef] = srCopy.Status
 		if srCopy.Status == domain.StepRunning {
+			s.recordStepWaitDuration(ctx, wfRun, stepCopy, sr)
 			runningStepCount++
+			if stepCopy.ConcurrencyKey != "" {
+				runningByConcurrencyKey[stepCopy.ConcurrencyKey]++
+			}
 		}
 	}
 
