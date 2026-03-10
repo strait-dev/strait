@@ -64,32 +64,33 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	if err := s.store.UpdateEventTriggerStatus(
-		r.Context(),
-		trigger.ID,
-		domain.EventTriggerStatusReceived,
-		req.Payload,
-		&now,
-		"",
-	); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to update event trigger")
-		return
+
+	// For job_run sources, use atomic receive+requeue to prevent inconsistency.
+	// For workflow steps, update trigger then call callback (multi-step progression
+	// is inherently non-atomic; the reconciliation reaper is the safety net).
+	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" {
+		if err := s.store.ReceiveEventAndRequeueRun(r.Context(), trigger.ID, req.Payload, now, trigger.JobRunID); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to receive event")
+			return
+		}
+	} else {
+		if err := s.store.UpdateEventTriggerStatus(
+			r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, "",
+		); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to update event trigger")
+			return
+		}
+
+		// Resume the workflow step via callback.
+		if err := s.resumeEventSource(r.Context(), trigger); err != nil {
+			slog.Error("event received but failed to resume execution",
+				"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
+		}
 	}
 
-	// Update the in-memory trigger before passing to resumeEventSource,
-	// so the callback sees the correct payload and status.
 	trigger.Status = domain.EventTriggerStatusReceived
 	trigger.ResponsePayload = req.Payload
 	trigger.ReceivedAt = &now
-
-	// Resume the workflow step or job run that was waiting.
-	// The trigger is already marked 'received' at this point — if resumption
-	// fails, log the error but still return 200 since the event was recorded.
-	// The reconciliation reaper will pick up the inconsistency.
-	if err := s.resumeEventSource(r.Context(), trigger); err != nil {
-		slog.Error("event received but failed to resume execution",
-			"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
-	}
 
 	// Record metrics.
 	if s.metrics != nil {

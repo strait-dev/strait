@@ -763,6 +763,10 @@ func (m *mockAPIStore) CancelEventTriggersByWorkflowRun(_ context.Context, _ str
 	return 0, nil
 }
 
+func (m *mockAPIStore) ReceiveEventAndRequeueRun(_ context.Context, _ string, _ json.RawMessage, _ time.Time, _ string) error {
+	return nil
+}
+
 // mockQueue implements queue.Queue for testing.
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error

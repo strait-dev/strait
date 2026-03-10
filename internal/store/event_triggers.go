@@ -554,6 +554,35 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	return &trigger, nil
 }
 
+// ReceiveEventAndRequeueRun atomically marks a trigger as received and
+// re-queues the associated job run (waiting → queued) with checkpoint data.
+// This prevents a crash between the two steps from leaving the system
+// inconsistent. Only applicable to job_run source type triggers.
+func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReceiveEventAndRequeueRun")
+	defer span.End()
+
+	txb, ok := q.db.(TxBeginner)
+	if !ok {
+		// Fallback: not a pool (e.g., already in a tx). Execute sequentially.
+		if err := q.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+			return fmt.Errorf("update trigger status: %w", err)
+		}
+		return q.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
+			"checkpoint_data": payload,
+		})
+	}
+
+	return WithTx(ctx, txb, func(txQ *Queries) error {
+		if err := txQ.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+			return fmt.Errorf("update trigger status: %w", err)
+		}
+		return txQ.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
+			"checkpoint_data": payload,
+		})
+	})
+}
+
 func defaultIfEmpty(s, def string) string {
 	if s == "" {
 		return def
