@@ -319,6 +319,13 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 		return fmt.Errorf("complete approval step run: %w", err)
 	}
 
+	// Sync parallel event trigger (if exists) — non-fatal.
+	if trigger, getErr := s.store.GetEventTriggerByStepRunID(ctx, stepRun.ID); getErr == nil && trigger != nil && trigger.Status == domain.EventTriggerStatusWaiting {
+		if syncErr := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, nil, &now, ""); syncErr != nil {
+			s.logger.Warn("failed to sync event trigger for approval (non-fatal)", "step_run_id", stepRun.ID, "error", syncErr)
+		}
+	}
+
 	stepRun.Status = domain.StepCompleted
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
 		return fmt.Errorf("fan-in after approval for step %s: %w", stepRef, err)

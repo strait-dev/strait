@@ -155,6 +155,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
+	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 
 	g.Go(func(ctx context.Context) error {
 		cdcConsumer.Run(ctx)
@@ -168,7 +169,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -195,10 +196,12 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Queue:            q,
 		PubSub:           pub,
 		MetricsHandler:   metricsHandler,
+		Metrics:          metrics,
 		Pinger:           pinger,
 		HealthRegistry:   healthReg,
 		WorkflowCallback: stepCallback,
 		WorkflowEngine:   workflowEngine,
+		TxPool:           txPool,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -295,7 +298,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 
 	// Start scheduler (cron, delayed poller, reaper)
-	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine)
+	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine, scheduler.WithSchedulerMetrics(metrics))
 	g.Go(func(ctx context.Context) error {
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)

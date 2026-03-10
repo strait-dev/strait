@@ -28,6 +28,8 @@ tags:
     description: Queue and system statistics
   - name: Secrets
     description: Job and environment secret management
+  - name: EventTriggers
+    description: External event trigger management for durable waits
   - name: SDK
     description: Endpoints called by job executors using run tokens
 
@@ -2240,6 +2242,360 @@ paths:
         '204':
           description: Secret deleted
 
+  /v1/events:
+    get:
+      tags:
+        - EventTriggers
+      summary: List event triggers for a project
+      description: Returns a paginated list of event triggers, optionally filtered by status, workflow run, or source type.
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [waiting, received, timed_out, canceled]
+        - name: workflow_run_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter triggers by workflow run ID.
+        - name: source_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [workflow_step, job_run]
+          description: Filter triggers by source type.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated list of event triggers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventTrigger'
+                  has_more:
+                    type: boolean
+
+  /v1/events/stats:
+    get:
+      tags:
+        - EventTriggers
+      summary: Get event trigger statistics
+      description: Returns aggregate counts by status and average wait duration for the project.
+      responses:
+        '200':
+          description: Event trigger statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count:
+                    type: integer
+                  waiting_count:
+                    type: integer
+                  received_count:
+                    type: integer
+                  timed_out_count:
+                    type: integer
+                  canceled_count:
+                    type: integer
+                  avg_wait_duration_secs:
+                    type: number
+                    format: double
+        '400':
+          description: No project context
+
+  /v1/events/{eventKey}:
+    get:
+      tags:
+        - EventTriggers
+      summary: Get event trigger by key
+      description: Returns a single event trigger by its globally unique event key.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event trigger details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
+        '404':
+          description: Event trigger not found
+    delete:
+      tags:
+        - EventTriggers
+      summary: Cancel a waiting event trigger
+      description: |
+        Cancels a waiting event trigger by key. The associated workflow step is failed
+        (respecting on_failure policy) or the job run is canceled.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event trigger canceled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
+        '403':
+          description: Trigger does not belong to project
+        '404':
+          description: Event trigger not found
+        '409':
+          description: Event trigger is not in waiting state
+
+  /v1/events/{eventKey}/stream:
+    get:
+      tags:
+        - EventTriggers
+      summary: Stream event trigger status updates via SSE
+      description: |
+        Opens a Server-Sent Events stream for a specific event trigger.
+        Sends the current state immediately, then streams status changes
+        until the trigger reaches a terminal state.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE stream of trigger status updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          description: Event trigger not found
+
+  /v1/events/{eventKey}/send:
+    post:
+      tags:
+        - EventTriggers
+      summary: Send an event to a waiting trigger
+      description: |
+        Delivers an event payload to a waiting trigger. The trigger transitions to 'received'
+        and the associated workflow step is completed or job run is re-queued.
+
+        Event keys are globally unique. Recommended patterns:
+        - Workflow steps: `{domain}:{entity_id}` — e.g., `aml-check:app-456`
+        - SDK runs: `{service}:{correlation_id}` — e.g., `payment:order-789`
+        - Per-execution uniqueness: include `{{workflow_run_id}}` in the template
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEventRequest'
+      responses:
+        '200':
+          description: Event received and trigger updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
+        '404':
+          description: No waiting trigger found for this key
+        '409':
+          description: Trigger already received or timed out
+
+  /v1/events/prefix/{prefix}/send:
+    post:
+      tags:
+        - EventTriggers
+      summary: Send an event to all waiting triggers matching a prefix
+      description: |
+        Delivers an event payload to all waiting triggers whose event_key starts
+        with the given prefix. Each matched trigger is resolved individually.
+        Results are scoped to the authenticated project when using API key auth.
+        Returns up to 1000 matching triggers per request.
+      parameters:
+        - name: prefix
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEventRequest'
+      responses:
+        '200':
+          description: Events resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resolved:
+                    type: integer
+                    description: Number of triggers resolved
+                  triggers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventTrigger'
+        '400':
+          description: Invalid or empty prefix
+
+  /v1/events/purge:
+    post:
+      tags:
+        - EventTriggers
+      summary: Purge terminal event triggers
+      description: |
+        Deletes event triggers in terminal state (received, timed_out, canceled)
+        older than the specified number of days. Use dry_run to preview.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - older_than_days
+              properties:
+                older_than_days:
+                  type: integer
+                  minimum: 1
+                  description: Delete triggers older than N days
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Preview without deleting
+      responses:
+        '200':
+          description: Purge result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+                  dry_run:
+                    type: boolean
+                  would_delete:
+                    type: integer
+
+  /v1/webhook-deliveries/{deliveryID}/retry:
+    post:
+      tags:
+        - Webhooks
+      summary: Retry a failed webhook delivery
+      description: |
+        Resets a failed webhook delivery to pending status with zero attempts
+        and immediate next retry time. Only failed deliveries can be retried.
+      parameters:
+        - name: deliveryID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery reset for retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+        '409':
+          description: Only failed deliveries can be retried
+
+  /sdk/v1/runs/{runID}/wait-for-event:
+    post:
+      tags:
+        - SDK
+      summary: Pause a run to wait for an external event
+      description: |
+        Transitions the run from executing to waiting and creates an event trigger.
+        When the event is received via POST /v1/events/{eventKey}/send, the run
+        transitions back to queued with checkpoint data and is re-dispatched.
+        Requires the FF_EVENT_TRIGGERS feature flag.
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SDKWaitForEventRequest'
+      responses:
+        '200':
+          description: Run paused, waiting for event
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: waiting
+                  event_key:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  trigger_id:
+                    type: string
+        '400':
+          description: Invalid request
+        '404':
+          description: Feature not enabled or run not found
+        '409':
+          description: Run not in executing state or event key conflict
+
   /sdk/v1/runs/{runID}/log:
     post:
       tags:
@@ -2586,6 +2942,78 @@ components:
       description: JWT run token issued by the trigger response.
 
   schemas:
+    EventTrigger:
+      type: object
+      properties:
+        id:
+          type: string
+        event_key:
+          type: string
+          description: Globally unique event key. Supports template variables from workflow payload.
+        project_id:
+          type: string
+        source_type:
+          type: string
+          enum: [workflow_step, job_run]
+        workflow_run_id:
+          type: string
+          nullable: true
+        workflow_step_run_id:
+          type: string
+          nullable: true
+        job_run_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [waiting, received, timed_out, canceled]
+        request_payload:
+          type: object
+          nullable: true
+        response_payload:
+          type: object
+          nullable: true
+        timeout_secs:
+          type: integer
+        requested_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+
+    SendEventRequest:
+      type: object
+      properties:
+        payload:
+          type: object
+          nullable: true
+          description: Optional payload to deliver to the waiting trigger.
+
+    SDKWaitForEventRequest:
+      type: object
+      required:
+        - event_key
+      properties:
+        event_key:
+          type: string
+          description: Globally unique key for the event trigger.
+        timeout_secs:
+          type: integer
+          default: 3600
+          description: Timeout in seconds before the trigger expires.
+        notify_url:
+          type: string
+          format: uri
+          description: Optional webhook URL to notify when the event trigger is created.
+
     Job:
       type: object
       properties:

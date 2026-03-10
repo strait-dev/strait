@@ -37,6 +37,11 @@ type workflowStepRequest struct {
 	OutputTransform       string                    `json:"output_transform,omitempty"`
 	SubWorkflowID         string                    `json:"sub_workflow_id,omitempty"`
 	MaxNestingDepth       int                       `json:"max_nesting_depth,omitempty"`
+	EventKey              string                    `json:"event_key,omitempty"`
+	EventTimeoutSecs      int                       `json:"event_timeout_secs,omitempty"`
+	EventNotifyURL        string                    `json:"event_notify_url,omitempty"`
+	EventEmitKey          string                    `json:"event_emit_key,omitempty"`
+	SleepDurationSecs     int                       `json:"sleep_duration_secs,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -178,6 +183,11 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			OutputTransform:       stepReq.OutputTransform,
 			SubWorkflowID:         stepReq.SubWorkflowID,
 			MaxNestingDepth:       stepReq.MaxNestingDepth,
+			EventKey:              stepReq.EventKey,
+			EventTimeoutSecs:      stepReq.EventTimeoutSecs,
+			EventNotifyURL:        stepReq.EventNotifyURL,
+			EventEmitKey:          stepReq.EventEmitKey,
+			SleepDurationSecs:     stepReq.SleepDurationSecs,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			slog.Error("failed to create workflow step", "error", err, "step_ref", step.StepRef, "workflow_id", wf.ID)
@@ -363,6 +373,11 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 				OutputTransform:       stepReq.OutputTransform,
 				SubWorkflowID:         stepReq.SubWorkflowID,
 				MaxNestingDepth:       stepReq.MaxNestingDepth,
+				EventKey:              stepReq.EventKey,
+				EventTimeoutSecs:      stepReq.EventTimeoutSecs,
+				EventNotifyURL:        stepReq.EventNotifyURL,
+				EventEmitKey:          stepReq.EventEmitKey,
+				SleepDurationSecs:     stepReq.SleepDurationSecs,
 			}
 			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
 				respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
@@ -497,6 +512,19 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 			}
 			if step.MaxNestingDepth < 0 {
 				return errors.New("max_nesting_depth must be >= 0")
+			}
+		}
+		if step.StepType == domain.WorkflowStepTypeWaitForEvent {
+			if step.EventKey == "" {
+				return errors.New("wait_for_event steps require event_key")
+			}
+			if len(step.EventKey) > 512 {
+				return errors.New("event_key must be at most 512 characters")
+			}
+		}
+		if step.StepType == domain.WorkflowStepTypeSleep {
+			if step.SleepDurationSecs <= 0 {
+				return errors.New("sleep steps require sleep_duration_secs > 0")
 			}
 		}
 		if step.TimeoutSecsOverride < 0 {
@@ -729,6 +757,11 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 			OutputTransform:       src.OutputTransform,
 			SubWorkflowID:         src.SubWorkflowID,
 			MaxNestingDepth:       src.MaxNestingDepth,
+			EventKey:              src.EventKey,
+			EventTimeoutSecs:      src.EventTimeoutSecs,
+			EventNotifyURL:        src.EventNotifyURL,
+			EventEmitKey:          src.EventEmitKey,
+			SleepDurationSecs:     src.SleepDurationSecs,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow step")

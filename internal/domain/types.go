@@ -335,8 +335,9 @@ type EndpointCircuitState struct {
 
 type WebhookDelivery struct {
 	ID             string     `json:"id"`
-	RunID          string     `json:"run_id"`
-	JobID          string     `json:"job_id"`
+	RunID          string     `json:"run_id,omitempty"`
+	JobID          string     `json:"job_id,omitempty"`
+	EventTriggerID string     `json:"event_trigger_id,omitempty"`
 	WebhookURL     string     `json:"webhook_url"`
 	Status         string     `json:"status"`
 	Attempts       int        `json:"attempts"`
@@ -506,9 +507,11 @@ const (
 type WorkflowStepType string
 
 const (
-	WorkflowStepTypeJob         WorkflowStepType = "job"
-	WorkflowStepTypeApproval    WorkflowStepType = "approval"
-	WorkflowStepTypeSubWorkflow WorkflowStepType = "sub_workflow"
+	WorkflowStepTypeJob          WorkflowStepType = "job"
+	WorkflowStepTypeApproval     WorkflowStepType = "approval"
+	WorkflowStepTypeSubWorkflow  WorkflowStepType = "sub_workflow"
+	WorkflowStepTypeWaitForEvent WorkflowStepType = "wait_for_event"
+	WorkflowStepTypeSleep        WorkflowStepType = "sleep"
 )
 
 // ApprovalStatus constants for workflow step approvals.
@@ -518,19 +521,43 @@ const (
 	ApprovalStatusRejected = "rejected"
 )
 
+// EventTriggerStatus constants for event triggers.
+const (
+	EventTriggerStatusWaiting  = "waiting"
+	EventTriggerStatusReceived = "received"
+	EventTriggerStatusTimedOut = "timed_out"
+	EventTriggerStatusCanceled = "canceled"
+)
+
+// Event trigger source types.
+const (
+	EventSourceWorkflowStep = "workflow_step"
+	EventSourceJobRun       = "job_run"
+)
+
+// Trigger type constants.
+const (
+	TriggerTypeEvent = "event"
+	TriggerTypeSleep = "sleep"
+)
+
+// DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
+const DefaultEventTimeoutSecs = 3600
+
+const (
+	WebhookStatusPending   = "pending"
+	WebhookStatusDelivered = "delivered"
+	WebhookStatusFailed    = "failed"
+	WebhookStatusDead      = "dead"
+)
+
 // VersionPolicy controls how queued runs handle new job/workflow deployments.
-// For jobs, this is enforced at dequeue time by the executor's resolveJobForRun.
-// For workflows, version_policy is stored for future use but not currently enforced
-// because workflows execute immediately on trigger (no queue delay).
 type VersionPolicy string
 
 const (
-	// VersionPolicyPin keeps the run on the version it was enqueued with (default, safest).
-	VersionPolicyPin VersionPolicy = "pin"
-	// VersionPolicyLatest upgrades queued runs to the latest version at dequeue time.
+	VersionPolicyPin    VersionPolicy = "pin"
 	VersionPolicyLatest VersionPolicy = "latest"
-	// VersionPolicyMinor upgrades only if the new version is marked backwards_compatible.
-	VersionPolicyMinor VersionPolicy = "minor"
+	VersionPolicyMinor  VersionPolicy = "minor"
 )
 
 func (p VersionPolicy) IsValid() bool {
@@ -601,6 +628,11 @@ type WorkflowStep struct {
 	OutputTransform       string             `json:"output_transform,omitempty"`
 	SubWorkflowID         string             `json:"sub_workflow_id,omitempty"`
 	MaxNestingDepth       int                `json:"max_nesting_depth,omitempty"`
+	EventKey              string             `json:"event_key,omitempty"`
+	EventTimeoutSecs      int                `json:"event_timeout_secs,omitempty"`
+	EventNotifyURL        string             `json:"event_notify_url,omitempty"`
+	SleepDurationSecs     int                `json:"sleep_duration_secs,omitempty"`
+	EventEmitKey          string             `json:"event_emit_key,omitempty"` // auto-send event on step completion
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
@@ -655,4 +687,28 @@ type WorkflowStepApproval struct {
 	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	Error             string     `json:"error,omitempty"`
+}
+
+// EventTrigger represents a durable wait for an external event signal.
+// Used by wait_for_event workflow steps and SDK wait-for-event on job runs.
+type EventTrigger struct {
+	ID                string          `json:"id"`
+	EventKey          string          `json:"event_key"`
+	ProjectID         string          `json:"project_id"`
+	SourceType        string          `json:"source_type"`                    // "workflow_step" or "job_run"
+	WorkflowRunID     string          `json:"workflow_run_id,omitempty"`      // set if source_type = workflow_step
+	WorkflowStepRunID string          `json:"workflow_step_run_id,omitempty"` // set if source_type = workflow_step
+	JobRunID          string          `json:"job_run_id,omitempty"`           // set if source_type = job_run
+	Status            string          `json:"status"`                         // waiting, received, timed_out, canceled
+	RequestPayload    json.RawMessage `json:"request_payload,omitempty"`
+	ResponsePayload   json.RawMessage `json:"response_payload,omitempty"`
+	TimeoutSecs       int             `json:"timeout_secs"`
+	RequestedAt       time.Time       `json:"requested_at"`
+	ReceivedAt        *time.Time      `json:"received_at,omitempty"`
+	ExpiresAt         time.Time       `json:"expires_at"`
+	Error             string          `json:"error,omitempty"`
+	NotifyURL         string          `json:"notify_url,omitempty"`    // optional webhook URL to call on creation
+	NotifyStatus      string          `json:"notify_status,omitempty"` // pending, sent, failed
+	TriggerType       string          `json:"trigger_type,omitempty"`  // "event" (default) or "sleep"
+	SentBy            string          `json:"sent_by,omitempty"`       // who resolved the trigger (API key ID, "internal", or "auto-emit")
 }

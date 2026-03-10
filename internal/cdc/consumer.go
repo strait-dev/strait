@@ -27,7 +27,7 @@ func NewConsumer(client *Client, cfg ConsumerConfig, logger *slog.Logger) *Consu
 		cfg.BatchSize = 10
 	}
 	if cfg.WaitTimeMs <= 0 {
-		cfg.WaitTimeMs = 5000
+		cfg.WaitTimeMs = 1000
 	}
 
 	return &Consumer{

@@ -22,6 +22,7 @@ type mockEngineStore struct {
 	createWorkflowRunFn          func(ctx context.Context, run *domain.WorkflowRun) error
 	createWorkflowStepRunFn      func(ctx context.Context, sr *domain.WorkflowStepRun) error
 	createWorkflowStepApprovalFn func(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	createEventTriggerFn         func(ctx context.Context, trigger *domain.EventTrigger) error
 	updateWorkflowRunStatusFn    func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn        func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getStepOutputsFn             func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
@@ -68,6 +69,13 @@ func (m *mockEngineStore) CreateWorkflowStepRun(ctx context.Context, sr *domain.
 func (m *mockEngineStore) CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error {
 	if m.createWorkflowStepApprovalFn != nil {
 		return m.createWorkflowStepApprovalFn(ctx, approval)
+	}
+	return nil
+}
+
+func (m *mockEngineStore) CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error {
+	if m.createEventTriggerFn != nil {
+		return m.createEventTriggerFn(ctx, trigger)
 	}
 	return nil
 }
@@ -372,6 +380,30 @@ type mockCallbackStore struct {
 	updateWorkflowStepApprovalFn func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	updateRunStatusFn            func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	getWorkflowRunsByParentFn    func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	getEventTriggerByStepRunIDFn func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	getEventTriggerByEventKeyFn  func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	updateEventTriggerStatusFn   func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+}
+
+func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByStepRunIDFn != nil {
+		return m.getEventTriggerByStepRunIDFn(ctx, stepRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByEventKeyFn != nil {
+		return m.getEventTriggerByEventKeyFn(ctx, eventKey)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+	if m.updateEventTriggerStatusFn != nil {
+		return m.updateEventTriggerStatusFn(ctx, id, status, responsePayload, receivedAt, errMsg)
+	}
+	return nil
 }
 
 func (m *mockCallbackStore) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
@@ -4297,4 +4329,584 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 			t.Fatal("expected workflow run not to be created when overrides are invalid")
 		}
 	})
+}
+
+func TestStartStep_WaitForEvent_CreatesEventTrigger(t *testing.T) {
+	t.Parallel()
+
+	var capturedTrigger *domain.EventTrigger
+	var capturedStepStatus domain.StepRunStatus
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
+			capturedStepStatus = status
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+			capturedTrigger = trigger
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	stepRun := &domain.WorkflowStepRun{
+		ID:            "sr-1",
+		WorkflowRunID: "wr-1",
+		StepRef:       "wait_aml",
+		Status:        domain.StepPending,
+	}
+	step := &domain.WorkflowStep{
+		StepRef:          "wait_aml",
+		StepType:         domain.WorkflowStepTypeWaitForEvent,
+		EventKey:         "aml-check:app-123",
+		EventTimeoutSecs: 7200,
+	}
+	wfRun := &domain.WorkflowRun{
+		ID:        "wr-1",
+		ProjectID: "proj-1",
+		Payload:   json.RawMessage(`{}`),
+	}
+
+	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedStepStatus != domain.StepWaiting {
+		t.Fatalf("step status = %s, want waiting", capturedStepStatus)
+	}
+	if stepRun.Status != domain.StepWaiting {
+		t.Fatalf("stepRun.Status = %s, want waiting", stepRun.Status)
+	}
+	if stepRun.StartedAt == nil {
+		t.Fatal("stepRun.StartedAt should be set")
+	}
+	if capturedTrigger == nil {
+		t.Fatal("expected event trigger to be created")
+	}
+	if capturedTrigger.EventKey != "aml-check:app-123" {
+		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "aml-check:app-123")
+	}
+	if capturedTrigger.SourceType != "workflow_step" {
+		t.Fatalf("source_type = %q, want %q", capturedTrigger.SourceType, "workflow_step")
+	}
+	if capturedTrigger.WorkflowRunID != "wr-1" {
+		t.Fatalf("workflow_run_id = %q, want %q", capturedTrigger.WorkflowRunID, "wr-1")
+	}
+	if capturedTrigger.WorkflowStepRunID != "sr-1" {
+		t.Fatalf("workflow_step_run_id = %q, want %q", capturedTrigger.WorkflowStepRunID, "sr-1")
+	}
+	if capturedTrigger.Status != domain.EventTriggerStatusWaiting {
+		t.Fatalf("status = %q, want %q", capturedTrigger.Status, domain.EventTriggerStatusWaiting)
+	}
+	if capturedTrigger.TimeoutSecs != 7200 {
+		t.Fatalf("timeout_secs = %d, want 7200", capturedTrigger.TimeoutSecs)
+	}
+	if capturedTrigger.ProjectID != "proj-1" {
+		t.Fatalf("project_id = %q, want %q", capturedTrigger.ProjectID, "proj-1")
+	}
+}
+
+func TestStartStep_WaitForEvent_RendersTemplateKey(t *testing.T) {
+	t.Parallel()
+
+	var capturedTrigger *domain.EventTrigger
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+			capturedTrigger = trigger
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:          "wait_aml",
+		StepType:         domain.WorkflowStepTypeWaitForEvent,
+		EventKey:         "aml:{{app_id}}",
+		EventTimeoutSecs: 3600,
+	}
+	wfRun := &domain.WorkflowRun{
+		ID:        "wr-1",
+		ProjectID: "proj-1",
+		Payload:   json.RawMessage(`{"app_id":"app-456"}`),
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_aml"}
+
+	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedTrigger == nil {
+		t.Fatal("expected event trigger to be created")
+	}
+	if capturedTrigger.EventKey != "aml:app-456" {
+		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "aml:app-456")
+	}
+}
+
+func TestStartStep_WaitForEvent_DefaultTimeout(t *testing.T) {
+	t.Parallel()
+
+	var capturedTrigger *domain.EventTrigger
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+			capturedTrigger = trigger
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:          "wait_step",
+		StepType:         domain.WorkflowStepTypeWaitForEvent,
+		EventKey:         "some-key",
+		EventTimeoutSecs: 0, // should use default
+	}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", Payload: json.RawMessage(`{}`)}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_step"}
+
+	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedTrigger.TimeoutSecs != domain.DefaultEventTimeoutSecs {
+		t.Fatalf("timeout_secs = %d, want %d", capturedTrigger.TimeoutSecs, domain.DefaultEventTimeoutSecs)
+	}
+}
+
+func TestStartStep_WaitForEvent_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			return errors.New("db connection failed")
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:  "wait_step",
+		StepType: domain.WorkflowStepTypeWaitForEvent,
+		EventKey: "some-key",
+	}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", Payload: json.RawMessage(`{}`)}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_step"}
+
+	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "create event trigger") {
+		t.Fatalf("expected 'create event trigger' error, got: %v", err)
+	}
+}
+
+func TestStartStep_WaitForEvent_EmptyEventKey(t *testing.T) {
+	t.Parallel()
+
+	var stepStatusUpdated bool
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			stepStatusUpdated = true
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:  "wait_step",
+		StepType: domain.WorkflowStepTypeWaitForEvent,
+		EventKey: "", // empty
+	}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", Payload: json.RawMessage(`{}`)}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_step"}
+
+	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+	if err == nil {
+		t.Fatal("expected error for empty event key")
+	}
+	if !strings.Contains(err.Error(), "event_key is empty") {
+		t.Fatalf("expected 'event_key is empty' error, got: %v", err)
+	}
+	// Step status should NOT have been updated — fail fast before DB writes.
+	if stepStatusUpdated {
+		t.Fatal("step status should not be updated when event key is empty")
+	}
+}
+
+func TestTriggerWorkflow_WaitForEventStep_RootStep(t *testing.T) {
+	t.Parallel()
+
+	var capturedTrigger *domain.EventTrigger
+	stepRunsCreated := make(map[string]*domain.WorkflowStepRun)
+
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: "wf-1", ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{
+					ID:               "step-1",
+					StepRef:          "wait_aml",
+					StepType:         domain.WorkflowStepTypeWaitForEvent,
+					EventKey:         "aml-check:{{id}}",
+					EventTimeoutSecs: 86400,
+				},
+			}, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			run.ID = "wr-1"
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+			sr.ID = "sr-" + sr.StepRef
+			stepRunsCreated[sr.StepRef] = sr
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+			capturedTrigger = trigger
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	wfRun, err := engine.TriggerWorkflow(
+		context.Background(),
+		"wf-1", "proj-1",
+		json.RawMessage(`{"id":"app-789"}`),
+		"manual",
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wfRun == nil {
+		t.Fatal("expected workflow run")
+	}
+	if capturedTrigger == nil {
+		t.Fatal("expected event trigger to be created")
+	}
+	if capturedTrigger.EventKey != "aml-check:app-789" {
+		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "aml-check:app-789")
+	}
+	if capturedTrigger.TimeoutSecs != 86400 {
+		t.Fatalf("timeout_secs = %d, want 86400", capturedTrigger.TimeoutSecs)
+	}
+}
+
+func TestStartStep_Approval_CreatesParallelEventTrigger(t *testing.T) {
+	t.Parallel()
+
+	var capturedApproval *domain.WorkflowStepApproval
+	var capturedTrigger *domain.EventTrigger
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepApprovalFn: func(_ context.Context, approval *domain.WorkflowStepApproval) error {
+			capturedApproval = approval
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+			capturedTrigger = trigger
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	stepRun := &domain.WorkflowStepRun{
+		ID:            "sr-1",
+		WorkflowRunID: "wr-1",
+		StepRef:       "approval_step",
+		Status:        domain.StepPending,
+	}
+	step := &domain.WorkflowStep{
+		StepRef:             "approval_step",
+		StepType:            domain.WorkflowStepTypeApproval,
+		ApprovalApprovers:   []string{"admin@example.com"},
+		ApprovalTimeoutSecs: 86400,
+	}
+	wfRun := &domain.WorkflowRun{
+		ID:        "wr-1",
+		ProjectID: "proj-1",
+		Payload:   json.RawMessage(`{}`),
+	}
+
+	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedApproval == nil {
+		t.Fatal("expected approval to be created")
+	}
+	if capturedTrigger == nil {
+		t.Fatal("expected parallel event trigger to be created")
+	}
+	if capturedTrigger.EventKey != "approval:wr-1:approval_step" {
+		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "approval:wr-1:approval_step")
+	}
+	if capturedTrigger.SourceType != "workflow_step" {
+		t.Fatalf("source_type = %q, want %q", capturedTrigger.SourceType, "workflow_step")
+	}
+	if capturedTrigger.TimeoutSecs != 86400 {
+		t.Fatalf("timeout_secs = %d, want 86400", capturedTrigger.TimeoutSecs)
+	}
+}
+
+func TestStartStep_Approval_EventTriggerFailureNonFatal(t *testing.T) {
+	t.Parallel()
+
+	var approvalCreated bool
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepApprovalFn: func(_ context.Context, _ *domain.WorkflowStepApproval) error {
+			approvalCreated = true
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			return errors.New("unique constraint violation")
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+
+	stepRun := &domain.WorkflowStepRun{
+		ID:            "sr-1",
+		WorkflowRunID: "wr-1",
+		StepRef:       "approval_step",
+		Status:        domain.StepPending,
+	}
+	step := &domain.WorkflowStep{
+		StepRef:           "approval_step",
+		StepType:          domain.WorkflowStepTypeApproval,
+		ApprovalApprovers: []string{"admin@example.com"},
+	}
+	wfRun := &domain.WorkflowRun{
+		ID:        "wr-1",
+		ProjectID: "proj-1",
+		Payload:   json.RawMessage(`{}`),
+	}
+
+	// Should not error even though event trigger creation fails.
+	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !approvalCreated {
+		t.Fatal("approval should still be created")
+	}
+	if stepRun.Status != domain.StepWaiting {
+		t.Fatalf("step status = %s, want waiting", stepRun.Status)
+	}
+}
+
+func TestApproveStep_SyncsEventTrigger(t *testing.T) {
+	t.Parallel()
+
+	var triggerSynced bool
+
+	ms := &mockCallbackStore{
+		getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID:            "sr-1",
+				WorkflowRunID: "wr-1",
+				StepRef:       "approval_step",
+				Status:        domain.StepWaiting,
+			}, nil
+		},
+		getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+			return &domain.WorkflowStepApproval{
+				ID:            "approval:sr-1",
+				WorkflowRunID: "wr-1",
+				Approvers:     []string{"admin@example.com"},
+				Status:        domain.ApprovalStatusPending,
+			}, nil
+		},
+		updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		getEventTriggerByStepRunIDFn: func(_ context.Context, stepRunID string) (*domain.EventTrigger, error) {
+			if stepRunID == "sr-1" {
+				return &domain.EventTrigger{
+					ID:     "evt:approval:sr-1",
+					Status: domain.EventTriggerStatusWaiting,
+				}, nil
+			}
+			return nil, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, id string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if id == "evt:approval:sr-1" && status == domain.EventTriggerStatusReceived {
+				triggerSynced = true
+			}
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{
+				ID:              "wr-1",
+				Status:          domain.WfStatusRunning,
+				WorkflowID:      "wf-1",
+				WorkflowVersion: 1,
+			}, nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-1", StepRef: "approval_step", Status: domain.StepCompleted},
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "approval_step", StepType: domain.WorkflowStepTypeApproval},
+			}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := NewStepCallback(ms, nil, slog.Default())
+	if err := cb.ApproveStep(context.Background(), "wr-1", "approval_step", "admin@example.com"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !triggerSynced {
+		t.Fatal("expected parallel event trigger to be synced to received")
+	}
+}
+
+func TestApproveStep_NoEventTrigger_StillSucceeds(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID:            "sr-1",
+				WorkflowRunID: "wr-1",
+				StepRef:       "approval_step",
+				Status:        domain.StepWaiting,
+			}, nil
+		},
+		getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+			return &domain.WorkflowStepApproval{
+				ID:            "approval:sr-1",
+				WorkflowRunID: "wr-1",
+				Approvers:     []string{"admin@example.com"},
+				Status:        domain.ApprovalStatusPending,
+			}, nil
+		},
+		updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		getEventTriggerByStepRunIDFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return nil, nil // No event trigger
+		},
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{
+				ID:              "wr-1",
+				Status:          domain.WfStatusRunning,
+				WorkflowID:      "wf-1",
+				WorkflowVersion: 1,
+			}, nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-1", StepRef: "approval_step", Status: domain.StepCompleted},
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "approval_step", StepType: domain.WorkflowStepTypeApproval},
+			}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := NewStepCallback(ms, nil, slog.Default())
+	err := cb.ApproveStep(context.Background(), "wr-1", "approval_step", "admin@example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.EventTrigger
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, trigger *domain.EventTrigger) error {
+			captured = trigger
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, nil, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:           "sleep-step",
+		StepType:          domain.WorkflowStepTypeSleep,
+		SleepDurationSecs: 300,
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-sleep-1", StepRef: "sleep-step"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"}
+
+	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured == nil {
+		t.Fatal("expected event trigger to be created")
+	}
+	if captured.TriggerType != domain.TriggerTypeSleep {
+		t.Fatalf("expected trigger_type=sleep, got %s", captured.TriggerType)
+	}
+	if captured.TimeoutSecs != 300 {
+		t.Fatalf("expected timeout=300, got %d", captured.TimeoutSecs)
+	}
+	if stepRun.Status != domain.StepWaiting {
+		t.Fatalf("expected step status=waiting, got %s", stepRun.Status)
+	}
 }

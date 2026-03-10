@@ -57,6 +57,31 @@ Performance benchmarks for critical paths like the job queue and workflow engine
 go test -bench . ./internal/...
 ```
 
+### Event Trigger Benchmarks
+
+Integration-tagged benchmarks for event trigger database operations:
+
+```bash
+# Requires DATABASE_URL and 'integration' build tag
+go test -tags integration -bench . ./internal/e2e/...
+```
+
+Available benchmarks:
+- `BenchmarkListExpiredEventTriggers` — Measures reaper query performance with 1000 triggers
+- `BenchmarkListByKeyPrefix` — Measures prefix matching query performance with 1000 triggers
+
+### Load Tests
+
+Integration-tagged load tests for event trigger throughput:
+
+```bash
+go test -tags integration -run TestEventTriggerLoad ./internal/e2e/...
+```
+
+Available load tests:
+- `TestEventTriggerLoadCreate` — Sequential create throughput (500 triggers)
+- `TestEventTriggerLoadSendConcurrent` — 50 concurrent event sends
+
 ## Advanced Testing Tools
 
 ### Race Detector
@@ -126,6 +151,21 @@ Available helpers in `internal/testutil/cmp.go`:
 ### Testcontainers
 
 We use `testcontainers-go` to manage the lifecycle of PostgreSQL and Redis during integration tests. This ensures a clean state for every test suite.
+
+### Mock Patterns
+
+For packages like `internal/api` and `internal/scheduler`, we use mock stores with configurable function fields:
+
+```go
+type mockAPIStore struct {
+    getEventTriggerByEventKeyFn func(ctx context.Context, key string) (*domain.EventTrigger, error)
+    // ... other store methods
+}
+```
+
+Each method delegates to its function field if set, falling back to sensible defaults. This enables precise control over test behavior without implementing the full store interface.
+
+For pubsub testing, `mockPublisher` supports configurable `subscribeFn` that returns real `pubsub.Subscription` instances with channels, enabling SSE stream testing without Redis.
 
 ### Test Fixtures
 

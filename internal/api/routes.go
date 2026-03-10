@@ -65,6 +65,15 @@ func (s *Server) routes() chi.Router {
 		r.Handle("/metrics", s.metricsHandler)
 	}
 
+	// SSE stream route with query-param token auth for browser EventSource clients.
+	// Placed before the main /v1 group so sseTokenAuth runs before apiKeyOrSecretAuth.
+	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
+		r.Use(s.sseTokenAuth)
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(chimw.Timeout(requestTimeout))
+		r.Get("/", s.handleEventTriggerStream)
+	})
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(chimw.Timeout(requestTimeout))
@@ -142,6 +151,7 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/webhook-deliveries", s.handleListWebhookDeliveries)
+		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", s.handleRetryWebhookDelivery)
 
 		r.Route("/api-keys", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage), httprate.LimitByIP(10, time.Minute)).Post("/", s.handleCreateAPIKey)
@@ -200,6 +210,20 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 
+		r.Route("/events", func(r chi.Router) {
+			r.Get("/", s.handleListEventTriggers)
+			r.Get("/stats", s.handleGetEventTriggerStats)
+			r.Post("/purge", s.handlePurgeEventTriggers)
+			r.Route("/prefix/{prefix}", func(r chi.Router) {
+				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", s.handleSendEventByPrefix)
+			})
+			r.Route("/{eventKey}", func(r chi.Router) {
+				r.Get("/", s.handleGetEventTrigger)
+				r.Delete("/", s.handleCancelEventTrigger)
+				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", s.handleSendEvent)
+			})
+		})
+
 		r.Route("/workflow-runs", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListWorkflowRunsByProject)
 			r.Route("/{workflowRunID}", func(r chi.Router) {
@@ -232,6 +256,7 @@ func (s *Server) routes() chi.Router {
 			r.Post("/fail", s.handleSDKFail)
 			r.Post("/spawn", s.handleSDKSpawn)
 			r.Post("/continue", s.handleSDKContinue)
+			r.Post("/wait-for-event", s.handleSDKWaitForEvent)
 		})
 	})
 

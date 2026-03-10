@@ -10,29 +10,30 @@ import (
 )
 
 type Config struct {
-	DatabaseURL              string        `mapstructure:"DATABASE_URL"`
-	RedisURL                 string        `mapstructure:"REDIS_URL"`
-	RedisSentinelMaster      string        `mapstructure:"REDIS_SENTINEL_MASTER"`
-	RedisSentinelAddrs       []string      `mapstructure:"REDIS_SENTINEL_ADDRS"`
-	Mode                     string        `mapstructure:"MODE"`
-	Port                     int           `mapstructure:"PORT"`
-	WorkerConcurrency        int           `mapstructure:"WORKER_CONCURRENCY"`
-	InternalSecret           string        `mapstructure:"INTERNAL_SECRET"`
-	JWTSigningKey            string        `mapstructure:"JWT_SIGNING_KEY"`
-	SecretEncryptionKey      string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
-	OIDCEnabled              bool          `mapstructure:"OIDC_ENABLED"`
-	OIDCIssuer               string        `mapstructure:"OIDC_ISSUER"`
-	OIDCAudience             string        `mapstructure:"OIDC_AUDIENCE"`
-	OIDCPublicKeyPEM         string        `mapstructure:"OIDC_PUBLIC_KEY_PEM"`
-	LogLevel                 string        `mapstructure:"LOG_LEVEL"`
-	HeartbeatInterval        time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
-	ReaperInterval           time.Duration `mapstructure:"REAPER_INTERVAL"`
-	StaleThreshold           time.Duration `mapstructure:"STALE_THRESHOLD"`
-	PollerInterval           time.Duration `mapstructure:"POLLER_INTERVAL"`
-	RunRetentionShort        time.Duration `mapstructure:"RUN_RETENTION_SHORT"`
-	RunRetentionLong         time.Duration `mapstructure:"RUN_RETENTION_LONG"`
-	OTELEndpoint             string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	WorkflowRunRetentionDays int           `mapstructure:"WORKFLOW_RUN_RETENTION_DAYS"`
+	DatabaseURL               string        `mapstructure:"DATABASE_URL"`
+	RedisURL                  string        `mapstructure:"REDIS_URL"`
+	RedisSentinelMaster       string        `mapstructure:"REDIS_SENTINEL_MASTER"`
+	RedisSentinelAddrs        []string      `mapstructure:"REDIS_SENTINEL_ADDRS"`
+	Mode                      string        `mapstructure:"MODE"`
+	Port                      int           `mapstructure:"PORT"`
+	WorkerConcurrency         int           `mapstructure:"WORKER_CONCURRENCY"`
+	InternalSecret            string        `mapstructure:"INTERNAL_SECRET"`
+	JWTSigningKey             string        `mapstructure:"JWT_SIGNING_KEY"`
+	SecretEncryptionKey       string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
+	OIDCEnabled               bool          `mapstructure:"OIDC_ENABLED"`
+	OIDCIssuer                string        `mapstructure:"OIDC_ISSUER"`
+	OIDCAudience              string        `mapstructure:"OIDC_AUDIENCE"`
+	OIDCPublicKeyPEM          string        `mapstructure:"OIDC_PUBLIC_KEY_PEM"`
+	LogLevel                  string        `mapstructure:"LOG_LEVEL"`
+	HeartbeatInterval         time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
+	ReaperInterval            time.Duration `mapstructure:"REAPER_INTERVAL"`
+	StaleThreshold            time.Duration `mapstructure:"STALE_THRESHOLD"`
+	PollerInterval            time.Duration `mapstructure:"POLLER_INTERVAL"`
+	RunRetentionShort         time.Duration `mapstructure:"RUN_RETENTION_SHORT"`
+	RunRetentionLong          time.Duration `mapstructure:"RUN_RETENTION_LONG"`
+	OTELEndpoint              string        `mapstructure:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	WorkflowRunRetentionDays  int           `mapstructure:"WORKFLOW_RUN_RETENTION_DAYS"`
+	EventTriggerRetentionDays int           `mapstructure:"EVENT_TRIGGER_RETENTION_DAYS"`
 
 	// Database connection pool tuning
 	DBMaxConns        int32         `mapstructure:"DB_MAX_CONNS"`
@@ -96,6 +97,7 @@ type Config struct {
 	FFJobDependencies  bool `mapstructure:"FF_JOB_DEPENDENCIES"`
 	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
+	FFEventTriggers    bool `mapstructure:"FF_EVENT_TRIGGERS"`
 
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `mapstructure:"PERMISSION_CACHE_TTL"`
@@ -115,6 +117,7 @@ type Config struct {
 
 	// Scheduler settings
 	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
+	EventTriggerRetention time.Duration `mapstructure:"EVENT_TRIGGER_RETENTION"`
 	ReaperDeleteBatchSize int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
 
 	// Workflow settings
@@ -287,6 +290,11 @@ func Load() (*Config, error) {
 	cfg.ExecutorIdleConnTimeout = viper.GetDuration("EXECUTOR_IDLE_CONN_TIMEOUT")
 	cfg.WebhookDispatchTimeout = viper.GetDuration("WEBHOOK_DISPATCH_TIMEOUT")
 	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
+	cfg.EventTriggerRetention = viper.GetDuration("EVENT_TRIGGER_RETENTION")
+	// Legacy: support EVENT_TRIGGER_RETENTION_DAYS as days → duration.
+	if cfg.EventTriggerRetention == 0 && cfg.EventTriggerRetentionDays > 0 {
+		cfg.EventTriggerRetention = time.Duration(cfg.EventTriggerRetentionDays) * 24 * time.Hour
+	}
 	cfg.CDCBatchSize = viper.GetInt("CDC_BATCH_SIZE")
 	cfg.CDCWaitTimeMs = viper.GetInt("CDC_WAIT_TIME_MS")
 	cfg.SSEKeepaliveInterval = viper.GetDuration("SSE_KEEPALIVE_INTERVAL")

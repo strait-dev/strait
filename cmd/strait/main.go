@@ -10,12 +10,16 @@ import (
 	"time"
 
 	"strait/internal/config"
+	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
+	"strait/internal/webhook"
 	"strait/internal/workflow"
 
 	concpool "github.com/sourcegraph/conc/pool"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var version = "dev"
@@ -120,12 +124,32 @@ func runServe(modeOverride string) error {
 	}
 
 	g := concpool.New().WithContext(ctx).WithFailFast()
+	eventNotifier := webhook.NewEventNotifier(queries, slog.Default())
+
+	onTriggerCreate := func(trigger *domain.EventTrigger) {
+		if metrics != nil {
+			attrs := otelmetric.WithAttributes(
+				otelattr.String("source_type", trigger.SourceType),
+				otelattr.String("project_id", trigger.ProjectID),
+				otelattr.String("trigger_type", trigger.TriggerType),
+			)
+			metrics.EventTriggersCreated.Add(context.Background(), 1, attrs)
+		}
+		eventNotifier.NotifyAsync(trigger)
+	}
+
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
-		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth)
+		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
+		WithOnTriggerCreate(onTriggerCreate)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
+	// Start the webhook delivery worker (processes event trigger notifications from the DLQ).
+	g.Go(func(ctx context.Context) error {
+		return eventNotifier.RunWorker(ctx, 5*time.Second)
+	})
+
 	startCDCConsumer(g, cfg, pub)
-	startAPIServer(g, cfg, queries, q, pub, metricsHandler, stepCallback, workflowEngine)
+	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine)
 	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
 
 	if err := g.Wait(); err != nil {

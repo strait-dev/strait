@@ -176,6 +176,11 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Cancel any pending event triggers for this workflow (non-fatal).
+	if _, triggerErr := s.store.CancelEventTriggersByWorkflowRun(r.Context(), run.ID); triggerErr != nil {
+		slog.Warn("failed to cancel event triggers for workflow (non-fatal)", "workflow_run_id", run.ID, "error", triggerErr)
+	}
+
 	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")

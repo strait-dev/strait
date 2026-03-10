@@ -68,6 +68,7 @@ func TestMain(m *testing.M) {
 			FFJobHealthScoring:       true,
 			FFExecutionTracing:       true,
 			FFRunDLQ:                 true,
+			FFEventTriggers:          true,
 			FFDebugBundle:            true,
 			FFRunContinuation:        true,
 			FFAdaptiveTimeout:        true,

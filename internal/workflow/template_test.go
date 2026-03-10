@@ -474,3 +474,85 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 		_ = renderTemplateVars(payload, vars)
 	}
 }
+
+func TestRenderStringTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		template  string
+		variables json.RawMessage
+		want      string
+	}{
+		{
+			name:      "simple substitution",
+			template:  "aml:{{app_id}}",
+			variables: json.RawMessage(`{"app_id":"app-123"}`),
+			want:      "aml:app-123",
+		},
+		{
+			name:      "multiple substitutions",
+			template:  "{{prefix}}:{{id}}:{{suffix}}",
+			variables: json.RawMessage(`{"prefix":"check","id":"42","suffix":"done"}`),
+			want:      "check:42:done",
+		},
+		{
+			name:      "nested path",
+			template:  "user:{{user.email}}",
+			variables: json.RawMessage(`{"user":{"email":"a@b.com"}}`),
+			want:      "user:a@b.com",
+		},
+		{
+			name:      "no template vars",
+			template:  "static-key",
+			variables: json.RawMessage(`{"foo":"bar"}`),
+			want:      "static-key",
+		},
+		{
+			name:      "unresolved variable left as-is",
+			template:  "key:{{missing}}",
+			variables: json.RawMessage(`{"foo":"bar"}`),
+			want:      "key:{{missing}}",
+		},
+		{
+			name:      "empty variables",
+			template:  "key:{{foo}}",
+			variables: json.RawMessage(`{}`),
+			want:      "key:{{foo}}",
+		},
+		{
+			name:      "nil variables",
+			template:  "key:{{foo}}",
+			variables: nil,
+			want:      "key:{{foo}}",
+		},
+		{
+			name:      "numeric value stringified",
+			template:  "order:{{count}}",
+			variables: json.RawMessage(`{"count":42}`),
+			want:      "order:42",
+		},
+		{
+			name:      "boolean value stringified",
+			template:  "flag:{{enabled}}",
+			variables: json.RawMessage(`{"enabled":true}`),
+			want:      "flag:true",
+		},
+		{
+			name:      "empty string template",
+			template:  "",
+			variables: json.RawMessage(`{"foo":"bar"}`),
+			want:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderStringTemplate(tt.template, tt.variables)
+			if got != tt.want {
+				t.Errorf("renderStringTemplate(%q) = %q, want %q", tt.template, got, tt.want)
+			}
+		})
+	}
+}

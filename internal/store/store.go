@@ -25,6 +25,7 @@ var (
 	ErrWorkflowStepNotFound    = errors.New("workflow step not found")
 	ErrWorkflowRunNotFound     = errors.New("workflow run not found")
 	ErrWorkflowStepRunNotFound = errors.New("workflow step run not found")
+	ErrEventKeyConflict        = errors.New("event key conflict")
 	ErrWorkflowVersionNotFound = errors.New("workflow version not found")
 )
 
@@ -113,13 +114,14 @@ type RunStore interface {
 }
 
 type ProjectQuota struct {
-	ProjectID             string
-	MaxQueuedRuns         int
-	MaxExecutingRuns      int
-	MaxJobs               int
-	Timezone              string
-	MaxCostPerRunMicrousd int64
-	MaxDailyCostMicrousd  int64
+	ProjectID              string
+	MaxQueuedRuns          int
+	MaxExecutingRuns       int
+	MaxJobs                int
+	Timezone               string
+	MaxCostPerRunMicrousd  int64
+	MaxDailyCostMicrousd   int64
+	MaxActiveEventTriggers int // 0 = unlimited
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -149,6 +151,7 @@ type WebhookDeliveryStore interface {
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
+	DeleteOldWebhookDeliveries(ctx context.Context, before time.Time, limit int) (int, error)
 }
 
 type APIKeyStore interface {
@@ -226,6 +229,23 @@ type WorkflowStepRunStore interface {
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 }
 
+type EventTriggerStore interface {
+	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
+	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	GetEventTriggerByJobRunID(ctx context.Context, jobRunID string) (*domain.EventTrigger, error)
+	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
+	ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
+	CancelEventTriggerByJobRun(ctx context.Context, jobRunID string) error
+	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
+	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
+	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
+	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
+}
+
 type Store interface {
 	JobStore
 	JobGroupStore
@@ -240,6 +260,7 @@ type Store interface {
 	WorkflowStepStore
 	WorkflowRunStore
 	WorkflowStepRunStore
+	EventTriggerStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 
@@ -285,5 +306,25 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 	}
 	committed = true
 
+	return nil
+}
+
+// TryAdvisoryLock attempts to acquire a PostgreSQL session-level advisory lock.
+// Returns true if the lock was acquired, false if held by another session.
+func (q *Queries) TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error) {
+	var acquired bool
+	err := q.db.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired)
+	if err != nil {
+		return false, fmt.Errorf("pg_try_advisory_lock: %w", err)
+	}
+	return acquired, nil
+}
+
+// ReleaseAdvisoryLock releases a PostgreSQL session-level advisory lock.
+func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
+	_, err := q.db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID)
+	if err != nil {
+		return fmt.Errorf("pg_advisory_unlock: %w", err)
+	}
 	return nil
 }

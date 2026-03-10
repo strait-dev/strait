@@ -3,7 +3,7 @@ title: "Database Schema"
 description: "Detailed reference of the PostgreSQL database schema and migration system."
 ---
 
-Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000060_*` series) that run automatically on startup.
+Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000061_*` series) that run automatically on startup.
 
 ## Core Tables
 
@@ -18,7 +18,8 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `roles` / `project_members` | RBAC role definitions and project user-role bindings |
 | `resource_policies` / `tag_policies` | Fine-grained policy grants by resource and by tag match |
 | `known_actors` | Synced actor identities used for attribution and audit context |
-| `webhook_deliveries` | Webhook delivery tracking and dead letter queue |
+| `webhook_deliveries` | Webhook delivery tracking and dead letter queue (job runs + event triggers) |
+| `event_triggers` | Durable event waits for workflow steps and job runs |
 | `project_quotas` | Per-project quotas (max jobs, runs, concurrency, cost limits) |
 
 ## Workflow Tables
@@ -69,6 +70,50 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 - **Workflows**: A `workflow` consists of multiple `workflow_steps`. A `workflow_run` spawns multiple `workflow_step_runs`.
 - **Environments**: `jobs` and `job_secrets` are linked to `environments` for configuration isolation.
 
+## Event Trigger Tables
+
+### event_triggers
+
+```sql
+id                    TEXT PRIMARY KEY              -- UUIDv7
+event_key             TEXT NOT NULL UNIQUE           -- Globally unique caller-controlled key
+project_id            TEXT NOT NULL
+source_type           TEXT NOT NULL                  -- 'workflow_step' or 'job_run'
+trigger_type          TEXT NOT NULL DEFAULT 'event'  -- 'event' or 'sleep'
+workflow_run_id       TEXT                           -- FK to workflow_runs
+workflow_step_run_id  TEXT                           -- FK to workflow_step_runs
+job_run_id            TEXT                           -- FK to job_runs
+status                TEXT NOT NULL DEFAULT 'waiting' -- waiting, received, timed_out, canceled
+timeout_secs          INT NOT NULL DEFAULT 3600
+request_payload       JSONB
+response_payload      JSONB
+requested_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+received_at           TIMESTAMPTZ
+expires_at            TIMESTAMPTZ
+error                 TEXT
+notify_url            TEXT
+notify_status         TEXT
+event_emit_key        TEXT
+sent_by               TEXT
+created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+### Key Indexes
+
+- `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` — Reaper timeout lookup
+- `idx_event_triggers_project_status`: `(project_id, status)` — List queries
+- `idx_event_triggers_event_key_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
+- `idx_event_triggers_step_run`: `(workflow_step_run_id) WHERE workflow_step_run_id IS NOT NULL` — Step-to-trigger lookup
+
+### webhook_deliveries Extensions
+
+The `webhook_deliveries` table is shared between job run webhooks and event trigger webhooks:
+
+- `event_trigger_id TEXT` column (FK to event_triggers)
+- `run_id` and `job_id` are nullable to support event trigger deliveries
+- Same table serves both job run and event trigger webhook deliveries
+
 ## Migrations
 
 We use `golang-migrate` for schema evolution.
@@ -78,15 +123,24 @@ We use `golang-migrate` for schema evolution.
 Migrations follow a sequential 6-digit numbering scheme:
 `000001_*.up.sql` through the latest migration in the repository.
 
+### Event Trigger Migration
+
+| Migration | Description |
+| :--- | :--- |
+| `000061_event_trigger_support` | Complete event triggers schema — table, all columns, indexes, webhook delivery extensions. Squashed from 7 development migrations into one production-ready migration. |
+
+<Note>
+The event trigger schema was developed across 7 incremental migrations during development. These were squashed into a single `000061_event_trigger_support` migration before merge to reduce startup time and rollback complexity.
+</Note>
+
 ### Adding New Migrations
 
 1. Create a new pair of SQL files in the `migrations/` directory using the next sequence number:
-   - `000061_your_feature.up.sql`
-   - `000061_your_feature.down.sql`
+   - `000062_your_feature.up.sql`
+   - `000062_your_feature.down.sql`
 2. Ensure the migration is idempotent.
 3. The application will automatically detect and apply the new migration on the next startup.
 
 <Warning>
   Never modify an existing migration file that has already been merged. Always create a new migration to apply changes.
-  For baseline/bootstrapping guidance on fresh installs, see `/docs/migrations`.
 </Warning>

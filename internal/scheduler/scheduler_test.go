@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -87,6 +88,26 @@ func (m *mockSchedulerStore) UpdateRunStatus(ctx context.Context, id string, fro
 
 func (m *mockSchedulerStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
 	return m.reaper.DeleteTerminalRunsPastRetention(ctx, shortRetention, longRetention)
+}
+
+func (m *mockSchedulerStore) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error) {
+	return m.reaper.ListExpiredEventTriggers(ctx)
+}
+
+func (m *mockSchedulerStore) UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+	return m.reaper.UpdateEventTriggerStatus(ctx, id, status, responsePayload, receivedAt, errMsg)
+}
+
+func (m *mockSchedulerStore) CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
+	return m.reaper.CancelEventTriggersByWorkflowRun(ctx, workflowRunID)
+}
+
+func (m *mockSchedulerStore) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error) {
+	return m.reaper.ListReceivedEventTriggersWithStaleSteps(ctx)
+}
+
+func (m *mockSchedulerStore) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	return m.reaper.DeleteEventTriggersFinishedBefore(ctx, before, limit)
 }
 
 func testSchedulerConfig() *config.Config {

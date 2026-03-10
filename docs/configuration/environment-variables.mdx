@@ -65,6 +65,8 @@ This page documents all environment variables available for configuring Strait.
 | `RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for rate limiting. |
 | `TRIGGER_RATE_LIMIT_REQUESTS` | Integer | `10` | Number of trigger requests allowed per window. |
 | `TRIGGER_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for trigger rate limiting. |
+| `EVENT_SEND_RATE_LIMIT_REQUESTS` | Integer | `50` | Number of event send requests allowed per window. |
+| `EVENT_SEND_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for event send rate limiting. |
 
 ## Request Configuration
 
@@ -98,6 +100,8 @@ This page documents all environment variables available for configuring Strait.
 | `RUN_RETENTION_LONG` | Duration | `90d` | Long-term retention period for job runs. |
 | `WORKFLOW_RUN_RETENTION_DAYS` | Integer | `30` | Number of days to retain workflow run data. |
 | `WORKFLOW_RETENTION` | Duration | `30d` | Retention period for workflow definitions. |
+| `EVENT_TRIGGER_RETENTION` | Duration | `720h` (30d) | Retention period for terminal event triggers. Terminal triggers older than this are purged by the reaper. Set to `0` to disable automatic cleanup. |
+| `EVENT_TRIGGER_RETENTION_DAYS` | Integer | - | Legacy alternative: retention in days (e.g., `90`). Only used when `EVENT_TRIGGER_RETENTION` is not set. |
 
 ## Redis Sentinel
 
@@ -158,6 +162,7 @@ This page documents all environment variables available for configuring Strait.
 | `FF_JOB_DEPENDENCIES` | Boolean | `false` | Enable inter-job dependency management. |
 | `FF_JOB_HEALTH_SCORING` | Boolean | `false` | Enable automated health scoring for jobs. |
 | `FF_ADAPTIVE_TIMEOUT` | Boolean | `false` | Enable adaptive timeouts based on historical data. |
+| `FF_EVENT_TRIGGERS` | Boolean | `false` | Enable event triggers for durable external event waits. Gates all `/v1/events/*` and `/sdk/v1/runs/{runID}/wait-for-event` endpoints. |
 
 <Warning>
   `SECRET_ENCRYPTION_KEY` is required when `FF_SECRET_INJECTION` is set to `true`.

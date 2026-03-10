@@ -23,6 +23,22 @@ const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
 
+// sseTokenAuth extracts auth token from ?token= query param for SSE endpoints
+// where browsers cannot set custom headers (EventSource API limitation).
+func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Internal-Secret") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		token := r.URL.Query().Get("token")
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func projectIDFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ctxProjectIDKey).(string); ok {
 		return v

@@ -22,6 +22,7 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -39,6 +40,7 @@ type APIStore interface {
 	JobStore
 	RunStore
 	WorkflowStore
+	EventTriggerStore
 	AuthStore
 	RBACStore
 }
@@ -112,6 +114,8 @@ type RunStore interface {
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
+	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 }
 
@@ -143,6 +147,23 @@ type WorkflowStore interface {
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
 	GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
+}
+
+// EventTriggerStore handles event trigger operations.
+type EventTriggerStore interface {
+	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
+	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
+	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
+	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
+	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
+	GetEventTriggerStats(ctx context.Context, projectID string) (*store.EventTriggerStats, error)
+	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
+	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	CountEventTriggersFinishedBefore(ctx context.Context, before time.Time) (int64, error)
+	CountActiveEventTriggersByProject(ctx context.Context, projectID string) (int, error)
 }
 
 // AuthStore handles API keys and authentication.
@@ -194,6 +215,8 @@ type Pinger interface {
 // WorkflowCallback is called after a run reaches a terminal state via SDK or cancel.
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
+	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
+	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
 	SkipStep(ctx context.Context, workflowRunID, stepRef, reason string) error
@@ -223,11 +246,13 @@ type Server struct {
 	queue              queue.Queue
 	pubsub             pubsub.Publisher
 	config             *config.Config
+	metrics            *telemetry.Metrics
 	metricsHandler     http.Handler
 	pinger             Pinger
 	healthRegistry     *health.Registry
 	workflowCallback   WorkflowCallback
 	workflowEngine     WorkflowTrigger
+	txPool             store.TxBeginner
 	actorSyncer        ActorSyncer
 	validate           *validator.Validate
 	maxRequestBodySize int64
@@ -246,6 +271,8 @@ type ServerDeps struct {
 	HealthRegistry   *health.Registry
 	WorkflowCallback WorkflowCallback
 	WorkflowEngine   WorkflowTrigger
+	Metrics          *telemetry.Metrics
+	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer      ActorSyncer
 }
 
@@ -267,11 +294,13 @@ func NewServer(deps ServerDeps) *Server {
 		queue:              deps.Queue,
 		pubsub:             deps.PubSub,
 		config:             deps.Config,
+		metrics:            deps.Metrics,
 		metricsHandler:     deps.MetricsHandler,
 		pinger:             deps.Pinger,
 		healthRegistry:     deps.HealthRegistry,
 		workflowCallback:   deps.WorkflowCallback,
 		workflowEngine:     deps.WorkflowEngine,
+		txPool:             deps.TxPool,
 		actorSyncer:        deps.ActorSyncer,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,

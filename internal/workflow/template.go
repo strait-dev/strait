@@ -123,6 +123,33 @@ func resolveVar(vars map[string]any, name string) (any, bool) {
 	return current, true
 }
 
+// renderStringTemplate renders {{var}} placeholders in a plain string (not JSON)
+// using a JSON variables object. Returns the rendered string.
+func renderStringTemplate(template string, variables json.RawMessage) string {
+	if !strings.Contains(template, "{{") {
+		return template
+	}
+	if len(bytes.TrimSpace(variables)) == 0 {
+		return template
+	}
+
+	var vars map[string]any
+	if err := json.Unmarshal(variables, &vars); err != nil {
+		return template
+	}
+	if len(vars) == 0 {
+		return template
+	}
+
+	return templateVarRegex.ReplaceAllStringFunc(template, func(match string) string {
+		varName := templateVarRegex.FindStringSubmatch(match)[1]
+		if val, ok := resolveVar(vars, varName); ok {
+			return stringify(val)
+		}
+		return match
+	})
+}
+
 // stringify converts a value to its string representation for interpolation.
 func stringify(v any) string {
 	switch val := v.(type) {

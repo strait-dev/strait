@@ -1,0 +1,88 @@
+---
+title: "Events & Triggers"
+description: "CLI commands for managing event triggers and sending events."
+---
+
+## strait triggers
+
+Manage event triggers — list, inspect, and send events to waiting triggers.
+
+### triggers list
+
+List event triggers for a project.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --project | string | (required) | Project ID |
+| --status | string | | Filter by status: `waiting`, `received`, `timed_out`, `canceled` |
+
+```bash
+# List all waiting triggers
+strait triggers list --project proj_1 --status waiting
+
+# List all triggers
+strait triggers list --project proj_1
+```
+
+### triggers get
+
+Get detailed information about an event trigger by its event key.
+
+```bash
+strait triggers get aml-check:user-123
+```
+
+**Output fields**: `id`, `event_key`, `project_id`, `source_type`, `workflow_run_id`, `workflow_step_run_id`, `job_run_id`, `status`, `timeout_secs`, `requested_at`, `received_at`, `expires_at`, `error`.
+
+### triggers send
+
+Send an event to resolve a waiting trigger.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --payload | string | | JSON payload to send with the event |
+
+```bash
+# Send event with payload
+strait triggers send aml-check:user-123 --payload '{"result": "approved", "risk_score": 0.05}'
+
+# Send event without payload
+strait triggers send aml-check:user-123
+```
+
+### triggers purge
+
+Purge terminal event triggers older than a given age. Deletes triggers in `received`, `timed_out`, or `canceled` status.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --older-than | int | 30 | Delete triggers older than N days |
+| --dry-run | bool | false | Preview without deleting |
+
+```bash
+# Preview what would be deleted
+strait triggers purge --older-than 90 --dry-run
+
+# Delete triggers older than 90 days
+strait triggers purge --older-than 90
+
+# Use default 30-day threshold
+strait triggers purge
+```
+
+<Note>
+The reaper also automatically cleans up terminal triggers based on the `EVENT_TRIGGER_RETENTION` environment variable (default: 30 days). The `purge` command is for manual ad-hoc cleanup or when you need to purge with a different retention threshold.
+</Note>
+
+## strait send
+
+Send a raw event payload to the strait. This is a lower-level command for publishing events.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --data | string | | JSON payload for event data |
+
+```bash
+# Send a raw event
+strait send my-event-type --data '{"key": "value"}'
+```

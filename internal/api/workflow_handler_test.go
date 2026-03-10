@@ -24,6 +24,8 @@ type mockWorkflowTrigger struct {
 	forceCompleteStepFn func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
 	resumeWorkflowFn    func(ctx context.Context, workflowRunID string) error
 	onJobRunTerminal    func(ctx context.Context, run *domain.JobRun) error
+	onEventReceivedFn   func(ctx context.Context, trigger *domain.EventTrigger) error
+	onStepFailedFn      func(ctx context.Context, workflowRunID string, stepRunID string)
 }
 
 func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error) {
@@ -73,6 +75,19 @@ func (m *mockWorkflowTrigger) OnJobRunTerminal(ctx context.Context, run *domain.
 		return m.onJobRunTerminal(ctx, run)
 	}
 	return nil
+}
+
+func (m *mockWorkflowTrigger) OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error {
+	if m.onEventReceivedFn != nil {
+		return m.onEventReceivedFn(ctx, trigger)
+	}
+	return nil
+}
+
+func (m *mockWorkflowTrigger) OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string) {
+	if m.onStepFailedFn != nil {
+		m.onStepFailedFn(ctx, workflowRunID, stepRunID)
+	}
 }
 
 func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
