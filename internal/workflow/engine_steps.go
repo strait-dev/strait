@@ -149,7 +149,7 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
 
-	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID)
+	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID, stepRun.ID)
 	if err != nil {
 		return fmt.Errorf("trigger sub-workflow for step %s: %w", step.StepRef, err)
 	}

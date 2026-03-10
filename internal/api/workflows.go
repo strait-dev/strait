@@ -349,6 +349,27 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
+
+		existingSteps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to load existing workflow steps")
+			return
+		}
+		existingRefs := make(map[string]struct{}, len(existingSteps))
+		for _, st := range existingSteps {
+			existingRefs[st.StepRef] = struct{}{}
+		}
+		requestedRefs := make(map[string]struct{}, len(*req.Steps))
+		for _, stepReq := range *req.Steps {
+			requestedRefs[stepReq.StepRef] = struct{}{}
+		}
+		for ref := range existingRefs {
+			if _, ok := requestedRefs[ref]; !ok {
+				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("removing step_ref %q is not supported; disable it with step overrides instead", ref))
+				return
+			}
+		}
+
 		if err := s.store.DeleteStepsByWorkflow(r.Context(), wf.ID); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to replace workflow steps")
 			return
@@ -484,7 +505,13 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, run)
 }
 
+const maxWorkflowSteps = 1000
+
 func validateWorkflowSteps(steps []workflowStepRequest) error {
+	if len(steps) > maxWorkflowSteps {
+		return fmt.Errorf("workflow cannot have more than %d steps", maxWorkflowSteps)
+	}
+
 	for _, step := range steps {
 		if step.StepRef == "" {
 			return errors.New("each step requires step_ref")

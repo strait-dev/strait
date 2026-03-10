@@ -84,7 +84,7 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", stepOverrides, extraTags)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags)
 }
 
 // TriggerSubWorkflow triggers a workflow as a child of another workflow run.
@@ -94,8 +94,9 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	payload json.RawMessage,
 	triggeredBy string,
 	parentWorkflowRunID string,
+	parentStepRunID string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, nil, nil)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil)
 }
 
 func (e *WorkflowEngine) triggerWorkflowInternal(
@@ -104,6 +105,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	payload json.RawMessage,
 	triggeredBy string,
 	parentWorkflowRunID string,
+	parentStepRunID string,
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
@@ -189,6 +191,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		MaxParallelSteps:    wf.MaxParallelSteps,
 		Payload:             payload,
 		ParentWorkflowRunID: parentWorkflowRunID,
+		ParentStepRunID:     parentStepRunID,
 	}
 	if wf.TimeoutSecs > 0 {
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)

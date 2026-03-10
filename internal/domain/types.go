@@ -653,6 +653,7 @@ type WorkflowRun struct {
 	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
 	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
+	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
 	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
