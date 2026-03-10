@@ -63,6 +63,15 @@ func (s *Server) routes() chi.Router {
 		r.Handle("/metrics", s.metricsHandler)
 	}
 
+	// SSE stream route with query-param token auth for browser EventSource clients.
+	// Placed before the main /v1 group so sseTokenAuth runs before apiKeyOrSecretAuth.
+	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
+		r.Use(s.sseTokenAuth)
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(chimw.Timeout(requestTimeout))
+		r.Get("/", s.handleEventTriggerStream)
+	})
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(chimw.Timeout(requestTimeout))
@@ -172,7 +181,6 @@ func (s *Server) routes() chi.Router {
 			r.Route("/{eventKey}", func(r chi.Router) {
 				r.Get("/", s.handleGetEventTrigger)
 				r.Delete("/", s.handleCancelEventTrigger)
-				r.Get("/stream", s.handleEventTriggerStream)
 				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", s.handleSendEvent)
 			})
 		})
