@@ -102,6 +102,19 @@ type KnownActor struct {
 	SyncedAt  time.Time `json:"synced_at"`
 }
 
+// AuditEvent records sensitive control-plane actions for compliance and forensics.
+type AuditEvent struct {
+	ID           string          `json:"id"`
+	ProjectID    string          `json:"project_id"`
+	ActorID      string          `json:"actor_id"`
+	ActorType    string          `json:"actor_type"`
+	Action       string          `json:"action"`
+	ResourceType string          `json:"resource_type"`
+	ResourceID   string          `json:"resource_id"`
+	Details      json.RawMessage `json:"details,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
 type Job struct {
 	ID                  string            `json:"id"`
 	ProjectID           string            `json:"project_id"`

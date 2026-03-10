@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -19,6 +20,28 @@ type createRoleRequest struct {
 	Name        string   `json:"name" validate:"required"`
 	Description string   `json:"description"`
 	Permissions []string `json:"permissions" validate:"required,min=1"`
+}
+
+func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
+		return
+	}
+
+	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
+	ev := &domain.AuditEvent{
+		ProjectID:    projectIDFromContext(ctx),
+		ActorID:      actorFromContext(ctx),
+		ActorType:    actorType,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Details:      detailsJSON,
+	}
+	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
+		slog.Warn("failed to create audit event", "action", action, "resource_type", resourceType, "resource_id", resourceID, "error", err)
+	}
 }
 
 func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +70,9 @@ func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.emitAuditEvent(r.Context(), "rbac.role.create", "role", role.ID, map[string]any{
+		"name": role.Name,
+	})
 	respondJSON(w, http.StatusCreated, role)
 }
 
@@ -129,7 +155,13 @@ func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "failed to load updated role")
 		return
 	}
+	if updated == nil {
+		updated = role
+	}
 
+	s.emitAuditEvent(r.Context(), "rbac.role.update", "role", roleID, map[string]any{
+		"name": updated.Name,
+	})
 	respondJSON(w, http.StatusOK, updated)
 }
 
@@ -145,6 +177,7 @@ func (s *Server) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("role deleted", "role_id", roleID, "actor", actorFromContext(r.Context()),
 		"project_id", projectIDFromContext(r.Context()))
+	s.emitAuditEvent(r.Context(), "rbac.role.delete", "role", roleID, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -199,6 +232,7 @@ func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.permCache.Invalidate(m.ProjectID, m.UserID)
+	s.emitAuditEvent(r.Context(), "rbac.member.assign", "member", m.UserID, map[string]any{"role_id": m.RoleID})
 	respondJSON(w, http.StatusCreated, m)
 }
 
@@ -243,6 +277,7 @@ func (s *Server) handleBulkAssignMembers(w http.ResponseWriter, r *http.Request)
 		}
 
 		s.permCache.Invalidate(projectID, item.UserID)
+		s.emitAuditEvent(r.Context(), "rbac.member.assign", "member", item.UserID, map[string]any{"role_id": item.RoleID, "bulk": true})
 		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
 	}
 
@@ -283,6 +318,7 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	s.permCache.Invalidate(projectID, userID)
 	slog.Info("member removed", "user_id", userID, "actor", actorFromContext(r.Context()),
 		"project_id", projectID)
+	s.emitAuditEvent(r.Context(), "rbac.member.remove", "member", userID, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -351,6 +387,7 @@ func (s *Server) handleCreateResourcePolicy(w http.ResponseWriter, r *http.Reque
 
 	// Invalidate cache for the affected user.
 	s.permCache.Invalidate(req.ProjectID, req.UserID)
+	s.emitAuditEvent(r.Context(), "rbac.resource_policy.create", "resource_policy", policy.ID, map[string]any{"resource_type": req.ResourceType, "resource_id": req.ResourceID, "user_id": req.UserID})
 
 	respondJSON(w, http.StatusCreated, policy)
 }
@@ -401,5 +438,38 @@ func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Reque
 
 	slog.Info("resource policy deleted", "policy_id", policyID, "actor", actorFromContext(r.Context()),
 		"affected_user", userID, "project_id", projectID)
+	s.emitAuditEvent(r.Context(), "rbac.resource_policy.delete", "resource_policy", policyID, map[string]any{"affected_user": userID})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	projectID := query.Get("project_id")
+	if projectID == "" {
+		projectID = projectIDFromContext(r.Context())
+	}
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	actorID := query.Get("actor_id")
+	resourceType := query.Get("resource_type")
+	resourceID := query.Get("resource_id")
+
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	events, err := s.store.ListAuditEvents(r.Context(), projectID, actorID, resourceType, resourceID, limit+1, cursor)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list audit events")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paginatedResult(events, limit, func(ev domain.AuditEvent) string {
+		return ev.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }

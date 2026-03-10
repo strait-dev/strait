@@ -402,6 +402,7 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		"job_id", jobID,
 		"actor", actorFromContext(r.Context()),
 		"project_id", projectIDFromContext(r.Context()))
+	s.emitAuditEvent(r.Context(), "job.delete", "job", jobID, nil)
 
 	w.WriteHeader(http.StatusNoContent)
 }

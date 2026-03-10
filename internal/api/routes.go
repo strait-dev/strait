@@ -167,6 +167,7 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(5, time.Minute)).Post("/seed-roles", s.handleSeedSystemRoles)
+		r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/audit-events", s.handleListAuditEvents)
 
 		r.Route("/resource-policies", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateResourcePolicy)

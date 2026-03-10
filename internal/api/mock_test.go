@@ -919,3 +919,11 @@ func (m *mockAPIStore) DeleteResourcePolicy(_ context.Context, _ string) (string
 func (m *mockAPIStore) ListResourcePolicies(_ context.Context, _, _ string, _ int, _ *time.Time) ([]domain.ResourcePolicy, error) {
 	return nil, nil
 }
+
+func (m *mockAPIStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+	return nil
+}
+
+func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ int, _ *time.Time) ([]domain.AuditEvent, error) {
+	return nil, nil
+}

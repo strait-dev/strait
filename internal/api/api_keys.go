@@ -140,5 +140,6 @@ func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("api key revoked", "key_id", keyID, "actor", actorFromContext(r.Context()),
 		"project_id", projectIDFromContext(r.Context()))
+	s.emitAuditEvent(r.Context(), "api_key.revoke", "api_key", keyID, nil)
 	respondJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
