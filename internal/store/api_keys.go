@@ -44,15 +44,19 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.
 			  FROM api_keys WHERE key_hash = $1`
 
 	var key domain.APIKey
+	var replacedBy *string
 	err := q.db.QueryRow(ctx, query, keyHash).Scan(
 		&key.ID, &key.ProjectID, &key.Name, &key.KeyHash, &key.KeyPrefix,
-		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &key.ReplacedByKeyID, &key.GraceExpiresAt,
+		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("api key not found")
 		}
 		return nil, fmt.Errorf("get api key by hash: %w", err)
+	}
+	if replacedBy != nil {
+		key.ReplacedByKeyID = *replacedBy
 	}
 
 	return &key, nil
@@ -86,11 +90,15 @@ func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, li
 	keys := make([]domain.APIKey, 0, 8)
 	for rows.Next() {
 		var key domain.APIKey
+		var replacedBy *string
 		if err := rows.Scan(
 			&key.ID, &key.ProjectID, &key.Name, &key.KeyHash, &key.KeyPrefix,
-			&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &key.ReplacedByKeyID, &key.GraceExpiresAt,
+			&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
 		); err != nil {
 			return nil, fmt.Errorf("list api keys scan: %w", err)
+		}
+		if replacedBy != nil {
+			key.ReplacedByKeyID = *replacedBy
 		}
 		keys = append(keys, key)
 	}
@@ -135,15 +143,19 @@ func (q *Queries) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey,
 			  FROM api_keys WHERE id = $1`
 
 	var key domain.APIKey
+	var replacedBy *string
 	err := q.db.QueryRow(ctx, query, id).Scan(
 		&key.ID, &key.ProjectID, &key.Name, &key.KeyHash, &key.KeyPrefix,
-		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &key.ReplacedByKeyID, &key.GraceExpiresAt,
+		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("api key not found")
 		}
 		return nil, fmt.Errorf("get api key by id: %w", err)
+	}
+	if replacedBy != nil {
+		key.ReplacedByKeyID = *replacedBy
 	}
 	return &key, nil
 }
