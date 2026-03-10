@@ -63,7 +63,7 @@ Store structured results or artifacts produced by the job.
 Pause the current run and wait for an external event to arrive. The run transitions to `waiting` status.
 - **Feature Flag**: `FF_EVENT_TRIGGERS`
 - **Fields**: `event_key` (required, globally unique), `timeout_secs` (default: 3600), `notify_url` (optional webhook).
-- **Behavior**: When the event arrives via `POST /v1/events/send`, the run is re-queued with the event payload as checkpoint data and re-dispatched to your endpoint.
+- **Behavior**: When the event arrives via `POST /v1/events/{eventKey}/send`, the run is re-queued with the event payload as checkpoint data and re-dispatched to your endpoint.
 
 ### Control Flow
 - `POST /spawn`: Create a child job run.
