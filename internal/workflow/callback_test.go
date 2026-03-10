@@ -549,3 +549,152 @@ func TestOnStepFailed_StepNotFound(t *testing.T) {
 	// Should return cleanly without panic when step ID doesn't match.
 	cb.OnStepFailed(context.Background(), "wr-1", "sr-nonexistent")
 }
+
+// emitEventIfConfigured: nil step is a no-op.
+func TestEmitEventIfConfigured_NilStep(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+
+	// Should not panic.
+	cb.emitEventIfConfigured(context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		nil,
+		&domain.WorkflowRun{ID: "wr-1"},
+	)
+}
+
+// emitEventIfConfigured: empty emit key is a no-op.
+func TestEmitEventIfConfigured_EmptyEmitKey(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+
+	cb.emitEventIfConfigured(context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: ""},
+		&domain.WorkflowRun{ID: "wr-1"},
+	)
+}
+
+// emitEventIfConfigured: trigger not found is a no-op.
+func TestEmitEventIfConfigured_TriggerNotFound(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return nil, nil
+		},
+	}
+	cb := newTestCallback(ms)
+
+	cb.emitEventIfConfigured(context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
+		&domain.WorkflowRun{ID: "wr-1"},
+	)
+}
+
+// emitEventIfConfigured: trigger already received is a no-op.
+func TestEmitEventIfConfigured_TriggerAlreadyReceived(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:       "evt-1",
+				EventKey: "emit:test",
+				Status:   domain.EventTriggerStatusReceived,
+			}, nil
+		},
+	}
+	cb := newTestCallback(ms)
+
+	cb.emitEventIfConfigured(context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
+		&domain.WorkflowRun{ID: "wr-1"},
+	)
+}
+
+// emitEventIfConfigured: store error on get trigger logs and returns.
+func TestEmitEventIfConfigured_GetTriggerError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	cb := newTestCallback(ms)
+
+	cb.emitEventIfConfigured(context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
+		&domain.WorkflowRun{ID: "wr-1"},
+	)
+}
+
+// emitEventIfConfigured: store error on update trigger logs and returns.
+func TestEmitEventIfConfigured_UpdateTriggerError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:         "evt-1",
+				EventKey:   "emit:test",
+				Status:     domain.EventTriggerStatusWaiting,
+				SourceType: domain.EventSourceWorkflowStep,
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return errors.New("update failed")
+		},
+	}
+	cb := newTestCallback(ms)
+
+	cb.emitEventIfConfigured(context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1", Output: json.RawMessage(`{"ok":true}`)},
+		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
+		&domain.WorkflowRun{ID: "wr-1"},
+	)
+}
+
+// emitEventIfConfigured: job run source re-queues the run.
+func TestEmitEventIfConfigured_JobRunSource(t *testing.T) {
+	t.Parallel()
+
+	var requeuedRunID string
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:         "evt-jr",
+				EventKey:   "emit:job",
+				Status:     domain.EventTriggerStatusWaiting,
+				SourceType: domain.EventSourceJobRun,
+				JobRunID:   "run-99",
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _, _ domain.RunStatus, _ map[string]any) error {
+			requeuedRunID = id
+			return nil
+		},
+	}
+	cb := newTestCallback(ms)
+
+	cb.emitEventIfConfigured(context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1", Output: json.RawMessage(`{"result":"done"}`)},
+		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:job"},
+		&domain.WorkflowRun{ID: "wr-1"},
+	)
+
+	if requeuedRunID != "run-99" {
+		t.Fatalf("expected run-99 to be requeued, got %q", requeuedRunID)
+	}
+}

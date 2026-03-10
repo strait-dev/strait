@@ -12,9 +12,16 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/pubsub"
+	"strait/internal/store"
 )
 
 func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCallback) *Server {
+	t.Helper()
+	return newEventTriggersTestServerWithPubSub(t, s, wfCallback, &mockPublisher{})
+}
+
+func newEventTriggersTestServerWithPubSub(t *testing.T, s APIStore, wfCallback WorkflowCallback, ps pubsub.Publisher) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		InternalSecret: "test-secret",
@@ -24,7 +31,7 @@ func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCal
 		Config:           cfg,
 		Store:            s,
 		Queue:            &mockQueue{},
-		PubSub:           &mockPublisher{},
+		PubSub:           ps,
 		WorkflowCallback: wfCallback,
 	})
 }
@@ -160,7 +167,7 @@ func TestHandleSendEvent_StoreError(t *testing.T) {
 	}
 }
 
-func TestHandleGetEventTrigger_Success(t *testing.T) {
+func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
@@ -1018,5 +1025,479 @@ func TestHandleSendEvent_GetTriggerStoreError(t *testing.T) {
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// SSE stream: full long-poll lifecycle with mock pubsub.
+func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-stream",
+				EventKey:  "stream-key",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return sub, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	// Send a terminal message on the channel so the stream reads it and exits.
+	ch <- []byte(`{"id":"evt-stream","status":"received"}`)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/stream-key/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	// Cancel request after we get the message to avoid hanging.
+	reqCtx, reqCancel := context.WithTimeout(req.Context(), 2*time.Second)
+	defer reqCancel()
+	req = req.WithContext(reqCtx)
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	_ = ctx // keep cancel reference alive
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"status":"received"`) {
+		t.Fatalf("expected received status in SSE body, got: %s", body)
+	}
+	if !strings.Contains(body, "event: status") {
+		t.Fatalf("expected SSE event line, got: %s", body)
+	}
+}
+
+// SSE stream: context cancellation closes cleanly.
+func TestHandleEventTriggerStream_ContextCancel(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-cancel-stream",
+				EventKey:  "cancel-stream-key",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte)
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return sub, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/cancel-stream-key/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	// Very short timeout to trigger context.Done branch.
+	reqCtx, reqCancel := context.WithTimeout(req.Context(), 100*time.Millisecond)
+	defer reqCancel()
+	req = req.WithContext(reqCtx)
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	// Should contain the initial state message at minimum.
+	if !strings.Contains(rr.Body.String(), "event: status") {
+		t.Fatalf("expected initial SSE event, got: %s", rr.Body.String())
+	}
+}
+
+// SSE stream: closed channel exits cleanly.
+func TestHandleEventTriggerStream_ClosedChannel(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-closed",
+				EventKey:  "closed-key",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte)
+	close(ch) // Closed immediately — the !ok branch.
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return sub, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/closed-key/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// SSE stream: nil pubsub returns 503.
+func TestHandleEventTriggerStream_NilPubsub(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-nopub",
+				EventKey:  "nopub-key",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/nopub-key/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// SSE stream: subscribe error returns 500.
+func TestHandleEventTriggerStream_SubscribeError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-suberr",
+				EventKey:  "suberr-key",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return nil, errors.New("redis down")
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/suberr-key/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// SSE stream: store error on get trigger.
+func TestHandleEventTriggerStream_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return nil, errors.New("db down")
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/bad-key/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// Stats: store error returns 500.
+func TestHandleGetEventTriggerStats_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-err"}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+		getEventTriggerStatsFn: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+			return nil, errors.New("db down")
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/stats", nil)
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// Cancel: not found returns 404.
+func TestHandleCancelEventTrigger_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return nil, nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/events/ghost-key", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// Cancel: project forbidden.
+func TestHandleCancelEventTrigger_ProjectForbidden(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-proj",
+				EventKey:  "proj-key",
+				ProjectID: "proj-other",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		getAPIKeyByHashFn: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-mine"}, nil
+		},
+		touchAPIKeyLastUsedFn: func(_ context.Context, _ string) error { return nil },
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/events/proj-key", nil)
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// Cancel: store error on status update returns 500.
+func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-upderr",
+				EventKey:  "upderr-key",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return errors.New("update failed")
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/events/upderr-key", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// Get trigger: store error returns 500.
+func TestHandleGetEventTrigger_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return nil, errors.New("db down")
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/bad-key", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// Get trigger: success verifies response body structure.
+func TestHandleGetEventTrigger_ResponseBody(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:          "evt-ok",
+				EventKey:    "ok-key",
+				ProjectID:   "proj-1",
+				SourceType:  domain.EventSourceWorkflowStep,
+				Status:      domain.EventTriggerStatusWaiting,
+				RequestedAt: time.Now(),
+			}, nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/ok-key", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["event_key"] != "ok-key" {
+		t.Fatalf("expected event_key=ok-key, got %v", resp["event_key"])
+	}
+	if resp["source_type"] != domain.EventSourceWorkflowStep {
+		t.Fatalf("expected source_type=%s, got %v", domain.EventSourceWorkflowStep, resp["source_type"])
+	}
+}
+
+// publishTriggerStatusChange: nil pubsub is a no-op.
+func TestPublishTriggerStatusChange_NilPubsub(t *testing.T) {
+	t.Parallel()
+
+	srv := newEventTriggersTestServerWithPubSub(t, &mockAPIStore{}, nil, nil)
+	// Should not panic.
+	srv.publishTriggerStatusChange(context.Background(), &domain.EventTrigger{
+		ID:       "evt-1",
+		EventKey: "key-1",
+		Status:   domain.EventTriggerStatusReceived,
+	})
+}
+
+// publishTriggerStatusChange: publish error logs but doesn't panic.
+func TestPublishTriggerStatusChange_PublishError(t *testing.T) {
+	t.Parallel()
+
+	pub := &mockPublisher{
+		publishFn: func(_ context.Context, _ string, _ []byte) error {
+			return errors.New("redis down")
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, &mockAPIStore{}, nil, pub)
+	// Should not panic.
+	srv.publishTriggerStatusChange(context.Background(), &domain.EventTrigger{
+		ID:       "evt-1",
+		EventKey: "key-1",
+		Status:   domain.EventTriggerStatusReceived,
+	})
+}
+
+// resumeEventSource: nil callback for workflow step is a no-op.
+func TestResumeEventSource_NilCallback(t *testing.T) {
+	t.Parallel()
+
+	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
+		SourceType:        domain.EventSourceWorkflowStep,
+		WorkflowStepRunID: "wsr-1",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+// resumeEventSource: empty step run ID is a no-op.
+func TestResumeEventSource_EmptyStepRunID(t *testing.T) {
+	t.Parallel()
+
+	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
+		SourceType: domain.EventSourceWorkflowStep,
+	})
+	if err != nil {
+		t.Fatalf("expected no error for empty step run ID, got %v", err)
+	}
+}
+
+// resumeEventSource: empty job run ID is a no-op.
+func TestResumeEventSource_EmptyJobRunID(t *testing.T) {
+	t.Parallel()
+
+	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
+		SourceType: domain.EventSourceJobRun,
+	})
+	if err != nil {
+		t.Fatalf("expected no error for empty job run ID, got %v", err)
+	}
+}
+
+// resumeEventSource: unknown source type is a no-op.
+func TestResumeEventSource_UnknownSourceType(t *testing.T) {
+	t.Parallel()
+
+	srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
+		SourceType: "unknown",
+	})
+	if err != nil {
+		t.Fatalf("expected no error for unknown source, got %v", err)
 	}
 }
