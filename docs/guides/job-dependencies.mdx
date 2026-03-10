@@ -60,7 +60,7 @@ curl -X DELETE https://strait.dev/v1/jobs/{jobID}/dependencies/{dependencyID} \
 ## Behavior
 
 When a job with dependencies is triggered:
-1. The strait checks if all dependencies are met.
+1. Strait checks if all dependencies are met.
 2. If dependencies are not met, the job run may enter a `waiting` state or be delayed until the conditions are satisfied.
 3. Once all dependency conditions are met, the job is moved to the `queued` state for execution.
 

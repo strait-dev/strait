@@ -3,7 +3,7 @@ title: "Webhooks"
 description: "Real-time notifications for job run terminal states."
 ---
 
-Webhooks allow your external services to be notified automatically when a [Job Run](/concepts/runs) reaches a terminal state (e.g., `completed`, `failed`, `timed_out`).
+Webhooks allow your external services to be notified automatically when a [Job Run](/docs/concepts/runs) reaches a terminal state (e.g., `completed`, `failed`, `timed_out`).
 
 ## Delivery Lifecycle
 
@@ -11,7 +11,7 @@ Webhooks allow your external services to be notified automatically when a [Job R
 2. **Payload Construction**: A `WebhookPayload` is assembled containing the run's final state, result, and error (if any).
 3. **Signing**: If a `webhook_secret` is configured, the payload is signed using HMAC-SHA256.
 4. **Dispatch**: An HTTP POST request is sent to the `webhook_url`.
-5. **Retry Logic**: If delivery fails, the strait retries based on the response status code.
+5. **Retry Logic**: If delivery fails, Strait retries based on the response status code.
 
 ## Webhook Payload
 
@@ -30,31 +30,35 @@ The payload sent to your endpoint (defined in `internal/worker/webhook.go`) incl
 
 ## HMAC-SHA256 Signing
 
-To ensure the webhook was sent by the strait, every request includes an `X-Webhook-Signature` header if a `webhook_secret` is set for the job.
+To ensure the webhook was sent by Strait, signed deliveries include:
 
-- **Header Format**: `sha256=<signature>`
-- **Algorithm**: HMAC-SHA256 using the `webhook_secret` as the key and the raw JSON request body as the message.
+- `X-Strait-Timestamp`: Unix timestamp used in signature generation
+- `X-Strait-Signature`: `sha256=<signature>`
+- `X-Webhook-Signature`: compatibility header for existing consumers
+
+**Algorithm:** HMAC-SHA256 using `webhook_secret` as key and `<timestamp>.<raw-json-body>` as message.
 
 ### Verifying Signatures (Go Example)
 
 ```go
-func verifySignature(payload []byte, signatureHeader string, secret string) bool {
-    if !strings.HasPrefix(signatureHeader, "sha256=") {
+func verifySignature(payload []byte, timestamp string, signatureHeader string, secret string) bool {
+    if !strings.HasPrefix(signatureHeader, "sha256=") || timestamp == "" {
         return false
     }
     actualSig := signatureHeader[7:]
-    
+
     mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write([]byte(timestamp + "."))
     mac.Write(payload)
     expectedSig := hex.EncodeToString(mac.Sum(nil))
-    
+
     return hmac.Equal([]byte(actualSig), []byte(expectedSig))
 }
 ```
 
 ## Retry Strategy
 
-The strait attempts to deliver the webhook up to **3 times** with an exponential backoff:
+Strait attempts to deliver the webhook up to **3 times** with an exponential backoff:
 - **Attempt 1**: Immediate
 - **Attempt 2**: 1 second delay
 - **Attempt 3**: 5 seconds delay

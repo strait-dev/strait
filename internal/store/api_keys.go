@@ -40,19 +40,23 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAPIKeyByHash")
 	defer span.End()
 
-	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
+	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at
 			  FROM api_keys WHERE key_hash = $1`
 
 	var key domain.APIKey
+	var replacedBy *string
 	err := q.db.QueryRow(ctx, query, keyHash).Scan(
 		&key.ID, &key.ProjectID, &key.Name, &key.KeyHash, &key.KeyPrefix,
-		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt,
+		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("api key not found")
 		}
 		return nil, fmt.Errorf("get api key by hash: %w", err)
+	}
+	if replacedBy != nil {
+		key.ReplacedByKeyID = *replacedBy
 	}
 
 	return &key, nil
@@ -62,7 +66,7 @@ func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, li
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAPIKeysByProject")
 	defer span.End()
 
-	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
+	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at
 			  FROM api_keys WHERE project_id = $1 AND revoked_at IS NULL`
 
 	args := []any{projectID}
@@ -86,11 +90,15 @@ func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, li
 	keys := make([]domain.APIKey, 0, 8)
 	for rows.Next() {
 		var key domain.APIKey
+		var replacedBy *string
 		if err := rows.Scan(
 			&key.ID, &key.ProjectID, &key.Name, &key.KeyHash, &key.KeyPrefix,
-			&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt,
+			&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
 		); err != nil {
 			return nil, fmt.Errorf("list api keys scan: %w", err)
+		}
+		if replacedBy != nil {
+			key.ReplacedByKeyID = *replacedBy
 		}
 		keys = append(keys, key)
 	}
@@ -124,5 +132,48 @@ func (q *Queries) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
 		return fmt.Errorf("touch api key last used: %w", err)
 	}
 
+	return nil
+}
+
+func (q *Queries) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAPIKeyByID")
+	defer span.End()
+
+	query := `SELECT id, project_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at
+			  FROM api_keys WHERE id = $1`
+
+	var key domain.APIKey
+	var replacedBy *string
+	err := q.db.QueryRow(ctx, query, id).Scan(
+		&key.ID, &key.ProjectID, &key.Name, &key.KeyHash, &key.KeyPrefix,
+		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("api key not found")
+		}
+		return nil, fmt.Errorf("get api key by id: %w", err)
+	}
+	if replacedBy != nil {
+		key.ReplacedByKeyID = *replacedBy
+	}
+	return &key, nil
+}
+
+func (q *Queries) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkAPIKeyRotated")
+	defer span.End()
+
+	query := `
+		UPDATE api_keys
+		SET replaced_by_key_id = $2, grace_expires_at = $3
+		WHERE id = $1 AND revoked_at IS NULL`
+	tag, err := q.db.Exec(ctx, query, oldKeyID, newKeyID, graceExpiresAt)
+	if err != nil {
+		return fmt.Errorf("mark api key rotated: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("api key not found or already revoked")
+	}
 	return nil
 }

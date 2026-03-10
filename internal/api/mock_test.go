@@ -22,6 +22,7 @@ type mockAPIStore struct {
 	getJobGroupFn                 func(ctx context.Context, id string) (*domain.JobGroup, error)
 	listJobGroupsFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error)
 	updateJobGroupFn              func(ctx context.Context, group *domain.JobGroup) error
+	deleteJobFn                   func(ctx context.Context, id string) error
 	deleteJobGroupFn              func(ctx context.Context, id string) error
 	listJobsByGroupFn             func(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	createEnvironmentFn           func(ctx context.Context, env *domain.Environment) error
@@ -66,6 +67,8 @@ type mockAPIStore struct {
 	revokeAPIKeyFn                func(ctx context.Context, id string) error
 	listJobVersionsByJobFn        func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	getAPIKeyByHashFn             func(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	getAPIKeyByIDFn               func(ctx context.Context, id string) (*domain.APIKey, error)
+	markAPIKeyRotatedFn           func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	touchAPIKeyLastUsedFn         func(ctx context.Context, id string) error
 	updateHeartbeatFn             func(ctx context.Context, id string) error
 	queueStatsFn                  func(ctx context.Context) (*store.QueueStats, error)
@@ -101,6 +104,15 @@ type mockAPIStore struct {
 	listRunLineageFn              func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	sumRunCostMicrousdFn          func(ctx context.Context, runID string) (int64, error)
 	sumProjectDailyCostMicrousdFn func(ctx context.Context, projectID string, timezone string) (int64, error)
+	getUserPermissionsFn          func(ctx context.Context, projectID, userID string) ([]string, error)
+	createProjectRoleFn           func(ctx context.Context, role *domain.ProjectRole) error
+	getProjectRoleFn              func(ctx context.Context, id string) (*domain.ProjectRole, error)
+	updateProjectRoleFn           func(ctx context.Context, role *domain.ProjectRole) error
+	listProjectRolesFn            func(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
+	deleteProjectRoleFn           func(ctx context.Context, id string) error
+	assignMemberRoleFn            func(ctx context.Context, m *domain.ProjectMemberRole) error
+	listProjectMembersFn          func(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error)
+	removeMemberRoleFn            func(ctx context.Context, projectID, userID string) error
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -162,6 +174,13 @@ func (m *mockAPIStore) ListJobGroups(ctx context.Context, projectID string, limi
 func (m *mockAPIStore) UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error {
 	if m.updateJobGroupFn != nil {
 		return m.updateJobGroupFn(ctx, group)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteJob(_ context.Context, id string) error {
+	if m.deleteJobFn != nil {
+		return m.deleteJobFn(context.Background(), id)
 	}
 	return nil
 }
@@ -383,6 +402,10 @@ func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, 
 	return nil, nil
 }
 
+func (m *mockAPIStore) ListRunsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
 func (m *mockAPIStore) ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listDeadLetterRunsFn != nil {
 		return m.listDeadLetterRunsFn(ctx, projectID, limit, cursor)
@@ -467,11 +490,29 @@ func (m *mockAPIStore) ListJobVersionsByJob(ctx context.Context, jobID string, l
 	return nil, nil
 }
 
+func (m *mockAPIStore) GetJobVersionByVersionID(_ context.Context, _ string) (*domain.JobVersion, error) {
+	return nil, store.ErrJobNotFound
+}
+
 func (m *mockAPIStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
 	if m.getAPIKeyByHashFn != nil {
 		return m.getAPIKeyByHashFn(ctx, keyHash)
 	}
 	return nil, fmt.Errorf("api key not found")
+}
+
+func (m *mockAPIStore) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error) {
+	if m.getAPIKeyByIDFn != nil {
+		return m.getAPIKeyByIDFn(ctx, id)
+	}
+	return nil, fmt.Errorf("api key not found")
+}
+
+func (m *mockAPIStore) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error {
+	if m.markAPIKeyRotatedFn != nil {
+		return m.markAPIKeyRotatedFn(ctx, oldKeyID, newKeyID, graceExpiresAt)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
@@ -520,6 +561,10 @@ func (m *mockAPIStore) ListWorkflows(ctx context.Context, projectID string, limi
 	if m.listWorkflowsFn != nil {
 		return m.listWorkflowsFn(ctx, projectID, limit, cursor)
 	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListWorkflowsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.Workflow, error) {
 	return nil, nil
 }
 
@@ -593,6 +638,10 @@ func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID 
 	return nil, nil
 }
 
+func (m *mockAPIStore) ListWorkflowRunsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+	return nil, nil
+}
+
 func (m *mockAPIStore) CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error {
 	if m.createWorkflowRunLabelsFn != nil {
 		return m.createWorkflowRunLabelsFn(ctx, workflowRunID, labels)
@@ -647,6 +696,14 @@ func (m *mockAPIStore) UpdateWorkflowStepApproval(ctx context.Context, id string
 		return m.updateStepApprovalFn(ctx, id, status, approvedBy, approvedAt, errMsg)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error) {
+	return nil, store.ErrWorkflowVersionNotFound
 }
 
 func (m *mockAPIStore) DeleteJobSecret(ctx context.Context, id string) error {
@@ -789,4 +846,116 @@ type mockPinger struct {
 
 func (m *mockPinger) Ping(_ context.Context) error {
 	return m.err
+}
+
+// RBAC mock methods.
+func (m *mockAPIStore) GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error) {
+	if m.getUserPermissionsFn != nil {
+		return m.getUserPermissionsFn(ctx, projectID, userID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
+	if m.createProjectRoleFn != nil {
+		return m.createProjectRoleFn(ctx, role)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error) {
+	if m.getProjectRoleFn != nil {
+		return m.getProjectRoleFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateProjectRole(ctx context.Context, role *domain.ProjectRole) error {
+	if m.updateProjectRoleFn != nil {
+		return m.updateProjectRoleFn(ctx, role)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListProjectRoles(ctx context.Context, projectID string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
+	if m.listProjectRolesFn != nil {
+		return m.listProjectRolesFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteProjectRole(ctx context.Context, id string) error {
+	if m.deleteProjectRoleFn != nil {
+		return m.deleteProjectRoleFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) AssignMemberRole(ctx context.Context, m2 *domain.ProjectMemberRole) error {
+	if m.assignMemberRoleFn != nil {
+		return m.assignMemberRoleFn(ctx, m2)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetMemberRole(_ context.Context, _, _ string) (*domain.ProjectMemberRole, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) RemoveMemberRole(ctx context.Context, projectID, userID string) error {
+	if m.removeMemberRoleFn != nil {
+		return m.removeMemberRoleFn(ctx, projectID, userID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListProjectMembers(ctx context.Context, projectID string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
+	if m.listProjectMembersFn != nil {
+		return m.listProjectMembersFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) SeedProjectSystemRoles(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAPIStore) CreateResourcePolicy(_ context.Context, _ *domain.ResourcePolicy) error {
+	return nil
+}
+
+func (m *mockAPIStore) GetResourcePolicies(_ context.Context, _, _, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteResourcePolicy(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
+func (m *mockAPIStore) ListResourcePolicies(_ context.Context, _, _ string, _ int, _ *time.Time) ([]domain.ResourcePolicy, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateTagPolicy(_ context.Context, _ *domain.TagPolicy) error {
+	return nil
+}
+
+func (m *mockAPIStore) ListTagPolicies(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.TagPolicy, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteTagPolicy(_ context.Context, _ string) (string, string, error) {
+	return "", "", store.ErrTagPolicyNotFound
+}
+
+func (m *mockAPIStore) GetTagPolicyActions(_ context.Context, _, _, _ string, _ map[string]string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+	return nil
+}
+
+func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ int, _, _, _ *time.Time, _ bool) ([]domain.AuditEvent, error) {
+	return nil, nil
 }

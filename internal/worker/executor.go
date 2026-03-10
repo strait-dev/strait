@@ -22,6 +22,7 @@ import (
 // ExecutorStore is the subset of store operations needed by Executor.
 type ExecutorStore interface {
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	GetJobAtVersion(ctx context.Context, jobID string, version int) (*domain.Job, error)
 	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)

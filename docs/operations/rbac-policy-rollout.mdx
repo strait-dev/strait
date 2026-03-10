@@ -1,0 +1,18 @@
+---
+title: "RBAC Policy Rollout"
+description: "Safe rollout process for role inheritance, resource policies, and tag policies."
+---
+
+## Rollout Steps
+
+1. Seed system roles and validate baseline role assignments.
+2. Introduce custom roles and inheritance in low-risk projects.
+3. Apply resource policies and tag policies incrementally.
+4. Validate effective permissions with canary users.
+5. Monitor 403 spikes and permission-cache miss rate.
+
+## Rollback
+
+- Remove newly added policies first.
+- Revert role parent links if inheritance causes over/under-permission.
+- Restore previous role assignments from audit records.

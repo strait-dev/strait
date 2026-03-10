@@ -1,0 +1,41 @@
+---
+title: "Audit Events"
+description: "Track and query security-sensitive actions with audit_events."
+---
+
+Strait records security-sensitive and control-plane operations in the `audit_events` table.
+
+## Endpoint
+
+- `GET /v1/audit-events`
+
+### Filters
+- `project_id` (required, unless present in request context)
+- `actor_id`
+- `resource_type`
+- `resource_id`
+- `from` (RFC3339)
+- `to` (RFC3339)
+- `order` (`asc` or `desc`, default `desc`)
+- `limit`
+- `cursor`
+
+Results support cursor pagination and optional time-window filtering.
+
+## Event Coverage (examples)
+
+- Role create/update/delete
+- Member assign/remove/bulk assign
+- Resource policy and tag policy create/delete
+- API key revoke/rotate
+- Job destructive operations
+
+## Why it matters
+
+Audit events give you:
+- actor attribution (`actor_type`, `actor_id`)
+- target attribution (`resource_type`, `resource_id`)
+- action classification (`action`)
+- timestamped forensic history for incident response
+
+For role and policy behavior, see [RBAC & Policy Authorization](/docs/guides/rbac).

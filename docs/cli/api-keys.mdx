@@ -3,6 +3,10 @@ title: "API Keys"
 description: "Manage API keys for project authentication."
 ---
 
+<Info>
+  Related docs: [Authentication & Authorization](/docs/guides/authentication), [API Key Rotation](/docs/guides/api-key-rotation), [Security](/docs/guides/security), [CLI Overview](/docs/cli/overview).
+</Info>
+
 ## api-keys create
 
 Create a new API key.
@@ -43,14 +47,14 @@ strait api-keys revoke <key-id>
 
 ## api-keys rotate
 
-Create a new API key and revoke the old one.
+Rotate an API key using the API rotation endpoint with a configurable grace window.
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| --name | string | | Name for the new API key |
+| --grace-period-minutes | int | 60 | How long the old key remains valid |
 
 ```bash
-strait api-keys rotate <key-id> --name "New CI/CD Key"
+strait api-keys rotate <key-id> --grace-period-minutes 120
 ```
 
 <Note>

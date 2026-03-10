@@ -1,15 +1,15 @@
 ---
 title: "Contributing"
-description: "Guidelines for contributing to the strait project."
+description: "Guidelines for contributing to Strait project."
 ---
 
-We welcome contributions to the strait! This document provides instructions on how to set up your development environment and the standards we follow.
+We welcome contributions to Strait! This document provides instructions on how to set up your development environment and the standards we follow.
 
 ## Getting Started
 
 ### Prerequisites
 
-To build and run the strait locally, you need:
+To build and run Strait locally, you need:
 
 - **Go 1.26+**
 - **Docker** (for running PostgreSQL, Redis, and Sequin)
@@ -70,9 +70,19 @@ The linter checks for code duplication, unhandled errors, security vulnerabiliti
 
 ## Pre-commit Hooks
 
-We use `lefthook` to run linters automatically before every commit. This ensures that all code entering the repository meets our quality standards.
+We use `lefthook` to run checks automatically before every commit. This ensures that all code entering the repository meets our quality standards.
 
-If `lefthook` fails, you must fix the linting errors before you can commit your changes.
+Current pre-commit checks include:
+- `golangci-lint`
+- OpenAPI parity check (`scripts/check_openapi_parity.go`) to ensure `internal/api/routes.go`, `internal/api/openapi.yaml`, and `docs/openapi.yaml` stay in sync.
+
+Manual parity check command:
+
+```bash
+go run ./scripts/check_openapi_parity.go
+```
+
+If `lefthook` fails, you must fix the issues before you can commit your changes.
 
 ## Pull Request Guidelines
 

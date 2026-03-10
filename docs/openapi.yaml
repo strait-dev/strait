@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Strait API
   version: 1.0.0
-  description: A production-grade Go job strait API.
+  description: A production-grade Go job orchestration service API.
 servers:
   - url: http://localhost:8080
     description: Local development server
@@ -1290,6 +1290,40 @@ paths:
                 items:
                   $ref: '#/components/schemas/WorkflowRun'
 
+  /v1/workflows/{workflowID}/clone:
+    post:
+      tags:
+        - Workflows
+      summary: Clone a workflow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workflowID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: string
+                name:
+                  type: string
+                slug:
+                  type: string
+      responses:
+        '201':
+          description: Workflow cloned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+
   /v1/workflows/{workflowID}/graph:
     get:
       tags:
@@ -1602,6 +1636,495 @@ paths:
       responses:
         '204':
           description: API key revoked
+
+  /v1/api-keys/{keyID}/rotate:
+    post:
+      tags: [APIKeys]
+      summary: Rotate an API key with optional grace period
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keyID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RotateAPIKeyRequest'
+      responses:
+        '201':
+          description: Rotated API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateAPIKeyResponse'
+
+  /v1/roles:
+    post:
+      tags: [RBAC]
+      summary: Create a custom project role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Role created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    get:
+      tags: [RBAC]
+      summary: List roles for a project
+      responses:
+        '200':
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+
+  /v1/roles/{roleID}:
+    parameters:
+      - name: roleID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [RBAC]
+      summary: Get role by ID
+      parameters:
+        - name: include_lineage
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, returns `{ role, lineage[] }` with inherited parent chain
+      responses:
+        '200':
+          description: Role
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Role'
+                  - type: object
+                    properties:
+                      role:
+                        $ref: '#/components/schemas/Role'
+                      lineage:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Role'
+    patch:
+      tags: [RBAC]
+      summary: Update role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Updated role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    delete:
+      tags: [RBAC]
+      summary: Delete role
+      responses:
+        '204':
+          description: Role deleted
+
+  /v1/members:
+    post:
+      tags: [RBAC]
+      summary: Assign member role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMemberRequest'
+      responses:
+        '200':
+          description: Member assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMember'
+    get:
+      tags: [RBAC]
+      summary: List project members
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectMember'
+
+  /v1/members/bulk:
+    post:
+      tags: [RBAC]
+      summary: Bulk assign members
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkAssignMembersRequest'
+      responses:
+        '200':
+          description: Bulk assignment result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkAssignMembersResponse'
+
+  /v1/members/{userID}:
+    parameters:
+      - name: userID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Remove project member
+      responses:
+        '204':
+          description: Member removed
+
+  /v1/seed-roles:
+    post:
+      tags: [RBAC]
+      summary: Seed system roles
+      responses:
+        '200':
+          description: Seeded
+
+  /v1/audit-events:
+    get:
+      tags: [RBAC]
+      summary: List audit events
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAuditEventsResponse'
+
+  /v1/resource-policies:
+    post:
+      tags: [RBAC]
+      summary: Create resource policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourcePolicyRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourcePolicy'
+    get:
+      tags: [RBAC]
+      summary: List resource policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListResourcePoliciesResponse'
+
+  /v1/resource-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete resource policy
+      responses:
+        '204':
+          description: Deleted
+
+  /v1/tag-policies:
+    post:
+      tags: [RBAC]
+      summary: Create tag policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTagPolicyRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagPolicy'
+    get:
+      tags: [RBAC]
+      summary: List tag policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListTagPoliciesResponse'
+
+  /v1/tag-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete tag policy
+      responses:
+        '204':
+          description: Deleted
+
+  /v1/jobs/{jobID}/versions/{versionID}:
+    parameters:
+      - name: jobID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Jobs]
+      summary: Get job version by version ID
+      responses:
+        '200':
+          description: Job version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobVersion'
+
+  /v1/workflows/{workflowID}/dry-run:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Validate and render a workflow execution plan
+      responses:
+        '200':
+          description: Dry run result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow versions
+      responses:
+        '200':
+          description: Workflow versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowVersion'
+
+  /v1/workflows/{workflowID}/versions/{versionID}:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow version by version ID
+      responses:
+        '200':
+          description: Workflow version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowVersion'
+
+  /v1/workflows/{workflowID}/versions/{versionID}/steps:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow version steps
+      responses:
+        '200':
+          description: Workflow version steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowStep'
+
+  /v1/workflow-runs/{workflowRunID}/labels:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run labels
+      responses:
+        '200':
+          description: Workflow run labels
+          content:
+            application/json:
+              schema:
+                type: object
 
   /v1/stats:
     get:
@@ -2124,6 +2647,18 @@ components:
           type: string
         version:
           type: integer
+        version_id:
+          type: string
+          description: Nanoid-based public version identifier (e.g. ver_k8f2m9x1p3)
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
+        backwards_compatible:
+          type: boolean
+        created_by:
+          type: string
+        updated_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2243,6 +2778,14 @@ components:
           type: string
         lineage_depth:
           type: integer
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        job_version_id:
+          type: string
+        created_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2311,6 +2854,21 @@ components:
           type: string
         skip_if_running:
           type: boolean
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_id:
+          type: string
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
+        backwards_compatible:
+          type: boolean
+        created_by:
+          type: string
+        updated_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2351,6 +2909,14 @@ components:
         retry_of_run_id:
           type: string
         parent_workflow_run_id:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        workflow_version_id:
+          type: string
+        created_by:
           type: string
         created_at:
           type: string
@@ -2482,6 +3048,361 @@ components:
           type: string
           format: date-time
         revoked_at:
+          type: string
+          format: date-time
+        replaced_by_key_id:
+          type: string
+        grace_expires_at:
+          type: string
+          format: date-time
+
+    RotateAPIKeyRequest:
+      type: object
+      properties:
+        grace_period_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+
+    RotateAPIKeyResponse:
+      type: object
+      properties:
+        old_key_id:
+          type: string
+        new_key_id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        key:
+          type: string
+        key_prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        grace_expires_at:
+          type: string
+          format: date-time
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+        is_system:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateRoleRequest:
+      type: object
+      required:
+        - project_id
+        - name
+        - permissions
+      properties:
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+
+    ProjectMember:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        user_id:
+          type: string
+        role_id:
+          type: string
+        granted_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AssignMemberRequest:
+      type: object
+      required:
+        - user_id
+        - role_id
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+
+    BulkAssignMembersRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignMemberRequest'
+
+    BulkAssignMemberResult:
+      type: object
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+        status:
+          type: string
+        error:
+          type: string
+
+    BulkAssignMembersResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkAssignMemberResult'
+        total:
+          type: integer
+
+    ResourcePolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        user_id:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateResourcePolicyRequest:
+      type: object
+      required:
+        - project_id
+        - resource_type
+        - resource_id
+        - user_id
+        - actions
+      properties:
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        user_id:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    TagPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        user_id:
+          type: string
+        tag_key:
+          type: string
+        tag_value:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateTagPolicyRequest:
+      type: object
+      required:
+        - project_id
+        - resource_type
+        - user_id
+        - tag_key
+        - actions
+      properties:
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        user_id:
+          type: string
+        tag_key:
+          type: string
+        tag_value:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        actor_id:
+          type: string
+        actor_type:
+          type: string
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        details:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    ListAuditEventsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    ListResourcePoliciesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourcePolicy'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    ListTagPoliciesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagPolicy'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    WorkflowVersion:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        project_id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        timeout_secs:
+          type: integer
+        max_concurrent_runs:
+          type: integer
+        max_parallel_steps:
+          type: integer
+        cron:
+          type: string
+        cron_timezone:
+          type: string
+        skip_if_running:
+          type: boolean
+        version_id:
+          type: string
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        created_at:
           type: string
           format: date-time
 

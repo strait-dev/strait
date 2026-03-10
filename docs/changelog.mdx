@@ -1,0 +1,31 @@
+---
+title: "Changelog"
+description: "Recent platform and API updates in Strait."
+---
+
+## 2026-03
+
+### Auth / RBAC / Audit / Rotation Updates
+
+- Added optional OIDC bearer-token authentication path for user traffic.
+- Expanded RBAC with role inheritance and optional lineage introspection (`GET /v1/roles/{roleID}?include_lineage=true`).
+- Added policy-based authorization controls:
+  - resource policies
+  - tag policies
+- Added bulk member assignment endpoint (`POST /v1/members/bulk`).
+- Added audit event API with filtering and ordering:
+  - `GET /v1/audit-events`
+  - supports `from`, `to`, `order`, `limit`, `cursor`
+- Added API key rotation with grace windows (`POST /v1/api-keys/{keyID}/rotate`).
+- Updated CLI parity for rotation (`strait api-keys rotate --grace-period-minutes ...`).
+- Added new webhook authenticity headers:
+  - `X-Strait-Timestamp`
+  - `X-Strait-Signature`
+  - compatibility `X-Webhook-Signature`
+
+### Docs / Tooling
+
+- Synced and expanded OpenAPI specs (`docs/openapi.yaml`, `internal/api/openapi.yaml`).
+- Added pre-commit OpenAPI parity enforcement via lefthook:
+  - `go run ./scripts/check_openapi_parity.go`
+- Added operations docs for monitoring, rollouts, and authz incident response.

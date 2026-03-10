@@ -214,8 +214,8 @@ func TestHandleCreateJob_DefaultValues(t *testing.T) {
 func TestHandleDeleteJob_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
-			return nil, store.ErrJobNotFound
+		deleteJobFn: func(_ context.Context, _ string) error {
+			return store.ErrJobNotFound
 		},
 	}
 
@@ -228,31 +228,11 @@ func TestHandleDeleteJob_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleDeleteJob_StoreGetError(t *testing.T) {
+func TestHandleDeleteJob_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
-			return nil, errors.New("db down")
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-500", ""))
-
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
-}
-
-func TestHandleDeleteJob_StoreUpdateError(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{ID: id, EndpointURL: "https://example.com", Enabled: true}, nil
-		},
-		updateJobFn: func(_ context.Context, _ *domain.Job) error {
-			return errors.New("update failed")
+		deleteJobFn: func(_ context.Context, _ string) error {
+			return errors.New("db down")
 		},
 	}
 

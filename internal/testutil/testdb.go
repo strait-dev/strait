@@ -79,6 +79,8 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 	}
 
 	_, err := tdb.Pool.Exec(ctx, `TRUNCATE TABLE
+		resource_policies, project_member_roles, project_roles,
+		known_actors,
 		workflow_run_labels, workflow_step_approvals,
 		workflow_step_runs, workflow_runs, workflow_version_steps,
 		workflow_versions, workflow_steps, workflows,

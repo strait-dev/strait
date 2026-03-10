@@ -3,7 +3,7 @@ title: "Database"
 description: "Configuration and management of the PostgreSQL and Redis data stores."
 ---
 
-The strait relies on PostgreSQL for persistent storage and job queuing, and Redis for real-time pub/sub and CDC event streaming.
+Strait relies on PostgreSQL for persistent storage and job queuing, and Redis for real-time pub/sub and CDC event streaming.
 
 ## PostgreSQL
 
@@ -19,7 +19,7 @@ DATABASE_URL=postgres://username:password@localhost:5432/database_name?sslmode=d
 
 ### Connection Pool Tuning
 
-The strait uses `pgx/v5` for high-performance connection pooling. You can tune the pool using the following variables:
+Strait uses `pgx/v5` for high-performance connection pooling. You can tune the pool using the following variables:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -32,7 +32,7 @@ The strait uses `pgx/v5` for high-performance connection pooling. You can tune t
 
 Database migrations are managed using `golang-migrate/v4`. 
 
-- **Count**: There are currently 48 SQL migrations (000001-000048).
+- **Count**: Migrations currently run through the `000060_*` series and continue incrementally.
 - **Embedding**: Migrations are embedded into the Go binary using `go:embed`.
 - **Execution**: Migrations run automatically on application startup.
 
@@ -47,7 +47,7 @@ Key indexes are implemented to support high-throughput operations:
 
 ### Connection Retries
 
-The strait implements an exponential backoff strategy for database connection failures:
+Strait implements an exponential backoff strategy for database connection failures:
 
 - **Strategy**: Exponential backoff.
 - **Delays**: 1s, 2s, 4s, 8s, 16s.

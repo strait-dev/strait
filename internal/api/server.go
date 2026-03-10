@@ -34,12 +34,28 @@ import (
 var openapiSpec []byte
 
 // APIStore is the subset of store operations needed by the API handlers.
+// Composed of smaller, focused interfaces for each domain.
 type APIStore interface {
+	JobStore
+	RunStore
+	WorkflowStore
+	AuthStore
+	RBACStore
+}
+
+// JobStore handles job CRUD, groups, environments, secrets, and dependencies.
+type JobStore interface {
 	CreateJob(ctx context.Context, job *domain.Job) error
-	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	UpdateJob(ctx context.Context, job *domain.Job) error
+	DeleteJob(ctx context.Context, id string) error
+	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
+	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
+	ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
+	GetJobVersionByVersionID(ctx context.Context, versionID string) (*domain.JobVersion, error)
+	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	CreateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error)
 	ListJobGroups(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error)
@@ -52,16 +68,33 @@ type APIStore interface {
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id string) error
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
-	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
+	DeleteJobSecret(ctx context.Context, id string) error
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
 	ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	DeleteJobDependency(ctx context.Context, id string) error
-	UpdateJob(ctx context.Context, job *domain.Job) error
+}
+
+// RunStore handles job runs, events, checkpoints, and related data.
+type RunStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	CreateRun(ctx context.Context, run *domain.JobRun) error
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
+	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
+	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
+	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
+	UpdateHeartbeat(ctx context.Context, id string) error
+	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
 	ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
 	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
@@ -70,34 +103,28 @@ type APIStore interface {
 	ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
 	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
 	ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
-	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
-	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
-	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	InsertEvent(ctx context.Context, event *domain.RunEvent) error
+	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
+	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
-	InsertEvent(ctx context.Context, event *domain.RunEvent) error
-	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
-	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
-	ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
-	RevokeAPIKey(ctx context.Context, id string) error
-	ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
-	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
-	TouchAPIKeyLastUsed(ctx context.Context, id string) error
-	UpdateHeartbeat(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
+}
+
+// WorkflowStore handles workflows, steps, runs, and approvals.
+type WorkflowStore interface {
 	CreateWorkflow(ctx context.Context, w *domain.Workflow) error
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
+	ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *domain.Workflow) error
-	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
 	DeleteWorkflow(ctx context.Context, id string) error
+	CreateWorkflowVersionSnapshot(ctx context.Context, workflowID string, version int) error
 	CreateWorkflowStep(ctx context.Context, step *domain.WorkflowStep) error
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
@@ -105,6 +132,7 @@ type APIStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
+	ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	CreateWorkflowRunLabels(ctx context.Context, workflowRunID string, labels map[string]string) error
 	ListWorkflowRunLabels(ctx context.Context, workflowRunID string) (map[string]string, error)
@@ -113,16 +141,49 @@ type APIStore interface {
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
-	DeleteJobSecret(ctx context.Context, id string) error
-	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
-	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
-	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
-	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
-	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
-	CreateRun(ctx context.Context, run *domain.JobRun) error
-	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
-	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+	ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
+	GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
+}
+
+// AuthStore handles API keys and authentication.
+type AuthStore interface {
+	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	ListAPIKeysByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
+	RevokeAPIKey(ctx context.Context, id string) error
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error)
+	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	TouchAPIKeyLastUsed(ctx context.Context, id string) error
+}
+
+// RBACStore handles role-based access control.
+type RBACStore interface {
+	GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error)
+	CreateProjectRole(ctx context.Context, role *domain.ProjectRole) error
+	GetProjectRole(ctx context.Context, id string) (*domain.ProjectRole, error)
+	UpdateProjectRole(ctx context.Context, role *domain.ProjectRole) error
+	ListProjectRoles(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectRole, error)
+	DeleteProjectRole(ctx context.Context, id string) error
+	AssignMemberRole(ctx context.Context, m *domain.ProjectMemberRole) error
+	GetMemberRole(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error)
+	RemoveMemberRole(ctx context.Context, projectID, userID string) error
+	ListProjectMembers(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectMemberRole, error)
+	SeedProjectSystemRoles(ctx context.Context, projectID string) error
+	CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error
+	GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error)
+	DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error)
+	ListResourcePolicies(ctx context.Context, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
+	CreateTagPolicy(ctx context.Context, p *domain.TagPolicy) error
+	ListTagPolicies(ctx context.Context, projectID, resourceType, userID string, limit int, cursor *time.Time) ([]domain.TagPolicy, error)
+	DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error)
+	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
+	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
+	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
+}
+
+// ActorSyncer lazily persists actor profile information from request headers.
+type ActorSyncer interface {
+	UpsertKnownActor(ctx context.Context, id, email, name string) error
 }
 
 // Pinger checks service health.
@@ -140,7 +201,7 @@ type WorkflowCallback interface {
 }
 
 type WorkflowTrigger interface {
-	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
+	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
 
@@ -167,8 +228,11 @@ type Server struct {
 	healthRegistry     *health.Registry
 	workflowCallback   WorkflowCallback
 	workflowEngine     WorkflowTrigger
+	actorSyncer        ActorSyncer
 	validate           *validator.Validate
 	maxRequestBodySize int64
+	permCache          *permissionCache
+	oidcVerifier       *oidcVerifier
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -182,6 +246,7 @@ type ServerDeps struct {
 	HealthRegistry   *health.Registry
 	WorkflowCallback WorkflowCallback
 	WorkflowEngine   WorkflowTrigger
+	ActorSyncer      ActorSyncer
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -190,6 +255,13 @@ func NewServer(deps ServerDeps) *Server {
 	if maxBody <= 0 {
 		maxBody = 1 << 20 // 1MB default
 	}
+
+	verifier, err := newOIDCVerifier(deps.Config)
+	if err != nil {
+		slog.Warn("failed to initialize OIDC verifier; disabling OIDC auth", "error", err)
+		verifier = &oidcVerifier{enabled: false}
+	}
+
 	srv := &Server{
 		store:              deps.Store,
 		queue:              deps.Queue,
@@ -200,11 +272,29 @@ func NewServer(deps ServerDeps) *Server {
 		healthRegistry:     deps.HealthRegistry,
 		workflowCallback:   deps.WorkflowCallback,
 		workflowEngine:     deps.WorkflowEngine,
+		actorSyncer:        deps.ActorSyncer,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
+		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
+		oidcVerifier:       verifier,
 	}
 	srv.router = srv.routes()
 	return srv
+}
+
+func permCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.PermissionCacheTTL > 0 {
+		return cfg.PermissionCacheTTL
+	}
+	return 30 * time.Second
+}
+
+// Close releases resources held by the server (e.g. background goroutines).
+// Call this when shutting down.
+func (s *Server) Close() {
+	if s.permCache != nil {
+		s.permCache.Stop()
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

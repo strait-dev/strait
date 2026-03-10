@@ -40,6 +40,94 @@ const (
 	EventProgress    EventType = "progress"
 )
 
+// ProjectRole defines a named set of permissions within a project.
+type ProjectRole struct {
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description,omitempty"`
+	Permissions  []string  `json:"permissions"`
+	ParentRoleID string    `json:"parent_role_id,omitempty"`
+	IsSystem     bool      `json:"is_system"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// ProjectMemberRole links a user (from external auth) to a role within a project.
+type ProjectMemberRole struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	UserID    string    `json:"user_id"`
+	RoleID    string    `json:"role_id"`
+	GrantedBy string    `json:"granted_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ResourcePolicy grants specific actions on a specific resource to a user,
+// overriding or extending their role-based permissions.
+type ResourcePolicy struct {
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	ResourceType string    `json:"resource_type"`
+	ResourceID   string    `json:"resource_id"`
+	UserID       string    `json:"user_id"`
+	Actions      []string  `json:"actions"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// TagPolicy grants actions on resources matching tags (e.g. team=payments).
+type TagPolicy struct {
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	ResourceType string    `json:"resource_type"`
+	UserID       string    `json:"user_id"`
+	TagKey       string    `json:"tag_key"`
+	TagValue     string    `json:"tag_value,omitempty"`
+	Actions      []string  `json:"actions"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// SystemRolePermissions defines the default permission sets for system roles.
+var SystemRolePermissions = map[string][]string{
+	"admin": {"*"},
+	"operator": {
+		ScopeJobsRead, ScopeJobsWrite, ScopeJobsTrigger,
+		ScopeRunsRead, ScopeRunsWrite,
+		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
+		ScopeSecretsRead, ScopeStatsRead, ScopeRBACManage,
+	},
+	"viewer": {
+		ScopeJobsRead, ScopeRunsRead, ScopeWorkflowsRead, ScopeStatsRead,
+	},
+	"triggerer": {
+		ScopeJobsRead, ScopeJobsTrigger,
+		ScopeRunsRead,
+		ScopeWorkflowsRead, ScopeWorkflowsTrigger,
+	},
+}
+
+// KnownActor is a lightweight cache of user info from an external auth provider.
+type KnownActor struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
+	SyncedAt  time.Time `json:"synced_at"`
+}
+
+// AuditEvent records sensitive control-plane actions for compliance and forensics.
+type AuditEvent struct {
+	ID           string          `json:"id"`
+	ProjectID    string          `json:"project_id"`
+	ActorID      string          `json:"actor_id"`
+	ActorType    string          `json:"actor_type"`
+	Action       string          `json:"action"`
+	ResourceType string          `json:"resource_type"`
+	ResourceID   string          `json:"resource_id"`
+	Details      json.RawMessage `json:"details,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
 type Job struct {
 	ID                  string            `json:"id"`
 	ProjectID           string            `json:"project_id"`
@@ -68,6 +156,11 @@ type Job struct {
 	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
 	EnvironmentID       string            `json:"environment_id,omitempty"`
 	Version             int               `json:"version"`
+	VersionID           string            `json:"version_id,omitempty"`
+	VersionPolicy       VersionPolicy     `json:"version_policy,omitempty"`
+	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
+	CreatedBy           string            `json:"created_by,omitempty"`
+	UpdatedBy           string            `json:"updated_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
 }
@@ -117,6 +210,7 @@ type JobRun struct {
 	ID                    string            `json:"id"`
 	JobID                 string            `json:"job_id"`
 	ProjectID             string            `json:"project_id"`
+	Tags                  map[string]string `json:"tags,omitempty"`
 	Status                RunStatus         `json:"status"`
 	Attempt               int               `json:"attempt"`
 	Payload               json.RawMessage   `json:"payload,omitempty"`
@@ -134,6 +228,7 @@ type JobRun struct {
 	Priority              int               `json:"priority"`
 	IdempotencyKey        string            `json:"idempotency_key,omitempty"`
 	JobVersion            int               `json:"job_version"`
+	JobVersionID          string            `json:"job_version_id,omitempty"`
 	WorkflowStepRunID     string            `json:"workflow_step_run_id,omitempty"`
 	MaxAttemptsOverride   int               `json:"max_attempts_override,omitempty"`
 	TimeoutSecsOverride   int               `json:"timeout_secs_override,omitempty"`
@@ -144,6 +239,7 @@ type JobRun struct {
 	DebugMode             bool              `json:"debug_mode"`
 	ContinuationOf        string            `json:"continuation_of,omitempty"`
 	LineageDepth          int               `json:"lineage_depth"`
+	CreatedBy             string            `json:"created_by,omitempty"`
 	CreatedAt             time.Time         `json:"created_at"`
 }
 
@@ -255,22 +351,26 @@ type WebhookDelivery struct {
 
 // APIKey represents a per-project API key for authentication.
 type APIKey struct {
-	ID         string     `json:"id"`
-	ProjectID  string     `json:"project_id"`
-	Name       string     `json:"name"`
-	KeyHash    string     `json:"-"`
-	KeyPrefix  string     `json:"key_prefix"`
-	Scopes     []string   `json:"scopes"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	ID              string     `json:"id"`
+	ProjectID       string     `json:"project_id"`
+	Name            string     `json:"name"`
+	KeyHash         string     `json:"-"`
+	KeyPrefix       string     `json:"key_prefix"`
+	Scopes          []string   `json:"scopes"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+	ReplacedByKeyID string     `json:"replaced_by_key_id,omitempty"`
+	GraceExpiresAt  *time.Time `json:"grace_expires_at,omitempty"`
 }
 
 type JobVersion struct {
 	ID                  string            `json:"id"`
 	JobID               string            `json:"job_id"`
 	Version             int               `json:"version"`
+	VersionID           string            `json:"version_id,omitempty"`
+	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
 	Name                string            `json:"name"`
 	Slug                string            `json:"slug"`
 	Description         string            `json:"description,omitempty"`
@@ -285,6 +385,28 @@ type JobVersion struct {
 	WebhookSecret       string            `json:"webhook_secret,omitempty"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
+}
+
+// WorkflowVersion is a point-in-time snapshot of a workflow.
+type WorkflowVersion struct {
+	ID                string    `json:"id"`
+	WorkflowID        string    `json:"workflow_id"`
+	Version           int       `json:"version"`
+	ProjectID         string    `json:"project_id"`
+	Name              string    `json:"name"`
+	Slug              string    `json:"slug"`
+	Description       string    `json:"description,omitempty"`
+	Enabled           bool      `json:"enabled"`
+	TimeoutSecs       int       `json:"timeout_secs"`
+	MaxConcurrentRuns int       `json:"max_concurrent_runs"`
+	MaxParallelSteps  int       `json:"max_parallel_steps"`
+	Cron              string    `json:"cron,omitempty"`
+	CronTimezone      string    `json:"cron_timezone,omitempty"`
+	SkipIfRunning     bool      `json:"skip_if_running,omitempty"`
+	VersionID         string    `json:"version_id,omitempty"`
+	CreatedBy         string    `json:"created_by,omitempty"`
+	UpdatedBy         string    `json:"updated_by,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 func (s RunStatus) IsTerminal() bool {
@@ -396,6 +518,30 @@ const (
 	ApprovalStatusRejected = "rejected"
 )
 
+// VersionPolicy controls how queued runs handle new job/workflow deployments.
+// For jobs, this is enforced at dequeue time by the executor's resolveJobForRun.
+// For workflows, version_policy is stored for future use but not currently enforced
+// because workflows execute immediately on trigger (no queue delay).
+type VersionPolicy string
+
+const (
+	// VersionPolicyPin keeps the run on the version it was enqueued with (default, safest).
+	VersionPolicyPin VersionPolicy = "pin"
+	// VersionPolicyLatest upgrades queued runs to the latest version at dequeue time.
+	VersionPolicyLatest VersionPolicy = "latest"
+	// VersionPolicyMinor upgrades only if the new version is marked backwards_compatible.
+	VersionPolicyMinor VersionPolicy = "minor"
+)
+
+func (p VersionPolicy) IsValid() bool {
+	switch p {
+	case VersionPolicyPin, VersionPolicyLatest, VersionPolicyMinor:
+		return true
+	default:
+		return false
+	}
+}
+
 type RetryBackoffPolicy string
 
 const (
@@ -411,21 +557,27 @@ type StepOverride struct {
 
 // Workflow represents a workflow DAG definition.
 type Workflow struct {
-	ID                string    `json:"id"`
-	ProjectID         string    `json:"project_id"`
-	Name              string    `json:"name"`
-	Slug              string    `json:"slug"`
-	Description       string    `json:"description,omitempty"`
-	Enabled           bool      `json:"enabled"`
-	Version           int       `json:"version"`
-	TimeoutSecs       int       `json:"timeout_secs,omitempty"`
-	MaxConcurrentRuns int       `json:"max_concurrent_runs,omitempty"`
-	MaxParallelSteps  int       `json:"max_parallel_steps,omitempty"`
-	Cron              string    `json:"cron,omitempty"`
-	CronTimezone      string    `json:"cron_timezone,omitempty"`
-	SkipIfRunning     bool      `json:"skip_if_running,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                  string            `json:"id"`
+	ProjectID           string            `json:"project_id"`
+	Name                string            `json:"name"`
+	Slug                string            `json:"slug"`
+	Description         string            `json:"description,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	Enabled             bool              `json:"enabled"`
+	Version             int               `json:"version"`
+	TimeoutSecs         int               `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns   int               `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps    int               `json:"max_parallel_steps,omitempty"`
+	Cron                string            `json:"cron,omitempty"`
+	CronTimezone        string            `json:"cron_timezone,omitempty"`
+	SkipIfRunning       bool              `json:"skip_if_running,omitempty"`
+	VersionID           string            `json:"version_id,omitempty"`
+	VersionPolicy       VersionPolicy     `json:"version_policy,omitempty"`
+	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
+	CreatedBy           string            `json:"created_by,omitempty"`
+	UpdatedBy           string            `json:"updated_by,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
 // WorkflowStep represents a step (node) within a workflow DAG.
@@ -457,6 +609,7 @@ type WorkflowRun struct {
 	ID                  string            `json:"id"`
 	WorkflowID          string            `json:"workflow_id"`
 	ProjectID           string            `json:"project_id"`
+	Tags                map[string]string `json:"tags,omitempty"`
 	Status              WorkflowRunStatus `json:"status"`
 	TriggeredBy         string            `json:"triggered_by"`
 	WorkflowVersion     int               `json:"workflow_version"`
@@ -468,6 +621,8 @@ type WorkflowRun struct {
 	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
 	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
+	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
+	CreatedBy           string            `json:"created_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
 
