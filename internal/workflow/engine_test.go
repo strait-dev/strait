@@ -446,6 +446,13 @@ func (m *mockCallbackStore) UpdateStepRunStatus(ctx context.Context, id string, 
 	return nil
 }
 
+func (m *mockCallbackStore) UpdateStepRunStatusFrom(ctx context.Context, id string, _ domain.StepRunStatus, to domain.StepRunStatus, fields map[string]any) error {
+	if m.updateStepRunStatusFn != nil {
+		return m.updateStepRunStatusFn(ctx, id, to, fields)
+	}
+	return nil
+}
+
 func (m *mockCallbackStore) IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error) {
 	if m.incrementStepDepsFn != nil {
 		return m.incrementStepDepsFn(ctx, workflowRunID, completedStepRef)

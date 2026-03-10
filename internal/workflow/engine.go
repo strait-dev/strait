@@ -10,6 +10,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 )
 
@@ -197,43 +198,61 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
 		wfRun.ExpiresAt = &expiresAt
 	}
-	if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
-		return nil, fmt.Errorf("create workflow run: %w", err)
-	}
-
 	now := time.Now()
-	if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
-		return nil, fmt.Errorf("start workflow run: %w", err)
-	}
-	wfRun.Status = domain.WfStatusRunning
-	wfRun.StartedAt = &now
 
 	type rootToStart struct {
 		stepRun *domain.WorkflowStepRun
 		step    *domain.WorkflowStep
 	}
 	roots := make([]rootToStart, 0)
-
+	stepRuns := make([]domain.WorkflowStepRun, 0, len(steps))
 	for i := range steps {
 		step := &steps[i]
-		stepRun := &domain.WorkflowStepRun{
+		sr := domain.WorkflowStepRun{
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			WorkflowRunID:  wfRun.ID,
 			WorkflowStepID: step.ID,
 			StepRef:        step.StepRef,
 			DepsCompleted:  0,
 			DepsRequired:   len(step.DependsOn),
 		}
-
 		if len(step.DependsOn) == 0 {
-			stepRun.Status = domain.StepPending
-			stepRun.DepsRequired = 0
-			roots = append(roots, rootToStart{stepRun: stepRun, step: step})
+			sr.Status = domain.StepPending
+			sr.DepsRequired = 0
 		} else {
-			stepRun.Status = domain.StepWaiting
+			sr.Status = domain.StepWaiting
 		}
+		stepRuns = append(stepRuns, sr)
+	}
 
-		if err := e.store.CreateWorkflowStepRun(ctx, stepRun); err != nil {
-			return nil, fmt.Errorf("create step run %s: %w", step.StepRef, err)
+	type bootstrapStore interface {
+		CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	}
+	if bs, ok := e.store.(bootstrapStore); ok {
+		if err := bs.CreateWorkflowRunBootstrap(ctx, wfRun, stepRuns, now); err != nil {
+			return nil, fmt.Errorf("create workflow bootstrap: %w", err)
+		}
+	} else {
+		if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
+			return nil, fmt.Errorf("create workflow run: %w", err)
+		}
+		if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+			return nil, fmt.Errorf("start workflow run: %w", err)
+		}
+		for i := range stepRuns {
+			if err := e.store.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
+				return nil, fmt.Errorf("create step run %s: %w", stepRuns[i].StepRef, err)
+			}
+		}
+	}
+	wfRun.Status = domain.WfStatusRunning
+	wfRun.StartedAt = &now
+
+	for i := range steps {
+		step := &steps[i]
+		sr := &stepRuns[i]
+		if len(step.DependsOn) == 0 {
+			roots = append(roots, rootToStart{stepRun: sr, step: step})
 		}
 	}
 

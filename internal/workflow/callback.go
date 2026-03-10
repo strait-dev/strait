@@ -23,6 +23,7 @@ type CallbackStore interface {
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	UpdateStepRunStatusFrom(ctx context.Context, id string, from, to domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]storepkg.StepDepResult, error)
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
@@ -107,8 +108,8 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	}
 
 	fields["finished_at"] = time.Now()
-	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, stepStatus, fields); err != nil {
-		s.logger.Error("failed to update step run terminal status", "step_run_id", stepRun.ID, "status", stepStatus, "error", err)
+	if err := s.store.UpdateStepRunStatusFrom(ctx, stepRun.ID, stepRun.Status, stepStatus, fields); err != nil {
+		s.logger.Error("failed to update step run terminal status", "step_run_id", stepRun.ID, "from", stepRun.Status, "status", stepStatus, "error", err)
 		return fmt.Errorf("update step run terminal status: %w", err)
 	}
 
@@ -181,7 +182,7 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	if len(trigger.ResponsePayload) > 0 {
 		fields["output"] = trigger.ResponsePayload
 	}
-	if err := s.store.UpdateStepRunStatus(ctx, targetStepRun.ID, domain.StepCompleted, fields); err != nil {
+	if err := s.store.UpdateStepRunStatusFrom(ctx, targetStepRun.ID, targetStepRun.Status, domain.StepCompleted, fields); err != nil {
 		return fmt.Errorf("update step run status for event trigger: %w", err)
 	}
 

@@ -207,6 +207,54 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	return nil
 }
 
+func (q *Queries) UpdateStepRunStatusFrom(ctx context.Context, id string, from, to domain.StepRunStatus, fields map[string]any) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateStepRunStatusFrom")
+	defer span.End()
+
+	allowedColumns := map[string]struct{}{
+		"job_run_id":  {},
+		"output":      {},
+		"error":       {},
+		"started_at":  {},
+		"finished_at": {},
+		"attempt":     {},
+	}
+
+	setClauses := []string{"status = $1"}
+	args := []any{to, id, from}
+	param := 4
+
+	keys := lo.Keys(fields)
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := fields[key]
+		if _, ok := allowedColumns[key]; !ok {
+			return &domain.FieldError{Field: key}
+		}
+		if raw, ok := value.(json.RawMessage); ok {
+			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "job_run_id" || key == "error" {
+			if text, ok := value.(string); ok {
+				value = dbscan.NilIfEmptyString(text)
+			}
+		}
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		args = append(args, value)
+		param++
+	}
+
+	query := fmt.Sprintf("UPDATE workflow_step_runs SET %s WHERE id = $2 AND status = $3", strings.Join(setClauses, ", "))
+	tag, err := q.db.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update step run status from: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update step run status conflict: id %s from %s", id, from)
+	}
+	return nil
+}
+
 func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]StepDepResult, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.IncrementStepDeps")
 	defer span.End()

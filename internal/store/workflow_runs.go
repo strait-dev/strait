@@ -405,6 +405,44 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	return &run, nil
 }
 
+func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunBootstrap")
+	defer span.End()
+
+	txb, ok := q.db.(TxBeginner)
+	if !ok {
+		if err := q.CreateWorkflowRun(ctx, run); err != nil {
+			return err
+		}
+		if err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+			return err
+		}
+		for i := range stepRuns {
+			sr := stepRuns[i]
+			if err := q.CreateWorkflowStepRun(ctx, &sr); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	return WithTx(ctx, txb, func(txQ *Queries) error {
+		if err := txQ.CreateWorkflowRun(ctx, run); err != nil {
+			return fmt.Errorf("create workflow run bootstrap: %w", err)
+		}
+		if err := txQ.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+			return fmt.Errorf("mark workflow running bootstrap: %w", err)
+		}
+		for i := range stepRuns {
+			sr := stepRuns[i]
+			if err := txQ.CreateWorkflowStepRun(ctx, &sr); err != nil {
+				return fmt.Errorf("create workflow step run bootstrap %s: %w", sr.StepRef, err)
+			}
+		}
+		return nil
+	})
+}
+
 func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRunsByTag")
 	defer span.End()
