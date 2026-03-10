@@ -28,6 +28,23 @@ The strait solves the complexity of background job processing by combining queue
 | [Concepts](docs/concepts/jobs) | Jobs, runs, workflows, scheduling, retry strategies, and cost budgets |
 | [Guides](docs/guides/authentication) | Authentication, deployment, security, and production patterns |
 
+## Monorepo Layout
+
+This repository is now structured as a Turborepo monorepo managed with Bun.
+
+- `apps/strait`: Go service (CLI + API + worker)
+- `packages/`: Shared packages (UI, SDKs, utilities, etc.)
+
+```bash
+# Install workspace tooling
+bun install
+
+# Run workspace tasks via Turbo
+bun run lint
+bun run test
+bun run build
+```
+
 ## Key Features
 
 - **13-State FSM** — Robust lifecycle management with queued, executing, completed, failed, timed_out, dead_letter

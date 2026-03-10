@@ -26,12 +26,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: |
-            go.sum
+            apps/strait/go.sum
 
       - name: Build
+        working-directory: apps/strait
         run: go build ./...
 
       - name: Vet
+        working-directory: apps/strait
         run: go vet ./...
 
   unit-race:
@@ -46,21 +48,24 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: |
-            go.sum
+            apps/strait/go.sum
 
       - name: Run unit tests (race)
+        working-directory: apps/strait
         run: |
           set -o pipefail
           go test -json -race -timeout=60s ./... | tee unit-race-test.jsonl
 
       - name: Run package coverage (internal)
         if: always()
+        working-directory: apps/strait
         run: |
           set -o pipefail
           go test -cover ./internal/... | tee unit-internal-coverage.txt
 
       - name: Check coverage threshold
         if: always()
+        working-directory: apps/strait
         run: |
           MIN_COVERAGE=50
           below_threshold=0
@@ -81,6 +86,7 @@ jobs:
 
       - name: Publish unit-race test and coverage summary
         if: always()
+        working-directory: apps/strait
         run: |
           python3 - <<'PY'
           import json
@@ -166,8 +172,8 @@ jobs:
           name: unit-race-metrics
           if-no-files-found: ignore
           path: |
-            unit-race-test.jsonl
-            unit-internal-coverage.txt
+            apps/strait/unit-race-test.jsonl
+            apps/strait/unit-internal-coverage.txt
 
   integration:
     runs-on: ubuntu-latest
@@ -181,21 +187,24 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: |
-            go.sum
+            apps/strait/go.sum
 
       - name: Run integration tests (race)
+        working-directory: apps/strait
         run: |
           set -o pipefail
           go test -json -race -tags=integration -timeout=20m ./internal/store ./internal/queue ./internal/pubsub ./internal/e2e | tee integration-test.jsonl
 
       - name: Run integration coverage
         if: always()
+        working-directory: apps/strait
         run: |
           set -o pipefail
           go test -cover -tags=integration ./internal/store ./internal/queue ./internal/pubsub ./internal/e2e | tee integration-coverage.txt
 
       - name: Publish integration test and coverage summary
         if: always()
+        working-directory: apps/strait
         run: |
           python3 - <<'PY'
           import json
@@ -281,5 +290,5 @@ jobs:
           name: integration-metrics
           if-no-files-found: ignore
           path: |
-            integration-test.jsonl
-            integration-coverage.txt
+            apps/strait/integration-test.jsonl
+            apps/strait/integration-coverage.txt

@@ -36,3 +36,7 @@ Thumbs.db
 /bin/
 /dist/
 /tmp/
+
+# Monorepo / Bun / Turbo
+node_modules/
+.turbo/

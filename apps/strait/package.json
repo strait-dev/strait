@@ -1,0 +1,11 @@
+{
+  "name": "@apps/strait",
+  "private": true,
+  "scripts": {
+    "build": "go build ./...",
+    "test": "go test ./...",
+    "lint": "golangci-lint run --timeout=5m ./...",
+    "typecheck": "go vet ./...",
+    "dev": "go run ./cmd/strait"
+  }
+}

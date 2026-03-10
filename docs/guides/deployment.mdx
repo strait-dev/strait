@@ -15,11 +15,11 @@ The strait can run in three different modes, controlled by the `--mode` flag or 
 
 ## Docker Deployment
 
-The project includes a multi-stage `Dockerfile` that produces a minimal Alpine-based image.
+The project includes a multi-stage Dockerfile at `apps/strait/Dockerfile` that produces a minimal Alpine-based image.
 
 ### Build the Image
 ```bash
-docker build -t strait .
+docker build -t strait -f apps/strait/Dockerfile .
 ```
 
 ### Run the Container
@@ -41,14 +41,14 @@ The strait requires the following backing services:
 - **Sequin**: Required for Change Data Capture (CDC) from the Postgres WAL.
 
 ### Docker Compose (Development)
-For local development, use the provided `docker-compose.yml`:
+For local development, use `apps/strait/docker-compose.yml`:
 ```bash
-docker compose up -d
+docker compose -f apps/strait/docker-compose.yml up -d
 ```
 
 ## Fly.io Deployment
 
-The repository includes a `fly.toml` configuration for quick deployment to Fly.io.
+The repository includes `apps/strait/fly.toml` for quick deployment to Fly.io.
 
 ### Deployment Steps
 1. Set the required secrets:
@@ -61,7 +61,7 @@ fly secrets set \
 ```
 2. Deploy the application:
 ```bash
-fly deploy
+cd apps/strait && fly deploy
 ```
 
 ## Production Configuration
