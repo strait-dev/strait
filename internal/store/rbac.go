@@ -332,23 +332,33 @@ func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) (projectI
 	return projectID, userID, nil
 }
 
-func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resourceID string) ([]domain.ResourcePolicy, error) {
+func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListResourcePolicies")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, resource_type, resource_id, user_id, actions, created_at
 		FROM resource_policies
-		WHERE resource_type = $1 AND resource_id = $2
-		ORDER BY created_at ASC`
+		WHERE resource_type = $1 AND resource_id = $2`
+	args := []any{resourceType, resourceID}
+	param := 3
 
-	rows, err := q.db.Query(ctx, query, resourceType, resourceID)
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list resource policies: %w", err)
 	}
 	defer rows.Close()
 
-	policies := make([]domain.ResourcePolicy, 0, 8)
+	policies := make([]domain.ResourcePolicy, 0, limit)
 	for rows.Next() {
 		var p domain.ResourcePolicy
 		if err := rows.Scan(&p.ID, &p.ProjectID, &p.ResourceType, &p.ResourceID, &p.UserID, &p.Actions, &p.CreatedAt); err != nil {

@@ -916,6 +916,6 @@ func (m *mockAPIStore) DeleteResourcePolicy(_ context.Context, _ string) (string
 	return "", "", nil
 }
 
-func (m *mockAPIStore) ListResourcePolicies(_ context.Context, _, _ string) ([]domain.ResourcePolicy, error) {
+func (m *mockAPIStore) ListResourcePolicies(_ context.Context, _, _ string, _ int, _ *time.Time) ([]domain.ResourcePolicy, error) {
 	return nil, nil
 }

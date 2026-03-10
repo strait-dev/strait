@@ -170,7 +170,7 @@ type RBACStore interface {
 	CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error
 	GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error)
 	DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error)
-	ListResourcePolicies(ctx context.Context, resourceType, resourceID string) ([]domain.ResourcePolicy, error)
+	ListResourcePolicies(ctx context.Context, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
 }
 
 // ActorSyncer lazily persists actor profile information from request headers.

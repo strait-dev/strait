@@ -306,13 +306,21 @@ func (s *Server) handleListResourcePolicies(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	policies, err := s.store.ListResourcePolicies(r.Context(), resourceType, resourceID)
+	limit, cursor, err := parsePaginationParams(r)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	policies, err := s.store.ListResourcePolicies(r.Context(), resourceType, resourceID, limit+1, cursor)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list resource policies")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, policies)
+	respondJSON(w, http.StatusOK, paginatedResult(policies, limit, func(p domain.ResourcePolicy) string {
+		return p.CreatedAt.Format(time.RFC3339Nano)
+	}))
 }
 
 func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
