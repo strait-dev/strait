@@ -120,7 +120,17 @@ func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, role)
+	updated, err := s.store.GetProjectRole(r.Context(), roleID)
+	if err != nil {
+		if errors.Is(err, store.ErrRoleNotFound) {
+			respondError(w, r, http.StatusNotFound, "role not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to load updated role")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
