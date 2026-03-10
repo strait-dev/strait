@@ -42,14 +42,15 @@ const (
 
 // ProjectRole defines a named set of permissions within a project.
 type ProjectRole struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Permissions []string  `json:"permissions"`
-	IsSystem    bool      `json:"is_system"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description,omitempty"`
+	Permissions  []string  `json:"permissions"`
+	ParentRoleID string    `json:"parent_role_id,omitempty"`
+	IsSystem     bool      `json:"is_system"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // ProjectMemberRole links a user (from external auth) to a role within a project.

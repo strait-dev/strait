@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"strait/internal/dbscan"
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
@@ -28,12 +29,12 @@ func (q *Queries) CreateProjectRole(ctx context.Context, role *domain.ProjectRol
 	}
 
 	query := `
-		INSERT INTO project_roles (id, project_id, name, description, permissions, is_system)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO project_roles (id, project_id, name, description, permissions, parent_role_id, is_system)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING created_at, updated_at`
 
 	err := q.db.QueryRow(ctx, query,
-		role.ID, role.ProjectID, role.Name, role.Description, role.Permissions, role.IsSystem,
+		role.ID, role.ProjectID, role.Name, role.Description, role.Permissions, dbscan.NilIfEmptyString(role.ParentRoleID), role.IsSystem,
 	).Scan(&role.CreatedAt, &role.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create project role: %w", err)
@@ -47,7 +48,7 @@ func (q *Queries) GetProjectRole(ctx context.Context, id string) (*domain.Projec
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, description, permissions, is_system, created_at, updated_at
+		SELECT id, project_id, name, description, permissions, parent_role_id, is_system, created_at, updated_at
 		FROM project_roles
 		WHERE id = $1`
 
@@ -67,7 +68,7 @@ func (q *Queries) ListProjectRoles(ctx context.Context, projectID string, limit 
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, description, permissions, is_system, created_at, updated_at
+		SELECT id, project_id, name, description, permissions, parent_role_id, is_system, created_at, updated_at
 		FROM project_roles
 		WHERE project_id = $1`
 
@@ -120,14 +121,27 @@ func (q *Queries) UpdateProjectRole(ctx context.Context, role *domain.ProjectRol
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectRole")
 	defer span.End()
 
+	if role.ParentRoleID == role.ID {
+		return fmt.Errorf("parent role cannot reference itself")
+	}
+	if role.ParentRoleID != "" {
+		cycle, err := q.wouldCreateRoleCycle(ctx, role.ID, role.ParentRoleID)
+		if err != nil {
+			return err
+		}
+		if cycle {
+			return fmt.Errorf("parent role would create a cycle")
+		}
+	}
+
 	query := `
 		UPDATE project_roles
-		SET name = $1, description = $2, permissions = $3, updated_at = NOW()
-		WHERE id = $4 AND is_system = FALSE
+		SET name = $1, description = $2, permissions = $3, parent_role_id = $4, updated_at = NOW()
+		WHERE id = $5 AND is_system = FALSE
 		RETURNING updated_at`
 
 	err := q.db.QueryRow(ctx, query,
-		role.Name, role.Description, role.Permissions, role.ID,
+		role.Name, role.Description, role.Permissions, dbscan.NilIfEmptyString(role.ParentRoleID), role.ID,
 	).Scan(&role.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -257,20 +271,45 @@ func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID stri
 	defer span.End()
 
 	query := `
-		SELECT pr.permissions
-		FROM project_member_roles pmr
-		JOIN project_roles pr ON pr.id = pmr.role_id
-		WHERE pmr.project_id = $1 AND pmr.user_id = $2`
+		WITH RECURSIVE role_tree AS (
+			SELECT pr.id, pr.parent_role_id, pr.permissions
+			FROM project_member_roles pmr
+			JOIN project_roles pr ON pr.id = pmr.role_id
+			WHERE pmr.project_id = $1 AND pmr.user_id = $2
+			UNION ALL
+			SELECT parent.id, parent.parent_role_id, parent.permissions
+			FROM project_roles parent
+			JOIN role_tree rt ON rt.parent_role_id = parent.id
+		)
+		SELECT permissions FROM role_tree`
 
-	var permissions []string
-	err := q.db.QueryRow(ctx, query, projectID, userID).Scan(&permissions)
+	rows, err := q.db.Query(ctx, query, projectID, userID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("get user permissions: %w", err)
 	}
+	defer rows.Close()
 
+	seen := make(map[string]struct{}, 16)
+	permissions := make([]string, 0, 16)
+	for rows.Next() {
+		var perms []string
+		if err := rows.Scan(&perms); err != nil {
+			return nil, fmt.Errorf("get user permissions scan: %w", err)
+		}
+		for _, p := range perms {
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			permissions = append(permissions, p)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get user permissions rows: %w", err)
+	}
+	if len(permissions) == 0 {
+		return nil, nil
+	}
 	return permissions, nil
 }
 
@@ -370,19 +409,42 @@ func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resour
 	return policies, rows.Err()
 }
 
+func (q *Queries) wouldCreateRoleCycle(ctx context.Context, roleID, parentRoleID string) (bool, error) {
+	query := `
+		WITH RECURSIVE ancestors AS (
+			SELECT id, parent_role_id
+			FROM project_roles
+			WHERE id = $1
+			UNION ALL
+			SELECT pr.id, pr.parent_role_id
+			FROM project_roles pr
+			JOIN ancestors a ON a.parent_role_id = pr.id
+		)
+		SELECT EXISTS(SELECT 1 FROM ancestors WHERE id = $2)`
+	var cycle bool
+	if err := q.db.QueryRow(ctx, query, parentRoleID, roleID).Scan(&cycle); err != nil {
+		return false, fmt.Errorf("check role cycle: %w", err)
+	}
+	return cycle, nil
+}
+
 func scanProjectRole(scanner scanTarget) (*domain.ProjectRole, error) {
 	var role domain.ProjectRole
 	var description *string
+	var parentRoleID *string
 
 	err := scanner.Scan(
 		&role.ID, &role.ProjectID, &role.Name, &description,
-		&role.Permissions, &role.IsSystem, &role.CreatedAt, &role.UpdatedAt,
+		&role.Permissions, &parentRoleID, &role.IsSystem, &role.CreatedAt, &role.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	if description != nil {
 		role.Description = *description
+	}
+	if parentRoleID != nil {
+		role.ParentRoleID = *parentRoleID
 	}
 	return &role, nil
 }

@@ -17,9 +17,10 @@ import (
 // Roles.
 
 type createRoleRequest struct {
-	Name        string   `json:"name" validate:"required"`
-	Description string   `json:"description"`
-	Permissions []string `json:"permissions" validate:"required,min=1"`
+	Name         string   `json:"name" validate:"required"`
+	Description  string   `json:"description"`
+	Permissions  []string `json:"permissions" validate:"required,min=1"`
+	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
 
 func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
@@ -59,10 +60,11 @@ func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := &domain.ProjectRole{
-		ProjectID:   projectIDFromContext(r.Context()),
-		Name:        req.Name,
-		Description: req.Description,
-		Permissions: req.Permissions,
+		ProjectID:    projectIDFromContext(r.Context()),
+		Name:         req.Name,
+		Description:  req.Description,
+		Permissions:  req.Permissions,
+		ParentRoleID: req.ParentRoleID,
 	}
 
 	if err := s.store.CreateProjectRole(r.Context(), role); err != nil {
@@ -110,9 +112,10 @@ func (s *Server) handleGetRole(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateRoleRequest struct {
-	Name        string   `json:"name" validate:"required"`
-	Description string   `json:"description"`
-	Permissions []string `json:"permissions" validate:"required,min=1"`
+	Name         string   `json:"name" validate:"required"`
+	Description  string   `json:"description"`
+	Permissions  []string `json:"permissions" validate:"required,min=1"`
+	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
 
 func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
@@ -131,10 +134,11 @@ func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
 
 	roleID := chi.URLParam(r, "roleID")
 	role := &domain.ProjectRole{
-		ID:          roleID,
-		Name:        req.Name,
-		Description: req.Description,
-		Permissions: req.Permissions,
+		ID:           roleID,
+		Name:         req.Name,
+		Description:  req.Description,
+		Permissions:  req.Permissions,
+		ParentRoleID: req.ParentRoleID,
 	}
 
 	if err := s.store.UpdateProjectRole(r.Context(), role); err != nil {
