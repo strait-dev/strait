@@ -149,7 +149,7 @@ func runServe(modeOverride string) error {
 	})
 
 	startCDCConsumer(g, cfg, pub)
-	startAPIServer(g, cfg, queries, q, pub, metricsHandler, metrics, stepCallback, workflowEngine)
+	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine)
 	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
 
 	if err := g.Wait(); err != nil {

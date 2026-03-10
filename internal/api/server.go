@@ -181,6 +181,7 @@ type Server struct {
 	healthRegistry     *health.Registry
 	workflowCallback   WorkflowCallback
 	workflowEngine     WorkflowTrigger
+	txPool             store.TxBeginner
 	validate           *validator.Validate
 	maxRequestBodySize int64
 }
@@ -197,6 +198,7 @@ type ServerDeps struct {
 	WorkflowCallback WorkflowCallback
 	WorkflowEngine   WorkflowTrigger
 	Metrics          *telemetry.Metrics
+	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -216,6 +218,7 @@ func NewServer(deps ServerDeps) *Server {
 		healthRegistry:     deps.HealthRegistry,
 		workflowCallback:   deps.WorkflowCallback,
 		workflowEngine:     deps.WorkflowEngine,
+		txPool:             deps.TxPool,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
 	}
