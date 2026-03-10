@@ -127,6 +127,21 @@ Available helpers in `internal/testutil/cmp.go`:
 
 We use `testcontainers-go` to manage the lifecycle of PostgreSQL and Redis during integration tests. This ensures a clean state for every test suite.
 
+### Mock Patterns
+
+For packages like `internal/api` and `internal/scheduler`, we use mock stores with configurable function fields:
+
+```go
+type mockAPIStore struct {
+    getEventTriggerByEventKeyFn func(ctx context.Context, key string) (*domain.EventTrigger, error)
+    // ... other store methods
+}
+```
+
+Each method delegates to its function field if set, falling back to sensible defaults. This enables precise control over test behavior without implementing the full store interface.
+
+For pubsub testing, `mockPublisher` supports configurable `subscribeFn` that returns real `pubsub.Subscription` instances with channels, enabling SSE stream testing without Redis.
+
 ### Test Fixtures
 
 Static test data and JSON payloads are stored in `testdata/` directories within their respective packages.

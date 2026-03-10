@@ -58,6 +58,13 @@ Store structured results or artifacts produced by the job.
 - `POST /complete`: Mark the run as successfully completed. Optionally include a `result`.
 - `POST /fail`: Mark the run as failed. Requires an `error` message.
 
+### Wait for Event
+`POST /wait-for-event`
+Pause the current run and wait for an external event to arrive. The run transitions to `waiting` status.
+- **Feature Flag**: `FF_EVENT_TRIGGERS`
+- **Fields**: `event_key` (required, globally unique), `timeout_secs` (default: 3600), `notify_url` (optional webhook).
+- **Behavior**: When the event arrives via `POST /v1/events/send`, the run is re-queued with the event payload as checkpoint data and re-dispatched to your endpoint.
+
 ### Control Flow
 - `POST /spawn`: Create a child job run.
 - `POST /continue`: Create a continuation run (for long-running jobs that need to restart with fresh timeouts).
@@ -67,6 +74,7 @@ Store structured results or artifacts produced by the job.
 Some endpoints are gated by feature flags in the strait configuration:
 - `FF_RUN_ANNOTATIONS`: Gates `/annotate`.
 - `FF_RUN_CONTINUATION`: Gates `/continue`.
+- `FF_EVENT_TRIGGERS`: Gates `/wait-for-event`.
 - `FF_DEBUG_BUNDLE`: Required for some advanced telemetry features.
 
 ## Example: Reporting Progress

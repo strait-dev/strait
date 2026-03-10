@@ -184,6 +184,22 @@ When a step enters the `waiting_for_approval` state, a workflow run webhook even
 Approval steps do not require a `job_id` since they don't execute any job. They exist purely as workflow control flow gates.
 </Note>
 
+## Event Trigger Integration
+
+Approval steps automatically create a parallel [Event Trigger](/concepts/event-triggers) when the workflow engine starts them. This means approvals can be resolved via either:
+
+1. **The approve API endpoint** (legacy): `POST /v1/workflow-runs/{id}/steps/{ref}/approve`
+2. **The event trigger API**: `POST /v1/events/send` with the approval's event key
+
+The event trigger provides additional capabilities:
+- Real-time SSE streaming of approval status
+- Webhook notifications when the approval is resolved
+- Integration with external approval systems via the standard event API
+
+<Note>
+Event trigger creation for approval steps is non-fatal. If the trigger creation fails (e.g., duplicate event key), the approval step still works normally via the legacy approve endpoint.
+</Note>
+
 ## Best Practices
 
 1. **Use descriptive step refs**: Name approval steps clearly (e.g., `security-review`, `prod-deploy-gate`) so approvers understand what they are approving
@@ -191,3 +207,4 @@ Approval steps do not require a `job_id` since they don't execute any job. They 
 3. **Limit approver lists**: Keep the approver list small and specific. Anyone in the list can approve
 4. **Combine with conditions**: Use step conditions to skip approval gates in low-risk scenarios (e.g., skip prod approval for hotfixes)
 5. **Monitor pending approvals**: Set up alerts for approvals that have been pending beyond a reasonable threshold
+6. **Consider event triggers for complex approvals**: For multi-party or external system approvals, use `wait_for_event` steps instead of `approval` steps for more flexibility

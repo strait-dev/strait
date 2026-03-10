@@ -29,6 +29,7 @@
               "concepts/workflows",
               "concepts/scheduling",
               "concepts/retry-strategies",
+              "concepts/event-triggers",
               "concepts/webhooks",
               "concepts/environments",
               "concepts/cost-budgets",
@@ -46,7 +47,8 @@
               "guides/job-groups",
               "guides/idempotency",
               "guides/sdk-integration",
-              "guides/workflow-approvals"
+              "guides/workflow-approvals",
+              "guides/event-triggers"
             ]
           },
           {
@@ -93,6 +95,7 @@
               "cli/workflows",
               "cli/workflow-runs",
               "cli/trigger",
+              "cli/events",
               "cli/api-keys",
               "cli/secrets",
               "cli/environments",

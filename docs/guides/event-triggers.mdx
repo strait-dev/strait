@@ -1,0 +1,252 @@
+---
+title: "Event Triggers"
+description: "Build durable human-in-the-loop workflows and inter-service coordination with event triggers."
+---
+
+Event triggers let you pause workflows and job runs to wait for external input — approvals, webhook callbacks, third-party processing results, or any asynchronous signal. This guide walks through common patterns.
+
+## Pattern 1: Human Approval with External System
+
+A KYC pipeline that waits for an external AML check result:
+
+```json
+{
+  "name": "KYC Onboarding",
+  "slug": "kyc-onboarding",
+  "steps": [
+    {
+      "step_ref": "collect-data",
+      "job_id": "job_collect_user_data"
+    },
+    {
+      "step_ref": "aml-check",
+      "type": "wait_for_event",
+      "event_key": "aml:{{payload.user_id}}",
+      "timeout_secs": 86400,
+      "depends_on": ["collect-data"]
+    },
+    {
+      "step_ref": "create-account",
+      "job_id": "job_create_account",
+      "depends_on": ["aml-check"]
+    }
+  ]
+}
+```
+
+When the AML provider completes their check, they call your webhook endpoint. Your endpoint then forwards the result to strait:
+
+```bash
+curl -X POST https://strait.dev/v1/events/send \
+  -H "Authorization: Bearer strait_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_key": "aml:user-456",
+    "payload": {"result": "clear", "risk_score": 0.05}
+  }'
+```
+
+The `create-account` step starts automatically with the AML result available via `{{parent_outputs.aml-check.result}}`.
+
+## Pattern 2: Multi-Stage Deployment with Manual Gates
+
+```json
+{
+  "name": "Production Deploy",
+  "slug": "prod-deploy",
+  "steps": [
+    {"step_ref": "build", "job_id": "job_build"},
+    {"step_ref": "test", "job_id": "job_test", "depends_on": ["build"]},
+    {
+      "step_ref": "staging-deploy",
+      "job_id": "job_deploy_staging",
+      "depends_on": ["test"]
+    },
+    {
+      "step_ref": "qa-signoff",
+      "type": "wait_for_event",
+      "event_key": "qa-signoff:{{payload.release_id}}",
+      "timeout_secs": 604800,
+      "depends_on": ["staging-deploy"]
+    },
+    {
+      "step_ref": "prod-deploy",
+      "job_id": "job_deploy_prod",
+      "depends_on": ["qa-signoff"]
+    }
+  ]
+}
+```
+
+QA team signs off via API or a custom dashboard that calls the send endpoint. The workflow can wait up to 7 days without consuming resources.
+
+## Pattern 3: Cross-Workflow Coordination
+
+Use `event_emit_key` to chain workflows. When one workflow completes a step, it auto-resolves a trigger in another workflow:
+
+**Workflow A** (data processing):
+```json
+{
+  "steps": [
+    {
+      "step_ref": "process-batch",
+      "job_id": "job_process",
+      "event_emit_key": "batch-done:{{payload.batch_id}}"
+    }
+  ]
+}
+```
+
+**Workflow B** (aggregation — triggered separately):
+```json
+{
+  "steps": [
+    {
+      "step_ref": "wait-for-batch",
+      "type": "wait_for_event",
+      "event_key": "batch-done:{{payload.batch_id}}"
+    },
+    {
+      "step_ref": "aggregate",
+      "job_id": "job_aggregate",
+      "depends_on": ["wait-for-batch"]
+    }
+  ]
+}
+```
+
+When Workflow A's `process-batch` step completes, it auto-emits an event that resumes Workflow B's `wait-for-batch` step.
+
+## Pattern 4: Durable Sleep
+
+Pause a workflow for a specific duration:
+
+```json
+{
+  "steps": [
+    {"step_ref": "send-email", "job_id": "job_send_welcome_email"},
+    {
+      "step_ref": "wait-24h",
+      "type": "sleep",
+      "sleep_duration": "24h",
+      "depends_on": ["send-email"]
+    },
+    {
+      "step_ref": "send-followup",
+      "job_id": "job_send_followup",
+      "depends_on": ["wait-24h"]
+    }
+  ]
+}
+```
+
+The sleep step creates a trigger with an expiry time. The reaper completes it when the time arrives. No goroutines are held.
+
+## Pattern 5: SDK Wait for Event
+
+Job runs can pause mid-execution and wait for an external event:
+
+```python
+# Inside your job executor
+import requests
+
+# Report progress
+requests.post(f"{STRAIT_URL}/sdk/v1/runs/{run_id}/progress", 
+    headers={"Authorization": f"Bearer {run_token}"},
+    json={"percent": 50, "message": "Waiting for manual review"})
+
+# Pause and wait for external event
+requests.post(f"{STRAIT_URL}/sdk/v1/runs/{run_id}/wait-for-event",
+    headers={"Authorization": f"Bearer {run_token}"},
+    json={
+        "event_key": f"review:{document_id}",
+        "timeout_secs": 172800,
+        "notify_url": "https://myapp.com/webhook/review-ready"
+    })
+```
+
+When the event arrives, the run is re-queued and re-dispatched with the event payload as checkpoint data. Your job code can read the checkpoint data on re-dispatch.
+
+## Pattern 6: Batch Resolution
+
+Resolve multiple triggers at once using prefix matching:
+
+```bash
+# Approve all pending items in a batch
+curl -X POST https://strait.dev/v1/events/send-by-prefix \
+  -H "Authorization: Bearer strait_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": "batch-42:",
+    "payload": {"approved": true}
+  }'
+```
+
+This resolves all waiting triggers with keys starting with `batch-42:` (e.g., `batch-42:item-1`, `batch-42:item-2`, etc.).
+
+## Monitoring Triggers
+
+### CLI
+
+```bash
+# List waiting triggers
+strait triggers list --project proj_1 --status waiting
+
+# Get a specific trigger
+strait triggers get aml:user-456
+
+# Send an event
+strait triggers send aml:user-456 --payload '{"result": "clear"}'
+```
+
+### Real-Time SSE Stream
+
+Monitor a trigger in real-time:
+
+```bash
+curl -N https://strait.dev/v1/events/aml:user-456/stream \
+  -H "Authorization: Bearer strait_..."
+```
+
+The stream closes automatically when the trigger reaches a terminal state.
+
+## Error Handling
+
+### Timeout Handling
+
+When a trigger times out, the workflow follows its `on_failure` policy:
+
+- **`fail_workflow`** (default): The entire workflow fails
+- **`skip_dependents`**: Downstream steps are skipped, other branches continue
+- **`continue`**: The timeout is ignored, dependents proceed
+
+### Cancellation
+
+Cancel a trigger to immediately fail the associated step:
+
+```bash
+curl -X DELETE https://strait.dev/v1/events/aml:user-456 \
+  -H "Authorization: Bearer strait_..."
+```
+
+### Webhook Delivery Failures
+
+If a `notify_url` is configured and delivery fails:
+
+1. The delivery is persisted to the database
+2. Retried with exponential backoff (5s, 25s, 125s, 625s)
+3. After 5 failed attempts, the delivery is dead-lettered
+4. 4xx responses are dead-lettered immediately
+
+## Best Practices
+
+1. **Use descriptive, namespaced event keys**: `{type}:{entity-id}` pattern prevents collisions (e.g., `kyc:user-123`, `deploy:release-v2.1`)
+2. **Set appropriate timeouts**: Use generous timeouts for human workflows (days/weeks) — the wait is free. Avoid infinite waits in production
+3. **Handle timeout failures**: Configure `on_failure: skip_dependents` or `continue` for non-critical wait steps
+4. **Use event chaining for cross-workflow coordination**: `event_emit_key` is more reliable than external HTTP calls between workflows
+5. **Monitor waiting triggers**: Set up alerts for triggers approaching their timeout
+6. **Use prefix patterns for batch operations**: Design event keys with a common prefix when items are part of the same batch
+
+## Feature Flag
+
+Event triggers require `FF_EVENT_TRIGGERS=true` in your environment configuration. All event trigger API endpoints return 404 when the flag is disabled.

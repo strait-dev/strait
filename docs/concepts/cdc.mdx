@@ -26,6 +26,7 @@ The system is typically configured to monitor the following core tables:
 | `job_runs` | `insert`, `update` | Real-time status updates for UI/SDK. |
 | `workflow_runs` | `insert`, `update` | Tracking workflow progression. |
 | `workflow_step_runs` | `insert`, `update` | Monitoring individual step transitions. |
+| `event_triggers` | `insert`, `update` | Real-time event trigger status changes for dashboards. |
 
 ## CDC Consumer Configuration
 
@@ -50,8 +51,18 @@ Once a CDC message is received and processed by a table-specific handler, it is 
 - **Channel Pattern**: `cdc:project:{project_id}:{table_name}`
 - **Real-time Updates**: These Redis events are consumed by the API layer to provide real-time Server-Sent Events (SSE) to connected clients.
 
+## Dual-Path Publishing
+
+For latency-sensitive features like [Event Triggers](/concepts/event-triggers), the system uses a dual-path publish strategy:
+
+1. **Direct Redis publish**: API handlers publish status changes directly to trigger-specific channels (`event_trigger:{id}`) for sub-millisecond SSE delivery.
+2. **CDC as catch-all**: Sequin captures the same changes from WAL and publishes to project-level channels (`cdc:project:{id}:event_triggers`) as a reliable fallback.
+
+A `source` field on CDC messages enables consumers to deduplicate events that arrive via both paths.
+
 ## Use Cases
 
 - **Real-time Dashboards**: Update the UI immediately when a run status changes without polling the database.
 - **Audit Trail**: Maintain a granular history of every state transition for compliance and debugging.
 - **Reactive Workflows**: Trigger external systems or internal logic based on specific database changes (e.g., notifying a user when a long-running job completes).
+- **Event Trigger Streaming**: Real-time SSE streams for event triggers waiting on external input.

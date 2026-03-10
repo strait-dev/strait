@@ -19,6 +19,8 @@ A workflow is defined as a Directed Acyclic Graph (DAG) where:
 | `job` | Executes a standard [Job](/concepts/jobs). |
 | `approval` | A human-in-the-loop gate that waits for manual approval or rejection. |
 | `sub_workflow` | Triggers another workflow as a nested step. |
+| `wait_for_event` | Pauses until an external event arrives via API. See [Event Triggers](/concepts/event-triggers). |
+| `sleep` | Durable sleep — pauses for a specified duration without holding goroutines. |
 
 ## Workflow Versioning
 
@@ -117,6 +119,53 @@ At trigger time, you can provide `step_overrides` to selectively enable or disab
     v           v
  completed    failed
 ```
+
+## Event-Driven Steps
+
+### wait_for_event
+
+Pauses the workflow until an external event arrives via API. The step creates an [Event Trigger](/concepts/event-triggers) with a globally unique `event_key` and optional timeout. No goroutines are held — the wait is a database row.
+
+```json
+{
+  "step_ref": "aml-check",
+  "type": "wait_for_event",
+  "event_key": "aml:{{payload.user_id}}",
+  "timeout_secs": 86400,
+  "depends_on": ["extract"]
+}
+```
+
+When the event arrives (via `POST /v1/events/send`), the step completes with the event payload as output, and downstream steps can access it via `{{parent_outputs.aml-check.*}}`.
+
+### sleep
+
+Durable sleep step that pauses for a specified duration:
+
+```json
+{
+  "step_ref": "cooldown",
+  "type": "sleep",
+  "sleep_duration": "1h",
+  "depends_on": ["notify"]
+}
+```
+
+Internally creates a sleep-type event trigger. The reaper completes it when the duration expires.
+
+### Event Chaining
+
+Steps can auto-emit events on completion using `event_emit_key`:
+
+```json
+{
+  "step_ref": "process",
+  "job_id": "job_process",
+  "event_emit_key": "done:{{payload.batch_id}}"
+}
+```
+
+When this step completes, it auto-resolves any waiting trigger with key `done:{batch_id}`, enabling cross-workflow coordination.
 
 ## Step-Level Retries
 

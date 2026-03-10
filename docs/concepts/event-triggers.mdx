@@ -1,0 +1,341 @@
+---
+title: "Event Triggers"
+description: "Pause execution until an external event arrives, with timeout support and zero held goroutines."
+---
+
+Event triggers allow runs and workflow steps to pause execution and wait for an external event to arrive via API. They enable durable human-in-the-loop processes, inter-service coordination, and reactive workflows that can wait days, weeks, or months without holding goroutines or consuming resources.
+
+## How It Works
+
+1. **Create a trigger**: A workflow step or SDK call creates an event trigger with a globally unique `event_key` and optional timeout.
+2. **Wait**: The step/run transitions to `waiting` status. No goroutine is held — the wait is a database row.
+3. **External event arrives**: An external system sends the event via `POST /v1/events/send` with the matching `event_key`.
+4. **Resume**: The step/run resumes with the event payload as input data. Workflow progression continues automatically.
+
+```text
+[step-a] → [wait_for_event: "aml-check:user-123"] ⏸ → [step-c] → [step-d]
+                          ↑
+                  External system sends event
+                  POST /v1/events/send
+                  {"event_key": "aml-check:user-123", "payload": {...}}
+```
+
+## Trigger Types
+
+| Type | Description |
+| :--- | :--- |
+| `event` | Waits for an external event to arrive via API. Default type. |
+| `sleep` | Durable sleep — waits until a specific time. Used internally by `sleep` workflow steps. |
+
+## Event Sources
+
+Event triggers track where the wait originated:
+
+| Source | Description |
+| :--- | :--- |
+| `workflow_step` | Created by a `wait_for_event` or `sleep` workflow step. Resumption triggers workflow progression. |
+| `job_run` | Created by an SDK `POST /sdk/v1/runs/{runID}/wait-for-event` call. Resumption re-queues the run. |
+
+## Event Key
+
+The `event_key` is a globally unique string controlled by the caller. It has a `UNIQUE` constraint in the database — only one waiting trigger can exist per key at a time.
+
+<Warning>
+Callers are responsible for namespacing event keys to avoid collisions. Use a pattern like `{type}:{entity-id}` (e.g., `aml-check:user-123`, `payment:order-456`).
+</Warning>
+
+### Key Constraints
+
+- Maximum length: 512 characters
+- Must be unique across all waiting triggers
+- Template rendering supported (e.g., `aml-check:{{payload.user_id}}`)
+
+## Trigger Lifecycle
+
+```text
+┌─────────┐     event arrives     ┌──────────┐
+│ waiting │ ─────────────────────→ │ received │
+└────┬────┘                        └──────────┘
+     │
+     ├── timeout expires ────────→ ┌───────────┐
+     │                             │ timed_out │
+     │                             └───────────┘
+     │
+     └── cancel API ─────────────→ ┌──────────┐
+                                   │ canceled │
+                                   └──────────┘
+```
+
+| Status | Description |
+| :--- | :--- |
+| `waiting` | Trigger is active, waiting for an event or timeout. |
+| `received` | Event was received. Step/run has been resumed. |
+| `timed_out` | Timeout expired before an event arrived. Step fails, workflow follows `on_failure` policy. |
+| `canceled` | Trigger was canceled via API. Step fails, workflow follows `on_failure` policy. |
+
+## Timeout Behavior
+
+Every event trigger has a `timeout_secs` value (default: 3600 seconds / 1 hour). When the timeout expires:
+
+- The trigger status transitions to `timed_out`
+- For workflow steps: the step transitions to `failed` and the workflow follows its `on_failure` policy (`fail_workflow`, `skip_dependents`, or `continue`)
+- For job runs: the run transitions to `timed_out`
+
+The reaper process polls for expired triggers every 30 seconds.
+
+<Tip>
+Set `timeout_secs` to a large value for long-running waits (e.g., `604800` for 7 days). The wait consumes no resources — it's just a database row.
+</Tip>
+
+## Workflow Step: wait_for_event
+
+Add a `wait_for_event` step to your workflow to pause until an external event arrives:
+
+```bash
+strait workflows create \
+  --name "KYC Pipeline" \
+  --slug kyc-pipeline \
+  --project proj_1 \
+  --steps-json '[
+    {"job_id": "job_extract", "step_ref": "extract"},
+    {
+      "step_ref": "aml-check",
+      "type": "wait_for_event",
+      "event_key": "aml-check:{{payload.user_id}}",
+      "timeout_secs": 86400,
+      "depends_on": ["extract"]
+    },
+    {"job_id": "job_onboard", "step_ref": "onboard", "depends_on": ["aml-check"]}
+  ]'
+```
+
+### Step Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `step_ref` | string | Yes | Unique reference name for the step. |
+| `type` | string | Yes | Must be `"wait_for_event"`. |
+| `event_key` | string | Yes | Globally unique key. Supports `{{payload.*}}` templates. |
+| `timeout_secs` | int | No | Timeout in seconds (default: 3600). |
+| `depends_on` | string[] | No | Steps that must complete before this step. |
+| `on_failure` | string | No | Failure policy: `fail_workflow`, `skip_dependents`, `continue`. |
+
+### Template Rendering
+
+The `event_key` supports template variables rendered from the workflow trigger payload:
+
+- `{{payload.user_id}}` → value of `user_id` from the trigger payload
+- `{{payload.order.id}}` → nested field access with dot notation
+
+## Workflow Step: sleep
+
+Durable sleep steps pause a workflow for a specified duration without holding goroutines:
+
+```json
+{
+  "step_ref": "cooldown",
+  "type": "sleep",
+  "sleep_duration": "30m",
+  "depends_on": ["notify"]
+}
+```
+
+Sleep steps create an event trigger with `trigger_type: sleep` and an expiry time. When the reaper detects the expiry, it marks the trigger as `received` and completes the step — triggering workflow progression.
+
+### Supported Durations
+
+Go duration strings: `30s`, `5m`, `1h`, `24h`, `168h` (7 days), etc.
+
+## Event Chaining
+
+Steps can auto-emit events on completion using `event_emit_key`. When the step completes, it automatically resolves a matching waiting trigger:
+
+```json
+[
+  {
+    "step_ref": "process",
+    "job_id": "job_process",
+    "event_emit_key": "process-done:{{payload.batch_id}}"
+  },
+  {
+    "step_ref": "wait-for-process",
+    "type": "wait_for_event",
+    "event_key": "process-done:{{payload.batch_id}}"
+  }
+]
+```
+
+This enables cross-workflow coordination — one workflow's step completion can resume another workflow's waiting step.
+
+## SDK: Wait for Event
+
+Job runs can also wait for events using the SDK endpoint:
+
+```bash
+curl -X POST https://strait.dev/sdk/v1/runs/{runID}/wait-for-event \
+  -H "Authorization: Bearer $RUN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_key": "approval:order-789",
+    "timeout_secs": 7200,
+    "notify_url": "https://example.com/webhook"
+  }'
+```
+
+When the event arrives, the run is re-queued with the event payload as checkpoint data and re-dispatched to your endpoint.
+
+### Request Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `event_key` | string | Yes | Globally unique key for this wait. |
+| `timeout_secs` | int | No | Timeout in seconds (default: 3600). |
+| `notify_url` | string | No | Webhook URL to notify when the event arrives. |
+
+## Sending Events
+
+### By Exact Key
+
+```bash
+curl -X POST https://strait.dev/v1/events/send \
+  -H "Authorization: Bearer strait_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_key": "aml-check:user-123",
+    "payload": {"result": "approved", "risk_score": 0.12}
+  }'
+```
+
+### By Prefix (Batch)
+
+Resolve all waiting triggers whose event key starts with a prefix:
+
+```bash
+curl -X POST https://strait.dev/v1/events/send-by-prefix \
+  -H "Authorization: Bearer strait_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": "batch-job:run-42:",
+    "payload": {"status": "done"}
+  }'
+```
+
+### Idempotent Resend
+
+If an event has already been received for a key with the same payload, the API returns `200 OK` with the existing trigger. If the payload differs, it returns `409 Conflict`.
+
+## Canceling Triggers
+
+Cancel a waiting trigger and drive progression (step fails, run cancels):
+
+```bash
+curl -X DELETE https://strait.dev/v1/events/aml-check:user-123 \
+  -H "Authorization: Bearer strait_..."
+```
+
+## Webhook Notifications
+
+When a trigger is created with a `notify_url`, the system sends a webhook when the event arrives. Delivery is persistent — it survives process restarts using a database-backed delivery queue.
+
+### Retry Strategy
+
+- **Max attempts**: 5
+- **Backoff**: Exponential — 5s, 25s, 125s, 625s (capped at 30 minutes)
+- **4xx errors**: Dead-lettered immediately (not retryable)
+- **5xx / network errors**: Retried up to max attempts
+
+## Real-Time Streaming
+
+Stream trigger status changes via Server-Sent Events (SSE):
+
+```bash
+curl -N https://strait.dev/v1/events/aml-check:user-123/stream \
+  -H "Authorization: Bearer strait_..."
+```
+
+The stream receives:
+- Initial state on connect
+- Status updates on event receipt, timeout, or cancellation
+- Keepalive pings every 15 seconds
+- Automatic close on terminal state
+
+The SSE stream uses a direct Redis pubsub channel (`event_trigger:{id}`) for sub-millisecond delivery. CDC also publishes to a project-level channel as a reliable catch-all.
+
+## Monitoring
+
+### Stats Endpoint
+
+```bash
+curl https://strait.dev/v1/events/stats \
+  -H "Authorization: Bearer strait_..."
+```
+
+Returns counts per status:
+```json
+{
+  "waiting": 12,
+  "received": 458,
+  "timed_out": 3,
+  "canceled": 1
+}
+```
+
+### List Triggers
+
+```bash
+curl "https://strait.dev/v1/events?status=waiting&workflow_run_id=wfr_123" \
+  -H "Authorization: Bearer strait_..."
+```
+
+Supports filtering by `status`, `workflow_run_id`, and `source_type`.
+
+## Feature Flag
+
+Event trigger endpoints are gated by the `FF_EVENT_TRIGGERS` feature flag:
+
+```bash
+export FF_EVENT_TRIGGERS=true
+```
+
+When disabled, all event trigger API endpoints return `404`.
+
+## Reconciliation
+
+A background reconciliation reaper runs every 30 seconds to catch edge cases:
+
+- **Expired triggers**: Triggers past their `expires_at` are timed out
+- **Stale steps**: Triggers marked `received` but whose step/run is still in `waiting` status (30-second grace period) are re-resolved
+- **Expired approvals**: Approval steps past their timeout are failed
+
+## Prometheus Metrics
+
+| Metric | Type | Description |
+| :--- | :--- | :--- |
+| `event_triggers_created_total` | Counter | Total triggers created (by source_type, project_id) |
+| `event_triggers_received_total` | Counter | Total triggers resolved by events |
+| `event_triggers_timed_out_total` | Counter | Total triggers that timed out |
+
+## Data Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | UUIDv7 primary key |
+| `event_key` | string | Globally unique key (UNIQUE constraint) |
+| `project_id` | string | Project scope |
+| `source_type` | string | `workflow_step` or `job_run` |
+| `trigger_type` | string | `event` or `sleep` |
+| `workflow_run_id` | string | FK to workflow_runs (if source is workflow_step) |
+| `workflow_step_run_id` | string | FK to workflow_step_runs (if source is workflow_step) |
+| `job_run_id` | string | FK to job_runs (if source is job_run) |
+| `status` | string | `waiting`, `received`, `timed_out`, `canceled` |
+| `timeout_secs` | int | Timeout duration in seconds |
+| `request_payload` | JSONB | Payload sent when creating the trigger |
+| `response_payload` | JSONB | Payload received with the event |
+| `requested_at` | timestamp | When the trigger was created |
+| `received_at` | timestamp | When the event was received |
+| `expires_at` | timestamp | When the trigger times out |
+| `error` | string | Error message for timed_out/canceled |
+| `notify_url` | string | Webhook URL for notifications |
+| `notify_status` | string | Webhook delivery status |
+| `event_emit_key` | string | Auto-emit key for event chaining |
+| `sent_by` | string | Identity of the event sender |

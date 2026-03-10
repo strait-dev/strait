@@ -17,6 +17,7 @@ The strait is designed as a distributed job strait that uses PostgreSQL as its p
                     │  /v1/workflow-runs/* ── Run mgmt   │
                     │  /v1/jobs/{id}/trigger ── Enqueue  │
                     │  /v1/runs/* ── Run mgmt + DLQ     │
+                    │  /v1/events/* ── Event triggers    │
                     │  /sdk/v1/* ── SDK (JWT auth)      │
                     │  /metrics ── Prometheus            │
                     └──────────┬───────────────────────┘
@@ -29,6 +30,7 @@ The strait is designed as a distributed job strait that uses PostgreSQL as its p
                     │  job_runs ── run state + queue     │
                     │  workflows ── DAG definitions      │
                     │  workflow_runs ── workflow state   │
+                    │  event_triggers ── durable waits   │
                     │  run_events ── log entries         │
                     │  run_usage ── AI cost tracking     │
                     │  environments ── endpoint config   │
@@ -64,6 +66,7 @@ The strait is designed as a distributed job strait that uses PostgreSQL as its p
                     │  - Cron ticker     │  - PubSub    │
                     │  - Delayed poller  │  - SSE       │
                     │  - Stale reaper    │  streaming   │
+                    │  - Event reaper    │              │
                     │  - Retention       │              │
                     └──────────────────────────────────┘
 ```
@@ -423,7 +426,13 @@ Steps can define an `output_transform` using JSONPath expressions. Before persis
     Executes a regular job. The workflow creates a new `job_run` and waits for it to reach a terminal state before marking the step as completed.
   </Tab>
   <Tab title="approval">
-    Human-in-the-loop gate. Creates `workflow_step_approvals` record with `pending` status. Workflow pauses until approval via API or CLI command. Timeout specified in `approval_timeout_secs`.
+    Human-in-the-loop gate. Creates `workflow_step_approvals` record with `pending` status. Also creates a parallel event trigger for API-based resolution. Workflow pauses until approval via API or CLI command. Timeout specified in `approval_timeout_secs`.
+  </Tab>
+  <Tab title="wait_for_event">
+    Durable external event wait. Creates an `event_triggers` record with `waiting` status and a globally unique `event_key`. No goroutine is held — the wait is a database row. External systems send events via `POST /v1/events/send`. Supports template-rendered event keys and configurable timeouts.
+  </Tab>
+  <Tab title="sleep">
+    Durable sleep. Creates a sleep-type event trigger with an expiry time. The reaper completes the trigger when the duration expires, marking the step as completed and triggering downstream steps. Supports Go duration strings (e.g., `30s`, `5m`, `24h`).
   </Tab>
   <Tab title="sub_workflow">
     Triggers a nested workflow run. The parent workflow waits for the child to complete and aggregates its outputs. Nesting depth limited to `max_nesting_depth` to prevent infinite recursion.
@@ -438,11 +447,11 @@ The workflow engine manages two FSMs—one for workflow runs, one for step runs.
 
 **Step Run States**: pending → (waiting | skipped | canceled) → running → (completed | failed)
 
-Callback handler `OnJobRunTerminal` drives workflow progression when any job run completes. This single entry point handles all terminal states (completed, failed, timed_out, crashed, canceled, system_failed, dead_letter) and determines next workflow actions—start ready children, apply failure policies, propagate sub-workflow outputs.
+Callback handler `OnJobRunTerminal` drives workflow progression when any job run completes. This single entry point handles all terminal states (completed, failed, timed_out, crashed, canceled, system_failed, dead_letter) and determines next workflow actions—start ready children, apply failure policies, propagate sub-workflow outputs. Event-driven callbacks `OnEventReceived`, `OnStepCompleted`, and `OnStepFailed` handle event trigger resolution, sleep completion, and timeout/cancellation failures respectively. Event chaining is handled by `tryEmitEvent`, which auto-resolves waiting triggers when steps with `event_emit_key` complete.
 
 ## Data Model
 
-The system uses PostgreSQL with the following primary tables (47 migrations):
+The system uses PostgreSQL with the following primary tables (55 migrations):
 
 ### jobs
 
@@ -560,7 +569,7 @@ depends_on          TEXT[] NOT NULL DEFAULT '{}'  -- Array of step_refs
 condition           JSONB                         -- step_status|all_of|any_of
 on_failure          TEXT NOT NULL DEFAULT 'fail_workflow'
 payload             JSONB                         -- Static payload + templates
-step_type           TEXT NOT NULL DEFAULT 'job'   -- job|approval|sub_workflow
+step_type           TEXT NOT NULL DEFAULT 'job'   -- job|approval|sub_workflow|wait_for_event|sleep
 approval_timeout_secs INT
 approval_approvers  TEXT[]
 retry_max_attempts  INT NOT NULL DEFAULT 0
@@ -571,6 +580,9 @@ timeout_secs_override INT
 output_transform    TEXT                          -- JSONPath expression
 sub_workflow_id     TEXT                          -- FK to workflows
 max_nesting_depth   INT NOT NULL DEFAULT 10
+event_key           TEXT                          -- Event trigger key (wait_for_event)
+event_emit_key      TEXT                          -- Auto-emit event on completion
+sleep_duration      TEXT                          -- Go duration string (sleep)
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 -- workflow_step_runs table
@@ -590,6 +602,33 @@ finished_at         TIMESTAMPTZ
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 ```
 
+### event_triggers
+
+```sql
+id                    TEXT PRIMARY KEY              -- UUIDv7
+event_key             TEXT NOT NULL UNIQUE           -- Globally unique caller-controlled key
+project_id            TEXT NOT NULL
+source_type           TEXT NOT NULL                  -- 'workflow_step' or 'job_run'
+trigger_type          TEXT NOT NULL DEFAULT 'event'  -- 'event' or 'sleep'
+workflow_run_id       TEXT                           -- FK to workflow_runs
+workflow_step_run_id  TEXT                           -- FK to workflow_step_runs
+job_run_id            TEXT                           -- FK to job_runs
+status                TEXT NOT NULL DEFAULT 'waiting'
+timeout_secs          INT NOT NULL DEFAULT 3600
+request_payload       JSONB
+response_payload      JSONB
+requested_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+received_at           TIMESTAMPTZ
+expires_at            TIMESTAMPTZ
+error                 TEXT
+notify_url            TEXT                           -- Webhook URL for notifications
+notify_status         TEXT                           -- pending, sent, failed, dead
+event_emit_key        TEXT                           -- Auto-emit key for event chaining
+sent_by               TEXT                           -- Sender identity audit field
+created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
 ### Key Indexes
 
 Partial and composite indexes ensure query performance at scale:
@@ -602,6 +641,9 @@ Partial and composite indexes ensure query performance at scale:
 - `idx_runs_dead_letter`: `(status) WHERE status = 'dead_letter'` — DLQ queries
 - `idx_runs_continuation`: `(continuation_of)` — Lineage tree traversal
 - `idx_runs_debug`: `(debug_mode) WHERE debug_mode = TRUE` — Debug mode queries
+- `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` — Reaper timeout lookup
+- `idx_event_triggers_project_status`: `(project_id, status)` — Project-scoped list queries
+- `idx_event_triggers_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
 
 ## Design Decisions
 
@@ -772,10 +814,17 @@ The scheduler package runs several background goroutines:
     - Runs stuck in `waiting` state with `heartbeat_at < NOW() - 1 hour`
     Transitions stale runs to `system_failed` with appropriate error message.
   </Tab>
+  <Tab title="Event Trigger Reaper">
+    Polls every 30 seconds for expired event triggers (`status = 'waiting'` and `expires_at <= NOW()`). Transitions them to `timed_out` and drives step/run failure via `OnStepFailed`. Also handles:
+    - **Sleep triggers**: Marks expired sleep triggers as `received` and completes the step via `OnStepCompleted`
+    - **Inconsistent triggers**: Finds `received` triggers with still-`waiting` steps/runs (30s grace period) and re-resolves them
+    - **Expired approvals**: Fails approval steps past their timeout
+  </Tab>
   <Tab title="Retention Worker">
     Every hour, deletes terminal runs based on retention policy:
     - completed/failed/canceled/expired: 30 days
     - timed_out/crashed/system_failed: 90 days
+    - event triggers: configurable via `EVENT_TRIGGER_RETENTION`
     Uses batch DELETE for efficient cleanup.
   </Tab>
 </Tabs>
@@ -787,3 +836,5 @@ The scheduler package runs several background goroutines:
 - [Jobs](/docs/concepts/jobs) — Job definitions and configuration
 - [Runs](/docs/concepts/runs) — Run lifecycle and FSM
 - [Workflows](/docs/concepts/workflows) — DAG orchestration details
+- [Event Triggers](/docs/concepts/event-triggers) — Durable external event waits
+- [CDC](/docs/concepts/cdc) — Real-time change data capture
