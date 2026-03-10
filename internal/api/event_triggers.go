@@ -288,6 +288,23 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	return string(ea) == string(eb)
 }
 
+// handleGetEventTriggerStats returns aggregate statistics for event triggers.
+func (s *Server) handleGetEventTriggerStats(w http.ResponseWriter, r *http.Request) {
+	projectID := projectIDFromContext(r.Context())
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project context is required — authenticate with an API key")
+		return
+	}
+
+	stats, err := s.store.GetEventTriggerStats(r.Context(), projectID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger stats")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, stats)
+}
+
 // senderIdentity returns a string identifying who is making the current request.
 func senderIdentity(ctx context.Context) string {
 	if pid := projectIDFromContext(ctx); pid != "" {

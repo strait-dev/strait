@@ -1765,6 +1765,18 @@ paths:
         '200':
           description: Paginated list of event triggers
 
+  /v1/events/stats:
+    get:
+      tags:
+        - EventTriggers
+      summary: Get event trigger statistics
+      description: Returns aggregate counts by status and average wait duration.
+      responses:
+        '200':
+          description: Event trigger statistics
+        '400':
+          description: No project context
+
   /v1/events/{eventKey}:
     get:
       tags:

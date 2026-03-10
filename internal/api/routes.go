@@ -165,6 +165,7 @@ func (s *Server) routes() chi.Router {
 
 		r.Route("/events", func(r chi.Router) {
 			r.Get("/", s.handleListEventTriggers)
+			r.Get("/stats", s.handleGetEventTriggerStats)
 			r.Route("/prefix/{prefix}", func(r chi.Router) {
 				r.With(rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", s.handleSendEventByPrefix)
 			})

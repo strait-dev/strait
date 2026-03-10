@@ -771,6 +771,10 @@ func (m *mockAPIStore) SetEventTriggerSentBy(_ context.Context, _, _ string) err
 	return nil
 }
 
+func (m *mockAPIStore) GetEventTriggerStats(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+	return &store.EventTriggerStats{}, nil
+}
+
 // mockQueue implements queue.Queue for testing.
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error

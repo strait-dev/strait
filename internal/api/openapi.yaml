@@ -2801,6 +2801,36 @@ paths:
                   has_more:
                     type: boolean
 
+  /v1/events/stats:
+    get:
+      tags:
+        - EventTriggers
+      summary: Get event trigger statistics
+      description: Returns aggregate counts by status and average wait duration for the project.
+      responses:
+        '200':
+          description: Event trigger statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count:
+                    type: integer
+                  waiting_count:
+                    type: integer
+                  received_count:
+                    type: integer
+                  timed_out_count:
+                    type: integer
+                  canceled_count:
+                    type: integer
+                  avg_wait_duration_secs:
+                    type: number
+                    format: double
+        '400':
+          description: No project context
+
   /v1/events/{eventKey}:
     get:
       tags:
