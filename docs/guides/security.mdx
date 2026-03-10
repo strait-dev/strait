@@ -5,6 +5,10 @@ description: "Security features and protections implemented in Strait."
 
 Strait includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
 
+<Info>
+  Related guides: [Authentication & Authorization](/docs/guides/authentication), [OIDC Authentication](/docs/guides/oidc), [RBAC & Policy Authorization](/docs/guides/rbac), [Audit Events](/docs/guides/audit-events), [API Key Rotation](/docs/guides/api-key-rotation).
+</Info>
+
 ## SSRF Protection
 
 To prevent Server-Side Request Forgery (SSRF), all user-provided URLs (e.g., for webhooks or job endpoints) are validated using the `validateURL` function.

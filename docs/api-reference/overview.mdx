@@ -3,9 +3,13 @@ title: "API Reference Overview"
 description: "Authentication, error formats, and common patterns for the Strait API."
 ---
 
+<Info>
+  See guides: [Authentication & Authorization](/docs/guides/authentication), [OIDC Authentication](/docs/guides/oidc), [RBAC & Policy Authorization](/docs/guides/rbac), [Audit Events](/docs/guides/audit-events), [API Key Rotation](/docs/guides/api-key-rotation).
+</Info>
+
 ## Authentication
 
-The Strait API supports three authentication methods depending on the client and use case.
+The Strait API supports four authentication methods depending on the client and use case.
 
 ### Internal Secret
 Used for administrative tasks and internal service-to-service communication.
@@ -15,6 +19,10 @@ Used for administrative tasks and internal service-to-service communication.
 ### API Keys
 Used for project-specific operations. API keys are prefixed with `strait_`.
 - **Header**: `Authorization: Bearer strait_...`
+
+### OIDC Bearer Tokens (Optional)
+Used for user API access when OIDC verification is enabled.
+- **Header**: `Authorization: Bearer <oidc-token>`
 
 ### JWT Run Tokens
 Used by the SDK within a job run context to authenticate heartbeats, logs, and checkpoints.
