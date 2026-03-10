@@ -113,13 +113,14 @@ type RunStore interface {
 }
 
 type ProjectQuota struct {
-	ProjectID             string
-	MaxQueuedRuns         int
-	MaxExecutingRuns      int
-	MaxJobs               int
-	Timezone              string
-	MaxCostPerRunMicrousd int64
-	MaxDailyCostMicrousd  int64
+	ProjectID              string
+	MaxQueuedRuns          int
+	MaxExecutingRuns       int
+	MaxJobs                int
+	Timezone               string
+	MaxCostPerRunMicrousd  int64
+	MaxDailyCostMicrousd   int64
+	MaxActiveEventTriggers int // 0 = unlimited
 }
 
 // JobHealthStats contains aggregated health metrics for a job.

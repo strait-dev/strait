@@ -663,3 +663,18 @@ func defaultIfEmpty(s, def string) string {
 	}
 	return s
 }
+
+func (q *Queries) CountActiveEventTriggersByProject(ctx context.Context, projectID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountActiveEventTriggersByProject")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM event_triggers WHERE project_id = $1 AND status = 'waiting'`,
+		projectID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active event triggers: %w", err)
+	}
+	return count, nil
+}

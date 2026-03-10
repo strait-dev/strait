@@ -63,6 +63,7 @@ type mockAPIStore struct {
 	listWebhookDeliveriesFn             func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	deleteEventTriggersFinishedBeforeFn func(ctx context.Context, before time.Time, limit int) (int64, error)
 	countEventTriggersFinishedBeforeFn  func(ctx context.Context, before time.Time) (int64, error)
+	countActiveEventTriggersByProjectFn func(ctx context.Context, projectID string) (int, error)
 	getWebhookDeliveryFn                func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
 	createAPIKeyFn                      func(ctx context.Context, key *domain.APIKey) error
@@ -815,6 +816,13 @@ func (m *mockAPIStore) DeleteEventTriggersFinishedBefore(ctx context.Context, be
 func (m *mockAPIStore) CountEventTriggersFinishedBefore(ctx context.Context, before time.Time) (int64, error) {
 	if m.countEventTriggersFinishedBeforeFn != nil {
 		return m.countEventTriggersFinishedBeforeFn(ctx, before)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) CountActiveEventTriggersByProject(ctx context.Context, projectID string) (int, error) {
+	if m.countActiveEventTriggersByProjectFn != nil {
+		return m.countActiveEventTriggersByProjectFn(ctx, projectID)
 	}
 	return 0, nil
 }

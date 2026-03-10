@@ -81,6 +81,24 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
+	// Enforce per-project event trigger quota if configured.
+	if s.config.FFProjectQuotas {
+		quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
+		if qErr == nil && quota != nil && quota.MaxActiveEventTriggers > 0 {
+			active, cErr := s.store.CountActiveEventTriggersByProject(r.Context(), run.ProjectID)
+			if cErr != nil {
+				slog.Warn("failed to count active triggers for quota check", "project_id", run.ProjectID, "error", cErr)
+			} else if active >= quota.MaxActiveEventTriggers {
+				// Rollback: re-enable the run.
+				if rbErr := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusWaiting, domain.StatusExecuting, nil); rbErr != nil {
+					slog.Warn("failed to rollback run status after quota exceeded", "run_id", run.ID, "error", rbErr)
+				}
+				respondError(w, r, http.StatusTooManyRequests, fmt.Sprintf("project has reached maximum active event triggers (%d)", quota.MaxActiveEventTriggers))
+				return
+			}
+		}
+	}
+
 	trigger := &domain.EventTrigger{
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		EventKey:    req.EventKey,

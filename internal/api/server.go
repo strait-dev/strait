@@ -137,6 +137,7 @@ type APIStore interface {
 	GetEventTriggerStats(ctx context.Context, projectID string) (*store.EventTriggerStats, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	CountEventTriggersFinishedBefore(ctx context.Context, before time.Time) (int64, error)
+	CountActiveEventTriggersByProject(ctx context.Context, projectID string) (int, error)
 	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
 }
 
