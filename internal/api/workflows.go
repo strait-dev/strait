@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -119,6 +120,11 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+	candidateSteps := workflowStepsFromRequests(req.Steps)
+	if err := s.validateWorkflowPolicy(r.Context(), req.ProjectID, candidateSteps); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	enabled := true
 	if req.Enabled != nil {
@@ -163,40 +169,15 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	steps := make([]domain.WorkflowStep, 0, len(req.Steps))
-	for _, stepReq := range req.Steps {
-		step := domain.WorkflowStep{
-			WorkflowID:            wf.ID,
-			JobID:                 stepReq.JobID,
-			StepRef:               stepReq.StepRef,
-			DependsOn:             stepReq.DependsOn,
-			Condition:             stepReq.Condition,
-			OnFailure:             stepReq.OnFailure,
-			Payload:               stepReq.Payload,
-			StepType:              stepReq.StepType,
-			ApprovalTimeoutSecs:   stepReq.ApprovalTimeoutSecs,
-			ApprovalApprovers:     stepReq.ApprovalApprovers,
-			RetryMaxAttempts:      stepReq.RetryMaxAttempts,
-			RetryBackoff:          stepReq.RetryBackoff,
-			RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
-			RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
-			TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
-			OutputTransform:       stepReq.OutputTransform,
-			SubWorkflowID:         stepReq.SubWorkflowID,
-			MaxNestingDepth:       stepReq.MaxNestingDepth,
-			EventKey:              stepReq.EventKey,
-			EventTimeoutSecs:      stepReq.EventTimeoutSecs,
-			EventNotifyURL:        stepReq.EventNotifyURL,
-			EventEmitKey:          stepReq.EventEmitKey,
-			SleepDurationSecs:     stepReq.SleepDurationSecs,
-			ConcurrencyKey:        stepReq.ConcurrencyKey,
-		}
-		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
-			slog.Error("failed to create workflow step", "error", err, "step_ref", step.StepRef, "workflow_id", wf.ID)
+	steps := make([]domain.WorkflowStep, 0, len(candidateSteps))
+	for i := range candidateSteps {
+		candidateSteps[i].WorkflowID = wf.ID
+		if err := s.store.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
+			slog.Error("failed to create workflow step", "error", err, "step_ref", candidateSteps[i].StepRef, "workflow_id", wf.ID)
 			respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
 			return
 		}
-		steps = append(steps, step)
+		steps = append(steps, candidateSteps[i])
 	}
 
 	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
@@ -287,6 +268,40 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var candidateSteps []domain.WorkflowStep
+	if req.Steps != nil {
+		if err := validateWorkflowSteps(*req.Steps); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		candidateSteps = workflowStepsFromRequests(*req.Steps)
+		if err := s.validateWorkflowPolicy(r.Context(), wf.ProjectID, candidateSteps); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		existingSteps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to load existing workflow steps")
+			return
+		}
+		existingRefs := make(map[string]struct{}, len(existingSteps))
+		for _, st := range existingSteps {
+			existingRefs[st.StepRef] = struct{}{}
+		}
+		requestedRefs := make(map[string]struct{}, len(*req.Steps))
+		for _, stepReq := range *req.Steps {
+			requestedRefs[stepReq.StepRef] = struct{}{}
+		}
+		for ref := range existingRefs {
+			if _, ok := requestedRefs[ref]; !ok {
+				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("removing step_ref %q is not supported; disable it with step overrides instead", ref))
+				return
+			}
+		}
+	}
+
 	if req.Name != nil {
 		wf.Name = *req.Name
 	}
@@ -347,63 +362,13 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Steps != nil {
-		if err := validateWorkflowSteps(*req.Steps); err != nil {
-			respondError(w, r, http.StatusBadRequest, err.Error())
-			return
-		}
-
-		existingSteps, err := s.store.ListStepsByWorkflow(r.Context(), wf.ID)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to load existing workflow steps")
-			return
-		}
-		existingRefs := make(map[string]struct{}, len(existingSteps))
-		for _, st := range existingSteps {
-			existingRefs[st.StepRef] = struct{}{}
-		}
-		requestedRefs := make(map[string]struct{}, len(*req.Steps))
-		for _, stepReq := range *req.Steps {
-			requestedRefs[stepReq.StepRef] = struct{}{}
-		}
-		for ref := range existingRefs {
-			if _, ok := requestedRefs[ref]; !ok {
-				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("removing step_ref %q is not supported; disable it with step overrides instead", ref))
-				return
-			}
-		}
-
 		if err := s.store.DeleteStepsByWorkflow(r.Context(), wf.ID); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to replace workflow steps")
 			return
 		}
-		for _, stepReq := range *req.Steps {
-			step := &domain.WorkflowStep{
-				WorkflowID:            wf.ID,
-				JobID:                 stepReq.JobID,
-				StepRef:               stepReq.StepRef,
-				DependsOn:             stepReq.DependsOn,
-				Condition:             stepReq.Condition,
-				OnFailure:             stepReq.OnFailure,
-				Payload:               stepReq.Payload,
-				StepType:              stepReq.StepType,
-				ApprovalTimeoutSecs:   stepReq.ApprovalTimeoutSecs,
-				ApprovalApprovers:     stepReq.ApprovalApprovers,
-				RetryMaxAttempts:      stepReq.RetryMaxAttempts,
-				RetryBackoff:          stepReq.RetryBackoff,
-				RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
-				RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
-				TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
-				OutputTransform:       stepReq.OutputTransform,
-				SubWorkflowID:         stepReq.SubWorkflowID,
-				MaxNestingDepth:       stepReq.MaxNestingDepth,
-				EventKey:              stepReq.EventKey,
-				EventTimeoutSecs:      stepReq.EventTimeoutSecs,
-				EventNotifyURL:        stepReq.EventNotifyURL,
-				EventEmitKey:          stepReq.EventEmitKey,
-				SleepDurationSecs:     stepReq.SleepDurationSecs,
-				ConcurrencyKey:        stepReq.ConcurrencyKey,
-			}
-			if err := s.store.CreateWorkflowStep(r.Context(), step); err != nil {
+		for i := range candidateSteps {
+			candidateSteps[i].WorkflowID = wf.ID
+			if err := s.store.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
 				respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
 				return
 			}
@@ -476,6 +441,16 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	steps, err := s.store.ListStepsByWorkflowVersion(r.Context(), workflowID, wf.Version)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to load workflow steps")
+		return
+	}
+	if err := s.validateWorkflowPolicy(r.Context(), wf.ProjectID, steps); err != nil {
+		respondError(w, r, http.StatusConflict, err.Error())
+		return
+	}
+
 	triggeredBy := req.TriggeredBy
 	if triggeredBy == "" {
 		triggeredBy = domain.TriggerManual
@@ -506,6 +481,148 @@ func (s *Server) handleTriggerWorkflow(w http.ResponseWriter, r *http.Request) {
 	s.publishWorkflowRunHook(r.Context(), run, domain.WfStatusPending, run.Status, "trigger")
 
 	respondJSON(w, http.StatusCreated, run)
+}
+
+func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.WorkflowStep {
+	steps := make([]domain.WorkflowStep, 0, len(stepReqs))
+	for _, stepReq := range stepReqs {
+		steps = append(steps, domain.WorkflowStep{
+			JobID:                 stepReq.JobID,
+			StepRef:               stepReq.StepRef,
+			DependsOn:             stepReq.DependsOn,
+			Condition:             stepReq.Condition,
+			OnFailure:             stepReq.OnFailure,
+			Payload:               stepReq.Payload,
+			StepType:              stepReq.StepType,
+			ApprovalTimeoutSecs:   stepReq.ApprovalTimeoutSecs,
+			ApprovalApprovers:     stepReq.ApprovalApprovers,
+			RetryMaxAttempts:      stepReq.RetryMaxAttempts,
+			RetryBackoff:          stepReq.RetryBackoff,
+			RetryInitialDelaySecs: stepReq.RetryInitialDelaySecs,
+			RetryMaxDelaySecs:     stepReq.RetryMaxDelaySecs,
+			TimeoutSecsOverride:   stepReq.TimeoutSecsOverride,
+			OutputTransform:       stepReq.OutputTransform,
+			SubWorkflowID:         stepReq.SubWorkflowID,
+			MaxNestingDepth:       stepReq.MaxNestingDepth,
+			EventKey:              stepReq.EventKey,
+			EventTimeoutSecs:      stepReq.EventTimeoutSecs,
+			EventNotifyURL:        stepReq.EventNotifyURL,
+			EventEmitKey:          stepReq.EventEmitKey,
+			SleepDurationSecs:     stepReq.SleepDurationSecs,
+			ConcurrencyKey:        stepReq.ConcurrencyKey,
+		})
+	}
+	return steps
+}
+
+func (s *Server) validateWorkflowPolicy(ctx context.Context, projectID string, steps []domain.WorkflowStep) error {
+	policy, err := s.store.GetWorkflowPolicyByProject(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("load workflow policy: %w", err)
+	}
+	if policy == nil {
+		return nil
+	}
+
+	if policy.MaxFanOut > 0 {
+		fanOutByRef := make(map[string]int, len(steps))
+		for _, step := range steps {
+			for _, dep := range step.DependsOn {
+				fanOutByRef[dep]++
+			}
+		}
+		for ref, fanOut := range fanOutByRef {
+			if fanOut > policy.MaxFanOut {
+				return fmt.Errorf("workflow policy violation: step %s fan-out %d exceeds max_fan_out %d", ref, fanOut, policy.MaxFanOut)
+			}
+		}
+	}
+
+	if policy.MaxDepth > 0 {
+		stepByRef := lo.KeyBy(steps, func(step domain.WorkflowStep) string { return step.StepRef })
+		memo := make(map[string]int, len(steps))
+		visiting := make(map[string]bool, len(steps))
+
+		var depth func(ref string) (int, error)
+		depth = func(ref string) (int, error) {
+			if d, ok := memo[ref]; ok {
+				return d, nil
+			}
+			if visiting[ref] {
+				return 0, fmt.Errorf("cycle detected at step_ref %q", ref)
+			}
+			step, ok := stepByRef[ref]
+			if !ok {
+				return 0, nil
+			}
+			visiting[ref] = true
+			maxParentDepth := 0
+			for _, dep := range step.DependsOn {
+				depDepth, err := depth(dep)
+				if err != nil {
+					return 0, err
+				}
+				if depDepth > maxParentDepth {
+					maxParentDepth = depDepth
+				}
+			}
+			visiting[ref] = false
+			memo[ref] = maxParentDepth + 1
+			return memo[ref], nil
+		}
+
+		maxDepth := 0
+		for _, step := range steps {
+			d, err := depth(step.StepRef)
+			if err != nil {
+				return fmt.Errorf("workflow policy violation: %w", err)
+			}
+			if d > maxDepth {
+				maxDepth = d
+			}
+		}
+		if maxDepth > policy.MaxDepth {
+			return fmt.Errorf("workflow policy violation: workflow depth %d exceeds max_depth %d", maxDepth, policy.MaxDepth)
+		}
+	}
+
+	if len(policy.ForbiddenStepTypes) > 0 {
+		forbidden := make(map[string]struct{}, len(policy.ForbiddenStepTypes))
+		for _, stepType := range policy.ForbiddenStepTypes {
+			forbidden[strings.ToLower(strings.TrimSpace(stepType))] = struct{}{}
+		}
+		for _, step := range steps {
+			stepType := step.StepType
+			if stepType == "" {
+				stepType = domain.WorkflowStepTypeJob
+			}
+			if _, blocked := forbidden[strings.ToLower(string(stepType))]; blocked {
+				return fmt.Errorf("workflow policy violation: step %s uses forbidden step_type %s", step.StepRef, stepType)
+			}
+		}
+	}
+
+	if policy.RequireApprovalForDeploy {
+		hasApproval := lo.ContainsBy(steps, func(step domain.WorkflowStep) bool {
+			return step.StepType == domain.WorkflowStepTypeApproval
+		})
+		hasDeployLikeStep := lo.ContainsBy(steps, func(step domain.WorkflowStep) bool {
+			stepType := step.StepType
+			if stepType == "" {
+				stepType = domain.WorkflowStepTypeJob
+			}
+			if stepType != domain.WorkflowStepTypeJob {
+				return false
+			}
+			ref := strings.ToLower(step.StepRef)
+			return strings.Contains(ref, "deploy") || strings.Contains(ref, "release")
+		})
+		if hasDeployLikeStep && !hasApproval {
+			return fmt.Errorf("workflow policy violation: approval step is required for deploy-like workflows")
+		}
+	}
+
+	return nil
 }
 
 const maxWorkflowSteps = 1000
