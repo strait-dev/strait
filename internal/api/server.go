@@ -25,6 +25,7 @@ import (
 	"strait/internal/telemetry"
 	"strait/internal/worker"
 
+	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
@@ -282,6 +283,7 @@ type Server struct {
 	maxRequestBodySize int64
 	permCache          *permissionCache
 	oidcVerifier       *oidcVerifier
+	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -330,6 +332,7 @@ func NewServer(deps ServerDeps) *Server {
 		maxRequestBodySize: maxBody,
 		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
 		oidcVerifier:       verifier,
+		bgPool:             pond.NewPool(4),
 	}
 	srv.router = srv.routes()
 	return srv
@@ -347,6 +350,9 @@ func permCacheTTL(cfg *config.Config) time.Duration {
 func (s *Server) Close() {
 	if s.permCache != nil {
 		s.permCache.Stop()
+	}
+	if s.bgPool != nil {
+		s.bgPool.StopAndWait()
 	}
 }
 
