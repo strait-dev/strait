@@ -34,7 +34,9 @@ func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback Workflo
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
-			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize),
+			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
+			WithStalledThreshold(cfg.StalledWorkflowThreshold).
+			WithStalledAction(cfg.StalledWorkflowAction),
 	}
 	for _, opt := range opts {
 		opt(sched)
