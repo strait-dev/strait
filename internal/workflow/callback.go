@@ -31,6 +31,9 @@ type CallbackStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
 	CountNonTerminalStepRuns(ctx context.Context, workflowRunID string) (int, error)
 	ListFailedStepRunRefs(ctx context.Context, workflowRunID string) ([]string, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
@@ -50,6 +53,7 @@ type CallbackStore interface {
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
 }
 
 // NewStepCallback creates a new step callback handler for workflow progression.
@@ -358,6 +362,21 @@ func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domai
 	}
 
 	s.logger.Info("auto-emitted event on step completion", "step_ref", step.StepRef, "event_key", emitKey, "trigger_id", trigger.ID)
+}
+
+func (s *StepCallback) recordDecision(ctx context.Context, stepRun *domain.WorkflowStepRun, decisionType, decision, explanation string, details json.RawMessage) {
+	if stepRun == nil || stepRun.WorkflowRunID == "" {
+		return
+	}
+	_ = s.store.CreateWorkflowStepDecision(ctx, &domain.WorkflowStepDecision{
+		WorkflowRunID: stepRun.WorkflowRunID,
+		StepRunID:     stepRun.ID,
+		StepRef:       stepRun.StepRef,
+		DecisionType:  decisionType,
+		Decision:      decision,
+		Explanation:   explanation,
+		Details:       details,
+	})
 }
 
 func (s *StepCallback) tryReleaseDependencyRuns(ctx context.Context, run *domain.JobRun) {

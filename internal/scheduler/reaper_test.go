@@ -2039,3 +2039,61 @@ func TestReapInconsistentEventTriggers_EmptyJobRunID(t *testing.T) {
 		t.Fatal("expected empty job run ID to be skipped")
 	}
 }
+
+func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
+	t.Parallel()
+
+	var resumed atomic.Int32
+	ms := &mockReaperStore{
+		listStalledWorkflowRunsFn: func(_ context.Context, _ time.Duration) ([]domain.WorkflowRun, error) {
+			return []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}}, nil
+		},
+	}
+	cb := &mockWorkflowCallback{
+		resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
+			if workflowRunID != "wr-1" {
+				t.Fatalf("workflowRunID = %s, want wr-1", workflowRunID)
+			}
+			resumed.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb).WithStalledAction("reconcile")
+	r.reapStalledWorkflows(context.Background())
+
+	if resumed.Load() != 1 {
+		t.Fatalf("resumed count = %d, want 1", resumed.Load())
+	}
+}
+
+func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
+	t.Parallel()
+
+	var failed atomic.Int32
+	ms := &mockReaperStore{
+		listStalledWorkflowRunsFn: func(_ context.Context, _ time.Duration) ([]domain.WorkflowRun, error) {
+			return []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
+			if id != "wr-1" {
+				t.Fatalf("id = %s, want wr-1", id)
+			}
+			if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
+				t.Fatalf("unexpected transition %s -> %s", from, to)
+			}
+			if fields["finished_at"] == nil {
+				t.Fatal("expected finished_at field")
+			}
+			failed.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithStalledAction("fail_workflow")
+	r.reapStalledWorkflows(context.Background())
+
+	if failed.Load() != 1 {
+		t.Fatalf("failed transition count = %d, want 1", failed.Load())
+	}
+}

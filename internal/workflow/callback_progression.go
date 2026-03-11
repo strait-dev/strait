@@ -32,27 +32,39 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		return fmt.Errorf("list steps by workflow: %w", err)
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000, nil)
+	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, stepRun.WorkflowRunID)
 	if err != nil {
-		return fmt.Errorf("list step runs by workflow run: %w", err)
+		return fmt.Errorf("list step run statuses by workflow run: %w", err)
+	}
+	runningStepRuns, err := s.store.ListRunningStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000)
+	if err != nil {
+		return fmt.Errorf("list running step runs by workflow run: %w", err)
+	}
+	runnableStepRuns, err := s.store.ListRunnableStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000)
+	if err != nil {
+		return fmt.Errorf("list runnable step runs by workflow run: %w", err)
 	}
 
-	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepRuns); err != nil {
+	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepStatuses, runningStepRuns, runnableStepRuns); err != nil {
 		return fmt.Errorf("schedule runnable steps: %w", err)
 	}
 
 	return nil
 }
 
-func (s *StepCallback) scheduleRunnableSteps(ctx context.Context, wfRun *domain.WorkflowRun, steps []domain.WorkflowStep, stepRuns []domain.WorkflowStepRun) error {
+func (s *StepCallback) scheduleRunnableSteps(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	steps []domain.WorkflowStep,
+	stepStatuses map[string]domain.StepRunStatus,
+	runningStepRuns []domain.WorkflowStepRun,
+	runnableStepRuns []domain.WorkflowStepRun,
+) error {
 	stepByRef := lo.KeyBy(steps, func(st domain.WorkflowStep) string { return st.StepRef })
-	stepStatuses := lo.Associate(stepRuns, func(sr domain.WorkflowStepRun) (string, domain.StepRunStatus) {
-		return sr.StepRef, sr.Status
-	})
-	runningStepCount := lo.CountBy(stepRuns, func(sr domain.WorkflowStepRun) bool { return sr.Status == domain.StepRunning })
+	runningStepCount := len(runningStepRuns)
 	runningByConcurrencyKey := make(map[string]int)
 	runningByResourceClass := make(map[string]int)
-	for _, sr := range stepRuns {
+	for _, sr := range runningStepRuns {
 		if sr.Status != domain.StepRunning {
 			continue
 		}
@@ -64,7 +76,7 @@ func (s *StepCallback) scheduleRunnableSteps(ctx context.Context, wfRun *domain.
 		}
 	}
 
-	for _, sr := range stepRuns {
+	for _, sr := range runnableStepRuns {
 		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
 			continue
 		}
@@ -470,12 +482,20 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 		return fmt.Errorf("list workflow steps: %w", err)
 	}
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, workflowRunID)
 	if err != nil {
-		return fmt.Errorf("list step runs by workflow run: %w", err)
+		return fmt.Errorf("list step run statuses by workflow run: %w", err)
+	}
+	runningStepRuns, err := s.store.ListRunningStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
+	if err != nil {
+		return fmt.Errorf("list running step runs by workflow run: %w", err)
+	}
+	runnableStepRuns, err := s.store.ListRunnableStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
+	if err != nil {
+		return fmt.Errorf("list runnable step runs by workflow run: %w", err)
 	}
 
-	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepRuns); err != nil {
+	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepStatuses, runningStepRuns, runnableStepRuns); err != nil {
 		return fmt.Errorf("schedule runnable steps: %w", err)
 	}
 

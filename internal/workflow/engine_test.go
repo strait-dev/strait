@@ -483,34 +483,37 @@ func TestMergePayloads(t *testing.T) {
 }
 
 type mockCallbackStore struct {
-	getStepRunByJobRunIDFn          func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
-	getWorkflowStepRunFn            func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
-	updateStepRunStatusFn           func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	incrementStepDepsFn             func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
-	incrementStepRunAttemptFn       func(ctx context.Context, id string, newAttempt int) error
-	getWorkflowRunFn                func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	updateWorkflowRunStatusFn       func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	listStepRunsByWorkflowRun       func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
-	countNonTerminalStepRunsFn      func(ctx context.Context, workflowRunID string) (int, error)
-	listFailedStepRunRefsFn         func(ctx context.Context, workflowRunID string) ([]string, error)
-	cancelNonTerminalStepRunsFn     func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
-	skipStepRunsByRefsFn            func(ctx context.Context, workflowRunID string, refs []string, finishedAt time.Time) (int64, error)
-	getStepOutputsFn                func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
-	listStepsByWorkflowVerFn        func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
-	getWorkflowFn                   func(ctx context.Context, id string) (*domain.Workflow, error)
-	getStepRunByRunAndRefFn         func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
-	createWorkflowStepApprovalFn    func(ctx context.Context, approval *domain.WorkflowStepApproval) error
-	getWorkflowStepApprovalFn       func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
-	updateWorkflowStepApprovalFn    func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
-	updateRunStatusFn               func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	listDependentsByDependencyJobFn func(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error)
-	listWaitingRunsByJobIDsFn       func(ctx context.Context, jobIDs []string, limit int) ([]domain.JobRun, error)
-	areJobDependenciesSatisfiedFn   func(ctx context.Context, run *domain.JobRun) (bool, error)
-	getWorkflowRunsByParentFn       func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
-	getEventTriggerByStepRunIDFn    func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
-	getEventTriggerByEventKeyFn     func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
-	updateEventTriggerStatusFn      func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	createWorkflowStepDecisionFn    func(ctx context.Context, d *domain.WorkflowStepDecision) error
+	getStepRunByJobRunIDFn              func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
+	getWorkflowStepRunFn                func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	updateStepRunStatusFn               func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	incrementStepDepsFn                 func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
+	incrementStepRunAttemptFn           func(ctx context.Context, id string, newAttempt int) error
+	getWorkflowRunFn                    func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	updateWorkflowRunStatusFn           func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	listStepRunsByWorkflowRun           func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	listRunnableStepRunsByWorkflowRunFn func(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	listRunningStepRunsByWorkflowRunFn  func(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	listStepRunStatusesByWorkflowRunFn  func(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
+	countNonTerminalStepRunsFn          func(ctx context.Context, workflowRunID string) (int, error)
+	listFailedStepRunRefsFn             func(ctx context.Context, workflowRunID string) ([]string, error)
+	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	skipStepRunsByRefsFn                func(ctx context.Context, workflowRunID string, refs []string, finishedAt time.Time) (int64, error)
+	getStepOutputsFn                    func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
+	listStepsByWorkflowVerFn            func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	getWorkflowFn                       func(ctx context.Context, id string) (*domain.Workflow, error)
+	getStepRunByRunAndRefFn             func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	createWorkflowStepApprovalFn        func(ctx context.Context, approval *domain.WorkflowStepApproval) error
+	getWorkflowStepApprovalFn           func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	updateWorkflowStepApprovalFn        func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	updateRunStatusFn                   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	listDependentsByDependencyJobFn     func(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error)
+	listWaitingRunsByJobIDsFn           func(ctx context.Context, jobIDs []string, limit int) ([]domain.JobRun, error)
+	areJobDependenciesSatisfiedFn       func(ctx context.Context, run *domain.JobRun) (bool, error)
+	getWorkflowRunsByParentFn           func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	getEventTriggerByStepRunIDFn        func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	getEventTriggerByEventKeyFn         func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	createWorkflowStepDecisionFn        func(ctx context.Context, d *domain.WorkflowStepDecision) error
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -606,6 +609,67 @@ func (m *mockCallbackStore) ListStepRunsByWorkflowRun(ctx context.Context, workf
 		return m.listStepRunsByWorkflowRun(ctx, workflowRunID, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockCallbackStore) ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error) {
+	if m.listRunnableStepRunsByWorkflowRunFn != nil {
+		return m.listRunnableStepRunsByWorkflowRunFn(ctx, workflowRunID, limit)
+	}
+	if m.listStepRunsByWorkflowRun == nil {
+		return nil, nil
+	}
+	runs, err := m.listStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	if err != nil {
+		return nil, err
+	}
+	runnable := make([]domain.WorkflowStepRun, 0, len(runs))
+	for _, sr := range runs {
+		if sr.Status == domain.StepRunning || sr.Status.IsTerminal() {
+			continue
+		}
+		if sr.DepsCompleted == sr.DepsRequired {
+			runnable = append(runnable, sr)
+		}
+	}
+	return runnable, nil
+}
+
+func (m *mockCallbackStore) ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error) {
+	if m.listRunningStepRunsByWorkflowRunFn != nil {
+		return m.listRunningStepRunsByWorkflowRunFn(ctx, workflowRunID, limit)
+	}
+	if m.listStepRunsByWorkflowRun == nil {
+		return nil, nil
+	}
+	runs, err := m.listStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	if err != nil {
+		return nil, err
+	}
+	running := make([]domain.WorkflowStepRun, 0, len(runs))
+	for _, sr := range runs {
+		if sr.Status == domain.StepRunning {
+			running = append(running, sr)
+		}
+	}
+	return running, nil
+}
+
+func (m *mockCallbackStore) ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error) {
+	if m.listStepRunStatusesByWorkflowRunFn != nil {
+		return m.listStepRunStatusesByWorkflowRunFn(ctx, workflowRunID)
+	}
+	if m.listStepRunsByWorkflowRun == nil {
+		return map[string]domain.StepRunStatus{}, nil
+	}
+	runs, err := m.listStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	if err != nil {
+		return nil, err
+	}
+	statuses := make(map[string]domain.StepRunStatus, len(runs))
+	for _, sr := range runs {
+		statuses[sr.StepRef] = sr.Status
+	}
+	return statuses, nil
 }
 
 func (m *mockCallbackStore) CountNonTerminalStepRuns(ctx context.Context, workflowRunID string) (int, error) {

@@ -49,6 +49,7 @@ type WorkflowCallback interface {
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
 	OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string)
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
+	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
 }
 
 // AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
@@ -77,6 +78,7 @@ type Reaper struct {
 	workflowCallback      WorkflowCallback
 	metrics               *telemetry.Metrics
 	logger                *slog.Logger
+	stalledAction         string
 }
 
 // NewReaper creates a new stale and expired run reaper.
@@ -100,6 +102,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		retentionEnabled:      retentionEnabled,
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
+		stalledAction:         "log_only",
 	}
 }
 
@@ -137,6 +140,21 @@ func (r *Reaper) WithDeleteBatchSize(n int) *Reaper {
 func (r *Reaper) WithStalledThreshold(d time.Duration) *Reaper {
 	if d > 0 {
 		r.stalledThreshold = d
+	}
+	return r
+}
+
+func (r *Reaper) WithStalledAction(action string) *Reaper {
+	switch action {
+	case "", "log_only", "reconcile", "fail_workflow":
+		if action == "" {
+			r.stalledAction = "log_only"
+		} else {
+			r.stalledAction = action
+		}
+	default:
+		r.logger.Warn("invalid stalled action, using log_only", "action", action)
+		r.stalledAction = "log_only"
 	}
 	return r
 }
@@ -528,9 +546,26 @@ func (r *Reaper) reapStalledWorkflows(ctx context.Context) {
 		return
 	}
 	for _, run := range runs {
-		slog.Warn("detected stalled workflow run", "workflow_run_id", run.ID, "workflow_id", run.WorkflowID, "started_at", run.StartedAt)
+		slog.Warn("detected stalled workflow run", "workflow_run_id", run.ID, "workflow_id", run.WorkflowID, "started_at", run.StartedAt, "action", r.stalledAction)
 		if r.metrics != nil {
 			r.metrics.WorkflowStalledRuns.Add(ctx, 1)
+		}
+		switch r.stalledAction {
+		case "fail_workflow":
+			now := time.Now()
+			if err := r.store.UpdateWorkflowRunStatus(ctx, run.ID, run.Status, domain.WfStatusFailed, map[string]any{"finished_at": now, "error": "failed by stalled workflow recovery policy"}); err != nil {
+				slog.Error("failed to fail stalled workflow run", "workflow_run_id", run.ID, "error", err)
+			}
+		case "reconcile":
+			if r.workflowCallback == nil {
+				slog.Warn("stalled workflow reconcile requested without callback", "workflow_run_id", run.ID)
+				continue
+			}
+			if err := r.workflowCallback.ResumeWorkflowRun(ctx, run.ID); err != nil {
+				slog.Error("failed to reconcile stalled workflow run", "workflow_run_id", run.ID, "error", err)
+			} else {
+				slog.Info("reconciled stalled workflow run", "workflow_run_id", run.ID)
+			}
 		}
 	}
 }

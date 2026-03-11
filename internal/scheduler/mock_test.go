@@ -37,6 +37,7 @@ type mockReaperStore struct {
 	listExpiredRunsFn                         func(ctx context.Context) ([]domain.JobRun, error)
 	listStaleDequeuedFn                       func(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	listTimedOutWfRunsFn                      func(ctx context.Context) ([]domain.WorkflowRun, error)
+	listStalledWorkflowRunsFn                 func(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error)
 	listStepRunsByWfRunFn                     func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	updateWorkflowRunStatusFn                 func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn                     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
@@ -150,6 +151,13 @@ func (m *mockReaperStore) ListTimedOutWorkflowRuns(ctx context.Context) ([]domai
 	return nil, nil
 }
 
+func (m *mockReaperStore) ListStalledWorkflowRuns(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error) {
+	if m.listStalledWorkflowRunsFn != nil {
+		return m.listStalledWorkflowRunsFn(ctx, threshold)
+	}
+	return nil, nil
+}
+
 func (m *mockReaperStore) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
 	if m.listStepRunsByWfRunFn != nil {
 		return m.listStepRunsByWfRunFn(ctx, workflowRunID, limit, cursor)
@@ -251,6 +259,7 @@ type mockWorkflowCallback struct {
 	onEventReceivedFn  func(ctx context.Context, trigger *domain.EventTrigger) error
 	onStepCompletedFn  func(ctx context.Context, workflowRunID string, stepRunID string)
 	onStepFailedFn     func(ctx context.Context, workflowRunID string, stepRunID string)
+	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
 }
 
 func (m *mockWorkflowCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
@@ -277,4 +286,11 @@ func (m *mockWorkflowCallback) OnStepFailed(ctx context.Context, workflowRunID s
 	if m.onStepFailedFn != nil {
 		m.onStepFailedFn(ctx, workflowRunID, stepRunID)
 	}
+}
+
+func (m *mockWorkflowCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
+	if m.resumeWorkflowFn != nil {
+		return m.resumeWorkflowFn(ctx, workflowRunID)
+	}
+	return nil
 }

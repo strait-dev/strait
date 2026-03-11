@@ -36,6 +36,9 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 	if step.ApprovalApprovers == nil {
 		step.ApprovalApprovers = []string{}
 	}
+	if step.ResourceClass == "" {
+		step.ResourceClass = "small"
+	}
 
 	query := `
 		INSERT INTO workflow_steps (
@@ -45,9 +48,9 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 			timeout_secs_override, output_transform,
 			sub_workflow_id, max_nesting_depth,
 			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
-			concurrency_key
+			concurrency_key, resource_class
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -77,7 +80,8 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, step *domain.WorkflowS
 		dbscan.NilIfEmptyString(step.EventNotifyURL),
 		step.SleepDurationSecs,
 		dbscan.NilIfEmptyString(step.EventEmitKey),
-		dbscan.NilIfEmptyString(step.ConcurrencyKey),
+		step.ConcurrencyKey,
+		step.ResourceClass,
 	).Scan(&step.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow step: %w", err)
@@ -97,7 +101,7 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 		       timeout_secs_override, output_transform,
 		       sub_workflow_id, max_nesting_depth,
 		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
-		       concurrency_key,
+		       concurrency_key, resource_class,
 		       created_at
 		FROM workflow_steps
 		WHERE workflow_id = $1
@@ -137,7 +141,7 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 		       timeout_secs_override, output_transform,
 		       sub_workflow_id, max_nesting_depth,
 		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
-		       concurrency_key,
+		       concurrency_key, resource_class,
 		       created_at
 		FROM workflow_steps
 		WHERE id = $1`
@@ -181,6 +185,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	var eventNotifyURL *string
 	var eventEmitKey *string
 	var concurrencyKey *string
+	var resourceClass *string
 
 	err := scanner.Scan(
 		&step.ID,
@@ -208,6 +213,7 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 		&step.SleepDurationSecs,
 		&eventEmitKey,
 		&concurrencyKey,
+		&resourceClass,
 		&step.CreatedAt,
 	)
 	if err != nil {
@@ -242,6 +248,12 @@ func scanWorkflowStep(scanner scanTarget) (*domain.WorkflowStep, error) {
 	}
 	if concurrencyKey != nil {
 		step.ConcurrencyKey = *concurrencyKey
+	}
+	if resourceClass != nil {
+		step.ResourceClass = *resourceClass
+	}
+	if step.ResourceClass == "" {
+		step.ResourceClass = "small"
 	}
 
 	return &step, nil

@@ -150,6 +150,111 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 	return stepRuns, nil
 }
 
+func (q *Queries) ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunnableStepRunsByWorkflowRun")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+
+	query := `
+		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
+		FROM workflow_step_runs
+		WHERE workflow_run_id = $1
+		  AND status IN ('pending', 'waiting')
+		  AND deps_completed = deps_required
+		ORDER BY created_at ASC, step_ref ASC
+		LIMIT $2`
+
+	rows, err := q.db.Query(ctx, query, workflowRunID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list runnable step runs by workflow run: %w", err)
+	}
+	defer rows.Close()
+
+	stepRuns := make([]domain.WorkflowStepRun, 0, 16)
+	for rows.Next() {
+		sr, scanErr := scanWorkflowStepRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list runnable step runs by workflow run scan: %w", scanErr)
+		}
+		stepRuns = append(stepRuns, *sr)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list runnable step runs by workflow run rows: %w", err)
+	}
+
+	return stepRuns, nil
+}
+
+func (q *Queries) ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunningStepRunsByWorkflowRun")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+
+	query := `
+		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
+		FROM workflow_step_runs
+		WHERE workflow_run_id = $1 AND status = 'running'
+		ORDER BY created_at ASC, step_ref ASC
+		LIMIT $2`
+
+	rows, err := q.db.Query(ctx, query, workflowRunID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list running step runs by workflow run: %w", err)
+	}
+	defer rows.Close()
+
+	stepRuns := make([]domain.WorkflowStepRun, 0, 16)
+	for rows.Next() {
+		sr, scanErr := scanWorkflowStepRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list running step runs by workflow run scan: %w", scanErr)
+		}
+		stepRuns = append(stepRuns, *sr)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list running step runs by workflow run rows: %w", err)
+	}
+
+	return stepRuns, nil
+}
+
+func (q *Queries) ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStepRunStatusesByWorkflowRun")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `SELECT step_ref, status FROM workflow_step_runs WHERE workflow_run_id = $1`, workflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("list step run statuses by workflow run: %w", err)
+	}
+	defer rows.Close()
+
+	statuses := make(map[string]domain.StepRunStatus, 16)
+	for rows.Next() {
+		var stepRef string
+		var status string
+		if err := rows.Scan(&stepRef, &status); err != nil {
+			return nil, fmt.Errorf("list step run statuses by workflow run scan: %w", err)
+		}
+		statuses[stepRef] = domain.StepRunStatus(status)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list step run statuses by workflow run rows: %w", err)
+	}
+
+	return statuses, nil
+}
+
 func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateStepRunStatus")
 	defer span.End()
