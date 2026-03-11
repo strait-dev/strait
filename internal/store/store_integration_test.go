@@ -5014,13 +5014,18 @@ func TestCreateWorkflowVersionSnapshot(t *testing.T) {
 		t.Fatalf("ListStepsByWorkflowVersion(v1) len = %d, want 2", len(steps))
 	}
 
-	// Verify step refs
+	// Verify step refs and that returned IDs map to canonical workflow_steps IDs.
 	refs := make(map[string]bool)
+	idByRef := make(map[string]string, len(steps))
 	for _, s := range steps {
 		refs[s.StepRef] = true
+		idByRef[s.StepRef] = s.ID
 	}
 	if !refs["step-a"] || !refs["step-b"] {
 		t.Fatalf("expected step-a and step-b, got refs: %v", refs)
+	}
+	if idByRef["step-a"] != step1.ID || idByRef["step-b"] != step2.ID {
+		t.Fatalf("unexpected step IDs by ref: got %+v, want step-a=%s step-b=%s", idByRef, step1.ID, step2.ID)
 	}
 
 	// Snapshot nonexistent workflow
