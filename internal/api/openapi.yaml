@@ -1507,7 +1507,7 @@ paths:
           schema:
             type: string
       responses:
-        '202':
+        '201':
           description: Workflow run retried
           content:
             application/json:
@@ -2165,7 +2165,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/WorkflowRunLabelsResponse'
 
   /v1/workflow-runs/{workflowRunID}/graph:
     parameters:
@@ -3442,6 +3442,19 @@ components:
         - failed
         - timed_out
         - canceled
+
+    WorkflowRunLabels:
+      type: object
+      additionalProperties:
+        type: string
+
+    WorkflowRunLabelsResponse:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          $ref: '#/components/schemas/WorkflowRunLabels'
+
 
     WorkflowStepRun:
       type: object

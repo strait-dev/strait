@@ -1507,7 +1507,7 @@ paths:
           schema:
             type: string
       responses:
-        '202':
+        '201':
           description: Workflow run retried
           content:
             application/json:
@@ -2165,7 +2165,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkflowRunLabels'
+                $ref: '#/components/schemas/WorkflowRunLabelsResponse'
 
   /v1/workflow-runs/{workflowRunID}/graph:
     parameters:
@@ -3523,6 +3523,13 @@ components:
       type: object
       additionalProperties:
         type: string
+
+    WorkflowRunLabelsResponse:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          $ref: '#/components/schemas/WorkflowRunLabels'
 
     WorkflowRunGraphEdge:
       type: object

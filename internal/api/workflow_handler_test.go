@@ -846,6 +846,16 @@ func TestHandleGetWorkflowRunLabels(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+
+	var resp struct {
+		Labels map[string]string `json:"labels"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode labels response: %v", err)
+	}
+	if got := resp.Labels["env"]; got != "test" {
+		t.Fatalf("labels.env = %q, want test", got)
+	}
 }
 
 func TestHandleDryRunWorkflow(t *testing.T) {
