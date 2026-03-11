@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/health"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -148,9 +149,15 @@ func runServe(modeOverride string) error {
 		return eventNotifier.RunWorker(ctx, 5*time.Second)
 	})
 
+	healthReg := health.NewRegistry()
+	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
+		_, err := queries.QueueStats(ctx)
+		return err
+	}))
+
 	startCDCConsumer(g, cfg, pub)
-	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine)
-	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
+	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg)
+	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine, healthReg)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

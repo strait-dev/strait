@@ -37,6 +37,7 @@ type mockExecutorStore struct {
 	listStepsByWorkflowVerFn func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	updateRunStatusFn        func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	updateHeartbeatFn        func(ctx context.Context, id string) error
+	batchUpdateHeartbeatFn   func(ctx context.Context, ids []string) error
 	canDispatchFn            func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	recordFailureFn          func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	recordSuccessFn          func(ctx context.Context, endpointURL string) error
@@ -95,6 +96,17 @@ func (m *mockExecutorStore) UpdateHeartbeat(ctx context.Context, id string) erro
 		return nil
 	}
 	return m.updateHeartbeatFn(ctx, id)
+}
+
+func (m *mockExecutorStore) BatchUpdateHeartbeat(ctx context.Context, ids []string) error {
+	m.mu.Lock()
+	m.heartbeatRunIDs = append(m.heartbeatRunIDs, ids...)
+	m.mu.Unlock()
+
+	if m.batchUpdateHeartbeatFn == nil {
+		return nil
+	}
+	return m.batchUpdateHeartbeatFn(ctx, ids)
 }
 
 func (m *mockExecutorStore) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
@@ -1176,7 +1188,10 @@ func TestHeartbeatSender_Run(t *testing.T) {
 	t.Parallel()
 	beats := make(chan struct{}, 10)
 	store := &mockExecutorStore{}
-	store.updateHeartbeatFn = func(context.Context, string) error {
+	store.batchUpdateHeartbeatFn = func(_ context.Context, ids []string) error {
+		if len(ids) != 1 || ids[0] != "run-1" {
+			t.Fatalf("batch ids = %v, want [run-1]", ids)
+		}
 		beats <- struct{}{}
 		return nil
 	}

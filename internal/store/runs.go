@@ -1057,6 +1057,23 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	return nil
 }
 
+func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BatchUpdateHeartbeat")
+	defer span.End()
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	query := `UPDATE job_runs SET heartbeat_at = NOW() WHERE id = ANY($1)`
+
+	if _, err := q.db.Exec(ctx, query, ids); err != nil {
+		return fmt.Errorf("batch update heartbeat: %w", err)
+	}
+
+	return nil
+}
+
 func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStaleRuns")
 	defer span.End()

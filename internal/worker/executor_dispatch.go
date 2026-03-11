@@ -206,10 +206,8 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	run.Status = domain.StatusExecuting
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
-	// Start heartbeat
-	hbCtx, hbCancel := context.WithCancel(ctx)
-	defer hbCancel()
-	go e.heartbeat.Run(hbCtx, run.ID)
+	e.heartbeat.Register(run.ID)
+	defer e.heartbeat.Deregister(run.ID)
 
 	timeout := time.Duration(policy.timeoutSecs) * time.Second
 	if e.adaptiveTimeout && policy.timeoutSecs > 0 {

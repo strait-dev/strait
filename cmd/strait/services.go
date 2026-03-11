@@ -169,7 +169,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -179,11 +179,6 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		pinger = redisPub
 	}
 
-	healthReg := health.NewRegistry()
-	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
-		_, err := queries.QueueStats(ctx)
-		return err
-	}))
 	if pinger != nil {
 		healthReg.Register(health.NewChecker("redis", func(ctx context.Context) error {
 			return pinger.Ping(ctx)
@@ -231,7 +226,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -274,6 +269,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 	})
 
+	healthReg.Register(health.NewPoolChecker(p))
+
 	if metrics != nil {
 		meter := otel.Meter("strait")
 		if err := metrics.ObservePool(meter, p); err != nil {
@@ -289,7 +286,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	g.Go(func(ctx context.Context) error {
 		<-ctx.Done()
 		slog.Info("shutting down worker pool")
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.WorkerDrainTimeout)
 		defer shutdownCancel()
 		if err := p.Shutdown(shutdownCtx); err != nil {
 			slog.Warn("worker pool shutdown timed out", "error", err)

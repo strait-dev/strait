@@ -257,9 +257,12 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 	}
 }
 
-// Run starts the polling loop. Blocks until ctx is canceled.
+// Run starts the heartbeat manager and polling loop. Blocks until ctx is canceled.
 func (e *Executor) Run(ctx context.Context) {
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
+
+	go e.heartbeat.Run(ctx)
+
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 

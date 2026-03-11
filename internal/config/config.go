@@ -99,6 +99,30 @@ type Config struct {
 	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
 	FFEventTriggers    bool `mapstructure:"FF_EVENT_TRIGGERS"`
 
+	// Track 1: Performance & Reliability
+	FFListenNotify           bool `mapstructure:"FF_LISTEN_NOTIFY"`
+	FFRateLimitEnforcement   bool `mapstructure:"FF_RATE_LIMIT_ENFORCEMENT"`
+	FFConcurrencyEnforcement bool `mapstructure:"FF_CONCURRENCY_ENFORCEMENT"`
+	FFPriorityAging          bool `mapstructure:"FF_PRIORITY_AGING"`
+	FFProjectFairQueue       bool `mapstructure:"FF_PROJECT_FAIR_QUEUE"`
+
+	// Track 2: Webhook Overhaul
+	FFWebhookDeliveryWorker      bool `mapstructure:"FF_WEBHOOK_DELIVERY_WORKER"`
+	FFWebhookTimestampSignatures bool `mapstructure:"FF_WEBHOOK_TIMESTAMP_SIGNATURES"`
+	FFWebhookCircuitBreaker      bool `mapstructure:"FF_WEBHOOK_CIRCUIT_BREAKER"`
+	FFWebhookSubscriptions       bool `mapstructure:"FF_WEBHOOK_SUBSCRIPTIONS"`
+	FFFallbackEndpoint           bool `mapstructure:"FF_FALLBACK_ENDPOINT"`
+	FFRunEventsBuffered          bool `mapstructure:"FF_RUN_EVENTS_BUFFERED"`
+
+	// Track 3: Database Optimization
+	DBPgBouncerMode bool `mapstructure:"DB_PGBOUNCER_MODE"`
+
+	// Track 4: Security & Observability
+	FFRedisRequired bool `mapstructure:"FF_REDIS_REQUIRED"`
+	FFAuditLog      bool `mapstructure:"FF_AUDIT_LOG"`
+
+	WorkerDrainTimeout time.Duration `mapstructure:"WORKER_DRAIN_TIMEOUT"`
+
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `mapstructure:"PERMISSION_CACHE_TTL"`
 
@@ -191,6 +215,21 @@ func setDefaults() {
 	viper.SetDefault("FF_JOB_DEPENDENCIES", false)
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
 	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
+	viper.SetDefault("FF_LISTEN_NOTIFY", false)
+	viper.SetDefault("FF_RATE_LIMIT_ENFORCEMENT", false)
+	viper.SetDefault("FF_CONCURRENCY_ENFORCEMENT", false)
+	viper.SetDefault("FF_PRIORITY_AGING", false)
+	viper.SetDefault("FF_PROJECT_FAIR_QUEUE", false)
+	viper.SetDefault("FF_WEBHOOK_DELIVERY_WORKER", false)
+	viper.SetDefault("FF_WEBHOOK_TIMESTAMP_SIGNATURES", false)
+	viper.SetDefault("FF_WEBHOOK_CIRCUIT_BREAKER", false)
+	viper.SetDefault("FF_WEBHOOK_SUBSCRIPTIONS", false)
+	viper.SetDefault("FF_FALLBACK_ENDPOINT", false)
+	viper.SetDefault("FF_RUN_EVENTS_BUFFERED", false)
+	viper.SetDefault("DB_PGBOUNCER_MODE", false)
+	viper.SetDefault("FF_REDIS_REQUIRED", false)
+	viper.SetDefault("FF_AUDIT_LOG", false)
+	viper.SetDefault("WORKER_DRAIN_TIMEOUT", 30*time.Second)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 	viper.SetDefault("WEBHOOK_TIMEOUT", 10*time.Second)
 	viper.SetDefault("WEBHOOK_IDLE_CONN_TIMEOUT", 60*time.Second)
@@ -229,6 +268,13 @@ func BindEnv() error {
 		"FF_SECRET_INJECTION", "FF_RUN_REPLAY", "FF_DRY_RUN", "FF_RUN_RETENTION",
 		"FF_EXECUTION_TRACING", "FF_DEBUG_BUNDLE", "FF_BATCH_JOB_OPS", "FF_ENVIRONMENTS",
 		"FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES", "FF_JOB_HEALTH_SCORING", "FF_ADAPTIVE_TIMEOUT",
+		"FF_LISTEN_NOTIFY", "FF_RATE_LIMIT_ENFORCEMENT", "FF_CONCURRENCY_ENFORCEMENT",
+		"FF_PRIORITY_AGING", "FF_PROJECT_FAIR_QUEUE",
+		"FF_WEBHOOK_DELIVERY_WORKER", "FF_WEBHOOK_TIMESTAMP_SIGNATURES",
+		"FF_WEBHOOK_CIRCUIT_BREAKER", "FF_WEBHOOK_SUBSCRIPTIONS",
+		"FF_FALLBACK_ENDPOINT", "FF_RUN_EVENTS_BUFFERED",
+		"DB_PGBOUNCER_MODE", "FF_REDIS_REQUIRED", "FF_AUDIT_LOG",
+		"WORKER_DRAIN_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_ATTEMPTS",
 		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
@@ -298,6 +344,7 @@ func Load() (*Config, error) {
 	cfg.CDCBatchSize = viper.GetInt("CDC_BATCH_SIZE")
 	cfg.CDCWaitTimeMs = viper.GetInt("CDC_WAIT_TIME_MS")
 	cfg.SSEKeepaliveInterval = viper.GetDuration("SSE_KEEPALIVE_INTERVAL")
+	cfg.WorkerDrainTimeout = viper.GetDuration("WORKER_DRAIN_TIMEOUT")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")

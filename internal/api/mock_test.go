@@ -71,6 +71,7 @@ type mockAPIStore struct {
 	markAPIKeyRotatedFn                 func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	touchAPIKeyLastUsedFn               func(ctx context.Context, id string) error
 	updateHeartbeatFn                   func(ctx context.Context, id string) error
+	batchUpdateHeartbeatFn              func(ctx context.Context, ids []string) error
 	queueStatsFn                        func(ctx context.Context) (*store.QueueStats, error)
 	createWorkflowFn                    func(ctx context.Context, w *domain.Workflow) error
 	getWorkflowFn                       func(ctx context.Context, id string) (*domain.Workflow, error)
@@ -540,6 +541,13 @@ func (m *mockAPIStore) TouchAPIKeyLastUsed(ctx context.Context, id string) error
 func (m *mockAPIStore) UpdateHeartbeat(ctx context.Context, id string) error {
 	if m.updateHeartbeatFn != nil {
 		return m.updateHeartbeatFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) BatchUpdateHeartbeat(ctx context.Context, ids []string) error {
+	if m.batchUpdateHeartbeatFn != nil {
+		return m.batchUpdateHeartbeatFn(ctx, ids)
 	}
 	return nil
 }

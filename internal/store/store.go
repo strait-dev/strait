@@ -85,6 +85,7 @@ type RunStore interface {
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
+	BatchUpdateHeartbeat(ctx context.Context, ids []string) error
 	ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	ListDueRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
