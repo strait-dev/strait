@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/domain"
@@ -80,6 +81,12 @@ type Executor struct {
 	webhookClient          *http.Client
 	webhookMaxRetry        int
 	webhookDispatchTimeout time.Duration
+	stop                   chan struct{}
+	done                   chan struct{}
+	stopOnce               sync.Once
+	pollWG                 sync.WaitGroup
+	pollInFlight           atomic.Int64
+	runStarted             atomic.Bool
 }
 
 type ConcurrencyLimitProvider interface {
@@ -195,6 +202,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		webhookClient:          whClient,
 		webhookMaxRetry:        whMaxAttempts,
 		webhookDispatchTimeout: whDispatchTimeout,
+		stop:                   make(chan struct{}),
+		done:                   make(chan struct{}),
 	}
 }
 
@@ -269,6 +278,9 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 
 // Run starts the heartbeat manager and polling loop. Blocks until ctx is canceled.
 func (e *Executor) Run(ctx context.Context) {
+	e.runStarted.Store(true)
+	defer close(e.done)
+
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
 
 	go e.heartbeat.Run(ctx)
@@ -281,14 +293,44 @@ func (e *Executor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			e.logger.Info("executor stopping")
 			return
+		case <-e.stop:
+			e.logger.Info("executor stopping")
+			return
 		case _, ok := <-e.wake:
 			if !ok {
 				e.wake = nil
 				continue
 			}
+			e.pollWG.Add(1)
+			e.pollInFlight.Add(1)
 			e.poll(ctx)
+			e.pollInFlight.Add(-1)
+			e.pollWG.Done()
 		case <-ticker.C:
+			e.pollWG.Add(1)
+			e.pollInFlight.Add(1)
 			e.poll(ctx)
+			e.pollInFlight.Add(-1)
+			e.pollWG.Done()
 		}
 	}
+}
+
+func (e *Executor) Shutdown(ctx context.Context) error {
+	e.stopOnce.Do(func() {
+		close(e.stop)
+	})
+
+	if !e.runStarted.Load() {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-e.done:
+	}
+
+	e.pollWG.Wait()
+	return nil
 }

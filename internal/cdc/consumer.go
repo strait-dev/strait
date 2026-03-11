@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -16,6 +18,12 @@ type Consumer struct {
 	config   ConsumerConfig
 	handlers map[string]Handler
 	logger   *slog.Logger
+	stop     chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
+	pollWG   sync.WaitGroup
+	polling  atomic.Int64
+	started  atomic.Bool
 }
 
 // NewConsumer creates a new CDC consumer.
@@ -35,6 +43,8 @@ func NewConsumer(client *Client, cfg ConsumerConfig, logger *slog.Logger) *Consu
 		config:   cfg,
 		handlers: make(map[string]Handler),
 		logger:   logger,
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -48,6 +58,9 @@ func (c *Consumer) RegisterHandler(h Handler) {
 
 // Run starts the consumer loop. It blocks until ctx is canceled.
 func (c *Consumer) Run(ctx context.Context) {
+	c.started.Store(true)
+	defer close(c.done)
+
 	c.logger.Info("cdc consumer started",
 		"consumer", c.config.ConsumerName,
 		"batch_size", c.config.BatchSize,
@@ -59,8 +72,15 @@ func (c *Consumer) Run(ctx context.Context) {
 		case <-ctx.Done():
 			c.logger.Info("cdc consumer stopping")
 			return
+		case <-c.stop:
+			c.logger.Info("cdc consumer stopping")
+			return
 		default:
+			c.pollWG.Add(1)
+			c.polling.Add(1)
 			if err := c.poll(ctx); err != nil {
+				c.polling.Add(-1)
+				c.pollWG.Done()
 				if ctx.Err() != nil {
 					return
 				}
@@ -68,11 +88,35 @@ func (c *Consumer) Run(ctx context.Context) {
 				select {
 				case <-ctx.Done():
 					return
+				case <-c.stop:
+					return
 				case <-time.After(5 * time.Second):
 				}
+				continue
 			}
+			c.polling.Add(-1)
+			c.pollWG.Done()
 		}
 	}
+}
+
+func (c *Consumer) Shutdown(ctx context.Context) error {
+	c.stopOnce.Do(func() {
+		close(c.stop)
+	})
+
+	if !c.started.Load() {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+	}
+
+	c.pollWG.Wait()
+	return nil
 }
 
 func (c *Consumer) poll(ctx context.Context) error {

@@ -172,11 +172,6 @@ func runServe(modeOverride string) error {
 		WithOnTriggerCreate(onTriggerCreate)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 
-	// Start the webhook delivery worker (processes event trigger notifications from the DLQ).
-	g.Go(func(ctx context.Context) error {
-		return eventNotifier.RunWorker(ctx, 5*time.Second)
-	})
-
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
 		_, err := queries.QueueStats(ctx)
@@ -184,6 +179,7 @@ func runServe(modeOverride string) error {
 	}))
 
 	startCDCConsumer(g, cfg, pub)
+	startWebhookWorker(g, cfg, eventNotifier)
 	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg)
 	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine, healthReg)
 

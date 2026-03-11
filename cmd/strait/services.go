@@ -19,6 +19,7 @@ import (
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
+	"strait/internal/webhook"
 	"strait/internal/worker"
 	"strait/internal/workflow"
 	"strait/migrations"
@@ -219,10 +220,40 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 		return nil
 	})
 
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		slog.Info("draining cdc consumer")
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), cfg.WorkerDrainTimeout)
+		defer drainCancel()
+		if err := cdcConsumer.Shutdown(drainCtx); err != nil {
+			return err
+		}
+		slog.Info("cdc consumer drained")
+		return nil
+	})
+
 	slog.Info("cdc consumer enabled",
 		"base_url", cfg.SequinBaseURL,
 		"consumer", cfg.SequinConsumerName,
 	)
+}
+
+func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *webhook.DeliveryWorker) {
+	g.Go(func(ctx context.Context) error {
+		return eventNotifier.RunWorker(ctx, 5*time.Second)
+	})
+
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		slog.Info("draining webhook delivery worker")
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), cfg.WorkerDrainTimeout)
+		defer drainCancel()
+		if err := eventNotifier.Shutdown(drainCtx); err != nil {
+			return err
+		}
+		slog.Info("webhook delivery worker drained")
+		return nil
+	})
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
@@ -406,6 +437,18 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	g.Go(func(ctx context.Context) error {
 		exec.Run(ctx)
+		return nil
+	})
+
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		slog.Info("draining executor")
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), cfg.WorkerDrainTimeout)
+		defer drainCancel()
+		if err := exec.Shutdown(drainCtx); err != nil {
+			return err
+		}
+		slog.Info("executor drained")
 		return nil
 	})
 

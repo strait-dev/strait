@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/domain"
@@ -48,6 +50,12 @@ type DeliveryWorker struct {
 	circuitBreaker     WebhookCircuitBreaker
 	metrics            *telemetry.Metrics
 	maxPayloadBytes    int64
+	stop               chan struct{}
+	done               chan struct{}
+	stopOnce           sync.Once
+	pollWG             sync.WaitGroup
+	pollInFlight       atomic.Int64
+	runStarted         atomic.Bool
 }
 
 type EventNotifier = DeliveryWorker
@@ -102,6 +110,8 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 		concurrency:        defaultDeliveryConcurrency,
 		defaultRetryPolicy: domain.WebhookRetryPolicyExponential,
 		maxPayloadBytes:    defaultWebhookMaxPayloadBytes,
+		stop:               make(chan struct{}),
+		done:               make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(w)
@@ -208,6 +218,9 @@ func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job,
 // RunWorker polls for pending deliveries and attempts them. Blocks until ctx is canceled.
 // Call this in a goroutine from the service startup (e.g., concpool group).
 func (n *DeliveryWorker) RunWorker(ctx context.Context, pollInterval time.Duration) error {
+	n.runStarted.Store(true)
+	defer close(n.done)
+
 	n.logger.Info("webhook delivery worker started", "poll_interval", pollInterval)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
@@ -217,10 +230,36 @@ func (n *DeliveryWorker) RunWorker(ctx context.Context, pollInterval time.Durati
 		case <-ctx.Done():
 			n.logger.Info("webhook delivery worker stopped")
 			return ctx.Err()
+		case <-n.stop:
+			n.logger.Info("webhook delivery worker stopped")
+			return nil
 		case <-ticker.C:
+			n.pollWG.Add(1)
+			n.pollInFlight.Add(1)
 			n.processBatch(ctx)
+			n.pollInFlight.Add(-1)
+			n.pollWG.Done()
 		}
 	}
+}
+
+func (n *DeliveryWorker) Shutdown(ctx context.Context) error {
+	n.stopOnce.Do(func() {
+		close(n.stop)
+	})
+
+	if !n.runStarted.Load() {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-n.done:
+	}
+
+	n.pollWG.Wait()
+	return nil
 }
 
 // processBatch fetches and processes a batch of pending deliveries.
