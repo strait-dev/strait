@@ -544,6 +544,35 @@ func seedWorkflow(t *testing.T, projectID string) string {
 	return resp["id"].(string)
 }
 
+func seedSecret(t *testing.T, projectID string) string {
+	t.Helper()
+	secretKey := "secret-" + newID()
+	body := fmt.Sprintf(
+		`{"project_id":"%s","secret_key":"%s","value":"val-%s"}`,
+		projectID, secretKey, newID(),
+	)
+	resp := httpDo(t, "POST", "/v1/secrets/", body, nil)
+	secretID, ok := resp["id"].(string)
+	if !ok || secretID == "" {
+		t.Fatalf("seedSecret: missing id in response: %v", resp)
+	}
+	return secretID
+}
+
+func seedWorkflowRun(t *testing.T, projectID string) string {
+	t.Helper()
+	workflowID := seedWorkflow(t, projectID)
+	resp := httpDo(t, "POST", fmt.Sprintf("/v1/workflows/%s/trigger", workflowID), `{"payload":{}}`, nil)
+	wfRunID, ok := resp["id"].(string)
+	if !ok || wfRunID == "" {
+		wfRunID, _ = resp["workflow_run_id"].(string)
+	}
+	if wfRunID == "" {
+		t.Fatalf("seedWorkflowRun: no workflow_run_id in response: %v", resp)
+	}
+	return wfRunID
+}
+
 // seedRole creates a role and returns its ID.
 func seedRole(t *testing.T) string {
 	t.Helper()

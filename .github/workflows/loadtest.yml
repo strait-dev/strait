@@ -43,14 +43,14 @@ jobs:
             run_filter: "^(TestJobs_|TestTriggers_)"
             label: "Jobs and Triggers"
           - domain: runs-workflows
-            run_filter: "^(TestRuns_|TestWorkflows_)"
+            run_filter: "^(TestRuns_|TestWorkflows_|TestWorkflowRuns_)"
             label: "Runs and Workflows"
           - domain: sdk-webhooks
             run_filter: "^(TestSDK_|TestWebhook)"
             label: "SDK and Webhooks"
-          - domain: rbac-envs
-            run_filter: "^(TestRBAC_|TestEnvironments_)"
-            label: "RBAC and Environments"
+          - domain: rbac-envs-secrets
+            run_filter: "^(TestRBAC_|TestEnvironments_|TestSecrets_)"
+            label: "RBAC, Environments, and Secrets"
           - domain: events-groups
             run_filter: "^(TestEvents_|TestJobGroups_)"
             label: "Events and Job Groups"

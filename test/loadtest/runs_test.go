@@ -480,3 +480,140 @@ func TestRuns_ListByMetadata(t *testing.T) {
 		assertNoServerErrors(t, m)
 	})
 }
+
+func TestRuns_DebugBundle(t *testing.T) {
+	mustClean(t)
+	projectID := "proj-debug-bundle-" + newID()
+	jobID := seedJob(t, projectID)
+	runID, _ := seedRun(t, jobID)
+
+	tgt := newTargeter("GET", "/v1/runs/"+runID+"/debug-bundle", nil)
+
+	t.Run("baseline", func(t *testing.T) {
+		m := runBaseline(t, "run-debug-bundle", tgt)
+		assertLatencySLA(t, m)
+		assertSuccessRate(t, m, 0.70)
+		assertNoServerErrors(t, m)
+	})
+	t.Run("stress", func(t *testing.T) {
+		m := runStress(t, "run-debug-bundle", tgt)
+		assertSuccessRate(t, m, 0.60)
+		assertNoServerErrors(t, m)
+	})
+	t.Run("spike", func(t *testing.T) {
+		m := runSpike(t, "run-debug-bundle", tgt)
+		assertSuccessRate(t, m, 0.50)
+		assertNoServerErrors(t, m)
+	})
+}
+
+func TestRuns_SetDebugMode(t *testing.T) {
+	mustClean(t)
+	projectID := "proj-set-debug-mode-" + newID()
+	jobID := seedJob(t, projectID)
+	runID, _ := seedRun(t, jobID)
+
+	tgt := newTargeter("POST", "/v1/runs/"+runID+"/debug", func() []byte {
+		return []byte(`{"debug_mode":true}`)
+	})
+
+	t.Run("baseline", func(t *testing.T) {
+		m := runBaseline(t, "run-set-debug-mode", tgt)
+		assertLatencySLA(t, m)
+		assertSuccessRate(t, m, 0.99)
+	})
+	t.Run("stress", func(t *testing.T) {
+		m := runStress(t, "run-set-debug-mode", tgt)
+		assertSuccessRate(t, m, 0.95)
+		assertNoServerErrors(t, m)
+	})
+	t.Run("spike", func(t *testing.T) {
+		m := runSpike(t, "run-set-debug-mode", tgt)
+		assertSuccessRate(t, m, 0.90)
+		assertNoServerErrors(t, m)
+	})
+}
+
+func TestRuns_Lineage(t *testing.T) {
+	mustClean(t)
+	projectID := "proj-run-lineage-" + newID()
+	jobID := seedJob(t, projectID)
+	runID, _ := seedRun(t, jobID)
+
+	tgt := newTargeter("GET", "/v1/runs/"+runID+"/lineage", nil)
+
+	t.Run("baseline", func(t *testing.T) {
+		m := runBaseline(t, "run-lineage", tgt)
+		assertLatencySLA(t, m)
+		assertSuccessRate(t, m, 0.99)
+	})
+	t.Run("stress", func(t *testing.T) {
+		m := runStress(t, "run-lineage", tgt)
+		assertSuccessRate(t, m, 0.95)
+		assertNoServerErrors(t, m)
+	})
+	t.Run("spike", func(t *testing.T) {
+		m := runSpike(t, "run-lineage", tgt)
+		assertSuccessRate(t, m, 0.90)
+		assertNoServerErrors(t, m)
+	})
+}
+
+func TestRuns_BulkDLQReplay(t *testing.T) {
+	mustClean(t)
+	projectID := "proj-bulk-dlq-replay-" + newID()
+	jobID := seedJob(t, projectID)
+	ctx := context.Background()
+
+	deadLetterRunIDs := make([]string, 100)
+	for i := range 100 {
+		runID, _ := seedRun(t, jobID)
+		if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{"started_at": time.Now().UTC()}); err != nil {
+			t.Fatalf("dequeue run %s: %v", runID, err)
+		}
+		if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{}); err != nil {
+			t.Fatalf("execute run %s: %v", runID, err)
+		}
+		if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{"finished_at": time.Now().UTC(), "error": "dead letter for load test"}); err != nil {
+			t.Fatalf("dead-letter run %s: %v", runID, err)
+		}
+		deadLetterRunIDs[i] = runID
+	}
+
+	var idx atomic.Int64
+	tgt := func(tgt *vegeta.Target) error {
+		i := int(idx.Add(1)-1) * 5
+		if i+5 > len(deadLetterRunIDs) {
+			i = i % (len(deadLetterRunIDs) - 4)
+		}
+		runIDsJSON := ""
+		for j := range 5 {
+			if j > 0 {
+				runIDsJSON += ","
+			}
+			runIDsJSON += fmt.Sprintf(`"%s"`, deadLetterRunIDs[i+j])
+		}
+		tgt.Method = "POST"
+		tgt.URL = baseURL + "/v1/runs/bulk-dlq-replay"
+		tgt.Header = http.Header{
+			"X-Internal-Secret": []string{"test-secret"},
+			"Content-Type":      []string{"application/json"},
+		}
+		tgt.Body = []byte(fmt.Sprintf(`{"run_ids":[%s]}`, runIDsJSON))
+		return nil
+	}
+
+	t.Run("baseline", func(t *testing.T) {
+		m := runBaseline(t, "bulk-dlq-replay", tgt, withRate(20))
+		assertSuccessRate(t, m, 0.70)
+		assertNoServerErrors(t, m)
+	})
+	t.Run("stress", func(t *testing.T) {
+		m := runStress(t, "bulk-dlq-replay", tgt, withWorkers(10))
+		assertNoServerErrors(t, m)
+	})
+	t.Run("spike", func(t *testing.T) {
+		m := runSpike(t, "bulk-dlq-replay", tgt)
+		assertNoServerErrors(t, m)
+	})
+}
