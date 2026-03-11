@@ -44,11 +44,12 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `run_outputs` | Structured outputs with optional schema validation |
 | `environments` | Environment definitions with key-value variables per project |
 | `environment_variables` | Environment variable key-value pairs with inheritance |
-| `endpoint_circuit_state` | Circuit breaker state per endpoint URL |
+| `endpoint_circuit_state` | Circuit breaker state per endpoint URL (state, failures, opened_at, last_failure_at) |
 | `pricing_catalog` | Static pricing table for AI model cost calculation |
 | `job_secrets` | Encrypted secrets scoped to job and environment |
-| `job_groups` | Logical grouping of jobs |
+| `job_groups` | Logical grouping of jobs (full CRUD with name, description, project scope) |
 | `job_dependencies` | Inter-job dependency definitions |
+| `audit_events` | Immutable audit trail for security-sensitive operations (migration 000057) |
 
 ## Key Columns
 
@@ -101,18 +102,71 @@ updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 ### Key Indexes
 
-- `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` — Reaper timeout lookup
-- `idx_event_triggers_project_status`: `(project_id, status)` — List queries
-- `idx_event_triggers_event_key_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
-- `idx_event_triggers_step_run`: `(workflow_step_run_id) WHERE workflow_step_run_id IS NOT NULL` — Step-to-trigger lookup
+- `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` -- Reaper timeout lookup
+- `idx_event_triggers_project_status`: `(project_id, status)` -- List queries
+- `idx_event_triggers_event_key_prefix`: `(event_key text_pattern_ops)` -- Prefix matching for batch resolution
+- `idx_event_triggers_step_run`: `(workflow_step_run_id) WHERE workflow_step_run_id IS NOT NULL` -- Step-to-trigger lookup
 
-### webhook_deliveries Extensions
+### webhook_deliveries
 
-The `webhook_deliveries` table is shared between job run webhooks and event trigger webhooks:
+The `webhook_deliveries` table (migration 000009, extended in 000061) is shared between job run webhooks and event trigger webhooks:
 
-- `event_trigger_id TEXT` column (FK to event_triggers)
-- `run_id` and `job_id` are nullable to support event trigger deliveries
-- Same table serves both job run and event trigger webhook deliveries
+```sql
+id                TEXT PRIMARY KEY
+run_id            TEXT                -- FK to job_runs (nullable)
+job_id            TEXT                -- FK to jobs (nullable)
+event_trigger_id  TEXT                -- FK to event_triggers (nullable)
+webhook_url       TEXT NOT NULL
+status            TEXT NOT NULL DEFAULT 'pending'  -- pending, delivering, delivered, failed, dead
+attempts          INT NOT NULL DEFAULT 0
+max_attempts      INT NOT NULL DEFAULT 5
+last_status_code  INT
+last_error        TEXT
+next_retry_at     TIMESTAMPTZ
+delivered_at      TIMESTAMPTZ
+created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+Key indexes:
+- `idx_webhook_deliveries_event_trigger`: `(event_trigger_id) WHERE event_trigger_id IS NOT NULL`
+- `idx_webhook_deliveries_status`: `(status) WHERE status IN ('pending', 'delivering')`
+
+### endpoint_circuit_state
+
+The circuit breaker state table (migration 000022) tracks per-endpoint failure state:
+
+```sql
+endpoint_url    TEXT PRIMARY KEY
+state           TEXT NOT NULL DEFAULT 'closed'  -- closed, open, half_open
+failures        INT NOT NULL DEFAULT 0
+opened_at       TIMESTAMPTZ
+last_failure_at TIMESTAMPTZ
+updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+### job_runs Key Indexes
+
+- `idx_runs_queue`: `(status, next_retry_at, priority DESC, created_at ASC) WHERE status = 'queued'` -- Composite dequeue lookup
+- `idx_runs_priority`: `(priority DESC, created_at ASC) WHERE status = 'queued'` -- Priority-ordered FIFO
+- `idx_runs_idempotency`: `(job_id, idempotency_key) WHERE idempotency_key IS NOT NULL` UNIQUE -- Deduplication
+- `idx_runs_heartbeat`: `(heartbeat_at) WHERE status = 'executing'` -- Stale run detection
+- `idx_runs_retry`: `(next_retry_at) WHERE status = 'queued' AND next_retry_at IS NOT NULL` -- Retry gating
+- `idx_runs_dead_letter`: `(status) WHERE status = 'dead_letter'` -- DLQ queries
+- `idx_runs_continuation`: `(continuation_of)` -- Lineage tree traversal
+- `idx_runs_metadata`: GIN index on `metadata` (migration 000016) -- JSONB filtering
+- `idx_jobs_tags`: GIN index on `tags` (migration 000054) -- Tag-based filtering
+
+### FK Constraints on job_runs
+
+Important for partitioning considerations:
+
+- `job_runs.parent_run_id REFERENCES job_runs(id)` -- Self-referential FK (migration 000004). Must be dropped before partitioning.
+- `run_events.run_id` -- No ON DELETE clause
+- `run_checkpoints.run_id` -- ON DELETE CASCADE
+- `run_usage.run_id` -- ON DELETE CASCADE
+- `run_tool_calls.run_id` -- ON DELETE CASCADE
+- `run_outputs.run_id` -- ON DELETE CASCADE
 
 ## Migrations
 

@@ -20,7 +20,19 @@ The following hosts are explicitly blocked:
 - `169.254.169.254` (Cloud metadata service)
 
 ### Private IP Detection
-The system performs DNS resolution and checks if any of the resolved IP addresses belong to private or loopback ranges. This prevents access to internal network services.
+The system performs DNS resolution and checks if any of the resolved IP addresses belong to blocked ranges. This prevents access to internal network services.
+
+### Blocked IP Ranges
+- Private IPv4: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- Loopback: `127.0.0.0/8`, `::1/128`
+- Link-local: `169.254.0.0/16`
+- CGNAT: `100.64.0.0/10`
+- IPv6 Unique Local: `fc00::/7`
+
+### Defense in Depth
+SSRF validation is applied in two layers:
+1. **API layer**: On job create/update for `endpoint_url`, `fallback_endpoint_url`, and `webhook_url`
+2. **Worker layer**: At dispatch time for environment-resolved endpoint overrides (`internal/worker/validate.go`)
 
 ### Allowed Ports
 To further restrict outbound traffic, only a specific set of standard and common development ports are allowed for webhooks:

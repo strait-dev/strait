@@ -30,6 +30,7 @@
               "concepts/workflows",
               "concepts/scheduling",
               "concepts/retry-strategies",
+              "concepts/resilience",
               "concepts/event-triggers",
               "concepts/webhooks",
               "concepts/environments",
@@ -70,6 +71,7 @@
               "development/contributing",
               "development/testing",
               "development/database-schema",
+              "development/technology-choices",
               "migrations"
             ]
           },

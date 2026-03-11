@@ -1,0 +1,118 @@
+---
+title: "Resilience"
+description: "Circuit breakers, concurrency limiting, rate limiting, and graceful degradation patterns in Strait."
+---
+
+Strait implements several resilience patterns to protect against cascading failures when dispatching jobs to external endpoints and delivering webhooks.
+
+## Circuit Breaker
+
+The circuit breaker pattern prevents repeated dispatch attempts to endpoints that are consistently failing. When an endpoint exceeds a failure threshold, the circuit "opens" and subsequent dispatches are short-circuited until a cooldown period elapses.
+
+### Job Dispatch Circuit Breaker
+
+Job dispatch uses a PostgreSQL-backed circuit breaker persisted in the `endpoint_circuit_state` table. This provides durability across process restarts.
+
+**State machine:**
+- **Closed** (default): Dispatches proceed normally. Consecutive failures are tracked.
+- **Open**: All dispatches to this endpoint are skipped. The run is requeued with a backoff delay. Transitions to half-open after a cooldown period.
+- **Half-open**: A single probe dispatch is allowed. Success closes the circuit; failure re-opens it.
+
+**Schema:**
+```sql
+-- endpoint_circuit_state table (migration 000022)
+endpoint_url    TEXT PRIMARY KEY
+state           TEXT NOT NULL DEFAULT 'closed'  -- closed, open, half_open
+failures        INT NOT NULL DEFAULT 0
+opened_at       TIMESTAMPTZ
+last_failure_at TIMESTAMPTZ
+```
+
+The in-memory circuit breaker (`internal/worker/circuitbreaker.go`) provides fast lookups during dispatch. The PostgreSQL table provides durability.
+
+### Fallback Endpoint
+
+When a job has a `fallback_endpoint_url` configured and the primary endpoint fails dispatch, Strait automatically retries against the fallback URL. The fallback fires when:
+
+- The primary endpoint returns a non-retryable error
+- The primary endpoint has exhausted retry attempts within the current dispatch cycle
+
+Fallback attempts are counted against the run's `max_attempts` budget. Both primary and fallback endpoints receive the same SSRF validation at dispatch time.
+
+## Concurrency Limiting
+
+Per-job concurrency caps prevent a single job definition from monopolizing worker capacity.
+
+### max_concurrency
+
+The `max_concurrency` field on job definitions limits how many runs of that job can execute simultaneously. Enforcement happens at dequeue time via a COUNT subquery in the `SKIP LOCKED` dequeue query:
+
+```sql
+SELECT ... FROM job_runs
+WHERE status = 'queued'
+  AND ... 
+  AND (
+    j.max_concurrency IS NULL
+    OR j.max_concurrency = 0
+    OR (SELECT COUNT(*) FROM job_runs jr2
+        WHERE jr2.job_id = j.id AND jr2.status = 'executing')
+       < j.max_concurrency
+  )
+FOR UPDATE SKIP LOCKED
+LIMIT $batch_size
+```
+
+This provides single-worker enforcement. For multi-worker deployments, distributed enforcement via Redis atomic counters is planned.
+
+## Rate Limiting
+
+### Per-Job Rate Limits
+
+The `rate_limit_max` and `rate_limit_window_secs` fields on job definitions control dispatch throughput. When a job exceeds its rate limit, runs are held in `queued` status until the window expires.
+
+### API Rate Limiting
+
+The API layer implements rate limiting via `httprate` middleware:
+- **Global rate limit**: `RATE_LIMIT_REQUESTS` per `RATE_LIMIT_WINDOW` per IP
+- **Trigger rate limit**: `TRIGGER_RATE_LIMIT_REQUESTS` specifically for `/trigger` endpoints
+- **RBAC control-plane limits**: Stricter per-route limits on mutating authorization endpoints
+
+## Retry Strategies
+
+Strait supports four retry strategies configurable per job:
+
+| Strategy | Behavior |
+| :--- | :--- |
+| `exponential` | Delay doubles each attempt: 1s, 2s, 4s, 8s, ... |
+| `linear` | Fixed increment per attempt: 5s, 10s, 15s, 20s, ... |
+| `fixed` | Same delay every attempt |
+| `custom` | Per-attempt delays specified via `retry_delays_secs` array |
+
+All strategies apply +/-20% jitter to prevent thundering herd when many runs retry simultaneously.
+
+When `attempt >= max_attempts` and the DLQ feature flag is enabled (`FF_RUN_DLQ=true`), the run transitions to `dead_letter` instead of `failed`. Dead-lettered runs can be replayed via the DLQ management API.
+
+For detailed retry configuration, see [Retry Strategies](/docs/concepts/retry-strategies).
+
+## Graceful Shutdown
+
+Strait implements structured shutdown to protect in-flight work:
+
+1. **Signal capture**: `SIGINT`/`SIGTERM` triggers context cancellation via `signal.NotifyContext`
+2. **Stop accepting work**: Worker polling loop exits, no new runs dequeued
+3. **Drain in-flight jobs**: `pool.Shutdown()` blocks until all goroutines complete. A 30-second timeout prevents indefinite blocking.
+4. **Stop scheduler**: Cron ticker, delayed poller, and reaper stop
+5. **Drain HTTP server**: 10-second grace period for in-flight API requests
+6. **Cleanup**: Database and Redis connections closed, OTel exporters flushed
+
+The `context.WithoutCancel` pattern ensures job dispatch goroutines continue executing even after the parent context is canceled, allowing them to complete and record results before the process exits.
+
+## Stale Run Recovery
+
+The stale reaper (`internal/scheduler/reaper.go`) detects runs that have stopped heartbeating and transitions them to a recoverable state:
+
+- Runs in `dequeued` with `heartbeat_at` older than 5 minutes are transitioned to `system_failed`
+- Runs in `waiting` with `heartbeat_at` older than 1 hour are transitioned to `system_failed`
+- The reaper uses PostgreSQL advisory locks (`pg_try_advisory_lock`) to ensure single-leader execution across multiple instances
+
+This acts as a safety net for worker crashes, network partitions, and other failure scenarios where a run is claimed but never completed.
