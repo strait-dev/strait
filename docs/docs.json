@@ -36,7 +36,10 @@
               "concepts/environments",
               "concepts/versioning",
               "concepts/cost-budgets",
-              "concepts/cdc"
+              "concepts/cdc",
+              "concepts/adaptive-concurrency",
+              "concepts/audit-logging",
+              "concepts/webhook-subscriptions"
             ]
           },
           {
@@ -62,6 +65,7 @@
             "group": "Configuration",
             "pages": [
               "configuration/environment-variables",
+              "configuration/feature-flags",
               "configuration/database"
             ]
           },
