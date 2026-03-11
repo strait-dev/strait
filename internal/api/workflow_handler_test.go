@@ -124,6 +124,7 @@ func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, p
 func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {
 	t.Parallel()
 	createStepCalls := 0
+	expectedResourceClass := map[string]string{"s1": "small", "s2": "large"}
 	ms := &mockAPIStore{
 		createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
 			wf.ID = "wf-1"
@@ -134,13 +135,16 @@ func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {
 			if step.WorkflowID != "wf-1" {
 				t.Fatalf("step workflow_id = %q, want wf-1", step.WorkflowID)
 			}
+			if want := expectedResourceClass[step.StepRef]; step.ResourceClass != want {
+				t.Fatalf("step %s resource_class = %q, want %q", step.StepRef, step.ResourceClass, want)
+			}
 			return nil
 		},
 	}
 
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1"},{"job_id":"job-2","step_ref":"s2","depends_on":["s1"]}]}`
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"small"},{"job_id":"job-2","step_ref":"s2","depends_on":["s1"],"resource_class":"large"}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
 
 	if w.Code != http.StatusCreated {
@@ -171,6 +175,21 @@ func TestHandleCreateWorkflow_InvalidStep(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateWorkflow_InvalidResourceClass(t *testing.T) {
+	t.Parallel()
+	srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"xlarge"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "resource_class") {
+		t.Fatalf("expected resource_class validation error, got: %s", w.Body.String())
 	}
 }
 
@@ -291,8 +310,11 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 			}
 			return nil
 		},
-		createWorkflowStepFn: func(_ context.Context, _ *domain.WorkflowStep) error {
+		createWorkflowStepFn: func(_ context.Context, step *domain.WorkflowStep) error {
 			createStepCalls++
+			if step.ResourceClass != "medium" {
+				t.Fatalf("step resource_class = %q, want medium", step.ResourceClass)
+			}
 			return nil
 		},
 		listStepsByWorkflowFn: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
@@ -300,7 +322,7 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 		},
 	}
 
-	body := `{"name":"new","slug":"new-slug","enabled":false,"steps":[{"job_id":"job-1","step_ref":"s1"}]}`
+	body := `{"name":"new","slug":"new-slug","enabled":false,"steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"medium"}]}`
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
@@ -365,6 +387,26 @@ func TestHandleUpdateWorkflow_PolicyViolation(t *testing.T) {
 	}
 	if deleteCalled || createStepCalled {
 		t.Fatal("expected step replacement not to run when policy validation fails")
+	}
+}
+
+func TestHandleUpdateWorkflow_InvalidResourceClass(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", Enabled: true}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"xlarge"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "resource_class") {
+		t.Fatalf("expected resource_class validation error, got: %s", w.Body.String())
 	}
 }
 
@@ -2314,6 +2356,7 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		t.Parallel()
 		stepsCopied := 0
 		snapshotCreated := false
+		expectedResourceClass := map[string]string{"a": "large", "b": "medium"}
 		ms := &mockAPIStore{
 			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
 				return &domain.Workflow{
@@ -2330,8 +2373,8 @@ func TestHandleCloneWorkflow(t *testing.T) {
 					t.Fatalf("expected source wf-1, got %s", workflowID)
 				}
 				return []domain.WorkflowStep{
-					{ID: "step-a", WorkflowID: workflowID, JobID: "job-a", StepRef: "a"},
-					{ID: "step-b", WorkflowID: workflowID, JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+					{ID: "step-a", WorkflowID: workflowID, JobID: "job-a", StepRef: "a", ResourceClass: "large"},
+					{ID: "step-b", WorkflowID: workflowID, JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}, ResourceClass: "medium"},
 				}, nil
 			},
 			createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
@@ -2350,6 +2393,9 @@ func TestHandleCloneWorkflow(t *testing.T) {
 			createWorkflowStepFn: func(_ context.Context, step *domain.WorkflowStep) error {
 				if step.WorkflowID != "wf-clone" {
 					t.Fatalf("cloned step should belong to wf-clone, got %s", step.WorkflowID)
+				}
+				if want := expectedResourceClass[step.StepRef]; step.ResourceClass != want {
+					t.Fatalf("step %s resource_class = %q, want %q", step.StepRef, step.ResourceClass, want)
 				}
 				stepsCopied++
 				return nil

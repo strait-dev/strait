@@ -2890,12 +2890,13 @@ func TestWorkflowStep_CRUD(t *testing.T) {
 	}
 
 	step := &domain.WorkflowStep{
-		WorkflowID: workflow.ID,
-		JobID:      job.ID,
-		StepRef:    "extract",
-		DependsOn:  []string{},
-		Condition:  json.RawMessage(`{"type":"step_status","step_ref":"extract","status":"completed"}`),
-		Payload:    json.RawMessage(`{"batch":1}`),
+		WorkflowID:    workflow.ID,
+		JobID:         job.ID,
+		StepRef:       "extract",
+		DependsOn:     []string{},
+		Condition:     json.RawMessage(`{"type":"step_status","step_ref":"extract","status":"completed"}`),
+		Payload:       json.RawMessage(`{"batch":1}`),
+		ResourceClass: "medium",
 	}
 	if err := q.CreateWorkflowStep(ctx, step); err != nil {
 		t.Fatalf("CreateWorkflowStep() error = %v", err)
@@ -2909,6 +2910,9 @@ func TestWorkflowStep_CRUD(t *testing.T) {
 	if step.OnFailure != domain.FailWorkflow {
 		t.Fatalf("CreateWorkflowStep() on_failure = %q, want %q", step.OnFailure, domain.FailWorkflow)
 	}
+	if step.ResourceClass != "medium" {
+		t.Fatalf("CreateWorkflowStep() resource_class = %q, want medium", step.ResourceClass)
+	}
 
 	got, err := q.GetWorkflowStep(ctx, step.ID)
 	if err != nil {
@@ -2916,6 +2920,9 @@ func TestWorkflowStep_CRUD(t *testing.T) {
 	}
 	if got.ID != step.ID || got.WorkflowID != step.WorkflowID || got.JobID != step.JobID || got.StepRef != step.StepRef || got.OnFailure != step.OnFailure {
 		t.Fatalf("GetWorkflowStep() mismatch: got %+v want %+v", *got, *step)
+	}
+	if got.ResourceClass != "medium" {
+		t.Fatalf("GetWorkflowStep() resource_class = %q, want medium", got.ResourceClass)
 	}
 	if !jsonEqual(got.Condition, step.Condition) {
 		t.Fatalf("GetWorkflowStep() condition = %s, want %s", string(got.Condition), string(step.Condition))

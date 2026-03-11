@@ -44,6 +44,7 @@ type workflowStepRequest struct {
 	EventEmitKey          string                    `json:"event_emit_key,omitempty"`
 	SleepDurationSecs     int                       `json:"sleep_duration_secs,omitempty"`
 	ConcurrencyKey        string                    `json:"concurrency_key,omitempty"`
+	ResourceClass         string                    `json:"resource_class,omitempty"`
 }
 
 type createWorkflowRequest struct {
@@ -510,6 +511,7 @@ func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.Workflow
 			EventEmitKey:          stepReq.EventEmitKey,
 			SleepDurationSecs:     stepReq.SleepDurationSecs,
 			ConcurrencyKey:        stepReq.ConcurrencyKey,
+			ResourceClass:         stepReq.ResourceClass,
 		})
 	}
 	return steps
@@ -679,6 +681,9 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 		}
 		if len(step.ConcurrencyKey) > 128 {
 			return errors.New("concurrency_key must be at most 128 characters")
+		}
+		if step.ResourceClass != "" && step.ResourceClass != "small" && step.ResourceClass != "medium" && step.ResourceClass != "large" {
+			return errors.New("resource_class must be one of small, medium, large")
 		}
 		if len(step.DependsOn) == 0 {
 			continue
@@ -1042,6 +1047,7 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 			EventEmitKey:          src.EventEmitKey,
 			SleepDurationSecs:     src.SleepDurationSecs,
 			ConcurrencyKey:        src.ConcurrencyKey,
+			ResourceClass:         src.ResourceClass,
 		}
 		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow step")
