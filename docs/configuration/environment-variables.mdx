@@ -36,7 +36,6 @@ This page documents all environment variables available for configuring Strait.
 | `DEFAULT_JOB_MAX_ATTEMPTS` | Integer | `3` | Default maximum retry attempts for jobs. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | Integer | `300` | Default timeout for jobs in seconds. |
 | `WORKER_QUEUE_SIZE` | Integer | `0` | Bounded task queue size for the worker pool. When the queue is full, task submission blocks until a slot opens, providing backpressure. `0` means unbounded. |
-| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `30s` | Timeout for webhook dispatch requests. |
 
 ## Scheduler Configuration
 
@@ -66,8 +65,6 @@ This page documents all environment variables available for configuring Strait.
 | `RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for rate limiting. |
 | `TRIGGER_RATE_LIMIT_REQUESTS` | Integer | `10` | Number of trigger requests allowed per window. |
 | `TRIGGER_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for trigger rate limiting. |
-| `EVENT_SEND_RATE_LIMIT_REQUESTS` | Integer | `50` | Number of event send requests allowed per window. |
-| `EVENT_SEND_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for event send rate limiting. |
 
 ## Request Configuration
 
@@ -130,7 +127,86 @@ This page documents all environment variables available for configuring Strait.
 | `WORKER_PARTITIONS` | String List | - | List of partitions this worker should handle. |
 | `WORKER_PARTITION_WEIGHTS` | String | - | Weights for the configured partitions. |
 
+## Encryption
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `ENCRYPTION_KEY` | String | - | Primary key used for data encryption. |
+| `ENCRYPTION_KEY_OLD` | String List | - | List of previous encryption keys used for rotation. |
+
+## OIDC Authentication
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `OIDC_ENABLED` | Boolean | `false` | Enable OIDC authentication. |
+| `OIDC_ISSUER` | String | - | OIDC issuer URL. |
+| `OIDC_AUDIENCE` | String | - | OIDC audience. |
+| `OIDC_PUBLIC_KEY_PEM` | String | - | OIDC public key in PEM format. |
+
+## CDC Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `CDC_BATCH_SIZE` | Integer | `10` | Number of events to process in a single CDC batch. Overrides `SEQUIN_BATCH_SIZE`. |
+| `CDC_WAIT_TIME_MS` | Integer | `5000` | Wait time in milliseconds for CDC polling. Overrides `SEQUIN_WAIT_TIME_MS`. |
+
+## Shutdown
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `WORKER_DRAIN_TIMEOUT` | Duration | `30s` | Maximum time to wait for workers to finish in-flight jobs during shutdown. |
+
+## RBAC
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `PERMISSION_CACHE_TTL` | Duration | `30s` | Time-to-live for the RBAC permission cache. |
+
+## Webhook Delivery
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `WEBHOOK_MAX_PAYLOAD_BYTES` | Integer | `1MB` | Maximum size of webhook payloads in bytes. |
+| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
+
+## Adaptive Concurrency
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `ADAPTIVE_CONCURRENCY_MIN` | Integer | `5` | Minimum concurrency level for adaptive scaling. |
+| `ADAPTIVE_CONCURRENCY_MAX` | Integer | `100` | Maximum concurrency level for adaptive scaling. |
+
 ## Feature Flags
+
+Feature flags control optional capabilities. Flags in the 'Enabled by Default' section are production-ready and active in new deployments. Set any flag to `false` to disable it.
+
+### Feature Flags (Enabled by Default)
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `FF_SMART_RETRY` | Boolean | `true` | Enable advanced retry strategies with jitter. |
+| `FF_CIRCUIT_BREAKER` | Boolean | `true` | Enable circuit breakers for job endpoints. |
+| `FF_BULKHEADS` | Boolean | `true` | Enable bulkhead isolation for job execution. |
+| `FF_RUN_DLQ` | Boolean | `true` | Enable Dead Letter Queue for failed runs. |
+| `FF_PAYLOAD_VALIDATION` | Boolean | `true` | Enable JSON schema validation for payloads. |
+| `FF_JOB_TAGS` | Boolean | `true` | Enable tagging of jobs and runs. |
+| `FF_RUN_ANNOTATIONS` | Boolean | `true` | Enable adding annotations to active runs. |
+| `FF_EXECUTION_TRACING` | Boolean | `true` | Enable detailed execution timing traces. |
+| `FF_ENVIRONMENTS` | Boolean | `true` | Enable multi-environment support. |
+| `FF_JOB_GROUPS` | Boolean | `true` | Enable logical grouping of jobs. |
+| `FF_JOB_DEPENDENCIES` | Boolean | `true` | Enable inter-job dependency management. |
+| `FF_ADAPTIVE_CONCURRENCY` | Boolean | `true` | Enable adaptive concurrency scaling. |
+| `FF_EVENT_TRIGGERS` | Boolean | `true` | Enable event triggers for durable external event waits. Gates all `/v1/events/*` and `/sdk/v1/runs/{runID}/wait-for-event` endpoints. |
+| `FF_LISTEN_NOTIFY` | Boolean | `true` | Enable PostgreSQL LISTEN/NOTIFY for real-time job notifications. |
+| `FF_PRIORITY_AGING` | Boolean | `true` | Enable priority aging to prevent low-priority job starvation. |
+| `FF_WEBHOOK_SUBSCRIPTIONS` | Boolean | `true` | Enable webhook subscriptions for event-driven notifications. |
+| `FF_WEBHOOK_CIRCUIT_BREAKER` | Boolean | `true` | Enable circuit breakers for webhook delivery. |
+| `FF_QUERY_CACHE_WARMING` | Boolean | `true` | Enable proactive warming of the query cache. |
+| `FF_AUDIT_LOG` | Boolean | `true` | Enable detailed audit logging for all mutations. |
+| `FF_COST_BUDGETS` | Boolean | `true` | Enable cost budget enforcement. |
+| `FF_RATE_LIMIT_ENFORCEMENT` | Boolean | `true` | Enable enforcement of rate limits. |
+
+### Feature Flags (Opt-in)
 
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -142,28 +218,22 @@ This page documents all environment variables available for configuring Strait.
 | `FF_CHECKPOINTS` | Boolean | `false` | Enable SDK-driven run state checkpoints. |
 | `FF_RUN_CONTINUATION` | Boolean | `false` | Enable run continuation for long-running jobs. |
 | `FF_USAGE_TRACKING` | Boolean | `false` | Enable tracking of AI model usage and costs. |
-| `FF_COST_BUDGETS` | Boolean | `false` | Enable cost budget enforcement. |
 | `FF_ERROR_CLASSIFICATION` | Boolean | `false` | Enable automated error classification. |
-| `FF_SMART_RETRY` | Boolean | `false` | Enable advanced retry strategies with jitter. |
-| `FF_CIRCUIT_BREAKER` | Boolean | `false` | Enable circuit breakers for job endpoints. |
-| `FF_BULKHEADS` | Boolean | `false` | Enable bulkhead isolation for job execution. |
-| `FF_RUN_DLQ` | Boolean | `false` | Enable Dead Letter Queue for failed runs. |
-| `FF_PAYLOAD_VALIDATION` | Boolean | `false` | Enable JSON schema validation for payloads. |
-| `FF_JOB_TAGS` | Boolean | `false` | Enable tagging of jobs and runs. |
-| `FF_RUN_ANNOTATIONS` | Boolean | `false` | Enable adding annotations to active runs. |
 | `FF_SECRET_INJECTION` | Boolean | `false` | Enable injection of encrypted secrets into runs. |
 | `FF_RUN_REPLAY` | Boolean | `false` | Enable replaying of past job runs. |
 | `FF_DRY_RUN` | Boolean | `false` | Enable dry-run mode for job executions. |
 | `FF_RUN_RETENTION` | Boolean | `false` | Enable custom retention policies per run. |
-| `FF_EXECUTION_TRACING` | Boolean | `false` | Enable detailed execution timing traces. |
 | `FF_DEBUG_BUNDLE` | Boolean | `false` | Enable collection of debug diagnostics. |
 | `FF_BATCH_JOB_OPS` | Boolean | `false` | Enable batch operations on jobs. |
-| `FF_ENVIRONMENTS` | Boolean | `false` | Enable multi-environment support. |
-| `FF_JOB_GROUPS` | Boolean | `false` | Enable logical grouping of jobs. |
-| `FF_JOB_DEPENDENCIES` | Boolean | `false` | Enable inter-job dependency management. |
 | `FF_JOB_HEALTH_SCORING` | Boolean | `false` | Enable automated health scoring for jobs. |
 | `FF_ADAPTIVE_TIMEOUT` | Boolean | `false` | Enable adaptive timeouts based on historical data. |
-| `FF_EVENT_TRIGGERS` | Boolean | `false` | Enable event triggers for durable external event waits. Gates all `/v1/events/*` and `/sdk/v1/runs/{runID}/wait-for-event` endpoints. |
+| `FF_CONCURRENCY_ENFORCEMENT` | Boolean | `false` | Enable enforcement of concurrency limits. |
+| `FF_PROJECT_FAIR_QUEUE` | Boolean | `false` | Enable fair queuing across projects. |
+| `FF_WEBHOOK_DELIVERY_WORKER` | Boolean | `false` | Enable dedicated worker pool for webhook delivery. |
+| `FF_WEBHOOK_TIMESTAMP_SIGNATURES` | Boolean | `false` | Enable timestamp-based signatures for webhooks. |
+| `FF_FALLBACK_ENDPOINT` | Boolean | `false` | Enable fallback endpoints for webhook delivery. |
+| `FF_RUN_EVENTS_BUFFERED` | Boolean | `false` | Enable buffering of run events. |
+| `FF_REDIS_REQUIRED` | Boolean | `false` | Require Redis to be available for operation. |
 
 <Warning>
   `SECRET_ENCRYPTION_KEY` is required when `FF_SECRET_INJECTION` is set to `true`.

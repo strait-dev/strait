@@ -83,87 +83,69 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.TriggerRateLimitWindow != time.Minute {
 		t.Fatalf("TriggerRateLimitWindow = %v, want %v", cfg.TriggerRateLimitWindow, time.Minute)
 	}
-	if cfg.FFConcurrencyLimits {
-		t.Fatal("FFConcurrencyLimits = true, want false")
+	// Flags that default to false (opt-in / experimental)
+	optInFalse := map[string]bool{
+		"FFConcurrencyLimits":          cfg.FFConcurrencyLimits,
+		"FFProjectQuotas":              cfg.FFProjectQuotas,
+		"FFExecutionWindows":           cfg.FFExecutionWindows,
+		"FFQueuePartitioning":          cfg.FFQueuePartitioning,
+		"FFProgressStreaming":          cfg.FFProgressStreaming,
+		"FFCheckpoints":                cfg.FFCheckpoints,
+		"FFRunContinuation":            cfg.FFRunContinuation,
+		"FFUsageTracking":              cfg.FFUsageTracking,
+		"FFErrorClassification":        cfg.FFErrorClassification,
+		"FFSecretInjection":            cfg.FFSecretInjection,
+		"FFRunReplay":                  cfg.FFRunReplay,
+		"FFDryRun":                     cfg.FFDryRun,
+		"FFRunRetention":               cfg.FFRunRetention,
+		"FFDebugBundle":                cfg.FFDebugBundle,
+		"FFBatchJobOps":                cfg.FFBatchJobOps,
+		"FFJobHealthScoring":           cfg.FFJobHealthScoring,
+		"FFAdaptiveTimeout":            cfg.FFAdaptiveTimeout,
+		"FFConcurrencyEnforcement":     cfg.FFConcurrencyEnforcement,
+		"FFProjectFairQueue":           cfg.FFProjectFairQueue,
+		"FFWebhookDeliveryWorker":      cfg.FFWebhookDeliveryWorker,
+		"FFWebhookTimestampSignatures": cfg.FFWebhookTimestampSignatures,
+		"FFFallbackEndpoint":           cfg.FFFallbackEndpoint,
+		"FFRunEventsBuffered":          cfg.FFRunEventsBuffered,
+		"FFRedisRequired":              cfg.FFRedisRequired,
 	}
-	if cfg.FFProjectQuotas {
-		t.Fatal("FFProjectQuotas = true, want false")
+	for name, val := range optInFalse {
+		if val {
+			t.Fatalf("%s = true, want false", name)
+		}
 	}
-	if cfg.FFExecutionWindows {
-		t.Fatal("FFExecutionWindows = true, want false")
+
+	// Flags that default to true (production defaults)
+	prodTrue := map[string]bool{
+		"FFSmartRetry":            cfg.FFSmartRetry,
+		"FFCircuitBreaker":        cfg.FFCircuitBreaker,
+		"FFBulkheads":             cfg.FFBulkheads,
+		"FFRunDLQ":                cfg.FFRunDLQ,
+		"FFPayloadValidation":     cfg.FFPayloadValidation,
+		"FFJobTags":               cfg.FFJobTags,
+		"FFRunAnnotations":        cfg.FFRunAnnotations,
+		"FFExecutionTracing":      cfg.FFExecutionTracing,
+		"FFEnvironments":          cfg.FFEnvironments,
+		"FFJobGroups":             cfg.FFJobGroups,
+		"FFJobDependencies":       cfg.FFJobDependencies,
+		"FFAdaptiveConcurrency":   cfg.FFAdaptiveConcurrency,
+		"FFEventTriggers":         cfg.FFEventTriggers,
+		"FFListenNotify":          cfg.FFListenNotify,
+		"FFRateLimitEnforcement":  cfg.FFRateLimitEnforcement,
+		"FFPriorityAging":         cfg.FFPriorityAging,
+		"FFCostBudgets":           cfg.FFCostBudgets,
+		"FFWebhookCircuitBreaker": cfg.FFWebhookCircuitBreaker,
+		"FFWebhookSubscriptions":  cfg.FFWebhookSubscriptions,
+		"FFQueryCacheWarming":     cfg.FFQueryCacheWarming,
+		"FFAuditLog":              cfg.FFAuditLog,
 	}
-	if cfg.FFQueuePartitioning {
-		t.Fatal("FFQueuePartitioning = true, want false")
+	for name, val := range prodTrue {
+		if !val {
+			t.Fatalf("%s = false, want true", name)
+		}
 	}
-	if cfg.FFProgressStreaming {
-		t.Fatal("FFProgressStreaming = true, want false")
-	}
-	if cfg.FFCheckpoints {
-		t.Fatal("FFCheckpoints = true, want false")
-	}
-	if cfg.FFRunContinuation {
-		t.Fatal("FFRunContinuation = true, want false")
-	}
-	if cfg.FFUsageTracking {
-		t.Fatal("FFUsageTracking = true, want false")
-	}
-	if cfg.FFCostBudgets {
-		t.Fatal("FFCostBudgets = true, want false")
-	}
-	if cfg.FFErrorClassification {
-		t.Fatal("FFErrorClassification = true, want false")
-	}
-	if cfg.FFSmartRetry {
-		t.Fatal("FFSmartRetry = true, want false")
-	}
-	if cfg.FFCircuitBreaker {
-		t.Fatal("FFCircuitBreaker = true, want false")
-	}
-	if cfg.FFBulkheads {
-		t.Fatal("FFBulkheads = true, want false")
-	}
-	if cfg.FFRunDLQ {
-		t.Fatal("FFRunDLQ = true, want false")
-	}
-	if cfg.FFPayloadValidation {
-		t.Fatal("FFPayloadValidation = true, want false")
-	}
-	if cfg.FFJobTags {
-		t.Fatal("FFJobTags = true, want false")
-	}
-	if cfg.FFRunAnnotations {
-		t.Fatal("FFRunAnnotations = true, want false")
-	}
-	if cfg.FFSecretInjection {
-		t.Fatal("FFSecretInjection = true, want false")
-	}
-	if cfg.FFRunReplay {
-		t.Fatal("FFRunReplay = true, want false")
-	}
-	if cfg.FFRunRetention {
-		t.Fatal("FFRunRetention = true, want false")
-	}
-	if cfg.FFExecutionTracing {
-		t.Fatal("FFExecutionTracing = true, want false")
-	}
-	if cfg.FFDebugBundle {
-		t.Fatal("FFDebugBundle = true, want false")
-	}
-	if cfg.FFJobGroups {
-		t.Fatal("FFJobGroups = true, want false")
-	}
-	if cfg.FFJobDependencies {
-		t.Fatal("FFJobDependencies = true, want false")
-	}
-	if cfg.FFJobHealthScoring {
-		t.Fatal("FFJobHealthScoring = true, want false")
-	}
-	if cfg.FFAdaptiveTimeout {
-		t.Fatal("FFAdaptiveTimeout = true, want false")
-	}
-	if cfg.FFAdaptiveConcurrency {
-		t.Fatal("FFAdaptiveConcurrency = true, want false")
-	}
+
 	if cfg.AdaptiveConcurrencyMin != 5 {
 		t.Fatalf("AdaptiveConcurrencyMin = %d, want %d", cfg.AdaptiveConcurrencyMin, 5)
 	}
@@ -228,7 +210,8 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 		t,
 		"DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "PORT", "WORKER_CONCURRENCY", "MODE", "LOG_LEVEL",
 		"INDEX_MAINTENANCE_INTERVAL",
-		"FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS", "FF_PROGRESS_STREAMING", "FF_PAYLOAD_VALIDATION", "FF_EXECUTION_TRACING", "FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES",
+		"FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS", "FF_PROGRESS_STREAMING",
+		"FF_PAYLOAD_VALIDATION", "FF_EXECUTION_TRACING", "FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES",
 		"FF_ADAPTIVE_CONCURRENCY", "ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX",
 	)
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
@@ -242,11 +225,11 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("FF_CONCURRENCY_LIMITS", "true")
 	t.Setenv("FF_PROJECT_QUOTAS", "true")
 	t.Setenv("FF_PROGRESS_STREAMING", "true")
-	t.Setenv("FF_PAYLOAD_VALIDATION", "true")
-	t.Setenv("FF_EXECUTION_TRACING", "true")
-	t.Setenv("FF_JOB_GROUPS", "true")
-	t.Setenv("FF_JOB_DEPENDENCIES", "true")
-	t.Setenv("FF_ADAPTIVE_CONCURRENCY", "true")
+	t.Setenv("FF_PAYLOAD_VALIDATION", "false")
+	t.Setenv("FF_EXECUTION_TRACING", "false")
+	t.Setenv("FF_JOB_GROUPS", "false")
+	t.Setenv("FF_JOB_DEPENDENCIES", "false")
+	t.Setenv("FF_ADAPTIVE_CONCURRENCY", "false")
 	t.Setenv("ADAPTIVE_CONCURRENCY_MIN", "3")
 	t.Setenv("ADAPTIVE_CONCURRENCY_MAX", "30")
 
@@ -279,20 +262,20 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	if !cfg.FFProgressStreaming {
 		t.Fatal("FFProgressStreaming = false, want true")
 	}
-	if !cfg.FFPayloadValidation {
-		t.Fatal("FFPayloadValidation = false, want true")
+	if cfg.FFPayloadValidation {
+		t.Fatal("FFPayloadValidation = true, want false (overridden)")
 	}
-	if !cfg.FFExecutionTracing {
-		t.Fatal("FFExecutionTracing = false, want true")
+	if cfg.FFExecutionTracing {
+		t.Fatal("FFExecutionTracing = true, want false (overridden)")
 	}
-	if !cfg.FFJobGroups {
-		t.Fatal("FFJobGroups = false, want true")
+	if cfg.FFJobGroups {
+		t.Fatal("FFJobGroups = true, want false (overridden)")
 	}
-	if !cfg.FFJobDependencies {
-		t.Fatal("FFJobDependencies = false, want true")
+	if cfg.FFJobDependencies {
+		t.Fatal("FFJobDependencies = true, want false (overridden)")
 	}
-	if !cfg.FFAdaptiveConcurrency {
-		t.Fatal("FFAdaptiveConcurrency = false, want true")
+	if cfg.FFAdaptiveConcurrency {
+		t.Fatal("FFAdaptiveConcurrency = true, want false (overridden)")
 	}
 	if cfg.AdaptiveConcurrencyMin != 3 {
 		t.Fatalf("AdaptiveConcurrencyMin = %d, want %d", cfg.AdaptiveConcurrencyMin, 3)
