@@ -14,6 +14,10 @@ A workflow is defined as a Directed Acyclic Graph (DAG) where:
 
 Validation guardrail: a workflow can include up to **1000** steps.
 
+<Note>
+For implementation-level behavior (scheduler decisions, explainability APIs, critical-path estimates, policy enforcement, and replay controls), see [DAG Runtime](/docs/concepts/dag-runtime).
+</Note>
+
 ## Step Types
 
 | Type | Description |
@@ -80,6 +84,23 @@ Workflows can trigger other workflows using the `sub_workflow` step type.
 At trigger time, you can provide `step_overrides` to selectively enable or disable specific steps for that specific run.
 
 For previewing the resulting execution order (after overrides), use `POST /v1/workflows/{workflowID}/plan`.
+
+## Runtime Introspection and Recovery
+
+Beyond definition and execution, workflow runs expose runtime control APIs:
+
+- `GET /v1/workflow-runs/{workflowRunID}/graph`: execution graph, runnable set, and critical-path estimate.
+- `GET /v1/workflow-runs/{workflowRunID}/explain`: paginated scheduler/condition decision log.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: retry a single terminal step.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: replay a branch from a selected step.
+
+Version analysis APIs:
+
+- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}`
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact`
+- `POST /v1/workflows/{workflowID}/simulate`
+
+These endpoints are intended for operations and incident response, not only workflow authoring.
 
 ## Workflow FSMs
 

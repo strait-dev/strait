@@ -28,6 +28,7 @@
               "concepts/jobs",
               "concepts/runs",
               "concepts/workflows",
+              "concepts/dag-runtime",
               "concepts/scheduling",
               "concepts/retry-strategies",
               "concepts/event-triggers",

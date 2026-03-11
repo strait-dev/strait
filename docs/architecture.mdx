@@ -13,13 +13,14 @@ Strait is designed as a distributed job orchestration service that uses PostgreS
                     │  (Chi router + middleware)         │
                     │                                    │
                     │  /v1/jobs/* ── Job CRUD + Health   │
-                    │  /v1/workflows/* ── DAG CRUD       │
-                    │  /v1/workflow-runs/* ── Run mgmt   │
-                    │  /v1/jobs/{id}/trigger ── Enqueue  │
-                    │  /v1/runs/* ── Run mgmt + DLQ     │
-                    │  /v1/events/* ── Event triggers    │
-                    │  /sdk/v1/* ── SDK (JWT auth)      │
-                    │  /metrics ── Prometheus            │
+                    │  /v1/workflows/* ── DAG CRUD + plan │
+                    │  /v1/workflow-runs/* ── graph/explain│
+                    │  /v1/workflow-policies/* ── governance│
+                    │  /v1/jobs/{id}/trigger ── Enqueue   │
+                    │  /v1/runs/* ── Run mgmt + DLQ       │
+                    │  /v1/events/* ── Event triggers     │
+                    │  /sdk/v1/* ── SDK (JWT auth)        │
+                    │  /metrics ── Prometheus              │
                     └──────────┬───────────────────────┘
                                │ Enqueue (budget check)
                                v
@@ -451,6 +452,54 @@ The workflow engine manages two FSMs—one for workflow runs, one for step runs.
 
 Callback handler `OnJobRunTerminal` drives workflow progression when any job run completes. This single entry point handles all terminal states (completed, failed, timed_out, crashed, canceled, system_failed, dead_letter) and determines next workflow actions—start ready children, apply failure policies, propagate sub-workflow outputs. Event-driven callbacks `OnEventReceived`, `OnStepCompleted`, and `OnStepFailed` handle event trigger resolution, sleep completion, and timeout/cancellation failures respectively. Event chaining is handled by `tryEmitEvent`, which auto-resolves waiting triggers when steps with `event_emit_key` complete.
 
+### Policy Enforcement and Governance
+
+Workflow governance is managed with per-project policies stored in `workflow_policies` and exposed via `GET|PUT /v1/workflow-policies/{projectID}`.
+
+Policy checks run at workflow lifecycle boundaries:
+- **Create** (`POST /v1/workflows`)
+- **Update** (`PATCH /v1/workflows/{workflowID}`)
+- **Trigger** (`POST /v1/workflows/{workflowID}/trigger`)
+
+Current policy controls:
+- `max_fan_out`: maximum number of direct dependents per step
+- `max_depth`: maximum DAG depth (computed from dependency chains)
+- `forbidden_step_types`: denylisted step types for the project
+- `require_approval_for_deploy`: requires at least one approval step for deploy/release-like DAGs
+
+Violations fail fast at the API boundary, preventing invalid DAGs from entering runtime scheduling.
+
+### Scheduling Decisions and Explainability
+
+The progression scheduler records key routing decisions in `workflow_step_decisions` for post-mortem and operator visibility. Decisions include:
+- `scheduler`: blocked by workflow `max_parallel_steps`
+- `concurrency`: blocked by `concurrency_key` serialization
+- `resource`: blocked by `resource_class` quota
+- `condition`: skipped because condition evaluated to false
+
+These records are exposed via `GET /v1/workflow-runs/{workflowRunID}/explain` with optional `step_ref` and `decision_type` filters.
+
+### Runtime Graph and Critical Path Estimation
+
+`GET /v1/workflow-runs/{workflowRunID}/graph` exposes the live DAG execution graph for a run, including:
+- node execution state (`pending|waiting|running|completed|failed|...`)
+- dependency edges and roots
+- runnable set (deps satisfied but not running)
+- critical-path estimate fields:
+  - `critical_path`
+  - `critical_path_estimate_ms`
+  - `critical_path_remaining_ms`
+
+Critical-path timing uses observed terminal durations when available, active elapsed time for running steps, and timeout overrides as a fallback estimate.
+
+### Runtime Recovery Controls
+
+Operators can recover or replay portions of a DAG without retriggering the entire workflow:
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` resets a terminal step to `pending` and resumes progression.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` resets the selected step and all descendants to `pending`, then resumes progression.
+
+These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation.
+
 ## Data Model
 
 The system uses PostgreSQL with the following primary tables (63 migrations):
@@ -829,10 +878,11 @@ The scheduler package runs several background goroutines:
     Polls every 5 seconds for job_runs with `status = 'delayed'` where `scheduled_at <= NOW()`. Transitions them to `queued` for dequeue. Enables delayed job execution without cron.
   </Tab>
   <Tab title="Stale Reaper">
-    Polls every minute for:
-    - Runs stuck in `dequeued` state with `heartbeat_at < NOW() - 5 minutes`
-    - Runs stuck in `waiting` state with `heartbeat_at < NOW() - 1 hour`
-    Transitions stale runs to `system_failed` with appropriate error message.
+    Polls on the configured reaper interval and performs multiple stale-recovery passes:
+    - **Stale dequeued runs**: re-queues runs stuck in `dequeued`
+    - **Stale executing runs**: marks runs as `crashed` on heartbeat loss
+    - **Stalled workflow runs**: detects workflow runs with no progression for `WF_STALL_THRESHOLD` and applies `WF_STALL_ACTION` (`log_only`, `reconcile`, or `fail_workflow`)
+    - **Timed out workflow runs**: marks workflow run `timed_out`, cancels non-terminal steps/job runs, and cancels pending event triggers
   </Tab>
   <Tab title="Event Trigger Reaper">
     Polls every 30 seconds for expired event triggers (`status = 'waiting'` and `expires_at <= NOW()`). Transitions them to `timed_out` and drives step/run failure via `OnStepFailed`. Also handles:
@@ -858,5 +908,6 @@ The scheduler package runs several background goroutines:
 - [Jobs](/docs/concepts/jobs) — Job definitions and configuration
 - [Runs](/docs/concepts/runs) — Run lifecycle and FSM
 - [Workflows](/docs/concepts/workflows) — DAG orchestration details
+- [DAG Runtime](/docs/concepts/dag-runtime) — Detailed DAG scheduler behavior, explainability, policy enforcement, and recovery controls
 - [Event Triggers](/docs/concepts/event-triggers) — Durable external event waits
 - [CDC](/docs/concepts/cdc) — Real-time change data capture
