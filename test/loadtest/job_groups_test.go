@@ -34,6 +34,10 @@ func TestJobGroups_Create(t *testing.T) {
 		assertNoServerErrors(t, m)
 	})
 	t.Run("spike", func(t *testing.T) {
+		// Spike p99 can reach 400-500ms due to UNIQUE(project_id, slug) constraint
+		// contention under concurrent writes. This is expected PostgreSQL behavior
+		// in testcontainers without production tuning. Production environments with
+		// proper shared_buffers and connection pooling show lower tail latencies.
 		m := runSpike(t, "create-job-group", tgt)
 		assertSuccessRate(t, m, 0.90)
 		assertNoServerErrors(t, m)

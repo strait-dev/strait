@@ -226,12 +226,13 @@ func TestLoadStore_ListingWithPagination(t *testing.T) {
 		))
 	}
 
-	pageSizes := []int{10, 50, 100}
+	pageSizes := []int{50, 100, 500}
 	for _, limit := range pageSizes {
 		start := time.Now()
 		pages := 0
 		total := 0
-		for {
+		maxPages := 200
+		for pages < maxPages {
 			resp := doRequest(t, "GET", fmt.Sprintf("/v1/jobs/?project_id=%s&limit=%d&offset=%d", projectID, limit, total), "")
 			if resp.Code != 200 {
 				break

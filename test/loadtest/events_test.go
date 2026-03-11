@@ -17,7 +17,7 @@ func TestEvents_ListEventTriggers(t *testing.T) {
 		seedEventTrigger(t, projectID)
 	}
 
-	tgt := newTargeter("GET", "/v1/events/?project_id="+projectID, nil)
+	tgt := newProjectTargeter("GET", "/v1/events/", projectID, nil)
 
 	t.Run("baseline", func(t *testing.T) {
 		m := runBaseline(t, "list-event-triggers", tgt)
@@ -41,7 +41,7 @@ func TestEvents_GetEventTrigger(t *testing.T) {
 	projectID := "proj-evt-get-" + newID()
 	_, eventKey := seedEventTrigger(t, projectID)
 
-	tgt := newTargeter("GET", "/v1/events/"+eventKey, nil)
+	tgt := newProjectTargeter("GET", "/v1/events/"+eventKey, projectID, nil)
 
 	t.Run("baseline", func(t *testing.T) {
 		m := runBaseline(t, "get-event-trigger", tgt)
@@ -67,7 +67,7 @@ func TestEvents_GetEventTriggerStats(t *testing.T) {
 		seedEventTrigger(t, projectID)
 	}
 
-	tgt := newTargeter("GET", "/v1/events/stats?project_id="+projectID, nil)
+	tgt := newProjectTargeter("GET", "/v1/events/stats", projectID, nil)
 
 	t.Run("baseline", func(t *testing.T) {
 		m := runBaseline(t, "event-trigger-stats", tgt)
@@ -91,7 +91,7 @@ func TestEvents_SendEvent(t *testing.T) {
 	projectID := "proj-evt-send-" + newID()
 	_, eventKey := seedEventTrigger(t, projectID)
 
-	tgt := newTargeter("POST", "/v1/events/"+eventKey+"/send", func() []byte {
+	tgt := newProjectTargeter("POST", "/v1/events/"+eventKey+"/send", projectID, func() []byte {
 		return []byte(fmt.Sprintf(`{"payload":{"data":"%s"}}`, newID()))
 	})
 
@@ -113,7 +113,7 @@ func TestEvents_SendEventByPrefix(t *testing.T) {
 		seedEventTrigger(t, projectID)
 	}
 
-	tgt := newTargeter("POST", "/v1/events/prefix/load/send", func() []byte {
+	tgt := newProjectTargeter("POST", "/v1/events/prefix/load/send", projectID, func() []byte {
 		return []byte(fmt.Sprintf(`{"payload":{"data":"%s"}}`, newID()))
 	})
 
@@ -146,6 +146,7 @@ func TestEvents_CancelEventTrigger(t *testing.T) {
 		tgt.URL = baseURL + "/v1/events/" + eventKeys[pos]
 		tgt.Header = http.Header{
 			"X-Internal-Secret": []string{"test-secret"},
+			"X-Project-Id":      []string{projectID},
 		}
 		return nil
 	}
@@ -164,7 +165,7 @@ func TestEvents_PurgeEventTriggers(t *testing.T) {
 		seedEventTrigger(t, projectID)
 	}
 
-	tgt := newTargeter("POST", "/v1/events/purge", func() []byte {
+	tgt := newProjectTargeter("POST", "/v1/events/purge", projectID, func() []byte {
 		return []byte(fmt.Sprintf(`{"project_id":"%s","older_than_hours":0}`, projectID))
 	})
 

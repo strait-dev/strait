@@ -343,6 +343,23 @@ func newTargeter(method, path string, bodyFn func() []byte) vegeta.Targeter {
 	}
 }
 
+// newProjectTargeter creates a targeter that sets X-Project-Id header for project-scoped endpoints.
+func newProjectTargeter(method, path, projectID string, bodyFn func() []byte) vegeta.Targeter {
+	return func(tgt *vegeta.Target) error {
+		tgt.Method = method
+		tgt.URL = baseURL + path
+		tgt.Header = http.Header{
+			"X-Internal-Secret": []string{"test-secret"},
+			"X-Project-Id":      []string{projectID},
+			"Content-Type":      []string{"application/json"},
+		}
+		if bodyFn != nil {
+			tgt.Body = bodyFn()
+		}
+		return nil
+	}
+}
+
 // newDynamicTargeter creates a targeter where path varies per request.
 func newDynamicTargeter(method string, pathFn func() string, bodyFn func() []byte) vegeta.Targeter {
 	return func(tgt *vegeta.Target) error {
