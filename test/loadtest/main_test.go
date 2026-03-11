@@ -131,6 +131,7 @@ func TestMain(m *testing.M) {
 			FFRunContinuation:        true,
 			FFAdaptiveTimeout:        true,
 			FFCheckpoints:            true,
+			FFWebhookSubscriptions:   true,
 		},
 		Store: testStore,
 		Queue: testQueue,
@@ -552,9 +553,10 @@ func seedAPIKey(t *testing.T, projectID string, scopes []string) (keyID, rawKey 
 // seedEnvironment creates an environment and returns its ID.
 func seedEnvironment(t *testing.T, projectID string) string {
 	t.Helper()
+	slug := "env-" + newID()
 	body := fmt.Sprintf(
-		`{"project_id":"%s","name":"load-env-%s","variables":{"KEY":"value","DB_HOST":"localhost"}}`,
-		projectID, newID(),
+		`{"project_id":"%s","name":"load-env-%s","slug":"%s","variables":{"KEY":"value","DB_HOST":"localhost"}}`,
+		projectID, slug, slug,
 	)
 	resp := httpDo(t, "POST", "/v1/environments/", body, nil)
 	return resp["id"].(string)
@@ -563,9 +565,10 @@ func seedEnvironment(t *testing.T, projectID string) string {
 // seedJobGroup creates a job group and returns its ID.
 func seedJobGroup(t *testing.T, projectID string) string {
 	t.Helper()
+	slug := "grp-" + newID()
 	body := fmt.Sprintf(
-		`{"project_id":"%s","name":"load-group-%s"}`,
-		projectID, newID(),
+		`{"project_id":"%s","name":"load-group-%s","slug":"%s"}`,
+		projectID, slug, slug,
 	)
 	resp := httpDo(t, "POST", "/v1/job-groups/", body, nil)
 	return resp["id"].(string)
@@ -575,8 +578,8 @@ func seedJobGroup(t *testing.T, projectID string) string {
 func seedWebhookSubscription(t *testing.T, projectID string) string {
 	t.Helper()
 	body := fmt.Sprintf(
-		`{"project_id":"%s","url":"https://example.com/webhook-%s","events":["run.completed","run.failed"]}`,
-		projectID, newID(),
+		`{"project_id":"%s","webhook_url":"https://example.com/webhook-%s","event_types":["run.completed","run.failed"],"secret":"whsec-%s"}`,
+		projectID, newID(), newID(),
 	)
 	resp := httpDo(t, "POST", "/v1/webhooks/subscriptions/", body, nil)
 	return resp["id"].(string)
