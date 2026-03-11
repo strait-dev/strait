@@ -194,6 +194,9 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		ParentWorkflowRunID: parentWorkflowRunID,
 		ParentStepRunID:     parentStepRunID,
 	}
+	if wfRun.ID == "" {
+		wfRun.ID = uuid.Must(uuid.NewV7()).String()
+	}
 	if wf.TimeoutSecs > 0 {
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
 		wfRun.ExpiresAt = &expiresAt

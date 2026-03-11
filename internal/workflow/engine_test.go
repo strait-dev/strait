@@ -20,6 +20,7 @@ type mockEngineStore struct {
 	listStepsByWorkflowVerFn     func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	countRunningWorkflowRunsFn   func(ctx context.Context, workflowID string) (int, error)
 	createWorkflowRunFn          func(ctx context.Context, run *domain.WorkflowRun) error
+	createWorkflowRunBootstrapFn func(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
 	createWorkflowStepRunFn      func(ctx context.Context, sr *domain.WorkflowStepRun) error
 	createWorkflowStepApprovalFn func(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	createEventTriggerFn         func(ctx context.Context, trigger *domain.EventTrigger) error
@@ -55,6 +56,24 @@ func (m *mockEngineStore) CountRunningWorkflowRuns(ctx context.Context, workflow
 func (m *mockEngineStore) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error {
 	if m.createWorkflowRunFn != nil {
 		return m.createWorkflowRunFn(ctx, run)
+	}
+	return nil
+}
+
+func (m *mockEngineStore) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+	if m.createWorkflowRunBootstrapFn != nil {
+		return m.createWorkflowRunBootstrapFn(ctx, run, stepRuns, startedAt)
+	}
+	if err := m.CreateWorkflowRun(ctx, run); err != nil {
+		return err
+	}
+	if err := m.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+		return err
+	}
+	for i := range stepRuns {
+		if err := m.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -360,6 +379,65 @@ func TestTriggerWorkflow(t *testing.T) {
 			t.Fatalf("expected create step run error, got %v", err)
 		}
 	})
+	t.Run("bootstrap path sets workflow_run_id on step runs", func(t *testing.T) {
+		t.Parallel()
+
+		capturedRunID := ""
+		capturedStepRuns := make([]domain.WorkflowStepRun, 0, 2)
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{ID: "step-a", JobID: "job-a", StepRef: "a"},
+					{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+				}, nil
+			},
+			createWorkflowRunBootstrapFn: func(_ context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+				if run.ID == "" {
+					t.Fatal("expected workflow run ID to be set before bootstrap")
+				}
+				if startedAt.IsZero() {
+					t.Fatal("expected non-zero bootstrap start time")
+				}
+				capturedRunID = run.ID
+				capturedStepRuns = append(capturedStepRuns[:0], stepRuns...)
+				for _, sr := range stepRuns {
+					if sr.WorkflowRunID != run.ID {
+						t.Fatalf("step run %s workflow_run_id = %q, want %q", sr.StepRef, sr.WorkflowRunID, run.ID)
+					}
+					if sr.ID == "" {
+						t.Fatalf("step run %s ID must be set", sr.StepRef)
+					}
+				}
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-" + run.JobID
+			return nil
+		}}
+
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "manual", nil, nil)
+		if err != nil {
+			t.Fatalf("TriggerWorkflow() error = %v", err)
+		}
+		if wfRun.ID == "" {
+			t.Fatal("expected non-empty workflow run ID")
+		}
+		if wfRun.ID != capturedRunID {
+			t.Fatalf("returned workflow run ID = %q, bootstrap captured %q", wfRun.ID, capturedRunID)
+		}
+		if len(capturedStepRuns) != 2 {
+			t.Fatalf("captured step runs = %d, want 2", len(capturedStepRuns))
+		}
+	})
+
 }
 
 func TestMergePayloads(t *testing.T) {
@@ -432,6 +510,7 @@ type mockCallbackStore struct {
 	getEventTriggerByStepRunIDFn    func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	getEventTriggerByEventKeyFn     func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn      func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	createWorkflowStepDecisionFn    func(ctx context.Context, d *domain.WorkflowStepDecision) error
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -451,6 +530,13 @@ func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, event
 func (m *mockCallbackStore) UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
 	if m.updateEventTriggerStatusFn != nil {
 		return m.updateEventTriggerStatusFn(ctx, id, status, responsePayload, receivedAt, errMsg)
+	}
+	return nil
+}
+
+func (m *mockCallbackStore) CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error {
+	if m.createWorkflowStepDecisionFn != nil {
+		return m.createWorkflowStepDecisionFn(ctx, d)
 	}
 	return nil
 }
