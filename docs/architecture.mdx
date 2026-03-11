@@ -498,11 +498,11 @@ Operators can recover or replay portions of a DAG without retriggering the entir
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` resets a terminal step to `pending` and resumes progression.
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` resets the selected step and all descendants to `pending`, then resumes progression.
 
-These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation.
+These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation. See [DAG Runtime](/docs/concepts/dag-runtime) for endpoint behavior details and [DAG Operations Playbook](/docs/guides/dag-operations-playbook) for production runbooks.
 
 ## Data Model
 
-The system uses PostgreSQL with the following primary tables (63 migrations):
+The system uses PostgreSQL with the following primary tables (66 migrations):
 
 ### jobs
 
@@ -636,6 +636,7 @@ event_key           TEXT                          -- Event trigger key (wait_for
 event_emit_key      TEXT                          -- Auto-emit event on completion
 sleep_duration_secs INT                           -- Sleep duration in seconds
 concurrency_key     TEXT                          -- Step-level concurrency group key
+resource_class      TEXT NOT NULL DEFAULT 'small' -- Scheduler capacity bucket
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 -- workflow_step_runs table
@@ -654,6 +655,32 @@ started_at          TIMESTAMPTZ
 finished_at         TIMESTAMPTZ
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 ```
+
+### workflow governance and explainability
+
+```sql
+-- workflow_policies table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+project_id          TEXT NOT NULL UNIQUE
+max_fan_out         INT NOT NULL DEFAULT 0
+max_depth           INT NOT NULL DEFAULT 0
+forbidden_step_types TEXT[] NOT NULL DEFAULT '{}'
+require_approval_for_deploy BOOLEAN NOT NULL DEFAULT FALSE
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+-- workflow_step_decisions table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE
+step_run_id         TEXT NOT NULL REFERENCES workflow_step_runs(id) ON DELETE CASCADE
+step_ref            TEXT NOT NULL
+decision_type       TEXT NOT NULL                 -- scheduler|concurrency|resource|condition
+decision            TEXT NOT NULL                 -- blocked|skip|allow
+explanation         TEXT NOT NULL
+details             JSONB
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
 
 ### event_triggers
 
@@ -909,5 +936,6 @@ The scheduler package runs several background goroutines:
 - [Runs](/docs/concepts/runs) — Run lifecycle and FSM
 - [Workflows](/docs/concepts/workflows) — DAG orchestration details
 - [DAG Runtime](/docs/concepts/dag-runtime) — Detailed DAG scheduler behavior, explainability, policy enforcement, and recovery controls
+- [DAG Operations Playbook](/docs/guides/dag-operations-playbook) — On-call triage, recovery, and hardening runbook for DAG incidents
 - [Event Triggers](/docs/concepts/event-triggers) — Durable external event waits
 - [CDC](/docs/concepts/cdc) — Real-time change data capture

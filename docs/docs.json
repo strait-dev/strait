@@ -55,6 +55,7 @@
               "guides/idempotency",
               "guides/sdk-integration",
               "guides/workflow-approvals",
+              "guides/dag-operations-playbook",
               "guides/event-triggers"
             ]
           },

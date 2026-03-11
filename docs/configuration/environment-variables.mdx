@@ -115,6 +115,8 @@ This page documents all environment variables available for configuring Strait.
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `MAX_WORKFLOW_NESTING_DEPTH` | Integer | `10` | Maximum allowed depth for nested workflows. |
+| `WF_STALL_THRESHOLD` | Duration | `15m` | Max time without workflow progression before run is considered stalled by reaper. |
+| `WF_STALL_ACTION` | String | `log_only` | Action when stalled run is detected: `log_only`, `reconcile`, or `fail_workflow`. |
 
 ## SSE Configuration
 

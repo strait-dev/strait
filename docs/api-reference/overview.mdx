@@ -65,15 +65,43 @@ Rate limits are applied per IP address:
 - `project_id`: Required for most list endpoints to scope results to a specific project.
 - `status`: Used on run and workflow-run listings to filter by current state.
 
-## DAG and Dependency Diagnostics Endpoints
+## DAG and Dependency Runtime Endpoints
 
-- `POST /v1/workflows/{workflowID}/plan`: Returns a topological plan preview for the current workflow version (supports step overrides).
-- `GET /v1/runs/{runID}/dependency-status`: Returns dependency details and whether a waiting run is currently unblocked.
+### Planning and Diagnostics
 
-## Example Request
+- `POST /v1/workflows/{workflowID}/plan`: Topological plan preview for the current workflow version (supports step overrides).
+- `GET /v1/runs/{runID}/dependency-status`: Returns dependency definitions for a run and whether it is currently unblocked.
+- `GET /v1/workflow-runs/{workflowRunID}/graph`: Runtime graph (nodes, edges, runnable set, critical-path estimates).
+- `GET /v1/workflow-runs/{workflowRunID}/explain`: Scheduler/condition decision stream with optional `step_ref` and `decision_type` filters.
+
+### Recovery and Governance
+
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: Reset one terminal step to `pending` and resume progression.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: Reset the selected step and descendants, then resume progression.
+- `GET /v1/workflow-policies/{projectID}` / `PUT /v1/workflow-policies/{projectID}`: Read and update project-level DAG governance policy.
+
+### Version Analysis
+
+- `POST /v1/workflows/{workflowID}/simulate`: Returns snapshot ordering metadata (`predicted_order`, `step_count`).
+- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}`: Added/removed step refs between versions.
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact`: How many sampled runs currently match a version.
+
+## Example Requests
 
 ```bash
-curl -X GET "https://strait.dev/v1/jobs?project_id=proj_1" \
-     -H "Authorization: Bearer strait_live_abc123" \
-     -H "Content-Type: application/json"
+# Runtime graph snapshot
+curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/graph" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+```bash
+# Explain why a step is waiting/skipped
+curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/explain?step_ref=deploy&decision_type=resource" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+```bash
+# Replay a failed branch from step 'deploy'
+curl -X POST "https://strait.dev/v1/workflow-runs/wr_123/steps/deploy/replay-subtree" \
+  -H "Authorization: Bearer strait_live_abc123"
 ```

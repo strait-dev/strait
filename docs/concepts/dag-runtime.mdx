@@ -6,6 +6,8 @@ description: "Detailed reference for workflow DAG execution, policy controls, ex
 This page is the implementation-level reference for Strait's workflow DAG engine.
 
 If you need the high-level conceptual overview, start with [Workflows](/docs/concepts/workflows). This document focuses on what the runtime does today, the exact controls that exist, and how to operate and debug DAG runs safely.
+For step-by-step incident handling and operator runbooks, see [DAG Operations Playbook](/docs/guides/dag-operations-playbook).
+
 
 ## What is implemented today
 
@@ -197,6 +199,82 @@ Returns how many sampled runs match the requested workflow version.
 `POST /v1/workflows/{workflowID}/simulate`
 
 Returns snapshot-level ordering metadata (`predicted_order`, `step_count`) for the current workflow version.
+
+## API examples (runtime and recovery)
+
+### Explain a blocked or skipped step
+
+```bash
+curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/explain?step_ref=deploy&decision_type=resource" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "dec_1",
+      "workflow_run_id": "wr_123",
+      "step_ref": "deploy",
+      "decision_type": "resource",
+      "decision": "blocked",
+      "explanation": "resource class large at capacity",
+      "details": { "resource_class": "large", "running": 5, "limit": 5 },
+      "created_at": "2026-03-11T10:21:00Z"
+    }
+  ],
+  "next_cursor": "2026-03-11T10:21:00Z"
+}
+```
+
+### Inspect graph and critical path
+
+```bash
+curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/graph" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+```json
+{
+  "workflow_run_id": "wr_123",
+  "workflow_id": "wf_release",
+  "version": 12,
+  "roots": ["build"],
+  "runnable": ["deploy"],
+  "critical_path": ["build", "test", "deploy"],
+  "critical_path_estimate_ms": 330000,
+  "critical_path_remaining_ms": 210000
+}
+```
+
+### Retry a terminal step
+
+```bash
+curl -X POST "https://strait.dev/v1/workflow-runs/wr_123/steps/deploy/retry" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+### Replay a failed subtree
+
+```bash
+curl -X POST "https://strait.dev/v1/workflow-runs/wr_123/steps/deploy/replay-subtree" \
+  -H "Authorization: Bearer strait_live_abc123"
+```
+
+### Upsert project policy
+
+```bash
+curl -X PUT "https://strait.dev/v1/workflow-policies/proj_1" \
+  -H "Authorization: Bearer strait_live_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "max_fan_out": 15,
+    "max_depth": 12,
+    "forbidden_step_types": ["sleep"],
+    "require_approval_for_deploy": true
+  }'
+```
+
 
 ## Reaper-driven DAG safety nets
 
