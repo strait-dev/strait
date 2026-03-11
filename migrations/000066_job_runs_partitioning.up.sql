@@ -7,41 +7,63 @@
 -- supported in PostgreSQL. The application layer will enforce parent existence.
 ALTER TABLE job_runs DROP CONSTRAINT IF EXISTS job_runs_parent_run_id_fkey;
 
--- Step 2: Enable pg_partman for automated partition management.
--- pg_partman handles creation/retention of monthly partitions.
-CREATE EXTENSION IF NOT EXISTS pg_partman;
+-- Step 2: Try to enable pg_partman for automated partition management.
+-- Falls through gracefully when the extension is not available (CI, testcontainers).
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_partman;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_partman not available, skipping automated partition management: %', SQLERRM;
+END;
+$$;
 
 -- Step 3: Create the partitioned table structure.
 -- We rename the existing table, create a new partitioned table with the same
 -- schema, migrate data, then drop the old table.
 ALTER TABLE job_runs RENAME TO job_runs_legacy;
 
+DROP INDEX IF EXISTS idx_runs_queue;
+DROP INDEX IF EXISTS idx_runs_project_status;
+DROP INDEX IF EXISTS idx_runs_heartbeat;
+DROP INDEX IF EXISTS idx_runs_expires;
+DROP INDEX IF EXISTS idx_job_runs_parent_run_id;
+
 CREATE TABLE job_runs (
-    id             TEXT        NOT NULL,
-    job_id         TEXT        NOT NULL REFERENCES jobs(id),
-    project_id     TEXT        NOT NULL,
-    status         TEXT        NOT NULL DEFAULT 'queued',
-    attempt        INT         NOT NULL DEFAULT 1,
-    payload        JSONB,
-    result         JSONB,
-    error          TEXT,
-    triggered_by   TEXT        NOT NULL DEFAULT 'manual',
-    scheduled_at   TIMESTAMPTZ,
-    started_at     TIMESTAMPTZ,
-    finished_at    TIMESTAMPTZ,
-    heartbeat_at   TIMESTAMPTZ,
-    next_retry_at  TIMESTAMPTZ,
-    expires_at     TIMESTAMPTZ,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    parent_run_id  TEXT,
-    job_version    INT         NOT NULL DEFAULT 1,
-    job_version_id TEXT        NOT NULL DEFAULT '',
-    max_attempts   INT         NOT NULL DEFAULT 3,
-    priority       INT         NOT NULL DEFAULT 0,
-    error_class    TEXT,
-    execution_trace JSONB,
-    idempotency_key TEXT,
-    workflow_step_run_id TEXT,
+    id                      TEXT        NOT NULL,
+    job_id                  TEXT        NOT NULL REFERENCES jobs(id),
+    project_id              TEXT        NOT NULL,
+    status                  TEXT        NOT NULL DEFAULT 'queued',
+    attempt                 INT         NOT NULL DEFAULT 1,
+    payload                 JSONB,
+    result                  JSONB,
+    error                   TEXT,
+    triggered_by            TEXT        NOT NULL DEFAULT 'manual',
+    scheduled_at            TIMESTAMPTZ,
+    started_at              TIMESTAMPTZ,
+    finished_at             TIMESTAMPTZ,
+    heartbeat_at            TIMESTAMPTZ,
+    next_retry_at           TIMESTAMPTZ,
+    expires_at              TIMESTAMPTZ,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    parent_run_id           TEXT,
+    priority                INT         NOT NULL DEFAULT 0,
+    idempotency_key         TEXT,
+    job_version             INT         NOT NULL DEFAULT 1,
+    workflow_step_run_id    TEXT,
+    error_class             TEXT,
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    execution_trace         JSONB,
+    debug_mode              BOOLEAN     NOT NULL DEFAULT false,
+    continuation_of         TEXT,
+    lineage_depth           INT         NOT NULL DEFAULT 0,
+    max_attempts_override   INT,
+    timeout_secs_override   INT,
+    retry_backoff           TEXT,
+    retry_initial_delay_secs INT,
+    retry_max_delay_secs    INT,
+    created_by              TEXT,
+    job_version_id          TEXT,
+    tags                    JSONB       NOT NULL DEFAULT '{}'::jsonb,
     PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
@@ -78,14 +100,21 @@ CREATE INDEX idx_runs_heartbeat ON job_runs(heartbeat_at) WHERE status = 'execut
 CREATE INDEX idx_runs_expires ON job_runs(expires_at) WHERE expires_at IS NOT NULL AND status IN ('delayed', 'queued');
 CREATE INDEX idx_job_runs_parent_run_id ON job_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
 
--- Step 7: Configure pg_partman for automatic partition management.
+-- Step 7: Configure pg_partman for automatic partition management if available.
 -- Creates new monthly partitions 4 months ahead, retains indefinitely.
-SELECT partman.create_parent(
-    p_parent_table := 'public.job_runs',
-    p_control := 'created_at',
-    p_interval := '1 month',
-    p_premake := 4
-);
+-- Skipped when pg_partman is not installed.
+DO $$
+BEGIN
+  PERFORM partman.create_parent(
+      p_parent_table := 'public.job_runs',
+      p_control := 'created_at',
+      p_interval := '1 month',
+      p_premake := 4
+  );
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_partman create_parent skipped: %', SQLERRM;
+END;
+$$;
 
 -- Step 8: Drop legacy table.
-DROP TABLE job_runs_legacy;
+DROP TABLE job_runs_legacy CASCADE;
