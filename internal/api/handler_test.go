@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -767,6 +768,121 @@ func TestHandleTriggerJob_WaitsForUnsatisfiedDependencies(t *testing.T) {
 	}
 	if enqueueCalled {
 		t.Fatal("enqueue should not be called for waiting dependency run")
+	}
+}
+
+func TestHandleTriggerJob_WaitingDependencyConflictReturnsIdempotentHit(t *testing.T) {
+	t.Parallel()
+
+	enqueueCalled := false
+	lookupCalled := false
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "Dependent",
+				Slug:        "dependent",
+				EndpointURL: "https://example.com/callback",
+				Enabled:     true,
+				TimeoutSecs: 300,
+				MaxAttempts: 3,
+			}, nil
+		},
+		areJobDependenciesSatisfiedFn: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return false, nil
+		},
+		createRunFn: func(_ context.Context, _ *domain.JobRun) error {
+			return domain.ErrIdempotencyConflict
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
+			lookupCalled = true
+			if jobID != "job-123" || key != "same-key" {
+				t.Fatalf("unexpected idempotency lookup args: %s %s", jobID, key)
+			}
+			return &domain.JobRun{ID: "run-existing", Status: domain.StatusWaiting}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueCalled = true
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "same-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !lookupCalled {
+		t.Fatal("expected idempotency lookup to be called")
+	}
+	if enqueueCalled {
+		t.Fatal("enqueue should not be called for waiting dependency idempotency hit")
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp["id"] != "run-existing" {
+		t.Fatalf("expected existing run id, got %v", resp["id"])
+	}
+	if resp["status"] != string(domain.StatusWaiting) {
+		t.Fatalf("expected waiting status, got %v", resp["status"])
+	}
+	if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
+		t.Fatalf("expected idempotency_hit=true, got %v", resp["idempotency_hit"])
+	}
+	if _, ok := resp["run_token"]; ok {
+		t.Fatal("did not expect run_token for idempotency hit")
+	}
+	if _, ok := resp["payload_hash"]; ok {
+		t.Fatal("did not expect payload_hash for idempotency hit")
+	}
+}
+
+func TestHandleTriggerJob_WaitingDependencyConflictLookupError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "Dependent",
+				Slug:        "dependent",
+				EndpointURL: "https://example.com/callback",
+				Enabled:     true,
+				TimeoutSecs: 300,
+				MaxAttempts: 3,
+			}, nil
+		},
+		areJobDependenciesSatisfiedFn: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return false, nil
+		},
+		createRunFn: func(_ context.Context, _ *domain.JobRun) error {
+			return domain.ErrIdempotencyConflict
+		},
+		getRunByIdempotencyKeyFn: func(_ context.Context, _, _ string) (*domain.JobRun, error) {
+			return nil, errors.New("lookup failed")
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`)
+	r.Header.Set("X-Idempotency-Key", "same-key")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "idempotency key") {
+		t.Fatalf("expected idempotency key error, got %s", w.Body.String())
 	}
 }
 

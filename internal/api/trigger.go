@@ -290,6 +290,32 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 				s.metrics.WorkflowDependencyWaits.Add(r.Context(), 1, attrs)
 			}
 			if err := s.store.CreateRun(r.Context(), run); err != nil {
+				if errors.Is(err, domain.ErrIdempotencyConflict) && idempotencyKey != "" {
+					existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+					if retryErr != nil {
+						slog.Error("idempotency conflict retry failed",
+							"job_id", job.ID,
+							"idempotency_key", idempotencyKey,
+							"error", retryErr)
+						respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key after conflict")
+						return
+					}
+					if existingRun != nil {
+						slog.Warn("idempotency conflict resolved",
+							"job_id", job.ID,
+							"idempotency_key", idempotencyKey,
+							"winning_run_id", existingRun.ID)
+						respondJSON(w, http.StatusCreated, map[string]any{
+							"id":              existingRun.ID,
+							"status":          existingRun.Status,
+							"idempotency_hit": true,
+						})
+						return
+					}
+					slog.Error("idempotency conflict retry returned nil",
+						"job_id", job.ID,
+						"idempotency_key", idempotencyKey)
+				}
 				respondError(w, r, http.StatusInternalServerError, "failed to create waiting run")
 				return
 			}
