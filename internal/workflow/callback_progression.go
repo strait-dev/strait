@@ -15,19 +15,15 @@ import (
 )
 
 func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun) error {
-	deps, err := s.store.IncrementStepDeps(ctx, stepRun.WorkflowRunID, stepRun.StepRef)
-	if err != nil {
+	if _, err := s.store.IncrementStepDeps(ctx, stepRun.WorkflowRunID, stepRun.StepRef); err != nil {
 		return fmt.Errorf("increment step deps: %w", err)
-	}
-	if len(deps) == 0 {
-		return nil
 	}
 
 	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
 	if err != nil {
 		return fmt.Errorf("get workflow run: %w", err)
 	}
-	if wfRun.Status == domain.WfStatusPaused {
+	if wfRun == nil || wfRun.Status == domain.WfStatusPaused {
 		return nil
 	}
 
@@ -35,91 +31,104 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	if err != nil {
 		return fmt.Errorf("list steps by workflow: %w", err)
 	}
-	stepByRef := lo.KeyBy(steps, func(st domain.WorkflowStep) string { return st.StepRef })
 
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
-	stepRunByID := lo.KeyBy(stepRuns, func(sr domain.WorkflowStepRun) string { return sr.ID })
+
+	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepRuns); err != nil {
+		return fmt.Errorf("schedule runnable steps: %w", err)
+	}
+
+	return nil
+}
+
+func (s *StepCallback) scheduleRunnableSteps(ctx context.Context, wfRun *domain.WorkflowRun, steps []domain.WorkflowStep, stepRuns []domain.WorkflowStepRun) error {
+	stepByRef := lo.KeyBy(steps, func(st domain.WorkflowStep) string { return st.StepRef })
 	stepStatuses := lo.Associate(stepRuns, func(sr domain.WorkflowStepRun) (string, domain.StepRunStatus) {
 		return sr.StepRef, sr.Status
 	})
 	runningStepCount := lo.CountBy(stepRuns, func(sr domain.WorkflowStepRun) bool { return sr.Status == domain.StepRunning })
 	runningByConcurrencyKey := make(map[string]int)
+	runningByResourceClass := make(map[string]int)
 	for _, sr := range stepRuns {
 		if sr.Status != domain.StepRunning {
 			continue
 		}
-		if st, ok := stepByRef[sr.StepRef]; ok && st.ConcurrencyKey != "" {
-			runningByConcurrencyKey[st.ConcurrencyKey]++
+		if st, ok := stepByRef[sr.StepRef]; ok {
+			if st.ConcurrencyKey != "" {
+				runningByConcurrencyKey[st.ConcurrencyKey]++
+			}
+			runningByResourceClass[effectiveResourceClass(st.ResourceClass)]++
 		}
 	}
 
-	for _, dep := range deps {
-		if dep.DepsCompleted != dep.DepsRequired {
+	for _, sr := range stepRuns {
+		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
+			continue
+		}
+		if sr.DepsCompleted != sr.DepsRequired {
 			continue
 		}
 
-		childStep, ok := stepByRef[dep.StepRef]
+		stepDef, ok := stepByRef[sr.StepRef]
 		if !ok {
-			return fmt.Errorf("step definition not found for %s", dep.StepRef)
-		}
-
-		childStepRun, ok := stepRunByID[dep.StepRunID]
-		if !ok {
-			return fmt.Errorf("step run not found for %s", dep.StepRunID)
-		}
-		if childStepRun.Status.IsTerminal() {
-			continue
+			return fmt.Errorf("step definition not found for %s", sr.StepRef)
 		}
 		if wfRun.MaxParallelSteps > 0 && runningStepCount >= wfRun.MaxParallelSteps {
+			s.recordDecision(ctx, &sr, "scheduler", "wait", "blocked by max_parallel_steps", nil)
 			continue
 		}
-		if childStep.ConcurrencyKey != "" && runningByConcurrencyKey[childStep.ConcurrencyKey] > 0 {
+		if stepDef.ConcurrencyKey != "" && runningByConcurrencyKey[stepDef.ConcurrencyKey] > 0 {
+			s.recordDecision(ctx, &sr, "concurrency", "wait", "blocked by concurrency_key", nil)
+			continue
+		}
+		if !hasResourceClassCapacity(runningByResourceClass, stepDef.ResourceClass) {
+			s.recordDecision(ctx, &sr, "resource", "wait", "blocked by resource_class quota", nil)
 			continue
 		}
 
-		allowed, err := EvaluateCondition(childStep.Condition, stepStatuses)
+		allowed, err := EvaluateCondition(stepDef.Condition, stepStatuses)
 		if err != nil {
-			return fmt.Errorf("evaluate condition for step %s: %w", childStep.StepRef, err)
+			return fmt.Errorf("evaluate condition for step %s: %w", stepDef.StepRef, err)
 		}
-
 		if !allowed {
 			now := time.Now()
-			if err := s.store.UpdateStepRunStatus(ctx, childStepRun.ID, domain.StepSkipped, map[string]any{"finished_at": now}); err != nil {
-				return fmt.Errorf("skip step %s: %w", childStep.StepRef, err)
+			s.recordDecision(ctx, &sr, "condition", "skip", "condition evaluated to false", stepDef.Condition)
+			if err := s.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepSkipped, map[string]any{"finished_at": now}); err != nil {
+				return fmt.Errorf("skip step %s: %w", stepDef.StepRef, err)
 			}
-			stepStatuses[childStepRun.StepRef] = domain.StepSkipped
+			stepStatuses[sr.StepRef] = domain.StepSkipped
 			continue
 		}
 
 		var parentOutputsPayload json.RawMessage
-		if len(childStep.DependsOn) > 0 {
-			outputs, err := s.store.GetStepOutputs(ctx, stepRun.WorkflowRunID, childStep.DependsOn)
+		if len(stepDef.DependsOn) > 0 {
+			outputs, err := s.store.GetStepOutputs(ctx, sr.WorkflowRunID, stepDef.DependsOn)
 			if err != nil {
-				return fmt.Errorf("get step outputs for %s: %w", childStep.StepRef, err)
+				return fmt.Errorf("get step outputs for %s: %w", stepDef.StepRef, err)
 			}
-
 			payload, err := json.Marshal(outputs)
 			if err != nil {
-				return fmt.Errorf("marshal parent outputs for %s: %w", childStep.StepRef, err)
+				return fmt.Errorf("marshal parent outputs for %s: %w", stepDef.StepRef, err)
 			}
 			parentOutputsPayload = payload
 		}
 
-		childRun := childStepRun
-		stepDef := childStep
-		if err := s.engine.startStep(ctx, &childRun, &stepDef, wfRun, parentOutputsPayload); err != nil {
-			return fmt.Errorf("start child step %s: %w", childStep.StepRef, err)
+		srCopy := sr
+		stepCopy := stepDef
+		if err := s.engine.startStep(ctx, &srCopy, &stepCopy, wfRun, parentOutputsPayload); err != nil {
+			return fmt.Errorf("start runnable step %s: %w", stepDef.StepRef, err)
 		}
-		stepStatuses[childStepRun.StepRef] = domain.StepRunning
-		if childRun.Status == domain.StepRunning {
-			s.recordStepWaitDuration(ctx, wfRun, childStep, childStepRun)
+		stepStatuses[sr.StepRef] = srCopy.Status
+		if srCopy.Status == domain.StepRunning {
+			s.recordStepWaitDuration(ctx, wfRun, stepCopy, sr)
 			runningStepCount++
-			if childStep.ConcurrencyKey != "" {
-				runningByConcurrencyKey[childStep.ConcurrencyKey]++
+			if stepCopy.ConcurrencyKey != "" {
+				runningByConcurrencyKey[stepCopy.ConcurrencyKey]++
 			}
+			runningByResourceClass[effectiveResourceClass(stepCopy.ResourceClass)]++
 		}
 	}
 
@@ -460,84 +469,14 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 	if err != nil {
 		return fmt.Errorf("list workflow steps: %w", err)
 	}
-	stepByRef := lo.KeyBy(steps, func(step domain.WorkflowStep) string { return step.StepRef })
 
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 	if err != nil {
 		return fmt.Errorf("list step runs by workflow run: %w", err)
 	}
-	stepStatuses := lo.Associate(stepRuns, func(sr domain.WorkflowStepRun) (string, domain.StepRunStatus) {
-		return sr.StepRef, sr.Status
-	})
-	runningStepCount := lo.CountBy(stepRuns, func(sr domain.WorkflowStepRun) bool { return sr.Status == domain.StepRunning })
-	runningByConcurrencyKey := make(map[string]int)
-	for _, sr := range stepRuns {
-		if sr.Status != domain.StepRunning {
-			continue
-		}
-		if stepDef, ok := stepByRef[sr.StepRef]; ok && stepDef.ConcurrencyKey != "" {
-			runningByConcurrencyKey[stepDef.ConcurrencyKey]++
-		}
-	}
 
-	for _, sr := range stepRuns {
-		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
-			continue
-		}
-		if sr.DepsCompleted != sr.DepsRequired {
-			continue
-		}
-		if wfRun.MaxParallelSteps > 0 && runningStepCount >= wfRun.MaxParallelSteps {
-			continue
-		}
-		if stepDef, ok := stepByRef[sr.StepRef]; ok && stepDef.ConcurrencyKey != "" && runningByConcurrencyKey[stepDef.ConcurrencyKey] > 0 {
-			continue
-		}
-
-		stepDef, ok := stepByRef[sr.StepRef]
-		if !ok {
-			return fmt.Errorf("step definition not found for %s", sr.StepRef)
-		}
-
-		allowed, condErr := EvaluateCondition(stepDef.Condition, stepStatuses)
-		if condErr != nil {
-			return fmt.Errorf("evaluate condition for step %s: %w", stepDef.StepRef, condErr)
-		}
-		if !allowed {
-			now := time.Now()
-			if err := s.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepSkipped, map[string]any{"finished_at": now}); err != nil {
-				return fmt.Errorf("skip step %s: %w", stepDef.StepRef, err)
-			}
-			stepStatuses[sr.StepRef] = domain.StepSkipped
-			continue
-		}
-
-		var parentOutputsPayload json.RawMessage
-		if len(stepDef.DependsOn) > 0 {
-			outputs, err := s.store.GetStepOutputs(ctx, workflowRunID, stepDef.DependsOn)
-			if err != nil {
-				return fmt.Errorf("get step outputs for %s: %w", stepDef.StepRef, err)
-			}
-			payload, err := json.Marshal(outputs)
-			if err != nil {
-				return fmt.Errorf("marshal parent outputs for %s: %w", stepDef.StepRef, err)
-			}
-			parentOutputsPayload = payload
-		}
-
-		srCopy := sr
-		stepCopy := stepDef
-		if err := s.engine.startStep(ctx, &srCopy, &stepCopy, wfRun, parentOutputsPayload); err != nil {
-			return fmt.Errorf("start resumed step %s: %w", stepDef.StepRef, err)
-		}
-		stepStatuses[sr.StepRef] = srCopy.Status
-		if srCopy.Status == domain.StepRunning {
-			s.recordStepWaitDuration(ctx, wfRun, stepCopy, sr)
-			runningStepCount++
-			if stepCopy.ConcurrencyKey != "" {
-				runningByConcurrencyKey[stepCopy.ConcurrencyKey]++
-			}
-		}
+	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepRuns); err != nil {
+		return fmt.Errorf("schedule runnable steps: %w", err)
 	}
 
 	return nil
@@ -566,4 +505,22 @@ func (s *StepCallback) lookupOutputTransform(ctx context.Context, stepRun *domai
 	}
 
 	return ""
+}
+
+func effectiveResourceClass(v string) string {
+	if v == "" {
+		return "small"
+	}
+	return v
+}
+
+func hasResourceClassCapacity(running map[string]int, class string) bool {
+	limits := map[string]int{"small": 50, "medium": 20, "large": 5}
+	resolved := effectiveResourceClass(class)
+	limit, ok := limits[resolved]
+	if !ok {
+		limit = limits["small"]
+		resolved = "small"
+	}
+	return running[resolved] < limit
 }

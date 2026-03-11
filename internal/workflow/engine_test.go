@@ -2747,6 +2747,73 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 	})
 }
 
+func TestStepCallback_FanInStartsWaitingRootsWithoutDependents(t *testing.T) {
+	t.Parallel()
+
+	enqueueCalled := false
+	stepRunningUpdated := false
+	ms := &mockCallbackStore{
+		incrementStepDepsFn: func(_ context.Context, workflowRunID, completedStepRef string) ([]store.StepDepResult, error) {
+			if workflowRunID != "wr-1" || completedStepRef != "a" {
+				t.Fatalf("unexpected increment args: workflowRunID=%s completedStepRef=%s", workflowRunID, completedStepRef)
+			}
+			return nil, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id != "wr-1" {
+				t.Fatalf("workflow run id = %s, want wr-1", id)
+			}
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" || version != 1 {
+				t.Fatalf("unexpected workflow/version: %s/%d", workflowID, version)
+			}
+			return []domain.WorkflowStep{
+				{ID: "step-a", StepRef: "a", JobID: "job-a", ConcurrencyKey: "db"},
+				{ID: "step-b", StepRef: "b", JobID: "job-b", ConcurrencyKey: "db"},
+			}, nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			if workflowRunID != "wr-1" {
+				t.Fatalf("workflowRunID = %s, want wr-1", workflowRunID)
+			}
+			return []domain.WorkflowStepRun{
+				{ID: "sr-a", WorkflowRunID: "wr-1", WorkflowStepID: "step-a", StepRef: "a", Status: domain.StepCompleted, DepsCompleted: 0, DepsRequired: 0},
+				{ID: "sr-b", WorkflowRunID: "wr-1", WorkflowStepID: "step-b", StepRef: "b", Status: domain.StepWaiting, DepsCompleted: 0, DepsRequired: 0},
+			}, nil
+		},
+	}
+	engStore := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id == "sr-b" && status == domain.StepRunning {
+				stepRunningUpdated = true
+			}
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		enqueueCalled = true
+		run.ID = "jr-b"
+		if run.JobID != "job-b" || run.WorkflowStepRunID != "sr-b" {
+			t.Fatalf("unexpected enqueued run: %+v", run)
+		}
+		return nil
+	}}
+
+	cb := NewStepCallback(ms, NewWorkflowEngine(engStore, mq, slog.Default()), slog.Default())
+	err := cb.fanInAndStartReadyChildren(context.Background(), &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepCompleted})
+	if err != nil {
+		t.Fatalf("fanInAndStartReadyChildren() error = %v", err)
+	}
+	if !enqueueCalled {
+		t.Fatal("expected waiting root step to be enqueued")
+	}
+	if !stepRunningUpdated {
+		t.Fatal("expected waiting root step status to be moved to running")
+	}
+}
+
 func TestRetryWorkflowRun(t *testing.T) {
 	t.Parallel()
 	// Helper: build a standard 3-step DAG (a -> b -> c) for retry tests.
