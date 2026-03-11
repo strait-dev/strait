@@ -5324,3 +5324,229 @@ func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
 		t.Fatalf("expected step status=waiting, got %s", stepRun.Status)
 	}
 }
+
+// Scheduling semantics regression tests.
+
+func TestEffectiveResourceClass(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", "small"},
+		{"small", "small"},
+		{"medium", "medium"},
+		{"large", "large"},
+	}
+	for _, tt := range tests {
+		got := effectiveResourceClass(tt.input)
+		if got != tt.want {
+			t.Errorf("effectiveResourceClass(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestHasResourceClassCapacity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty running map allows all classes", func(t *testing.T) {
+		t.Parallel()
+		running := map[string]int{}
+		for _, class := range []string{"small", "medium", "large", ""} {
+			if !hasResourceClassCapacity(running, class) {
+				t.Errorf("expected capacity for class %q with empty running", class)
+			}
+		}
+	})
+
+	t.Run("small limit 50", func(t *testing.T) {
+		t.Parallel()
+		running := map[string]int{"small": 49}
+		if !hasResourceClassCapacity(running, "small") {
+			t.Error("expected capacity at 49/50 small")
+		}
+		running["small"] = 50
+		if hasResourceClassCapacity(running, "small") {
+			t.Error("expected no capacity at 50/50 small")
+		}
+	})
+
+	t.Run("medium limit 20", func(t *testing.T) {
+		t.Parallel()
+		running := map[string]int{"medium": 19}
+		if !hasResourceClassCapacity(running, "medium") {
+			t.Error("expected capacity at 19/20 medium")
+		}
+		running["medium"] = 20
+		if hasResourceClassCapacity(running, "medium") {
+			t.Error("expected no capacity at 20/20 medium")
+		}
+	})
+
+	t.Run("large limit 5", func(t *testing.T) {
+		t.Parallel()
+		running := map[string]int{"large": 4}
+		if !hasResourceClassCapacity(running, "large") {
+			t.Error("expected capacity at 4/5 large")
+		}
+		running["large"] = 5
+		if hasResourceClassCapacity(running, "large") {
+			t.Error("expected no capacity at 5/5 large")
+		}
+	})
+
+	t.Run("unknown class falls back to small limit", func(t *testing.T) {
+		t.Parallel()
+		running := map[string]int{"small": 50}
+		if hasResourceClassCapacity(running, "unknown") {
+			t.Error("unknown class should fall back to small and be blocked at 50")
+		}
+	})
+
+	t.Run("classes are independent", func(t *testing.T) {
+		t.Parallel()
+		running := map[string]int{"small": 50, "medium": 0, "large": 0}
+		if hasResourceClassCapacity(running, "small") {
+			t.Error("small should be blocked")
+		}
+		if !hasResourceClassCapacity(running, "medium") {
+			t.Error("medium should NOT be blocked by full small")
+		}
+		if !hasResourceClassCapacity(running, "large") {
+			t.Error("large should NOT be blocked by full small")
+		}
+	})
+}
+
+func TestScheduleRunnableSteps_ConcurrencyKeySerialization(t *testing.T) {
+	t.Parallel()
+
+	// Two steps share the same concurrency_key. Only one should start.
+	ms := &mockCallbackStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+			return nil, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+	}
+
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+	meSt := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, _ *domain.WorkflowStepRun) error { return nil },
+	}
+
+	engine := NewWorkflowEngine(meSt, mq, slog.Default())
+	cb := NewStepCallback(ms, engine, slog.Default())
+
+	wfRun := &domain.WorkflowRun{
+		ID:         "wr-1",
+		WorkflowID: "wf-1",
+		ProjectID:  "proj-1",
+	}
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", ConcurrencyKey: "deploy", JobID: "job-a"},
+		{StepRef: "b", ConcurrencyKey: "deploy", JobID: "job-b"},
+	}
+
+	runnableStepRuns := []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a", WorkflowRunID: "wr-1", DepsRequired: 0, DepsCompleted: 0, Status: domain.StepPending},
+		{ID: "sr-b", StepRef: "b", WorkflowRunID: "wr-1", DepsRequired: 0, DepsCompleted: 0, Status: domain.StepPending},
+	}
+
+	statuses := map[string]domain.StepRunStatus{}
+
+	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, nil, runnableStepRuns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only one should have transitioned to running since they share a concurrency key.
+	runningCount := 0
+	for _, s := range statuses {
+		if s == domain.StepRunning {
+			runningCount++
+		}
+	}
+	if runningCount > 1 {
+		t.Fatalf("expected at most 1 running step with same concurrency_key, got %d", runningCount)
+	}
+}
+
+func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockCallbackStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+			return nil, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return nil, nil
+		},
+	}
+
+	mq := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return nil
+		},
+	}
+	meSt := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, _ *domain.WorkflowStepRun) error { return nil },
+	}
+
+	engine := NewWorkflowEngine(meSt, mq, slog.Default())
+	cb := NewStepCallback(ms, engine, slog.Default())
+
+	wfRun := &domain.WorkflowRun{
+		ID:               "wr-1",
+		WorkflowID:       "wf-1",
+		ProjectID:        "proj-1",
+		MaxParallelSteps: 1,
+	}
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", JobID: "job-a"},
+		{StepRef: "b", JobID: "job-b"},
+		{StepRef: "c", JobID: "job-c"},
+	}
+
+	runnableStepRuns := []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a", WorkflowRunID: "wr-1", DepsRequired: 0, DepsCompleted: 0, Status: domain.StepPending},
+		{ID: "sr-b", StepRef: "b", WorkflowRunID: "wr-1", DepsRequired: 0, DepsCompleted: 0, Status: domain.StepPending},
+		{ID: "sr-c", StepRef: "c", WorkflowRunID: "wr-1", DepsRequired: 0, DepsCompleted: 0, Status: domain.StepPending},
+	}
+
+	statuses := map[string]domain.StepRunStatus{}
+
+	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, nil, runnableStepRuns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	runningCount := 0
+	for _, s := range statuses {
+		if s == domain.StepRunning {
+			runningCount++
+		}
+	}
+	if runningCount > 1 {
+		t.Fatalf("expected at most 1 running step with max_parallel_steps=1, got %d", runningCount)
+	}
+}
