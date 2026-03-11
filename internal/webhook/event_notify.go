@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 
 	"strait/internal/domain"
 
+	concpool "github.com/sourcegraph/conc/pool"
 	"go.opentelemetry.io/otel"
 )
 
@@ -28,31 +30,54 @@ type DeliveryStore interface {
 	UpdateEventTriggerNotifyStatus(ctx context.Context, id string, notifyStatus string) error
 }
 
-// EventNotifier handles both enqueuing and processing webhook deliveries
-// for event trigger notifications.
-type EventNotifier struct {
+const defaultDeliveryConcurrency = 5
+
+type DeliveryWorker struct {
 	client *http.Client
 	store  DeliveryStore
 	logger *slog.Logger
+
+	concurrency int
 }
 
-// NewEventNotifier creates a new event notifier.
-func NewEventNotifier(store DeliveryStore, logger *slog.Logger) *EventNotifier {
+type EventNotifier = DeliveryWorker
+
+type DeliveryWorkerOption func(*DeliveryWorker)
+
+func WithConcurrency(n int) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		if n > 0 {
+			w.concurrency = n
+		}
+	}
+}
+
+func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &EventNotifier{
-		client: &http.Client{Timeout: 10 * time.Second},
-		store:  store,
-		logger: logger,
+	w := &DeliveryWorker{
+		client:      &http.Client{Timeout: 10 * time.Second},
+		store:       store,
+		logger:      logger,
+		concurrency: defaultDeliveryConcurrency,
 	}
+	for _, opt := range opts {
+		opt(w)
+	}
+	return w
+}
+
+// NewEventNotifier creates a new event notifier.
+func NewEventNotifier(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
+	return NewDeliveryWorker(store, logger, opts...)
 }
 
 // NotifyAsync persists a webhook delivery for the given trigger.
 // This is the synchronous entry point called during trigger creation
 // via the onTriggerCreate callback. The actual HTTP delivery happens
 // asynchronously via RunWorker.
-func (n *EventNotifier) NotifyAsync(trigger *domain.EventTrigger) {
+func (n *DeliveryWorker) NotifyAsync(trigger *domain.EventTrigger) {
 	if trigger.NotifyURL == "" {
 		return
 	}
@@ -96,9 +121,50 @@ func (n *EventNotifier) NotifyAsync(trigger *domain.EventTrigger) {
 	n.logger.Info("webhook delivery enqueued", "delivery_id", d.ID, "trigger_id", trigger.ID, "url", trigger.NotifyURL)
 }
 
+func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) error {
+	if job == nil || run == nil {
+		return fmt.Errorf("enqueue run webhook: job and run are required")
+	}
+	if job.WebhookURL == "" || !run.Status.IsTerminal() {
+		return nil
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"run_id":     run.ID,
+		"job_id":     run.JobID,
+		"project_id": run.ProjectID,
+		"status":     string(run.Status),
+		"attempt":    run.Attempt,
+		"result":     run.Result,
+		"error":      run.Error,
+		"timestamp":  time.Now().UTC(),
+	})
+	if err != nil {
+		return fmt.Errorf("enqueue run webhook: marshal payload: %w", err)
+	}
+
+	now := time.Now()
+	d := &domain.WebhookDelivery{
+		RunID:       run.ID,
+		JobID:       run.JobID,
+		WebhookURL:  job.WebhookURL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   string(payload),
+	}
+
+	if err := n.store.CreateWebhookDelivery(ctx, d); err != nil {
+		return fmt.Errorf("enqueue run webhook: create delivery: %w", err)
+	}
+
+	return nil
+}
+
 // RunWorker polls for pending deliveries and attempts them. Blocks until ctx is canceled.
 // Call this in a goroutine from the service startup (e.g., concpool group).
-func (n *EventNotifier) RunWorker(ctx context.Context, pollInterval time.Duration) error {
+func (n *DeliveryWorker) RunWorker(ctx context.Context, pollInterval time.Duration) error {
 	n.logger.Info("webhook delivery worker started", "poll_interval", pollInterval)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
@@ -115,7 +181,7 @@ func (n *EventNotifier) RunWorker(ctx context.Context, pollInterval time.Duratio
 }
 
 // processBatch fetches and processes a batch of pending deliveries.
-func (n *EventNotifier) processBatch(ctx context.Context) {
+func (n *DeliveryWorker) processBatch(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.ProcessBatch")
 	defer span.End()
 
@@ -125,22 +191,22 @@ func (n *EventNotifier) processBatch(ctx context.Context) {
 		return
 	}
 
+	p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
 	for i := range deliveries {
-		if ctx.Err() != nil {
-			return
-		}
-		d := &deliveries[i]
-		// Only process event trigger deliveries in this worker.
-		// Job run webhook deliveries are handled by the executor.
-		if d.EventTriggerID == "" {
-			continue
-		}
-		n.attemptDelivery(ctx, d)
+		delivery := deliveries[i]
+		p.Go(func(ctx context.Context) error {
+			n.attemptDelivery(ctx, &delivery)
+			return nil
+		})
+	}
+
+	if err := p.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		n.logger.Error("webhook batch delivery failed", "error", err)
 	}
 }
 
 // attemptDelivery makes one HTTP request for a delivery.
-func (n *EventNotifier) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
+func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
 	now := time.Now()
 	d.Attempts++
 
@@ -170,7 +236,15 @@ func (n *EventNotifier) attemptDelivery(ctx context.Context, d *domain.WebhookDe
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Strait-Trigger-ID", d.EventTriggerID)
+	if d.EventTriggerID != "" {
+		req.Header.Set("X-Strait-Trigger-ID", d.EventTriggerID)
+	}
+	if d.RunID != "" {
+		req.Header.Set("X-Run-ID", d.RunID)
+	}
+	if d.JobID != "" {
+		req.Header.Set("X-Job-ID", d.JobID)
+	}
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
 
@@ -202,14 +276,16 @@ func (n *EventNotifier) attemptDelivery(ctx context.Context, d *domain.WebhookDe
 		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
 		return
 	}
-	_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "sent")
+	if d.EventTriggerID != "" {
+		_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "sent")
+	}
 	n.logger.Info("webhook delivered", "delivery_id", d.ID, "url", d.WebhookURL, "attempt", d.Attempts)
 }
 
 // recordFailure handles a failed delivery attempt. For retryable errors, schedules
 // the next attempt with exponential backoff. For non-retryable errors or exhausted
 // attempts, marks the delivery as dead (DLQ).
-func (n *EventNotifier) recordFailure(ctx context.Context, d *domain.WebhookDelivery, now time.Time, retryable bool, errMsg string) {
+func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDelivery, now time.Time, retryable bool, errMsg string) {
 	d.LastError = errMsg
 
 	// Non-retryable or exhausted → dead letter.
@@ -218,7 +294,9 @@ func (n *EventNotifier) recordFailure(ctx context.Context, d *domain.WebhookDeli
 		if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
 			n.logger.Error("failed to dead-letter webhook", "delivery_id", d.ID, "error", err)
 		}
-		_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "failed")
+		if d.EventTriggerID != "" {
+			_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "failed")
+		}
 		n.logger.Error("webhook delivery dead-lettered",
 			"delivery_id", d.ID, "url", d.WebhookURL,
 			"attempts", d.Attempts, "max_attempts", d.MaxAttempts, "error", errMsg)

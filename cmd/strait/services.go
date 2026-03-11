@@ -28,6 +28,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	pgmigrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/sourcegraph/conc/pool"
@@ -39,6 +40,9 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
+	}
+	if cfg.DBPgBouncerMode {
+		poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	}
 	poolConfig.MaxConns = cfg.DBMaxConns
 	poolConfig.MinConns = cfg.DBMinConns
@@ -236,6 +240,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		poolOpts = append(poolOpts, worker.WithQueueSize(cfg.WorkerQueueSize))
 	}
 	p := worker.NewPool(cfg.WorkerConcurrency, poolOpts...)
+	var wake <-chan struct{}
+	if cfg.FFListenNotify {
+		notifier := queue.NewQueueNotifier(cfg.DatabaseURL, slog.Default())
+		wake = notifier.Wake()
+		g.Go(func(ctx context.Context) error {
+			notifier.Run(ctx)
+			return nil
+		})
+		slog.Info("worker queue listen/notify enabled", "channel", queue.QueueWakeChannel)
+	}
+
 	partitions := []string(nil)
 	partitionWeights := ""
 	if cfg.FFQueuePartitioning && len(cfg.WorkerPartitions) > 0 {
@@ -246,6 +261,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                    p,
 		Queue:                   q,
+		Wake:                    wake,
 		Store:                   queries,
 		PollInterval:            cfg.PollerInterval,
 		HeartbeatInterval:       cfg.HeartbeatInterval,

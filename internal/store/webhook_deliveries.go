@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -13,6 +14,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
+
+type runWebhookPayload struct {
+	RunID     string          `json:"run_id"`
+	JobID     string          `json:"job_id"`
+	ProjectID string          `json:"project_id"`
+	Status    string          `json:"status"`
+	Attempt   int             `json:"attempt"`
+	Result    json.RawMessage `json:"result,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	Timestamp time.Time       `json:"timestamp"`
+}
 
 func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWebhookDelivery")
@@ -35,6 +47,86 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 		d.LastStatusCode, dbscan.NilIfEmptyString(d.LastError), d.NextRetryAt, d.DeliveredAt,
 		dbscan.NilIfEmptyString(d.EventTriggerID),
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
+}
+
+func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun, maxAttempts int) (*domain.WebhookDelivery, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.EnqueueRunWebhook")
+	defer span.End()
+
+	if job == nil {
+		return nil, fmt.Errorf("enqueue run webhook: nil job")
+	}
+	if run == nil {
+		return nil, fmt.Errorf("enqueue run webhook: nil run")
+	}
+	if run.ID == "" {
+		return nil, fmt.Errorf("enqueue run webhook: missing run id")
+	}
+	if run.JobID == "" {
+		return nil, fmt.Errorf("enqueue run webhook: missing job id")
+	}
+	if job.WebhookURL == "" {
+		return nil, fmt.Errorf("enqueue run webhook: missing webhook url")
+	}
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+
+	payload, err := json.Marshal(runWebhookPayload{
+		RunID:     run.ID,
+		JobID:     run.JobID,
+		ProjectID: run.ProjectID,
+		Status:    string(run.Status),
+		Attempt:   run.Attempt,
+		Result:    run.Result,
+		Error:     run.Error,
+		Timestamp: time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue run webhook: marshal payload: %w", err)
+	}
+
+	now := time.Now().UTC()
+	d := &domain.WebhookDelivery{
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		RunID:       run.ID,
+		JobID:       run.JobID,
+		WebhookURL:  job.WebhookURL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: maxAttempts,
+		NextRetryAt: &now,
+	}
+
+	query := `
+		INSERT INTO webhook_deliveries (
+			id, run_id, job_id, webhook_url, status, attempts, max_attempts, next_retry_at,
+			webhook_secret, payload, payload_size_bytes, event_type
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+		RETURNING created_at, updated_at`
+
+	err = q.db.QueryRow(
+		ctx,
+		query,
+		d.ID,
+		d.RunID,
+		d.JobID,
+		d.WebhookURL,
+		d.Status,
+		d.Attempts,
+		d.MaxAttempts,
+		d.NextRetryAt,
+		dbscan.NilIfEmptyString(job.WebhookSecret),
+		payload,
+		len(payload),
+		fmt.Sprintf("run.%s", run.Status),
+	).Scan(&d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("enqueue run webhook: %w", err)
+	}
+
+	return d, nil
 }
 
 func (q *Queries) UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error {
@@ -140,6 +232,39 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 		d, err := scanWebhookDelivery(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list pending webhook retries scan: %w", err)
+		}
+		deliveries = append(deliveries, *d)
+	}
+	return deliveries, rows.Err()
+}
+
+func (q *Queries) ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain.WebhookDelivery, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListPendingRunWebhookDeliveries")
+	defer span.End()
+
+	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
+					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
+					 event_trigger_id
+			  FROM webhook_deliveries
+			  WHERE status = 'pending'
+			    AND next_retry_at IS NOT NULL
+			    AND next_retry_at <= NOW()
+			    AND run_id IS NOT NULL
+			    AND event_trigger_id IS NULL
+			  ORDER BY next_retry_at ASC
+			  LIMIT 100`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list pending run webhook deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	deliveries := make([]domain.WebhookDelivery, 0, 16)
+	for rows.Next() {
+		d, err := scanWebhookDelivery(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list pending run webhook deliveries scan: %w", err)
 		}
 		deliveries = append(deliveries, *d)
 	}

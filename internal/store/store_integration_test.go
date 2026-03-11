@@ -2188,6 +2188,108 @@ func TestWebhookDelivery_PendingRetries(t *testing.T) {
 	}
 }
 
+func TestWebhookDelivery_EnqueueRunWebhookAndListPendingRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-webhook-enqueue-run")
+	run := mustCreateRun(t, ctx, q, job)
+	run.Status = domain.StatusCompleted
+	run.Result = []byte(`{"ok":true}`)
+
+	enqueued, err := q.EnqueueRunWebhook(ctx, job, run, 7)
+	if err != nil {
+		t.Fatalf("EnqueueRunWebhook() error = %v", err)
+	}
+	if enqueued.ID == "" {
+		t.Fatal("EnqueueRunWebhook() did not set ID")
+	}
+	if enqueued.RunID != run.ID {
+		t.Fatalf("EnqueueRunWebhook() run_id = %q, want %q", enqueued.RunID, run.ID)
+	}
+	if enqueued.EventTriggerID != "" {
+		t.Fatalf("EnqueueRunWebhook() event_trigger_id = %q, want empty", enqueued.EventTriggerID)
+	}
+	if enqueued.WebhookURL != job.WebhookURL {
+		t.Fatalf("EnqueueRunWebhook() webhook_url = %q, want %q", enqueued.WebhookURL, job.WebhookURL)
+	}
+	if enqueued.Status != domain.WebhookStatusPending {
+		t.Fatalf("EnqueueRunWebhook() status = %q, want %q", enqueued.Status, domain.WebhookStatusPending)
+	}
+	if enqueued.MaxAttempts != 7 {
+		t.Fatalf("EnqueueRunWebhook() max_attempts = %d, want 7", enqueued.MaxAttempts)
+	}
+	if enqueued.NextRetryAt == nil {
+		t.Fatal("EnqueueRunWebhook() next_retry_at = nil, want non-nil")
+	}
+
+	var payloadRaw []byte
+	var payloadSize int
+	var eventType string
+	var webhookSecret *string
+	err = testDB.Pool.QueryRow(ctx, `
+		SELECT payload, payload_size_bytes, event_type, webhook_secret
+		FROM webhook_deliveries
+		WHERE id = $1`, enqueued.ID,
+	).Scan(&payloadRaw, &payloadSize, &eventType, &webhookSecret)
+	if err != nil {
+		t.Fatalf("query enqueued webhook delivery payload error = %v", err)
+	}
+	if payloadSize != len(payloadRaw) {
+		t.Fatalf("payload_size_bytes = %d, want %d", payloadSize, len(payloadRaw))
+	}
+	if eventType != "run.completed" {
+		t.Fatalf("event_type = %q, want %q", eventType, "run.completed")
+	}
+	if webhookSecret == nil || *webhookSecret != job.WebhookSecret {
+		t.Fatalf("webhook_secret = %v, want %q", webhookSecret, job.WebhookSecret)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(payloadRaw, &payload); err != nil {
+		t.Fatalf("unmarshal payload error = %v", err)
+	}
+	if payload["run_id"] != run.ID {
+		t.Fatalf("payload run_id = %v, want %q", payload["run_id"], run.ID)
+	}
+	if payload["job_id"] != run.JobID {
+		t.Fatalf("payload job_id = %v, want %q", payload["job_id"], run.JobID)
+	}
+	if payload["project_id"] != run.ProjectID {
+		t.Fatalf("payload project_id = %v, want %q", payload["project_id"], run.ProjectID)
+	}
+	if payload["status"] != string(run.Status) {
+		t.Fatalf("payload status = %v, want %q", payload["status"], run.Status)
+	}
+
+	now := time.Now().UTC().Add(-1 * time.Minute)
+	eventDelivery := &domain.WebhookDelivery{
+		JobID:          job.ID,
+		RunID:          run.ID,
+		EventTriggerID: "evt-not-run-webhook",
+		WebhookURL:     "https://example.com/event",
+		Status:         domain.WebhookStatusPending,
+		Attempts:       0,
+		MaxAttempts:    3,
+		NextRetryAt:    &now,
+	}
+	if err := q.CreateWebhookDelivery(ctx, eventDelivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery(event) error = %v", err)
+	}
+
+	pendingRun, err := q.ListPendingRunWebhookDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingRunWebhookDeliveries() error = %v", err)
+	}
+	if len(pendingRun) != 1 {
+		t.Fatalf("ListPendingRunWebhookDeliveries() len = %d, want 1", len(pendingRun))
+	}
+	if pendingRun[0].ID != enqueued.ID {
+		t.Fatalf("ListPendingRunWebhookDeliveries() id = %q, want %q", pendingRun[0].ID, enqueued.ID)
+	}
+}
+
 func TestJobGroup_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

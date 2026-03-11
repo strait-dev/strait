@@ -1110,6 +1110,57 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
+	t.Parallel()
+
+	wake := make(chan struct{}, 1)
+	polled := make(chan struct{}, 1)
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			select {
+			case polled <- struct{}{}:
+			default:
+			}
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Wake:              wake,
+		Store:             &mockExecutorStore{},
+		PollInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		exec.Run(ctx)
+		close(done)
+	}()
+
+	wake <- struct{}{}
+
+	select {
+	case <-polled:
+	case <-time.After(time.Second):
+		t.Fatal("expected poll to run after wake signal")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not stop after context cancel")
+	}
+}
+
 func TestExecutor_Poll_DequeueError(t *testing.T) {
 	t.Parallel()
 	var dequeueCalls atomic.Int32
@@ -1369,7 +1420,7 @@ func TestSendWebhookOnce_WithSignature(t *testing.T) {
 	if gotSig == "" {
 		t.Error("expected X-Webhook-Signature header")
 	}
-	if len(gotSig) < 10 || gotSig[:7] != "sha256=" {
+	if len(gotSig) < 5 || gotSig[:3] != "v1=" {
 		t.Errorf("signature format wrong: %s", gotSig)
 	}
 	if gotStraitSig == "" {

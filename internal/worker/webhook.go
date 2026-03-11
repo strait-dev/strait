@@ -249,9 +249,8 @@ func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte)
 
 	// New headers.
 	req.Header.Set("X-Strait-Timestamp", ts)
-	req.Header.Set("X-Strait-Signature", "sha256="+sig)
-	// Backwards compatibility header.
-	req.Header.Set("X-Webhook-Signature", "sha256="+sig)
+	req.Header.Set("X-Strait-Signature", "v1="+sig)
+	req.Header.Set("X-Webhook-Signature", "v1="+sig)
 }
 
 func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun) WebhookResult {

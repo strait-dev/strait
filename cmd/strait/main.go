@@ -114,7 +114,7 @@ func runServe(modeOverride string) error {
 	// Create dependencies
 	queries := store.New(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
-	q := queue.NewPostgresQueue(dbPool)
+	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(cfg.FFPriorityAging))
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {

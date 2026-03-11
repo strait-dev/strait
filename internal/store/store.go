@@ -148,10 +148,12 @@ type EventStore interface {
 
 type WebhookDeliveryStore interface {
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun, maxAttempts int) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
+	ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain.WebhookDelivery, error)
 	DeleteOldWebhookDeliveries(ctx context.Context, before time.Time, limit int) (int, error)
 }
 

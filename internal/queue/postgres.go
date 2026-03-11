@@ -18,12 +18,35 @@ import (
 )
 
 type PostgresQueue struct {
-	db store.DBTX
+	db            store.DBTX
+	priorityAging bool
+}
+
+type PostgresQueueOption func(*PostgresQueue)
+
+func WithPriorityAging(enabled bool) PostgresQueueOption {
+	return func(q *PostgresQueue) {
+		q.priorityAging = enabled
+	}
 }
 
 // NewPostgresQueue creates a new Postgres-backed job queue using SKIP LOCKED.
-func NewPostgresQueue(db store.DBTX) *PostgresQueue {
-	return &PostgresQueue{db: db}
+func NewPostgresQueue(db store.DBTX, opts ...PostgresQueueOption) *PostgresQueue {
+	q := &PostgresQueue{db: db}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(q)
+		}
+	}
+	return q
+}
+
+func (q *PostgresQueue) dequeueOrderByClause() string {
+	if q.priorityAging {
+		return "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600 DESC, jr.created_at ASC"
+	}
+
+	return "jr.priority DESC, jr.created_at ASC"
 }
 
 func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -158,6 +181,8 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueN")
 	defer span.End()
 
+	orderBy := q.dequeueOrderByClause()
+
 	query := fmt.Sprintf(`
 		WITH claimed AS (
 			SELECT jr.id
@@ -174,7 +199,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 					  AND active.status IN ('dequeued', 'executing')
 				) < j.max_concurrency
 			  )
-			ORDER BY jr.priority DESC, jr.created_at ASC
+			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT $1
 		), updated AS (
@@ -189,7 +214,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM updated
-		ORDER BY created_at ASC`, domain.StatusQueued, domain.StatusDequeued)
+		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, n)
 	if err != nil {
@@ -217,6 +242,8 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
 	defer span.End()
 
+	orderBy := q.dequeueOrderByClause()
+
 	query := fmt.Sprintf(`
 		WITH claimed AS (
 			SELECT jr.id
@@ -234,7 +261,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 					  AND active.status IN ('dequeued', 'executing')
 				) < j.max_concurrency
 			  )
-			ORDER BY jr.priority DESC, jr.created_at ASC
+			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT $1
 		), updated AS (
@@ -249,7 +276,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM updated
-		ORDER BY created_at ASC`, domain.StatusQueued, domain.StatusDequeued)
+		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, n, projectID)
 	if err != nil {

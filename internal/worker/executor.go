@@ -54,6 +54,7 @@ type WorkflowCallback interface {
 type Executor struct {
 	pool                   *Pool
 	queue                  queue.Queue
+	wake                   <-chan struct{}
 	store                  ExecutorStore
 	httpClient             *http.Client
 	pollInterval           time.Duration
@@ -84,6 +85,7 @@ type Executor struct {
 type ExecutorConfig struct {
 	Pool                    *Pool
 	Queue                   queue.Queue
+	Wake                    <-chan struct{}
 	Store                   ExecutorStore
 	Publisher               pubsub.Publisher
 	HTTPClient              *http.Client
@@ -163,6 +165,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	return &Executor{
 		pool:                   cfg.Pool,
 		queue:                  cfg.Queue,
+		wake:                   cfg.Wake,
 		store:                  cfg.Store,
 		httpClient:             httpClient,
 		pollInterval:           cfg.PollInterval,
@@ -271,6 +274,12 @@ func (e *Executor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			e.logger.Info("executor stopping")
 			return
+		case _, ok := <-e.wake:
+			if !ok {
+				e.wake = nil
+				continue
+			}
+			e.poll(ctx)
 		case <-ticker.C:
 			e.poll(ctx)
 		}
