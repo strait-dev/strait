@@ -18,9 +18,10 @@ import (
 
 // mockDeliveryStore implements DeliveryStore for testing.
 type mockDeliveryStore struct {
-	mu           sync.Mutex
-	deliveries   []*domain.WebhookDelivery
-	notifyStatus string
+	mu            sync.Mutex
+	deliveries    []*domain.WebhookDelivery
+	notifyStatus  string
+	listPendingFn func(context.Context) ([]domain.WebhookDelivery, error)
 }
 
 func (m *mockDeliveryStore) CreateWebhookDelivery(_ context.Context, d *domain.WebhookDelivery) error {
@@ -217,7 +218,11 @@ func (m *mockDeliveryStore) UpdateWebhookDelivery(_ context.Context, d *domain.W
 	return nil
 }
 
-func (m *mockDeliveryStore) ListPendingWebhookRetries(_ context.Context) ([]domain.WebhookDelivery, error) {
+func (m *mockDeliveryStore) ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error) {
+	if m.listPendingFn != nil {
+		return m.listPendingFn(ctx)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var pending []domain.WebhookDelivery
@@ -228,6 +233,105 @@ func (m *mockDeliveryStore) ListPendingWebhookRetries(_ context.Context) ([]doma
 		}
 	}
 	return pending, nil
+}
+
+func TestDeliveryWorker_Shutdown_Idle(t *testing.T) {
+	t.Parallel()
+
+	worker := NewDeliveryWorker(&mockDeliveryStore{}, slog.Default())
+	runCtx, runCancel := context.WithCancel(context.Background())
+	t.Cleanup(runCancel)
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- worker.RunWorker(runCtx, time.Hour)
+	}()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+	defer shutdownCancel()
+	if err := worker.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() error = %v, want nil", err)
+	}
+
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("RunWorker() error = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunWorker did not stop after shutdown")
+	}
+}
+
+func TestDeliveryWorker_Shutdown_WaitsForBatch(t *testing.T) {
+	t.Parallel()
+
+	batchStarted := make(chan struct{})
+	allowBatchExit := make(chan struct{})
+
+	store := &mockDeliveryStore{
+		listPendingFn: func(ctx context.Context) ([]domain.WebhookDelivery, error) {
+			select {
+			case <-batchStarted:
+			default:
+				close(batchStarted)
+			}
+			select {
+			case <-allowBatchExit:
+				return nil, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+	}
+
+	worker := NewDeliveryWorker(store, slog.Default())
+	runCtx, runCancel := context.WithCancel(context.Background())
+	t.Cleanup(runCancel)
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- worker.RunWorker(runCtx, time.Millisecond)
+	}()
+
+	select {
+	case <-batchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("batch did not start")
+	}
+
+	shutdownDone := make(chan error, 1)
+	go func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		shutdownDone <- worker.Shutdown(shutdownCtx)
+	}()
+
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned early with err=%v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowBatchExit)
+
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Fatalf("Shutdown() error = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not return after batch completed")
+	}
+
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("RunWorker() error = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunWorker did not stop after shutdown")
+	}
 }
 
 func (m *mockDeliveryStore) UpdateEventTriggerNotifyStatus(_ context.Context, _ string, status string) error {

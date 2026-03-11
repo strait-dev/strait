@@ -1163,6 +1163,171 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 	}
 }
 
+func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
+	t.Parallel()
+
+	exec := newTestExecutor(t, &mockExecutorStore{}, &mockExecQueue{}, time.Hour, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	runDone := make(chan struct{})
+	go func() {
+		exec.Run(ctx)
+		close(runDone)
+	}()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+	defer shutdownCancel()
+
+	if err := exec.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() error = %v, want nil", err)
+	}
+
+	select {
+	case <-runDone:
+	case <-time.After(time.Second):
+		t.Fatal("executor Run did not stop after shutdown")
+	}
+}
+
+func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
+	t.Parallel()
+
+	pollStarted := make(chan struct{})
+	allowPollExit := make(chan struct{})
+	wake := make(chan struct{}, 1)
+
+	q := &mockExecQueue{
+		dequeueNFn: func(ctx context.Context, _ int) ([]domain.JobRun, error) {
+			select {
+			case <-pollStarted:
+			default:
+				close(pollStarted)
+			}
+			select {
+			case <-allowPollExit:
+				return nil, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+	}
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Wake:              wake,
+		Store:             &mockExecutorStore{},
+		PollInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	})
+
+	runCtx, runCancel := context.WithCancel(context.Background())
+	t.Cleanup(runCancel)
+	runDone := make(chan struct{})
+	go func() {
+		exec.Run(runCtx)
+		close(runDone)
+	}()
+
+	wake <- struct{}{}
+	waitForSignal(t, pollStarted, "poll did not start")
+
+	shutdownDone := make(chan error, 1)
+	go func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		shutdownDone <- exec.Shutdown(shutdownCtx)
+	}()
+
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned early with err=%v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowPollExit)
+
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Fatalf("Shutdown() error = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not return after poll completed")
+	}
+
+	select {
+	case <-runDone:
+	case <-time.After(time.Second):
+		t.Fatal("executor Run did not stop after shutdown")
+	}
+}
+
+func TestExecutor_Shutdown_Timeout(t *testing.T) {
+	t.Parallel()
+
+	pollStarted := make(chan struct{})
+	allowPollExit := make(chan struct{})
+	wake := make(chan struct{}, 1)
+
+	q := &mockExecQueue{
+		dequeueNFn: func(ctx context.Context, _ int) ([]domain.JobRun, error) {
+			select {
+			case <-pollStarted:
+			default:
+				close(pollStarted)
+			}
+			select {
+			case <-allowPollExit:
+				return nil, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+	}
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Wake:              wake,
+		Store:             &mockExecutorStore{},
+		PollInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	})
+
+	runCtx, runCancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	go func() {
+		exec.Run(runCtx)
+		close(runDone)
+	}()
+
+	wake <- struct{}{}
+	waitForSignal(t, pollStarted, "poll did not start")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer shutdownCancel()
+	err := exec.Shutdown(shutdownCtx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown() error = %v, want %v", err, context.DeadlineExceeded)
+	}
+
+	runCancel()
+	close(allowPollExit)
+	select {
+	case <-runDone:
+	case <-time.After(time.Second):
+		t.Fatal("executor Run did not stop after cancel")
+	}
+}
+
 func TestExecutor_Poll_DequeueError(t *testing.T) {
 	t.Parallel()
 	var dequeueCalls atomic.Int32

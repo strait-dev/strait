@@ -321,6 +321,111 @@ func TestTriggerWorkflow(t *testing.T) {
 	})
 }
 
+func TestTriggerWorkflow_NestingDepthExceeded(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			switch id {
+			case "wf-parent", "wf-child":
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			default:
+				return nil, nil
+			}
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+			if workflowID == "wf-parent" {
+				return []domain.WorkflowStep{{
+					ID:              "step-sub",
+					StepRef:         "sub",
+					StepType:        domain.WorkflowStepTypeSubWorkflow,
+					SubWorkflowID:   "wf-child",
+					MaxNestingDepth: 1,
+				}}, nil
+			}
+			return []domain.WorkflowStep{{ID: "child-root", StepRef: "child-root", JobID: "job-child"}}, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			run.ID = "wr-" + run.WorkflowID
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+			sr.ID = "sr-" + sr.StepRef
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "parent-run" {
+				return &domain.WorkflowRun{ID: "parent-run"}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+	_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "parent-run")
+	if err == nil {
+		t.Fatal("expected nesting depth error")
+	}
+	if !strings.Contains(err.Error(), "nesting depth") {
+		t.Fatalf("error = %v, want nesting depth context", err)
+	}
+}
+
+func TestTriggerWorkflow_ConcurrencySlotRetry(t *testing.T) {
+	t.Parallel()
+
+	var countCalls int
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1, MaxConcurrentRuns: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "step-a", JobID: "job-a", StepRef: "a"}}, nil
+		},
+		countRunningWorkflowRunsFn: func(_ context.Context, _ string) (int, error) {
+			countCalls++
+			if countCalls < 3 {
+				return 1, nil
+			}
+			return 0, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			run.ID = "wr-1"
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+			sr.ID = "sr-" + sr.StepRef
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		run.ID = "jr-1"
+		return nil
+	}}
+
+	start := time.Now()
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if countCalls < 3 {
+		t.Fatalf("CountRunningWorkflowRuns calls = %d, want at least 3", countCalls)
+	}
+	if time.Since(start) < 450*time.Millisecond {
+		t.Fatalf("expected retry wait before acquiring slot, elapsed=%s", time.Since(start))
+	}
+}
+
 func TestMergePayloads(t *testing.T) {
 	t.Parallel()
 	t.Run("object merge with parent outputs", func(t *testing.T) {
