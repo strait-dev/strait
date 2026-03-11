@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 	"strait/migrations"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/exaring/otelpgx"
 	"github.com/golang-migrate/migrate/v4"
@@ -34,6 +37,55 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc/pool"
 )
+
+func shutdownReason(err error) string {
+	if err == nil {
+		return "graceful"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "forced"
+}
+
+func logWorkerShutdownStart(logger *slog.Logger, startedAt time.Time, inFlightRuns int64, drainTimeout time.Duration) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Info("worker shutdown initiated",
+		"shutdown_started_at", startedAt.UTC().Format(time.RFC3339Nano),
+		"in_flight_runs", inFlightRuns,
+		"drain_timeout", drainTimeout.String(),
+	)
+}
+
+func logWorkerShutdownComplete(logger *slog.Logger, metrics *telemetry.Metrics, completedAt time.Time, runsDrained int64, reason string, err error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if reason == "" {
+		reason = shutdownReason(err)
+	}
+
+	if err != nil {
+		logger.Warn("worker shutdown completed with warning",
+			"shutdown_completed_at", completedAt.UTC().Format(time.RFC3339Nano),
+			"runs_drained", runsDrained,
+			"reason", reason,
+			"error", err,
+		)
+	} else {
+		logger.Info("worker shutdown completed",
+			"shutdown_completed_at", completedAt.UTC().Format(time.RFC3339Nano),
+			"runs_drained", runsDrained,
+			"reason", reason,
+		)
+	}
+
+	if metrics != nil {
+		metrics.ShutdownTotal.Add(context.Background(), 1, metric.WithAttributes(attribute.String("reason", reason)))
+	}
+}
 
 // connectDatabase creates and verifies a Postgres connection pool.
 // It retries with exponential backoff up to 5 times on transient failures.
@@ -302,12 +354,20 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	g.Go(func(ctx context.Context) error {
 		<-ctx.Done()
-		slog.Info("shutting down worker pool")
+		shutdownStartedAt := time.Now()
+		inFlightRuns := p.RunningWorkers()
+		runCompletedBefore := p.CompletedTasks()
+		logWorkerShutdownStart(slog.Default(), shutdownStartedAt, inFlightRuns, cfg.WorkerDrainTimeout)
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.WorkerDrainTimeout)
 		defer shutdownCancel()
-		if err := p.Shutdown(shutdownCtx); err != nil {
-			slog.Warn("worker pool shutdown timed out", "error", err)
+		err := p.Shutdown(shutdownCtx)
+		runCompletedAfter := p.CompletedTasks()
+		runsDrainedU64 := uint64(0)
+		if runCompletedAfter >= runCompletedBefore {
+			runsDrainedU64 = runCompletedAfter - runCompletedBefore
 		}
+		runsDrained := int64(min(runsDrainedU64, uint64(math.MaxInt64)))
+		logWorkerShutdownComplete(slog.Default(), metrics, time.Now(), runsDrained, shutdownReason(err), err)
 		return nil
 	})
 

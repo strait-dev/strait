@@ -35,6 +35,10 @@ type TriggerRequest struct {
 
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
+	if err := validateRunCreationJobID(jobID); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
@@ -58,6 +62,10 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.validateRequest(w, r, &req) {
+		return
+	}
+	if err := validatePayloadSize(req.Payload); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -381,6 +389,13 @@ type DryRunValidationResult struct {
 }
 
 func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
+	if err := validateRunCreationJobID(jobID); err != nil {
+		return nil, err
+	}
+	if err := validatePayloadSize(req.Payload); err != nil {
+		return nil, err
+	}
+
 	job, err := s.store.GetJob(ctx, jobID)
 	if err != nil {
 		return nil, err

@@ -55,6 +55,7 @@ type mockAPIStore struct {
 	countProjectActiveRunsFn            func(ctx context.Context, projectID string) (int, error)
 	listRunsByProjectFn                 func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	listDeadLetterRunsFn                func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	bulkReplayDeadLetterRunsFn          func(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	updateRunStatusFn                   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	replayDeadLetterRunFn               func(ctx context.Context, runID string) (*domain.JobRun, error)
 	updateRunMetadataFn                 func(ctx context.Context, id string, annotations map[string]string) error
@@ -432,6 +433,13 @@ func (m *mockAPIStore) ListRunsByTag(_ context.Context, _, _, _ string, _ int, _
 func (m *mockAPIStore) ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listDeadLetterRunsFn != nil {
 		return m.listDeadLetterRunsFn(ctx, projectID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+	if m.bulkReplayDeadLetterRunsFn != nil {
+		return m.bulkReplayDeadLetterRunsFn(ctx, runIDs, projectID, limit)
 	}
 	return nil, nil
 }

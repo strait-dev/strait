@@ -17,9 +17,14 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	concpool "github.com/sourcegraph/conc/pool"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // DeliveryStore is the subset of store operations needed by the webhook worker.
@@ -31,6 +36,7 @@ type DeliveryStore interface {
 }
 
 const defaultDeliveryConcurrency = 5
+const defaultWebhookMaxPayloadBytes = 1 << 20
 
 type DeliveryWorker struct {
 	client *http.Client
@@ -40,6 +46,8 @@ type DeliveryWorker struct {
 	concurrency        int
 	defaultRetryPolicy string
 	circuitBreaker     WebhookCircuitBreaker
+	metrics            *telemetry.Metrics
+	maxPayloadBytes    int64
 }
 
 type EventNotifier = DeliveryWorker
@@ -69,6 +77,20 @@ func WithCircuitBreaker(circuitBreaker WebhookCircuitBreaker) DeliveryWorkerOpti
 	}
 }
 
+func WithMetrics(metrics *telemetry.Metrics) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.metrics = metrics
+	}
+}
+
+func WithMaxPayloadBytes(maxPayloadBytes int64) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		if maxPayloadBytes > 0 {
+			w.maxPayloadBytes = maxPayloadBytes
+		}
+	}
+}
+
 func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
 	if logger == nil {
 		logger = slog.Default()
@@ -79,6 +101,7 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 		logger:             logger,
 		concurrency:        defaultDeliveryConcurrency,
 		defaultRetryPolicy: domain.WebhookRetryPolicyExponential,
+		maxPayloadBytes:    defaultWebhookMaxPayloadBytes,
 	}
 	for _, opt := range opts {
 		opt(w)
@@ -227,16 +250,41 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 
 // attemptDelivery makes one HTTP request for a delivery.
 func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
+	start := time.Now()
 	now := time.Now()
 	d.Attempts++
+	retryPolicy := n.retryPolicyForDelivery(d)
+
+	if n.metrics != nil {
+		n.metrics.WebhookDeliveryAttempts.Add(ctx, 1, metric.WithAttributes(attribute.String("retry_policy", retryPolicy)))
+	}
+
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.AttemptDelivery", trace.WithAttributes(
+		attribute.String("delivery.id", d.ID),
+		attribute.String("webhook.url", d.WebhookURL),
+		attribute.Int("attempt", d.Attempts),
+		attribute.Int("max_attempts", d.MaxAttempts),
+		attribute.Int("status_code", 0),
+	))
+	defer span.End()
+
+	defer func() {
+		if n.metrics != nil {
+			n.metrics.WebhookDeliveryDuration.Record(ctx, time.Since(start).Seconds())
+		}
+	}()
 
 	if n.circuitBreaker != nil {
 		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, d.WebhookURL)
 		if err != nil {
 			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url", d.WebhookURL, "error", err)
 		} else if !canDeliver {
+			n.recordCircuitBreakerState(ctx, d.WebhookURL, "open")
 			n.recordFailure(ctx, d, now, true, "circuit breaker is open")
+			span.SetStatus(codes.Error, "circuit breaker is open")
 			return
+		} else {
+			n.recordCircuitBreakerState(ctx, d.WebhookURL, "closed")
 		}
 	}
 
@@ -260,9 +308,22 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		body, _ = json.Marshal(payload)
 	}
 
+	payloadSize := int64(len(body))
+	if n.metrics != nil {
+		n.metrics.WebhookPayloadBytes.Record(ctx, payloadSize)
+	}
+	if n.maxPayloadBytes > 0 && payloadSize > n.maxPayloadBytes {
+		errMsg := fmt.Sprintf("payload too large: %d bytes exceeds max %d", payloadSize, n.maxPayloadBytes)
+		n.recordFailure(ctx, d, now, false, errMsg)
+		span.SetStatus(codes.Error, errMsg)
+		return
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
 	if err != nil {
-		n.recordFailure(ctx, d, now, false, fmt.Sprintf("create request: %v", err))
+		errMsg := fmt.Sprintf("create request: %v", err)
+		n.recordFailure(ctx, d, now, false, errMsg)
+		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -283,24 +344,31 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		if n.circuitBreaker != nil {
 			n.circuitBreaker.RecordFailure(ctx, d.WebhookURL)
 		}
-		n.recordFailure(ctx, d, now, true, fmt.Sprintf("http request: %v", err))
+		errMsg := fmt.Sprintf("http request: %v", err)
+		n.recordFailure(ctx, d, now, true, errMsg)
+		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 	defer resp.Body.Close()
 
 	statusCode := resp.StatusCode
+	span.SetAttributes(attribute.Int("status_code", statusCode))
 	d.LastStatusCode = &statusCode
 
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
 			n.circuitBreaker.RecordFailure(ctx, d.WebhookURL)
 		}
-		n.recordFailure(ctx, d, now, true, fmt.Sprintf("server error: status %d", statusCode))
+		errMsg := fmt.Sprintf("server error: status %d", statusCode)
+		n.recordFailure(ctx, d, now, true, errMsg)
+		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 	if statusCode >= 400 {
 		// 4xx: client error, not retryable — go straight to dead.
-		n.recordFailure(ctx, d, now, false, fmt.Sprintf("client error: status %d", statusCode))
+		errMsg := fmt.Sprintf("client error: status %d", statusCode)
+		n.recordFailure(ctx, d, now, false, errMsg)
+		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 
@@ -313,7 +381,14 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	d.LastError = ""
 	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
 		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
+		span.SetStatus(codes.Error, "failed to persist delivered webhook")
 		return
+	}
+	if n.metrics != nil {
+		n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("status", "delivered"),
+			attribute.String("retry_policy", retryPolicy),
+		))
 	}
 	if d.EventTriggerID != "" {
 		_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "sent")
@@ -326,6 +401,17 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 // attempts, marks the delivery as dead (DLQ).
 func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDelivery, now time.Time, retryable bool, errMsg string) {
 	d.LastError = errMsg
+	retryPolicy := n.retryPolicyForDelivery(d)
+	metricStatus := "failed"
+	if !retryable || d.Attempts >= d.MaxAttempts {
+		metricStatus = "dead"
+	}
+	if n.metrics != nil {
+		n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("status", metricStatus),
+			attribute.String("retry_policy", retryPolicy),
+		))
+	}
 
 	// Non-retryable or exhausted → dead letter.
 	if !retryable || d.Attempts >= d.MaxAttempts {
@@ -355,6 +441,24 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 		"delivery_id", d.ID, "url", d.WebhookURL,
 		"attempt", d.Attempts, "max_attempts", d.MaxAttempts,
 		"next_attempt", nextAttempt, "error", errMsg)
+}
+
+func (n *DeliveryWorker) recordCircuitBreakerState(ctx context.Context, url string, currentState string) {
+	if n.metrics == nil || url == "" {
+		return
+	}
+
+	states := []string{"closed", "open", "half_open"}
+	for _, state := range states {
+		value := int64(0)
+		if state == currentState {
+			value = 1
+		}
+		n.metrics.WebhookCircuitBreaker.Record(ctx, value, metric.WithAttributes(
+			attribute.String("url", url),
+			attribute.String("state", state),
+		))
+	}
 }
 
 // pow computes base^exp for small positive integers.

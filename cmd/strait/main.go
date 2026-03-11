@@ -129,6 +129,10 @@ func runServe(modeOverride string) error {
 	if cfg.FFWebhookCircuitBreaker && rdb != nil {
 		webhookOptions = append(webhookOptions, webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)))
 	}
+	webhookOptions = append(webhookOptions,
+		webhook.WithMetrics(metrics),
+		webhook.WithMaxPayloadBytes(cfg.WebhookMaxPayloadBytes),
+	)
 	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
 	onTriggerCreate := func(trigger *domain.EventTrigger) {

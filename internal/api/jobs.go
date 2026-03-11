@@ -78,6 +78,18 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if !s.validateRequest(w, r, &req) {
 		return
 	}
+	if err := validateJobName(req.Name); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateJobSlug(req.Slug); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if err := validateURL(req.EndpointURL); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
@@ -249,6 +261,25 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 	if !s.validateRequest(w, r, &req) {
 		return
+	}
+
+	if req.Name != nil {
+		if err := validateJobName(*req.Name); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Slug != nil {
+		if err := validateJobSlug(*req.Slug); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.EndpointURL != nil {
+		if err := validateEndpointNotEmpty(*req.EndpointURL); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	if req.Cron != nil && *req.Cron != "" {
@@ -434,6 +465,14 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "name and slug are required")
 		return
 	}
+	if err := validateJobName(req.Name); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateJobSlug(req.Slug); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	clone := &domain.Job{
 		ProjectID:           source.ProjectID,
@@ -576,6 +615,18 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 	for i, jobReq := range req.Jobs {
 		if err := s.validate.Struct(&jobReq); err != nil {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "validation failed"})
+			continue
+		}
+		if err := validateJobName(jobReq.Name); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+			continue
+		}
+		if err := validateJobSlug(jobReq.Slug); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+			continue
+		}
+		if err := validateEndpointNotEmpty(jobReq.EndpointURL); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
 			continue
 		}
 

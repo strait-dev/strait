@@ -323,6 +323,70 @@ func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, http.StatusOK, run)
 }
 
+func (s *Server) handleBulkReplayDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFRunDLQ {
+		respondError(w, r, http.StatusNotFound, "not found")
+		return
+	}
+
+	var req struct {
+		RunIDs    []string `json:"run_ids"`
+		ProjectID string   `json:"project_id"`
+		Limit     int      `json:"limit"`
+	}
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	hasRunIDs := len(req.RunIDs) > 0
+	hasProjectID := req.ProjectID != ""
+	if hasRunIDs == hasProjectID {
+		respondError(w, r, http.StatusBadRequest, APIError{
+			Code:    ErrorCodeValidationError,
+			Message: "provide either run_ids or project_id",
+		})
+		return
+	}
+
+	if hasRunIDs {
+		if len(req.RunIDs) > 500 {
+			respondError(w, r, http.StatusBadRequest, APIError{
+				Code:    ErrorCodeValidationError,
+				Message: "too many run_ids (max 500)",
+			})
+			return
+		}
+	} else {
+		if req.Limit <= 0 {
+			req.Limit = 100
+		}
+		if req.Limit > 500 {
+			respondError(w, r, http.StatusBadRequest, APIError{
+				Code:    ErrorCodeValidationError,
+				Message: "limit must be <= 500",
+			})
+			return
+		}
+	}
+
+	runs, err := s.store.BulkReplayDeadLetterRuns(r.Context(), req.RunIDs, req.ProjectID, req.Limit)
+	if err != nil {
+		errMsg := err.Error()
+		switch {
+		case strings.Contains(errMsg, "at least one") || strings.Contains(errMsg, "provide either"):
+			respondError(w, r, http.StatusBadRequest, APIError{Code: ErrorCodeValidationError, Message: errMsg})
+		case strings.Contains(errMsg, "no dead_letter"):
+			respondError(w, r, http.StatusConflict, APIError{Code: ErrorCodeConflict, Message: errMsg})
+		default:
+			respondError(w, r, http.StatusInternalServerError, "failed to bulk replay dead letter runs")
+		}
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"replayed": runs, "count": len(runs)})
+}
+
 func isReplayableRunStatus(status domain.RunStatus) bool {
 	switch status {
 	case domain.StatusFailed, domain.StatusTimedOut, domain.StatusCrashed, domain.StatusSystemFailed:

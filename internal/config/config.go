@@ -135,6 +135,7 @@ type Config struct {
 	ExecutorHTTPTimeout     time.Duration `mapstructure:"EXECUTOR_HTTP_TIMEOUT"`
 	ExecutorIdleConnTimeout time.Duration `mapstructure:"EXECUTOR_IDLE_CONN_TIMEOUT"`
 	WebhookDispatchTimeout  time.Duration `mapstructure:"WEBHOOK_DISPATCH_TIMEOUT"`
+	WebhookMaxPayloadBytes  int64         `mapstructure:"WEBHOOK_MAX_PAYLOAD_BYTES"`
 
 	// Worker settings
 	WebhookMaxAttempts    int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
@@ -242,6 +243,7 @@ func setDefaults() {
 	viper.SetDefault("EXECUTOR_HTTP_TIMEOUT", 5*time.Minute)
 	viper.SetDefault("EXECUTOR_IDLE_CONN_TIMEOUT", 90*time.Second)
 	viper.SetDefault("WEBHOOK_DISPATCH_TIMEOUT", 15*time.Second)
+	viper.SetDefault("WEBHOOK_MAX_PAYLOAD_BYTES", int64(1<<20))
 	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
@@ -283,7 +285,7 @@ func BindEnv() error {
 		"DB_PGBOUNCER_MODE", "FF_REDIS_REQUIRED", "FF_AUDIT_LOG",
 		"WORKER_DRAIN_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
-		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_ATTEMPTS",
+		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_MAX_ATTEMPTS",
 		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
 		"WORKFLOW_RETENTION", "INDEX_MAINTENANCE_INTERVAL",
 		"REAPER_DELETE_BATCH_SIZE", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
@@ -343,6 +345,7 @@ func Load() (*Config, error) {
 	cfg.ExecutorHTTPTimeout = viper.GetDuration("EXECUTOR_HTTP_TIMEOUT")
 	cfg.ExecutorIdleConnTimeout = viper.GetDuration("EXECUTOR_IDLE_CONN_TIMEOUT")
 	cfg.WebhookDispatchTimeout = viper.GetDuration("WEBHOOK_DISPATCH_TIMEOUT")
+	cfg.WebhookMaxPayloadBytes = viper.GetInt64("WEBHOOK_MAX_PAYLOAD_BYTES")
 	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
 	cfg.EventTriggerRetention = viper.GetDuration("EVENT_TRIGGER_RETENTION")
 	cfg.IndexMaintenanceInterval = viper.GetDuration("INDEX_MAINTENANCE_INTERVAL")

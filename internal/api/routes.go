@@ -23,6 +23,7 @@ func (s *Server) routes() chi.Router {
 		AllowCredentials: s.config.CORSAllowCredentials,
 		MaxAge:           300,
 	}))
+	r.Use(securityHeaders)
 
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -131,6 +132,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/runs", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListRuns)
 			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dlq", s.handleListDeadLetterRuns)
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-dlq-replay", s.handleBulkReplayDeadLetterRuns)
 			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel", s.handleBulkCancelRuns)
 			r.Route("/{runID}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleGetRun)

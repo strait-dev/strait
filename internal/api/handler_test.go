@@ -159,6 +159,26 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
+
+	var resp struct {
+		Error struct {
+			Code    string   `json:"code"`
+			Message string   `json:"message"`
+			Details []string `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Error.Code != ErrorCodeValidationError {
+		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
+	}
+	if resp.Error.Message != "validation failed" {
+		t.Fatalf("expected validation failed message, got %q", resp.Error.Message)
+	}
+	if len(resp.Error.Details) == 0 {
+		t.Fatal("expected validation details")
+	}
 }
 
 func TestHandleCreateJob_TagsFeatureDisabled(t *testing.T) {
@@ -372,6 +392,18 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Error.Code != ErrorCodeValidationError {
+		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
 	}
 }
 
@@ -1325,6 +1357,51 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		bulkReplayDeadLetterRunsFn: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+			if len(runIDs) != 2 || runIDs[0] != "run-1" || runIDs[1] != "run-2" {
+				t.Fatalf("unexpected run_ids: %+v", runIDs)
+			}
+			if projectID != "" {
+				t.Fatalf("expected empty project_id, got %q", projectID)
+			}
+			if limit != 0 {
+				t.Fatalf("expected zero limit for run_ids mode, got %d", limit)
+			}
+			return []domain.JobRun{
+				{ID: "run-1", Status: domain.StatusQueued, Attempt: 1},
+				{ID: "run-2", Status: domain.StatusQueued, Attempt: 1},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.FFRunDLQ = true
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1","run-2"]}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Count    int             `json:"count"`
+		Replayed []domain.JobRun `json:"replayed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Count != 2 {
+		t.Fatalf("expected count=2, got %d", resp.Count)
+	}
+	if len(resp.Replayed) != 2 {
+		t.Fatalf("expected 2 replayed runs, got %d", len(resp.Replayed))
 	}
 }
 

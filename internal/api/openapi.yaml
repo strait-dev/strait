@@ -902,6 +902,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobRun'
 
+  /v1/runs/bulk-dlq-replay:
+    post:
+      tags:
+        - Runs
+      summary: Bulk replay dead-lettered runs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDLQReplayRequest'
+      responses:
+        '200':
+          description: Runs replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkDLQReplayResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: No eligible dead-letter runs to replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /v1/runs/{runID}/stream:
     get:
       tags:
@@ -4096,11 +4129,62 @@ components:
         - error
       properties:
         error:
-          type: string
-        code:
-          type: string
+          oneOf:
+            - type: string
+            - $ref: '#/components/schemas/APIError'
         request_id:
           type: string
+
+    APIError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - validation_error
+            - not_found
+            - conflict
+            - rate_limited
+            - internal_error
+            - unauthorized
+            - forbidden
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+
+    BulkDLQReplayRequest:
+      type: object
+      properties:
+        run_ids:
+          type: array
+          items:
+            type: string
+        project_id:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+      description: Provide either run_ids or project_id with optional limit.
+
+    BulkDLQReplayResponse:
+      type: object
+      required:
+        - replayed
+        - count
+      properties:
+        replayed:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobRun'
+        count:
+          type: integer
 
     CreateJobRequest:
       type: object

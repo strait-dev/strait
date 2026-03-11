@@ -921,6 +921,89 @@ func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domai
 	return updatedRun, nil
 }
 
+func (q *Queries) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkReplayDeadLetterRuns")
+	defer span.End()
+
+	if len(runIDs) == 0 && projectID == "" {
+		return nil, fmt.Errorf("at least one run id or project_id is required")
+	}
+	if len(runIDs) > 0 && projectID != "" {
+		return nil, fmt.Errorf("provide either run_ids or project_id, not both")
+	}
+
+	idsToReplay := runIDs
+	if len(idsToReplay) == 0 {
+		if limit <= 0 {
+			limit = 100
+		}
+		query := `
+			SELECT id
+			FROM job_runs
+			WHERE project_id = $1 AND status = 'dead_letter'
+			ORDER BY created_at ASC
+			LIMIT $2`
+		rows, err := q.db.Query(ctx, query, projectID, limit)
+		if err != nil {
+			return nil, fmt.Errorf("select dead letter runs for bulk replay: %w", err)
+		}
+		defer rows.Close()
+
+		idsToReplay = make([]string, 0, limit)
+		for rows.Next() {
+			var runID string
+			if scanErr := rows.Scan(&runID); scanErr != nil {
+				return nil, fmt.Errorf("scan dead letter run id for bulk replay: %w", scanErr)
+			}
+			idsToReplay = append(idsToReplay, runID)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate dead letter run ids for bulk replay: %w", err)
+		}
+	}
+
+	replayed := make([]domain.JobRun, 0, len(idsToReplay))
+	for _, runID := range idsToReplay {
+		run, err := q.GetRun(ctx, runID)
+		if err != nil {
+			if errors.Is(err, ErrRunNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("get run %s for bulk replay: %w", runID, err)
+		}
+		if run.Status != domain.StatusDeadLetter {
+			continue
+		}
+
+		if err := q.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusReplayStaged, nil); err != nil {
+			return nil, fmt.Errorf("stage run %s for replay: %w", runID, err)
+		}
+
+		if err := q.UpdateRunStatus(ctx, runID, domain.StatusReplayStaged, domain.StatusQueued, map[string]any{
+			"attempt":       1,
+			"error":         "",
+			"started_at":    nil,
+			"finished_at":   nil,
+			"heartbeat_at":  nil,
+			"next_retry_at": nil,
+		}); err != nil {
+			return nil, fmt.Errorf("enqueue staged run %s: %w", runID, err)
+		}
+
+		updatedRun, err := q.GetRun(ctx, runID)
+		if err != nil {
+			return nil, fmt.Errorf("get replayed run %s: %w", runID, err)
+		}
+		replayed = append(replayed, *updatedRun)
+	}
+
+	if len(replayed) == 0 {
+		return nil, fmt.Errorf("no dead_letter runs available for replay")
+	}
+
+	return replayed, nil
+}
+
 func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	_, err := q.UpdateRunStatusReturningOld(ctx, id, from, to, fields)
 	if err != nil {

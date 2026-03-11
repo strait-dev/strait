@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2108,9 +2110,18 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 	}))
 	defer originalServer.Close()
 
-	// Use localhost hostname instead of 127.0.0.1 to pass SSRF IP check.
-	// validateEndpointURL only blocks literal private IPs, not hostnames.
-	overrideURL := strings.Replace(overrideServer.URL, "127.0.0.1", "localhost", 1)
+	overrideParsed, err := url.Parse(overrideServer.URL)
+	if err != nil {
+		t.Fatalf("parse override server url: %v", err)
+	}
+	overrideURL := "http://example.com" + ":" + overrideParsed.Port()
+
+	transport := overrideServer.Client().Transport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", overrideParsed.Host)
+	}
+	client := &http.Client{Transport: transport}
 
 	store := &mockExecutorStore{}
 	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
@@ -2125,7 +2136,7 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 		return map[string]string{"ENDPOINT_URL": overrideURL}, nil
 	}
 
-	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, overrideServer.Client())
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, client)
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)

@@ -23,6 +23,11 @@ type Metrics struct {
 	DispatchErrors          metric.Int64Counter
 	ExecutionTraceDispatch  metric.Float64Histogram
 	ExecutionTraceQueueWait metric.Float64Histogram
+	WebhookDeliveriesTotal  metric.Int64Counter
+	WebhookDeliveryDuration metric.Float64Histogram
+	WebhookDeliveryAttempts metric.Int64Counter
+	WebhookCircuitBreaker   metric.Int64Gauge
+	WebhookPayloadBytes     metric.Int64Histogram
 
 	// Event trigger metrics.
 	EventTriggersCreated     metric.Int64Counter
@@ -40,6 +45,7 @@ type Metrics struct {
 	PoolSuccessfulTasks metric.Int64ObservableCounter
 	PoolFailedTasks     metric.Int64ObservableCounter
 	PoolDroppedTasks    metric.Int64ObservableCounter
+	ShutdownTotal       metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -120,6 +126,51 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create execution trace queue wait histogram: %w", err)
+	}
+
+	webhookDeliveriesTotal, err := meter.Int64Counter(
+		"strait_webhook_deliveries_total",
+		metric.WithDescription("Total webhook deliveries by delivery status and retry policy"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook deliveries counter: %w", err)
+	}
+
+	webhookDeliveryDuration, err := meter.Float64Histogram(
+		"strait_webhook_delivery_duration_seconds",
+		metric.WithDescription("Webhook delivery HTTP request duration in seconds"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook delivery duration histogram: %w", err)
+	}
+
+	webhookDeliveryAttempts, err := meter.Int64Counter(
+		"strait_webhook_delivery_attempts_total",
+		metric.WithDescription("Total webhook delivery attempts"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook delivery attempts counter: %w", err)
+	}
+
+	webhookCircuitBreaker, err := meter.Int64Gauge(
+		"strait_webhook_circuit_breaker_state",
+		metric.WithDescription("Webhook circuit breaker state (1=current state, 0=other states)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook circuit breaker gauge: %w", err)
+	}
+
+	webhookPayloadBytes, err := meter.Int64Histogram(
+		"strait_webhook_payload_bytes",
+		metric.WithDescription("Webhook payload size in bytes"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook payload bytes histogram: %w", err)
 	}
 
 	eventTriggersCreated, err := meter.Int64Counter(
@@ -221,6 +272,15 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create pool dropped tasks counter: %w", err)
 	}
 
+	shutdownTotal, err := meter.Int64Counter(
+		"strait_shutdown_total",
+		metric.WithDescription("Total worker shutdown attempts by reason"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create shutdown total counter: %w", err)
+	}
+
 	m := &Metrics{
 		RunTransitions:           runTransitions,
 		DequeueDuration:          dequeueDuration,
@@ -228,6 +288,11 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		DispatchErrors:           dispatchErrors,
 		ExecutionTraceDispatch:   executionTraceDispatch,
 		ExecutionTraceQueueWait:  executionTraceQueueWait,
+		WebhookDeliveriesTotal:   webhookDeliveriesTotal,
+		WebhookDeliveryDuration:  webhookDeliveryDuration,
+		WebhookDeliveryAttempts:  webhookDeliveryAttempts,
+		WebhookCircuitBreaker:    webhookCircuitBreaker,
+		WebhookPayloadBytes:      webhookPayloadBytes,
 		EventTriggersCreated:     eventTriggersCreated,
 		EventTriggersReceived:    eventTriggersReceived,
 		EventTriggersTimedOut:    eventTriggersTimedOut,
@@ -239,6 +304,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		PoolSuccessfulTasks:      poolSuccessful,
 		PoolFailedTasks:          poolFailed,
 		PoolDroppedTasks:         poolDropped,
+		ShutdownTotal:            shutdownTotal,
 	}
 
 	slog.Info("prometheus metrics enabled")

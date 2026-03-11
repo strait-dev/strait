@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -468,6 +469,50 @@ func TestWorker_ClientError_DeadLetters(t *testing.T) {
 		if d.EventTriggerID == "evt-5" && d.Status != domain.WebhookStatusDead {
 			t.Fatalf("expected status=dead for client error, got %s", d.Status)
 		}
+	}
+}
+
+func TestWorker_PayloadTooLarge_DeadLettersWithoutHTTPCall(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	largePayload := `{"payload":"` + strings.Repeat("x", 2048) + `"}`
+	delivery := &domain.WebhookDelivery{
+		ID:          "too-large",
+		RunID:       "run-too-large",
+		JobID:       "job-too-large",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   largePayload,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	notifier := NewEventNotifier(ms, slog.Default(), WithMaxPayloadBytes(1024))
+	notifier.processBatch(context.Background())
+
+	if requests.Load() != 0 {
+		t.Fatalf("expected no HTTP requests, got %d", requests.Load())
+	}
+
+	updated := ms.getDeliveries()[0]
+	if updated.Status != domain.WebhookStatusDead {
+		t.Fatalf("expected status=dead, got %s", updated.Status)
+	}
+	if !strings.Contains(updated.LastError, "payload too large") {
+		t.Fatalf("expected payload too large error, got %q", updated.LastError)
 	}
 }
 

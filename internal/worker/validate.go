@@ -6,10 +6,7 @@ import (
 	"net/url"
 )
 
-// validateEndpointURL checks that a URL is valid and doesn't target private networks.
-// This mirrors the api-layer SSRF check (api.validateURL) for runtime URL overrides
-// such as environment endpoint overrides that bypass the API validation layer.
-func validateEndpointURL(rawURL string) error {
+func ValidateEndpointURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -37,6 +34,10 @@ func validateEndpointURL(rawURL string) error {
 	}
 
 	return nil
+}
+
+func validateEndpointURL(rawURL string) error {
+	return ValidateEndpointURL(rawURL)
 }
 
 // cgnatNet is the CGNAT range 100.64.0.0/10 (RFC 6598).

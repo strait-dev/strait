@@ -41,3 +41,27 @@ func BenchmarkBuildDequeueQuery(b *testing.B) {
 		_ = fmt.Sprintf(dequeueQueryTemplate, domain.StatusDequeued, domain.StatusQueued)
 	}
 }
+
+func BenchmarkDequeueOrderByClause(b *testing.B) {
+	b.Run("without_priority_aging", func(b *testing.B) {
+		q := NewPostgresQueue(nil, WithPriorityAging(false))
+
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			_ = q.dequeueOrderByClause()
+		}
+	})
+
+	b.Run("with_priority_aging", func(b *testing.B) {
+		q := NewPostgresQueue(nil, WithPriorityAging(true))
+
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			_ = q.dequeueOrderByClause()
+		}
+	})
+}

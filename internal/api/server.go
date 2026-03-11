@@ -23,6 +23,7 @@ import (
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
+	"strait/internal/worker"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -90,6 +91,7 @@ type RunStore interface {
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
@@ -236,10 +238,25 @@ const (
 
 // ErrorResponse is the standard error response returned by all API endpoints.
 type ErrorResponse struct {
-	Error     string `json:"error"`
-	Code      string `json:"code,omitempty"`
+	Error     any    `json:"error"`
 	RequestID string `json:"request_id,omitempty"`
 }
+
+type APIError struct {
+	Code    string   `json:"code"`
+	Message string   `json:"message"`
+	Details []string `json:"details,omitempty"`
+}
+
+const (
+	ErrorCodeValidationError = "validation_error"
+	ErrorCodeNotFound        = "not_found"
+	ErrorCodeConflict        = "conflict"
+	ErrorCodeRateLimited     = "rate_limited"
+	ErrorCodeInternalError   = "internal_error"
+	ErrorCodeUnauthorized    = "unauthorized"
+	ErrorCodeForbidden       = "forbidden"
+)
 
 type Server struct {
 	router             chi.Router
@@ -376,15 +393,73 @@ func respondJSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
-func respondError(w http.ResponseWriter, r *http.Request, status int, message string) {
+func respondError(w http.ResponseWriter, r *http.Request, status int, errInput any) {
 	var requestID string
 	if r != nil {
 		requestID = chimw.GetReqID(r.Context())
 	}
+
+	errorBody := normalizeAPIError(status, errInput)
 	respondJSON(w, status, ErrorResponse{
-		Error:     message,
+		Error:     errorBody,
 		RequestID: requestID,
 	})
+}
+
+func normalizeAPIError(status int, errInput any) any {
+	switch v := errInput.(type) {
+	case APIError:
+		if v.Code == "" {
+			v.Code = defaultErrorCode(status)
+		}
+		if v.Message == "" {
+			v.Message = http.StatusText(status)
+		}
+		return v
+	case *APIError:
+		if v == nil {
+			return http.StatusText(status)
+		}
+		apiErr := *v
+		if apiErr.Code == "" {
+			apiErr.Code = defaultErrorCode(status)
+		}
+		if apiErr.Message == "" {
+			apiErr.Message = http.StatusText(status)
+		}
+		return apiErr
+	case error:
+		if v == nil {
+			return http.StatusText(status)
+		}
+		return v.Error()
+	case string:
+		if v == "" {
+			return http.StatusText(status)
+		}
+		return v
+	default:
+		return http.StatusText(status)
+	}
+}
+
+func defaultErrorCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return ErrorCodeValidationError
+	case http.StatusUnauthorized:
+		return ErrorCodeUnauthorized
+	case http.StatusForbidden:
+		return ErrorCodeForbidden
+	case http.StatusNotFound:
+		return ErrorCodeNotFound
+	case http.StatusConflict:
+		return ErrorCodeConflict
+	case http.StatusTooManyRequests:
+		return ErrorCodeRateLimited
+	default:
+		return ErrorCodeInternalError
+	}
 }
 
 func (s *Server) decodeJSON(r *http.Request, v any) error {
@@ -394,24 +469,21 @@ func (s *Server) decodeJSON(r *http.Request, v any) error {
 	return dec.Decode(v)
 }
 
-// validateURL checks that a URL is valid and doesn't target private networks.
-// It performs DNS resolution to prevent DNS rebinding attacks and blocks
-// known dangerous hostnames and non-standard ports.
 func validateURL(rawURL string) error {
+	if err := worker.ValidateEndpointURL(rawURL); err != nil {
+		msg := err.Error()
+		if strings.HasPrefix(msg, "URL") {
+			msg = "u" + msg[1:]
+		}
+		return errors.New(msg)
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("url must use http or https scheme")
-	}
-	if u.Host == "" {
-		return fmt.Errorf("url must have a host")
-	}
 
 	host := u.Hostname()
-
-	// Block known dangerous hostnames
 	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
 	for _, blocked := range blockedHosts {
 		if strings.EqualFold(host, blocked) {
@@ -419,29 +491,20 @@ func validateURL(rawURL string) error {
 		}
 	}
 
-	// Check IP directly or resolve hostname to verify all resolved IPs
 	ip := net.ParseIP(host)
-	if ip != nil {
-		if isPrivateIP(ip) {
+	if ip == nil {
+		ips, lookupErr := net.LookupIP(host)
+		if lookupErr == nil && slices.ContainsFunc(ips, isPrivateIP) {
 			return fmt.Errorf("url must not point to private or loopback addresses")
 		}
-	} else {
-		ips, err := net.LookupIP(host)
-		if err == nil {
-			if slices.ContainsFunc(ips, isPrivateIP) {
-				return fmt.Errorf("url must not point to private or loopback addresses")
-			}
-		}
-		// DNS resolution failure is not an error — the hostname may not be resolvable yet
-		// (e.g., user is setting up their webhook endpoint). Only block confirmed private IPs.
 	}
 
-	// Block non-standard ports that might bypass firewalls
 	if port := u.Port(); port != "" && port != "80" && port != "443" {
-		portNum, err := strconv.Atoi(port)
-		if err != nil || portNum < 1 || portNum > 65535 {
+		portNum, convErr := strconv.Atoi(port)
+		if convErr != nil || portNum < 1 || portNum > 65535 {
 			return fmt.Errorf("invalid port number")
 		}
+
 		allowedPorts := map[int]bool{80: true, 443: true, 8080: true, 8443: true, 3000: true, 4000: true, 5000: true, 9000: true}
 		if !allowedPorts[portNum] {
 			return fmt.Errorf("port %d is not allowed for webhooks", portNum)
@@ -451,7 +514,6 @@ func validateURL(rawURL string) error {
 	return nil
 }
 
-// isPrivateIP returns true if the IP is loopback, private, link-local, or unspecified.
 func isPrivateIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
@@ -466,10 +528,17 @@ func (s *Server) validateRequest(w http.ResponseWriter, r *http.Request, v any) 
 			for _, fe := range ve {
 				messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
 			}
-			respondError(w, r, http.StatusBadRequest, "validation failed: "+strings.Join(messages, ", "))
+			respondError(w, r, http.StatusBadRequest, APIError{
+				Code:    ErrorCodeValidationError,
+				Message: "validation failed",
+				Details: messages,
+			})
 			return false
 		}
-		respondError(w, r, http.StatusBadRequest, "invalid request")
+		respondError(w, r, http.StatusBadRequest, APIError{
+			Code:    ErrorCodeValidationError,
+			Message: "invalid request",
+		})
 		return false
 	}
 	return true

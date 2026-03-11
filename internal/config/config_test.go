@@ -56,6 +56,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.IndexMaintenanceInterval != 24*time.Hour {
 		t.Fatalf("IndexMaintenanceInterval = %v, want %v", cfg.IndexMaintenanceInterval, 24*time.Hour)
 	}
+	if cfg.WebhookMaxPayloadBytes != int64(1<<20) {
+		t.Fatalf("WebhookMaxPayloadBytes = %d, want %d", cfg.WebhookMaxPayloadBytes, int64(1<<20))
+	}
 	if cfg.DBMaxConns != 25 {
 		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 25)
 	}
