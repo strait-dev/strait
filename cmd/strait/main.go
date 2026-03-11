@@ -106,9 +106,24 @@ func runServe(modeOverride string) error {
 	}
 	defer dbPool.Close()
 
+	poolTuner, err := store.NewPoolTuner(dbPool, slog.Default(), cfg.DBMaxConns, cfg.DBMinConns)
+	if err != nil {
+		return fmt.Errorf("init pool tuner: %w", err)
+	}
+
 	// Run migrations
 	if err := runMigrations(cfg.DatabaseURL); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
+	}
+
+	if cfg.FFQueryCacheWarming {
+		cacheWarmer, err := store.NewCacheWarmer(dbPool, slog.Default())
+		if err != nil {
+			return fmt.Errorf("init cache warmer: %w", err)
+		}
+		if err := cacheWarmer.Warm(ctx); err != nil {
+			return fmt.Errorf("warm query cache: %w", err)
+		}
 	}
 
 	// Create dependencies
@@ -125,6 +140,10 @@ func runServe(modeOverride string) error {
 	}
 
 	g := concpool.New().WithContext(ctx).WithFailFast()
+	g.Go(func(ctx context.Context) error {
+		return poolTuner.Run(ctx)
+	})
+
 	webhookOptions := []webhook.DeliveryWorkerOption{}
 	if cfg.FFWebhookCircuitBreaker && rdb != nil {
 		webhookOptions = append(webhookOptions, webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)))

@@ -161,6 +161,15 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.FFAdaptiveTimeout {
 		t.Fatal("FFAdaptiveTimeout = true, want false")
 	}
+	if cfg.FFAdaptiveConcurrency {
+		t.Fatal("FFAdaptiveConcurrency = true, want false")
+	}
+	if cfg.AdaptiveConcurrencyMin != 5 {
+		t.Fatalf("AdaptiveConcurrencyMin = %d, want %d", cfg.AdaptiveConcurrencyMin, 5)
+	}
+	if cfg.AdaptiveConcurrencyMax != 100 {
+		t.Fatalf("AdaptiveConcurrencyMax = %d, want %d", cfg.AdaptiveConcurrencyMax, 100)
+	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {
@@ -220,6 +229,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 		"DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "PORT", "WORKER_CONCURRENCY", "MODE", "LOG_LEVEL",
 		"INDEX_MAINTENANCE_INTERVAL",
 		"FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS", "FF_PROGRESS_STREAMING", "FF_PAYLOAD_VALIDATION", "FF_EXECUTION_TRACING", "FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES",
+		"FF_ADAPTIVE_CONCURRENCY", "ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX",
 	)
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret")
@@ -236,6 +246,9 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("FF_EXECUTION_TRACING", "true")
 	t.Setenv("FF_JOB_GROUPS", "true")
 	t.Setenv("FF_JOB_DEPENDENCIES", "true")
+	t.Setenv("FF_ADAPTIVE_CONCURRENCY", "true")
+	t.Setenv("ADAPTIVE_CONCURRENCY_MIN", "3")
+	t.Setenv("ADAPTIVE_CONCURRENCY_MAX", "30")
 
 	cfg, err := Load()
 	if err != nil {
@@ -277,6 +290,15 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	}
 	if !cfg.FFJobDependencies {
 		t.Fatal("FFJobDependencies = false, want true")
+	}
+	if !cfg.FFAdaptiveConcurrency {
+		t.Fatal("FFAdaptiveConcurrency = false, want true")
+	}
+	if cfg.AdaptiveConcurrencyMin != 3 {
+		t.Fatalf("AdaptiveConcurrencyMin = %d, want %d", cfg.AdaptiveConcurrencyMin, 3)
+	}
+	if cfg.AdaptiveConcurrencyMax != 30 {
+		t.Fatalf("AdaptiveConcurrencyMax = %d, want %d", cfg.AdaptiveConcurrencyMax, 30)
 	}
 }
 

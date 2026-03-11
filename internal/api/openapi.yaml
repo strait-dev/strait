@@ -608,6 +608,61 @@ paths:
                 items:
                   $ref: '#/components/schemas/Job'
 
+  /v1/job-groups/{groupID}/pause-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Pause all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group paused
+
+  /v1/job-groups/{groupID}/resume-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Resume all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group resumed
+
+  /v1/job-groups/{groupID}/stats:
+    get:
+      tags:
+        - JobGroups
+      summary: Get aggregate run stats for a job group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Aggregate run counts by status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobGroupStats'
+
   /v1/environments:
     get:
       tags:
@@ -2672,6 +2727,65 @@ paths:
         '409':
           description: Delivery is not in a retriable status
 
+  /v1/webhooks/subscriptions:
+    post:
+      tags:
+        - Webhooks
+      summary: Create a webhook subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookSubscriptionRequest'
+      responses:
+        '201':
+          description: Webhook subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+    get:
+      tags:
+        - Webhooks
+      summary: List active webhook subscriptions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active webhook subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookSubscription'
+
+  /v1/webhooks/subscriptions/{id}:
+    delete:
+      tags:
+        - Webhooks
+      summary: Delete a webhook subscription
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Webhook subscription deleted
+
   /sdk/v1/runs/{runID}/wait-for-event:
     post:
       tags:
@@ -3552,6 +3666,16 @@ components:
           type: string
           format: date-time
 
+    JobGroupStats:
+      type: object
+      properties:
+        group_id:
+          type: string
+        run_counts:
+          type: object
+          additionalProperties:
+            type: integer
+
     Environment:
       type: object
       properties:
@@ -4113,6 +4237,27 @@ components:
           type: string
           format: date-time
 
+    WebhookSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
     QueueStats:
       type: object
       properties:
@@ -4338,8 +4483,31 @@ components:
       properties:
         name:
           type: string
+        slug:
+          type: string
         description:
           type: string
+
+    CreateWebhookSubscriptionRequest:
+      type: object
+      required:
+        - project_id
+        - webhook_url
+        - event_types
+        - secret
+      properties:
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
 
     CreateEnvironmentRequest:
       type: object

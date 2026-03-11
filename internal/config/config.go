@@ -91,16 +91,19 @@ type Config struct {
 	FFRunReplay         bool `mapstructure:"FF_RUN_REPLAY"`
 	FFDryRun            bool `mapstructure:"FF_DRY_RUN"`
 
-	FFRunRetention     bool `mapstructure:"FF_RUN_RETENTION"`
-	FFExecutionTracing bool `mapstructure:"FF_EXECUTION_TRACING"`
-	FFDebugBundle      bool `mapstructure:"FF_DEBUG_BUNDLE"`
-	FFBatchJobOps      bool `mapstructure:"FF_BATCH_JOB_OPS"`
-	FFEnvironments     bool `mapstructure:"FF_ENVIRONMENTS"`
-	FFJobGroups        bool `mapstructure:"FF_JOB_GROUPS"`
-	FFJobDependencies  bool `mapstructure:"FF_JOB_DEPENDENCIES"`
-	FFJobHealthScoring bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
-	FFAdaptiveTimeout  bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
-	FFEventTriggers    bool `mapstructure:"FF_EVENT_TRIGGERS"`
+	FFRunRetention         bool `mapstructure:"FF_RUN_RETENTION"`
+	FFExecutionTracing     bool `mapstructure:"FF_EXECUTION_TRACING"`
+	FFDebugBundle          bool `mapstructure:"FF_DEBUG_BUNDLE"`
+	FFBatchJobOps          bool `mapstructure:"FF_BATCH_JOB_OPS"`
+	FFEnvironments         bool `mapstructure:"FF_ENVIRONMENTS"`
+	FFJobGroups            bool `mapstructure:"FF_JOB_GROUPS"`
+	FFJobDependencies      bool `mapstructure:"FF_JOB_DEPENDENCIES"`
+	FFJobHealthScoring     bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
+	FFAdaptiveTimeout      bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
+	FFAdaptiveConcurrency  bool `mapstructure:"FF_ADAPTIVE_CONCURRENCY"`
+	AdaptiveConcurrencyMin int  `mapstructure:"ADAPTIVE_CONCURRENCY_MIN"`
+	AdaptiveConcurrencyMax int  `mapstructure:"ADAPTIVE_CONCURRENCY_MAX"`
+	FFEventTriggers        bool `mapstructure:"FF_EVENT_TRIGGERS"`
 
 	// Track 1: Performance & Reliability
 	FFListenNotify           bool `mapstructure:"FF_LISTEN_NOTIFY"`
@@ -118,7 +121,8 @@ type Config struct {
 	FFRunEventsBuffered          bool `mapstructure:"FF_RUN_EVENTS_BUFFERED"`
 
 	// Track 3: Database Optimization
-	DBPgBouncerMode bool `mapstructure:"DB_PGBOUNCER_MODE"`
+	DBPgBouncerMode     bool `mapstructure:"DB_PGBOUNCER_MODE"`
+	FFQueryCacheWarming bool `mapstructure:"FF_QUERY_CACHE_WARMING"`
 
 	// Track 4: Security & Observability
 	FFRedisRequired bool `mapstructure:"FF_REDIS_REQUIRED"`
@@ -220,6 +224,9 @@ func setDefaults() {
 	viper.SetDefault("FF_JOB_DEPENDENCIES", false)
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
 	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
+	viper.SetDefault("FF_ADAPTIVE_CONCURRENCY", false)
+	viper.SetDefault("ADAPTIVE_CONCURRENCY_MIN", 5)
+	viper.SetDefault("ADAPTIVE_CONCURRENCY_MAX", 100)
 	viper.SetDefault("FF_LISTEN_NOTIFY", false)
 	viper.SetDefault("FF_RATE_LIMIT_ENFORCEMENT", false)
 	viper.SetDefault("FF_CONCURRENCY_ENFORCEMENT", false)
@@ -232,6 +239,7 @@ func setDefaults() {
 	viper.SetDefault("FF_FALLBACK_ENDPOINT", false)
 	viper.SetDefault("FF_RUN_EVENTS_BUFFERED", false)
 	viper.SetDefault("DB_PGBOUNCER_MODE", false)
+	viper.SetDefault("FF_QUERY_CACHE_WARMING", false)
 	viper.SetDefault("FF_REDIS_REQUIRED", false)
 	viper.SetDefault("FF_AUDIT_LOG", false)
 	viper.SetDefault("WORKER_DRAIN_TIMEOUT", 30*time.Second)
@@ -277,12 +285,13 @@ func BindEnv() error {
 		"FF_SECRET_INJECTION", "FF_RUN_REPLAY", "FF_DRY_RUN", "FF_RUN_RETENTION",
 		"FF_EXECUTION_TRACING", "FF_DEBUG_BUNDLE", "FF_BATCH_JOB_OPS", "FF_ENVIRONMENTS",
 		"FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES", "FF_JOB_HEALTH_SCORING", "FF_ADAPTIVE_TIMEOUT",
+		"FF_ADAPTIVE_CONCURRENCY", "ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX",
 		"FF_LISTEN_NOTIFY", "FF_RATE_LIMIT_ENFORCEMENT", "FF_CONCURRENCY_ENFORCEMENT",
 		"FF_PRIORITY_AGING", "FF_PROJECT_FAIR_QUEUE",
 		"FF_WEBHOOK_DELIVERY_WORKER", "FF_WEBHOOK_TIMESTAMP_SIGNATURES",
 		"FF_WEBHOOK_CIRCUIT_BREAKER", "FF_WEBHOOK_SUBSCRIPTIONS",
 		"FF_FALLBACK_ENDPOINT", "FF_RUN_EVENTS_BUFFERED",
-		"DB_PGBOUNCER_MODE", "FF_REDIS_REQUIRED", "FF_AUDIT_LOG",
+		"DB_PGBOUNCER_MODE", "FF_QUERY_CACHE_WARMING", "FF_REDIS_REQUIRED", "FF_AUDIT_LOG",
 		"WORKER_DRAIN_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_MAX_ATTEMPTS",

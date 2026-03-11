@@ -53,6 +53,7 @@ type WorkflowCallback interface {
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                   *Pool
+	concurrencyLimit       ConcurrencyLimitProvider
 	queue                  queue.Queue
 	wake                   <-chan struct{}
 	store                  ExecutorStore
@@ -81,11 +82,16 @@ type Executor struct {
 	webhookDispatchTimeout time.Duration
 }
 
+type ConcurrencyLimitProvider interface {
+	CurrentLimit() int
+}
+
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
 	Pool                    *Pool
 	Queue                   queue.Queue
 	Wake                    <-chan struct{}
+	ConcurrencyLimit        ConcurrencyLimitProvider
 	Store                   ExecutorStore
 	Publisher               pubsub.Publisher
 	HTTPClient              *http.Client
@@ -164,6 +170,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 
 	return &Executor{
 		pool:                   cfg.Pool,
+		concurrencyLimit:       cfg.ConcurrencyLimit,
 		queue:                  cfg.Queue,
 		wake:                   cfg.Wake,
 		store:                  cfg.Store,

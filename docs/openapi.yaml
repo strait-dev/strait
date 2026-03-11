@@ -608,6 +608,61 @@ paths:
                 items:
                   $ref: '#/components/schemas/Job'
 
+  /v1/job-groups/{groupID}/pause-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Pause all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group paused
+
+  /v1/job-groups/{groupID}/resume-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Resume all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group resumed
+
+  /v1/job-groups/{groupID}/stats:
+    get:
+      tags:
+        - JobGroups
+      summary: Get aggregate run stats for a job group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Aggregate run counts by status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobGroupStats'
+
   /v1/environments:
     get:
       tags:
@@ -2280,6 +2335,7 @@ paths:
       tags:
         - EventTriggers
       summary: List event triggers for a project
+      description: Returns a paginated list of event triggers, optionally filtered by status, workflow run, or source type.
       parameters:
         - name: project_id
           in: query
@@ -2320,16 +2376,45 @@ paths:
       responses:
         '200':
           description: Paginated list of event triggers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventTrigger'
+                  has_more:
+                    type: boolean
 
   /v1/events/stats:
     get:
       tags:
         - EventTriggers
       summary: Get event trigger statistics
-      description: Returns aggregate counts by status and average wait duration.
+      description: Returns aggregate counts by status and average wait duration for the project.
       responses:
         '200':
           description: Event trigger statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count:
+                    type: integer
+                  waiting_count:
+                    type: integer
+                  received_count:
+                    type: integer
+                  timed_out_count:
+                    type: integer
+                  canceled_count:
+                    type: integer
+                  avg_wait_duration_secs:
+                    type: number
+                    format: double
         '400':
           description: No project context
 
@@ -2338,6 +2423,7 @@ paths:
       tags:
         - EventTriggers
       summary: Get event trigger by key
+      description: Returns a single event trigger by its globally unique event key.
       parameters:
         - name: eventKey
           in: path
@@ -2347,6 +2433,10 @@ paths:
       responses:
         '200':
           description: Event trigger details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
         '404':
           description: Event trigger not found
     delete:
@@ -2365,6 +2455,10 @@ paths:
       responses:
         '200':
           description: Event trigger canceled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
         '403':
           description: Trigger does not belong to project
         '404':
@@ -2377,6 +2471,10 @@ paths:
       tags:
         - EventTriggers
       summary: Stream event trigger status updates via SSE
+      description: |
+        Opens a Server-Sent Events stream for a specific event trigger.
+        Sends the current state immediately, then streams status changes
+        until the trigger reaches a terminal state.
       parameters:
         - name: eventKey
           in: path
@@ -2386,6 +2484,10 @@ paths:
       responses:
         '200':
           description: SSE stream of trigger status updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
         '404':
           description: Event trigger not found
 
@@ -2394,6 +2496,14 @@ paths:
       tags:
         - EventTriggers
       summary: Send an event to a waiting trigger
+      description: |
+        Delivers an event payload to a waiting trigger. The trigger transitions to 'received'
+        and the associated workflow step is completed or job run is re-queued.
+
+        Event keys are globally unique. Recommended patterns:
+        - Workflow steps: `{domain}:{entity_id}` — e.g., `aml-check:app-456`
+        - SDK runs: `{service}:{correlation_id}` — e.g., `payment:order-789`
+        - Per-execution uniqueness: include `{{workflow_run_id}}` in the template
       parameters:
         - name: eventKey
           in: path
@@ -2405,16 +2515,16 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                payload:
-                  type: object
-                  nullable: true
+              $ref: '#/components/schemas/SendEventRequest'
       responses:
         '200':
-          description: Event received
+          description: Event received and trigger updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
         '404':
-          description: No waiting trigger found
+          description: No waiting trigger found for this key
         '409':
           description: Trigger already received or timed out
 
@@ -2423,6 +2533,11 @@ paths:
       tags:
         - EventTriggers
       summary: Send an event to all waiting triggers matching a prefix
+      description: |
+        Delivers an event payload to all waiting triggers whose event_key starts
+        with the given prefix. Each matched trigger is resolved individually.
+        Results are scoped to the authenticated project when using API key auth.
+        Returns up to 1000 matching triggers per request.
       parameters:
         - name: prefix
           in: path
@@ -2435,11 +2550,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                payload:
-                  type: object
-                  nullable: true
+              $ref: '#/components/schemas/SendEventRequest'
       responses:
         '200':
           description: Events resolved
@@ -2450,6 +2561,7 @@ paths:
                 properties:
                   resolved:
                     type: integer
+                    description: Number of triggers resolved
                   triggers:
                     type: array
                     items:
@@ -2615,11 +2727,75 @@ paths:
         '409':
           description: Delivery is not in a retriable status
 
+  /v1/webhooks/subscriptions:
+    post:
+      tags:
+        - Webhooks
+      summary: Create a webhook subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookSubscriptionRequest'
+      responses:
+        '201':
+          description: Webhook subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+    get:
+      tags:
+        - Webhooks
+      summary: List active webhook subscriptions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active webhook subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookSubscription'
+
+  /v1/webhooks/subscriptions/{id}:
+    delete:
+      tags:
+        - Webhooks
+      summary: Delete a webhook subscription
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Webhook subscription deleted
+
   /sdk/v1/runs/{runID}/wait-for-event:
     post:
       tags:
         - SDK
       summary: Pause a run to wait for an external event
+      description: |
+        Transitions the run from executing to waiting and creates an event trigger.
+        When the event is received via POST /v1/events/{eventKey}/send, the run
+        transitions back to queued with checkpoint data and is re-dispatched.
+        Requires the FF_EVENT_TRIGGERS feature flag.
       security:
         - runToken: []
       parameters:
@@ -2633,25 +2809,31 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [event_key]
-              properties:
-                event_key:
-                  type: string
-                timeout_secs:
-                  type: integer
-                  default: 3600
-                notify_url:
-                  type: string
-                  format: uri
-                  description: Optional webhook URL to notify when the event trigger is created.
+              $ref: '#/components/schemas/SDKWaitForEventRequest'
       responses:
         '200':
           description: Run paused, waiting for event
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: waiting
+                  event_key:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  trigger_id:
+                    type: string
+        '400':
+          description: Invalid request
         '404':
           description: Feature not enabled or run not found
         '409':
-          description: Run not executing or key conflict
+          description: Run not in executing state or event key conflict
 
   /sdk/v1/runs/{runID}/log:
     post:
@@ -2999,6 +3181,78 @@ components:
       description: JWT run token issued by the trigger response.
 
   schemas:
+    EventTrigger:
+      type: object
+      properties:
+        id:
+          type: string
+        event_key:
+          type: string
+          description: Globally unique event key. Supports template variables from workflow payload.
+        project_id:
+          type: string
+        source_type:
+          type: string
+          enum: [workflow_step, job_run]
+        workflow_run_id:
+          type: string
+          nullable: true
+        workflow_step_run_id:
+          type: string
+          nullable: true
+        job_run_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [waiting, received, timed_out, canceled]
+        request_payload:
+          type: object
+          nullable: true
+        response_payload:
+          type: object
+          nullable: true
+        timeout_secs:
+          type: integer
+        requested_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+
+    SendEventRequest:
+      type: object
+      properties:
+        payload:
+          type: object
+          nullable: true
+          description: Optional payload to deliver to the waiting trigger.
+
+    SDKWaitForEventRequest:
+      type: object
+      required:
+        - event_key
+      properties:
+        event_key:
+          type: string
+          description: Globally unique key for the event trigger.
+        timeout_secs:
+          type: integer
+          default: 3600
+          description: Timeout in seconds before the trigger expires.
+        notify_url:
+          type: string
+          format: uri
+          description: Optional webhook URL to notify when the event trigger is created.
+
     Job:
       type: object
       properties:
@@ -3411,6 +3665,16 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    JobGroupStats:
+      type: object
+      properties:
+        group_id:
+          type: string
+        run_counts:
+          type: object
+          additionalProperties:
+            type: integer
 
     Environment:
       type: object
@@ -3973,6 +4237,27 @@ components:
           type: string
           format: date-time
 
+    WebhookSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
     QueueStats:
       type: object
       properties:
@@ -4198,8 +4483,31 @@ components:
       properties:
         name:
           type: string
+        slug:
+          type: string
         description:
           type: string
+
+    CreateWebhookSubscriptionRequest:
+      type: object
+      required:
+        - project_id
+        - webhook_url
+        - event_types
+        - secret
+      properties:
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
 
     CreateEnvironmentRequest:
       type: object

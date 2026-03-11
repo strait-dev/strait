@@ -352,6 +352,16 @@ type WebhookDelivery struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
+type WebhookSubscription struct {
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"project_id"`
+	WebhookURL string    `json:"webhook_url"`
+	EventTypes []string  `json:"event_types"`
+	Secret     string    `json:"secret"`
+	Active     bool      `json:"active"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // APIKey represents a per-project API key for authentication.
 type APIKey struct {
 	ID              string     `json:"id"`

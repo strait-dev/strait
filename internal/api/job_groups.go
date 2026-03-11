@@ -191,3 +191,61 @@ func (s *Server) handleListJobsByGroup(w http.ResponseWriter, r *http.Request) {
 		return j.CreatedAt.Format(time.RFC3339Nano)
 	}))
 }
+
+func (s *Server) handlePauseAllJobsByGroup(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFJobGroups {
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
+		return
+	}
+
+	groupID := chi.URLParam(r, "groupID")
+	if err := s.store.PauseJobsByGroup(r.Context(), groupID); err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			respondError(w, r, http.StatusNotFound, "job group not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to pause jobs in group")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "paused"})
+}
+
+func (s *Server) handleResumeAllJobsByGroup(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFJobGroups {
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
+		return
+	}
+
+	groupID := chi.URLParam(r, "groupID")
+	if err := s.store.ResumeJobsByGroup(r.Context(), groupID); err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			respondError(w, r, http.StatusNotFound, "job group not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to resume jobs in group")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "resumed"})
+}
+
+func (s *Server) handleGetJobGroupStats(w http.ResponseWriter, r *http.Request) {
+	if !s.config.FFJobGroups {
+		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
+		return
+	}
+
+	groupID := chi.URLParam(r, "groupID")
+	stats, err := s.store.GetJobGroupStats(r.Context(), groupID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobGroupNotFound) {
+			respondError(w, r, http.StatusNotFound, "job group not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get job group stats")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, stats)
+}

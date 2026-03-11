@@ -15,18 +15,19 @@ import (
 )
 
 var (
-	ErrJobNotFound             = errors.New("job not found")
-	ErrJobGroupNotFound        = errors.New("job group not found")
-	ErrEnvironmentNotFound     = errors.New("environment not found")
-	ErrJobSecretNotFound       = errors.New("job secret not found")
-	ErrRunNotFound             = errors.New("run not found")
-	ErrRunConflict             = errors.New("run status update conflict")
-	ErrWorkflowNotFound        = errors.New("workflow not found")
-	ErrWorkflowStepNotFound    = errors.New("workflow step not found")
-	ErrWorkflowRunNotFound     = errors.New("workflow run not found")
-	ErrWorkflowStepRunNotFound = errors.New("workflow step run not found")
-	ErrEventKeyConflict        = errors.New("event key conflict")
-	ErrWorkflowVersionNotFound = errors.New("workflow version not found")
+	ErrJobNotFound                 = errors.New("job not found")
+	ErrJobGroupNotFound            = errors.New("job group not found")
+	ErrWebhookSubscriptionNotFound = errors.New("webhook subscription not found")
+	ErrEnvironmentNotFound         = errors.New("environment not found")
+	ErrJobSecretNotFound           = errors.New("job secret not found")
+	ErrRunNotFound                 = errors.New("run not found")
+	ErrRunConflict                 = errors.New("run status update conflict")
+	ErrWorkflowNotFound            = errors.New("workflow not found")
+	ErrWorkflowStepNotFound        = errors.New("workflow step not found")
+	ErrWorkflowRunNotFound         = errors.New("workflow run not found")
+	ErrWorkflowStepRunNotFound     = errors.New("workflow step run not found")
+	ErrEventKeyConflict            = errors.New("event key conflict")
+	ErrWorkflowVersionNotFound     = errors.New("workflow version not found")
 )
 
 type DBTX interface {
@@ -55,6 +56,14 @@ type JobGroupStore interface {
 	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	DeleteJobGroup(ctx context.Context, id string) error
 	ListJobsByGroup(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	PauseJobsByGroup(ctx context.Context, groupID string) error
+	ResumeJobsByGroup(ctx context.Context, groupID string) error
+	GetJobGroupStats(ctx context.Context, groupID string) (*JobGroupStats, error)
+}
+
+type JobGroupStats struct {
+	GroupID   string         `json:"group_id"`
+	RunCounts map[string]int `json:"run_counts"`
 }
 
 type EnvironmentStore interface {
@@ -160,6 +169,13 @@ type WebhookDeliveryStore interface {
 	DeleteOldWebhookDeliveries(ctx context.Context, before time.Time, limit int) (int, error)
 }
 
+type WebhookSubscriptionStore interface {
+	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
+	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
+	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	DeleteWebhookSubscription(ctx context.Context, id string) error
+}
+
 type APIKeyStore interface {
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
@@ -260,6 +276,7 @@ type Store interface {
 	RunStore
 	EventStore
 	WebhookDeliveryStore
+	WebhookSubscriptionStore
 	APIKeyStore
 	JobVersionStore
 	WorkflowStore

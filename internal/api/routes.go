@@ -115,6 +115,9 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateJobGroup)
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteJobGroup)
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", s.handleListJobsByGroup)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause-all", s.handlePauseAllJobsByGroup)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume-all", s.handleResumeAllJobsByGroup)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", s.handleGetJobGroupStats)
 			})
 		})
 
@@ -160,6 +163,11 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookDeliveries)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", s.handleGetWebhookDelivery)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/retry", s.handleRetryWebhookDelivery)
+			})
+			r.Route("/subscriptions", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/", s.handleCreateWebhookSubscription)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookSubscriptions)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/{id}", s.handleDeleteWebhookSubscription)
 			})
 		})
 

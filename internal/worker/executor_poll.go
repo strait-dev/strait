@@ -13,6 +13,13 @@ import (
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
 	available := e.pool.Available()
+	if e.concurrencyLimit != nil {
+		target := max(e.concurrencyLimit.CurrentLimit(), 1)
+		adaptiveAvailable := target - e.pool.ActiveCount()
+		if adaptiveAvailable < available {
+			available = adaptiveAvailable
+		}
+	}
 	if available <= 0 {
 		return
 	}

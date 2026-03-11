@@ -292,7 +292,22 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	if cfg.WorkerQueueSize > 0 {
 		poolOpts = append(poolOpts, worker.WithQueueSize(cfg.WorkerQueueSize))
 	}
-	p := worker.NewPool(cfg.WorkerConcurrency, poolOpts...)
+
+	poolConcurrency := cfg.WorkerConcurrency
+	var adaptive *worker.AdaptiveConcurrency
+	if cfg.FFAdaptiveConcurrency {
+		adaptive = worker.NewAdaptiveConcurrency(cfg.AdaptiveConcurrencyMin, cfg.AdaptiveConcurrencyMax, cfg.WorkerConcurrency)
+		poolConcurrency = adaptive.CurrentLimit()
+		poolConcurrency = max(poolConcurrency, cfg.AdaptiveConcurrencyMax)
+		slog.Info(
+			"adaptive worker concurrency enabled",
+			"min", cfg.AdaptiveConcurrencyMin,
+			"max", cfg.AdaptiveConcurrencyMax,
+			"initial", adaptive.CurrentLimit(),
+		)
+	}
+
+	p := worker.NewPool(poolConcurrency, poolOpts...)
 	var wake <-chan struct{}
 	if cfg.FFListenNotify {
 		notifier := queue.NewQueueNotifier(cfg.DatabaseURL, slog.Default())
@@ -315,6 +330,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Pool:                    p,
 		Queue:                   q,
 		Wake:                    wake,
+		ConcurrencyLimit:        adaptive,
 		Store:                   queries,
 		PollInterval:            cfg.PollerInterval,
 		HeartbeatInterval:       cfg.HeartbeatInterval,
@@ -346,6 +362,22 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			slog.Warn("failed to register pool metrics callback", "error", err)
 		}
 	}
+
+	g.Go(func(ctx context.Context) error {
+		if adaptive != nil {
+			adaptive.Run(ctx, 10*time.Second, func(probeCtx context.Context) (int, float64, error) {
+				stats, err := queries.QueueStats(probeCtx)
+				if err != nil {
+					return 0, 0, err
+				}
+				current := adaptive.CurrentLimit()
+				current = max(current, 1)
+				utilization := float64(p.ActiveCount()) / float64(current)
+				return stats.Queued, utilization, nil
+			}, slog.Default())
+		}
+		return nil
+	})
 
 	g.Go(func(ctx context.Context) error {
 		exec.Run(ctx)

@@ -25,6 +25,9 @@ type mockAPIStore struct {
 	deleteJobFn                         func(ctx context.Context, id string) error
 	deleteJobGroupFn                    func(ctx context.Context, id string) error
 	listJobsByGroupFn                   func(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	pauseJobsByGroupFn                  func(ctx context.Context, groupID string) error
+	resumeJobsByGroupFn                 func(ctx context.Context, groupID string) error
+	getJobGroupStatsFn                  func(ctx context.Context, groupID string) (*store.JobGroupStats, error)
 	createEnvironmentFn                 func(ctx context.Context, env *domain.Environment) error
 	getEnvironmentFn                    func(ctx context.Context, id string) (*domain.Environment, error)
 	listEnvironmentsFn                  func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
@@ -63,6 +66,9 @@ type mockAPIStore struct {
 	insertEventFn                       func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn           func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn             func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
+	createWebhookSubscriptionFn         func(ctx context.Context, sub *domain.WebhookSubscription) error
+	listWebhookSubscriptionsFn          func(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	deleteWebhookSubscriptionFn         func(ctx context.Context, id string) error
 	createAPIKeyFn                      func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn              func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	revokeAPIKeyFn                      func(ctx context.Context, id string) error
@@ -221,6 +227,27 @@ func (m *mockAPIStore) ListJobsByGroup(ctx context.Context, groupID string, limi
 		return m.listJobsByGroupFn(ctx, groupID, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) PauseJobsByGroup(ctx context.Context, groupID string) error {
+	if m.pauseJobsByGroupFn != nil {
+		return m.pauseJobsByGroupFn(ctx, groupID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ResumeJobsByGroup(ctx context.Context, groupID string) error {
+	if m.resumeJobsByGroupFn != nil {
+		return m.resumeJobsByGroupFn(ctx, groupID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetJobGroupStats(ctx context.Context, groupID string) (*store.JobGroupStats, error) {
+	if m.getJobGroupStatsFn != nil {
+		return m.getJobGroupStatsFn(ctx, groupID)
+	}
+	return &store.JobGroupStats{GroupID: groupID, RunCounts: map[string]int{}}, nil
 }
 
 func (m *mockAPIStore) CreateEnvironment(ctx context.Context, env *domain.Environment) error {
@@ -491,6 +518,27 @@ func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, projectID, sta
 		return m.listWebhookDeliveriesFn(ctx, projectID, status, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error {
+	if m.createWebhookSubscriptionFn != nil {
+		return m.createWebhookSubscriptionFn(ctx, sub)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error) {
+	if m.listWebhookSubscriptionsFn != nil {
+		return m.listWebhookSubscriptionsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteWebhookSubscription(ctx context.Context, id string) error {
+	if m.deleteWebhookSubscriptionFn != nil {
+		return m.deleteWebhookSubscriptionFn(ctx, id)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {

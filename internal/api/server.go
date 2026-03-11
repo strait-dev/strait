@@ -65,6 +65,9 @@ type JobStore interface {
 	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	DeleteJobGroup(ctx context.Context, id string) error
 	ListJobsByGroup(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	PauseJobsByGroup(ctx context.Context, groupID string) error
+	ResumeJobsByGroup(ctx context.Context, groupID string) error
+	GetJobGroupStats(ctx context.Context, groupID string) (*store.JobGroupStats, error)
 	CreateEnvironment(ctx context.Context, env *domain.Environment) error
 	GetEnvironment(ctx context.Context, id string) (*domain.Environment, error)
 	ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
@@ -119,6 +122,9 @@ type RunStore interface {
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
+	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	DeleteWebhookSubscription(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 }
 
