@@ -364,7 +364,7 @@ func alignToExecutionWindow(requested *time.Time, now time.Time, expr, tz string
 			ts := requested.UTC()
 			return &ts, nil
 		}
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil signals "trigger now" with no explicit time.
 	}
 
 	next := schedule.Next(referenceLocal)

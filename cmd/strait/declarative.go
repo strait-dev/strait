@@ -433,7 +433,7 @@ func findExistingJob(ctx context.Context, cli *client.Client, projectID, slug, n
 			return &manifestResourceRef{ID: job.ID}, nil
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // nil signals resource not found.
 }
 
 func findExistingWorkflow(ctx context.Context, cli *client.Client, projectID, slug, name string) (*manifestResourceRef, error) {
@@ -446,7 +446,7 @@ func findExistingWorkflow(ctx context.Context, cli *client.Client, projectID, sl
 			return &manifestResourceRef{ID: wf.ID}, nil
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // nil signals resource not found.
 }
 
 func diffManifest(ctx context.Context, cli *client.Client, state *appState, m manifest) (string, error) {

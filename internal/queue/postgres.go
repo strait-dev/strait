@@ -169,7 +169,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, nil //nolint:nilnil // nil run signals empty queue.
 		}
 		return nil, fmt.Errorf("dequeue run: %w", err)
 	}
