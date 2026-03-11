@@ -1317,6 +1317,57 @@ func TestHandleGetWorkflowRunGraph(t *testing.T) {
 	}
 }
 
+func TestHandleGetWorkflowRunGraph_CriticalPathEstimate(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-2 * time.Second)
+	finishedAt := startedAt.Add(1 * time.Second)
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "a", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 5},
+				{StepRef: "b", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"a"}, TimeoutSecsOverride: 10},
+				{StepRef: "c", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 3},
+				{StepRef: "d", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"c"}, TimeoutSecsOverride: 20},
+			}, nil
+		},
+		listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted, StartedAt: &startedAt, FinishedAt: &finishedAt, DepsRequired: 0, DepsCompleted: 0},
+				{ID: "sr-b", StepRef: "b", Status: domain.StepPending, DepsRequired: 1, DepsCompleted: 1},
+				{ID: "sr-c", StepRef: "c", Status: domain.StepRunning, StartedAt: &startedAt, DepsRequired: 0, DepsCompleted: 0},
+				{ID: "sr-d", StepRef: "d", Status: domain.StepPending, DepsRequired: 1, DepsCompleted: 0},
+			}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/graph", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	pathRaw, ok := payload["critical_path"].([]any)
+	if !ok || len(pathRaw) != 2 || pathRaw[0] != "c" || pathRaw[1] != "d" {
+		t.Fatalf("unexpected critical path: %#v", payload["critical_path"])
+	}
+	estimateMS := int64(payload["critical_path_estimate_ms"].(float64))
+	if estimateMS != 23_000 {
+		t.Fatalf("critical_path_estimate_ms = %d, want 23000", estimateMS)
+	}
+	remainingMS := int64(payload["critical_path_remaining_ms"].(float64))
+	if remainingMS < 20_000 || remainingMS > 22_000 {
+		t.Fatalf("critical_path_remaining_ms out of range: %d", remainingMS)
+	}
+}
+
 func TestHandleGetWorkflowRunExplain(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{

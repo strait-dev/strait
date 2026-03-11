@@ -193,6 +193,11 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Delete("/{policyID}", s.handleDeleteTagPolicy)
 		})
 
+		r.Route("/workflow-policies", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/{projectID}", s.handleGetWorkflowPolicy)
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Put("/{projectID}", s.handleUpsertWorkflowPolicy)
+		})
+
 		r.Route("/workflows", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", s.handleCreateWorkflow)
 			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListWorkflows)
@@ -202,6 +207,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Delete("/", s.handleDeleteWorkflow)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/dry-run", s.handleDryRunWorkflow)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/plan", s.handleWorkflowPlan)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Post("/simulate", s.handleSimulateWorkflow)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", s.handleWorkflowGraph)
 				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/trigger", s.handleTriggerWorkflow)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/clone", s.handleCloneWorkflow)
@@ -209,6 +215,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions", s.handleListWorkflowVersions)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}", s.handleGetWorkflowVersion)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/steps", s.handleListWorkflowVersionSteps)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{fromVersionID}/diff/{toVersionID}", s.handleWorkflowVersionDiff)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/impact", s.handleWorkflowVersionImpact)
 			})
 		})
 
@@ -235,9 +243,13 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/resume", s.handleResumeWorkflowRun)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/labels", s.handleGetWorkflowRunLabels)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/steps", s.handleListWorkflowStepRuns)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", s.handleGetWorkflowRunGraph)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/explain", s.handleGetWorkflowRunExplain)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/skip", s.handleSkipWorkflowStep)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/force-complete", s.handleForceCompleteWorkflowStep)
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/retry", s.handleRetryWorkflowStep)
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/replay-subtree", s.handleReplayWorkflowSubtree)
 				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/retry", s.handleRetryWorkflowRun)
 			})
 		})
