@@ -2025,6 +2025,189 @@ func TestHandleWorkflowVersionDiffAndImpact(t *testing.T) {
 	}
 }
 
+func TestHandleListWorkflowVersions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			listWorkflowVersionsFn: func(_ context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
+				if workflowID != "wf-1" {
+					t.Fatalf("workflowID = %q, want wf-1", workflowID)
+				}
+				if limit != 10 {
+					t.Fatalf("limit = %d, want 10", limit)
+				}
+				return []domain.WorkflowVersion{{ID: "v1", WorkflowID: workflowID, Version: 1}}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions?limit=10", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var versions []domain.WorkflowVersion
+		if err := json.NewDecoder(w.Body).Decode(&versions); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(versions) != 1 || versions[0].ID != "v1" {
+			t.Fatalf("unexpected versions: %+v", versions)
+		}
+	})
+
+	t.Run("invalid limit", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions?limit=-1", ""))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			listWorkflowVersionsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowVersion, error) {
+				return nil, errors.New("db down")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleGetWorkflowVersion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error) {
+				if workflowID != "wf-1" || versionID != "v1" {
+					t.Fatalf("unexpected args: %s %s", workflowID, versionID)
+				}
+				return &domain.WorkflowVersion{ID: "v1", WorkflowID: workflowID, Version: 1}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return nil, store.ErrWorkflowVersionNotFound
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/missing", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return nil, errors.New("db down")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleListWorkflowVersionSteps(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return &domain.WorkflowVersion{ID: "v2", Version: 2}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+				if workflowID != "wf-1" || version != 2 {
+					t.Fatalf("unexpected args: %s %d", workflowID, version)
+				}
+				return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b", DependsOn: []string{"a"}}}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v2/steps", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var steps []domain.WorkflowStep
+		if err := json.NewDecoder(w.Body).Decode(&steps); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(steps) != 2 {
+			t.Fatalf("steps len = %d, want 2", len(steps))
+		}
+	})
+
+	t.Run("version not found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return nil, store.ErrWorkflowVersionNotFound
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/missing/steps", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("list steps error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return &domain.WorkflowVersion{ID: "v1", Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return nil, errors.New("list failed")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1/steps", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
 func TestHandleSimulateWorkflowAndPolicy(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
