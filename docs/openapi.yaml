@@ -2490,6 +2490,98 @@ paths:
         '409':
           description: Only failed deliveries can be retried
 
+  /v1/webhooks/deliveries:
+    get:
+      tags:
+        - Webhooks
+      summary: List webhook deliveries
+      description: |
+        List webhook deliveries for a project with optional status filtering
+        and cursor-based pagination.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, delivered, failed, dead]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of webhook deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookDelivery'
+
+  /v1/webhooks/deliveries/{id}:
+    get:
+      tags:
+        - Webhooks
+      summary: Get webhook delivery details
+      description: Returns a single webhook delivery by ID.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook delivery details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+
+  /v1/webhooks/deliveries/{id}/retry:
+    post:
+      tags:
+        - Webhooks
+      summary: Retry a webhook delivery
+      description: |
+        Resets a failed or dead webhook delivery to pending status for retry.
+        Only deliveries with status failed or dead can be retried.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery reset for retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+        '409':
+          description: Delivery is not in a retriable status
+
   /sdk/v1/runs/{runID}/wait-for-event:
     post:
       tags:

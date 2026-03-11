@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"slices"
 	"time"
 
@@ -48,6 +49,11 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	for _, dep := range deps {
 		if dep.DepsCompleted != dep.DepsRequired {
 			continue
+		}
+
+		lockID := advisoryXactLockIDForStepRun(dep.StepRunID)
+		if err := s.store.AdvisoryXactLock(ctx, lockID); err != nil {
+			return fmt.Errorf("advisory xact lock for step %s: %w", dep.StepRef, err)
 		}
 
 		childStep, ok := stepByRef[dep.StepRef]
@@ -106,6 +112,12 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	}
 
 	return nil
+}
+
+func advisoryXactLockIDForStepRun(stepRunID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(stepRunID))
+	return int64(h.Sum64() & 0x7fffffffffffffff)
 }
 
 func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunID string) error {

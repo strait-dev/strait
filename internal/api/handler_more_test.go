@@ -1572,6 +1572,114 @@ func TestHandleListWebhookDeliveries_MissingProjectID(t *testing.T) {
 	}
 }
 
+func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("project_id = %q, want proj-1", projectID)
+			}
+			return []domain.WebhookDelivery{{ID: "del-1", Status: domain.WebhookStatusPending, CreatedAt: time.Now().UTC()}}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries?project_id=proj-1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetWebhookDelivery_Success(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			if id != "del-1" {
+				t.Fatalf("delivery id = %q, want del-1", id)
+			}
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusPending}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/del-1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("webhook delivery not found")
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/missing", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusDead}, nil
+		},
+		retryWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusPending, Attempts: 0}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusDelivered}, nil
+		},
+		retryWebhookDeliveryFn: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			t.Fatal("RetryWebhookDelivery should not be called")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

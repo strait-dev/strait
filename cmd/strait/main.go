@@ -125,7 +125,11 @@ func runServe(modeOverride string) error {
 	}
 
 	g := concpool.New().WithContext(ctx).WithFailFast()
-	eventNotifier := webhook.NewEventNotifier(queries, slog.Default())
+	webhookOptions := []webhook.DeliveryWorkerOption{}
+	if cfg.FFWebhookCircuitBreaker && rdb != nil {
+		webhookOptions = append(webhookOptions, webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)))
+	}
+	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
 	onTriggerCreate := func(trigger *domain.EventTrigger) {
 		if metrics != nil {

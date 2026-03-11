@@ -1032,6 +1032,34 @@ func TestUpdateRunStatus(t *testing.T) {
 	}
 }
 
+func TestUpdateRunStatusReturningOld(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-update-run-status-old")
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	oldStatus, err := q.UpdateRunStatusReturningOld(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil)
+	if err != nil {
+		t.Fatalf("UpdateRunStatusReturningOld() error = %v", err)
+	}
+	if oldStatus != domain.StatusQueued {
+		t.Fatalf("old status = %q, want %q", oldStatus, domain.StatusQueued)
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusDequeued {
+		t.Fatalf("status = %q, want %q", got.Status, domain.StatusDequeued)
+	}
+}
+
 func TestUpdateRunStatus_InvalidTransition(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

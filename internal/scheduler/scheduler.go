@@ -17,12 +17,14 @@ type SchedulerStore interface {
 	CronStore
 	PollerStore
 	ReaperStore
+	IndexMaintenanceStore
 }
 
 type Scheduler struct {
 	cron   *CronScheduler
 	poller *DelayedPoller
 	reaper *Reaper
+	index  *IndexMaintainer
 	wg     conc.WaitGroup
 }
 
@@ -35,6 +37,9 @@ func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback Workflo
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize),
+	}
+	if cfg.IndexMaintenanceInterval > 0 {
+		sched.index = NewIndexMaintainer(s, cfg.IndexMaintenanceInterval)
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -60,6 +65,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.cron.Start()
 	s.wg.Go(func() { s.poller.Run(ctx) })
 	s.wg.Go(func() { s.reaper.Run(ctx) })
+	if s.index != nil {
+		s.wg.Go(func() { s.index.Run(ctx) })
+	}
 
 	slog.Info("scheduler started")
 	return nil

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"sync"
 )
 
 var (
@@ -20,13 +21,97 @@ type Encryptor struct {
 	aead cipher.AEAD
 }
 
+type KeyRotator struct {
+	mu      sync.RWMutex
+	primary *Encryptor
+	old     []*Encryptor
+}
+
 func NewEncryptor(key string) (*Encryptor, error) {
 	keyBytes, err := parseKey(key)
 	if err != nil {
 		return nil, err
 	}
 
-	block, err := aes.NewCipher(keyBytes)
+	return newEncryptorFromBytes(keyBytes)
+}
+
+func NewKeyRotator(primaryKey []byte, oldKeys ...[]byte) (*KeyRotator, error) {
+	primary, err := newEncryptorFromBytes(primaryKey)
+	if err != nil {
+		return nil, err
+	}
+
+	old := make([]*Encryptor, 0, len(oldKeys))
+	for _, key := range oldKeys {
+		e, encryptorErr := newEncryptorFromBytes(key)
+		if encryptorErr != nil {
+			return nil, encryptorErr
+		}
+		old = append(old, e)
+	}
+
+	return &KeyRotator{primary: primary, old: old}, nil
+}
+
+func (k *KeyRotator) Encrypt(plaintext []byte) ([]byte, error) {
+	k.mu.RLock()
+	primary := k.primary
+	k.mu.RUnlock()
+
+	return primary.Encrypt(plaintext)
+}
+
+func (k *KeyRotator) Decrypt(ciphertext []byte) ([]byte, error) {
+	k.mu.RLock()
+	primary := k.primary
+	old := append([]*Encryptor(nil), k.old...)
+	k.mu.RUnlock()
+
+	if len(ciphertext) < primary.aead.NonceSize() {
+		return nil, errCiphertextTooShort
+	}
+
+	all := make([]*Encryptor, 0, len(old)+1)
+	all = append(all, primary)
+	all = append(all, old...)
+
+	for _, e := range all {
+		plaintext, err := e.Decrypt(ciphertext)
+		if err == nil {
+			return plaintext, nil
+		}
+		if !errors.Is(err, errDecryptFailed) {
+			return nil, err
+		}
+	}
+
+	return nil, errDecryptFailed
+}
+
+func (k *KeyRotator) RotateKey(newPrimary []byte) error {
+	encryptor, err := newEncryptorFromBytes(newPrimary)
+	if err != nil {
+		return err
+	}
+
+	k.mu.Lock()
+	k.old = append([]*Encryptor{k.primary}, k.old...)
+	k.primary = encryptor
+	k.mu.Unlock()
+
+	return nil
+}
+
+func newEncryptorFromBytes(key []byte) (*Encryptor, error) {
+	if len(key) != 32 {
+		return nil, errInvalidKeyLength
+	}
+
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+
+	block, err := aes.NewCipher(keyCopy)
 	if err != nil {
 		return nil, errInvalidKeyLength
 	}

@@ -489,3 +489,27 @@ func TestPow(t *testing.T) {
 		}
 	}
 }
+
+func TestBackoffForRetryPolicy_Linear(t *testing.T) {
+	t.Parallel()
+
+	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 1); got != 5*time.Second {
+		t.Fatalf("linear attempt 1 backoff = %s, want %s", got, 5*time.Second)
+	}
+
+	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 3); got != 15*time.Second {
+		t.Fatalf("linear attempt 3 backoff = %s, want %s", got, 15*time.Second)
+	}
+}
+
+func TestBackoffForRetryPolicy_Fixed(t *testing.T) {
+	t.Parallel()
+
+	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyFixed, 1); got != 5*time.Second {
+		t.Fatalf("fixed attempt 1 backoff = %s, want %s", got, 5*time.Second)
+	}
+
+	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyFixed, 7); got != 5*time.Second {
+		t.Fatalf("fixed attempt 7 backoff = %s, want %s", got, 5*time.Second)
+	}
+}

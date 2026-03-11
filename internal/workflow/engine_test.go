@@ -383,6 +383,7 @@ type mockCallbackStore struct {
 	getEventTriggerByStepRunIDFn func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	getEventTriggerByEventKeyFn  func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn   func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	advisoryXactLockFn           func(ctx context.Context, lockID int64) error
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -402,6 +403,13 @@ func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, event
 func (m *mockCallbackStore) UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
 	if m.updateEventTriggerStatusFn != nil {
 		return m.updateEventTriggerStatusFn(ctx, id, status, responsePayload, receivedAt, errMsg)
+	}
+	return nil
+}
+
+func (m *mockCallbackStore) AdvisoryXactLock(ctx context.Context, lockID int64) error {
+	if m.advisoryXactLockFn != nil {
+		return m.advisoryXactLockFn(ctx, lockID)
 	}
 	return nil
 }

@@ -53,6 +53,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.PollerInterval != 5*time.Second {
 		t.Fatalf("PollerInterval = %v, want %v", cfg.PollerInterval, 5*time.Second)
 	}
+	if cfg.IndexMaintenanceInterval != 24*time.Hour {
+		t.Fatalf("IndexMaintenanceInterval = %v, want %v", cfg.IndexMaintenanceInterval, 24*time.Hour)
+	}
 	if cfg.DBMaxConns != 25 {
 		t.Fatalf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 25)
 	}
@@ -212,6 +215,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	bindEnvKeys(
 		t,
 		"DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "PORT", "WORKER_CONCURRENCY", "MODE", "LOG_LEVEL",
+		"INDEX_MAINTENANCE_INTERVAL",
 		"FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS", "FF_PROGRESS_STREAMING", "FF_PAYLOAD_VALIDATION", "FF_EXECUTION_TRACING", "FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES",
 	)
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
@@ -221,6 +225,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("WORKER_CONCURRENCY", "20")
 	t.Setenv("MODE", "worker")
 	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("INDEX_MAINTENANCE_INTERVAL", "12h")
 	t.Setenv("FF_CONCURRENCY_LIMITS", "true")
 	t.Setenv("FF_PROJECT_QUOTAS", "true")
 	t.Setenv("FF_PROGRESS_STREAMING", "true")
@@ -246,6 +251,9 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
 	}
+	if cfg.IndexMaintenanceInterval != 12*time.Hour {
+		t.Fatalf("IndexMaintenanceInterval = %v, want %v", cfg.IndexMaintenanceInterval, 12*time.Hour)
+	}
 	if !cfg.FFConcurrencyLimits {
 		t.Fatal("FFConcurrencyLimits = false, want true")
 	}
@@ -266,5 +274,40 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	}
 	if !cfg.FFJobDependencies {
 		t.Fatal("FFJobDependencies = false, want true")
+	}
+}
+
+func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t,
+		"DATABASE_URL",
+		"INTERNAL_SECRET",
+		"JWT_SIGNING_KEY",
+		"ENCRYPTION_KEY",
+		"ENCRYPTION_KEY_OLD",
+	)
+
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("ENCRYPTION_KEY", "primary-key")
+	t.Setenv("ENCRYPTION_KEY_OLD", "old-key-1, old-key-2 , ,old-key-3")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.EncryptionKey != "primary-key" {
+		t.Fatalf("EncryptionKey = %q, want %q", cfg.EncryptionKey, "primary-key")
+	}
+	if cfg.SecretEncryptionKey != "primary-key" {
+		t.Fatalf("SecretEncryptionKey = %q, want %q", cfg.SecretEncryptionKey, "primary-key")
+	}
+	if len(cfg.EncryptionKeyOld) != 3 {
+		t.Fatalf("len(EncryptionKeyOld) = %d, want 3", len(cfg.EncryptionKeyOld))
+	}
+	if cfg.EncryptionKeyOld[0] != "old-key-1" || cfg.EncryptionKeyOld[1] != "old-key-2" || cfg.EncryptionKeyOld[2] != "old-key-3" {
+		t.Fatalf("EncryptionKeyOld = %#v, want [old-key-1 old-key-2 old-key-3]", cfg.EncryptionKeyOld)
 	}
 }

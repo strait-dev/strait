@@ -115,6 +115,7 @@ type RunStore interface {
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 }

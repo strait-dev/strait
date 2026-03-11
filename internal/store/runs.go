@@ -922,11 +922,20 @@ func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domai
 }
 
 func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+	_, err := q.UpdateRunStatusReturningOld(ctx, id, from, to, fields)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) (domain.RunStatus, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunStatus")
 	defer span.End()
 
 	if err := domain.ValidateTransition(from, to); err != nil {
-		return fmt.Errorf("invalid status transition: %w", err)
+		return "", fmt.Errorf("invalid status transition: %w", err)
 	}
 
 	allowedColumns := map[string]struct{}{
@@ -958,7 +967,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 
 	for _, key := range keys {
 		if _, ok := allowedColumns[key]; !ok {
-			return &domain.FieldError{Field: key}
+			return "", &domain.FieldError{Field: key}
 		}
 
 		value := fields[key]
@@ -973,14 +982,14 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 				} else {
 					encoded, err := json.Marshal(trace)
 					if err != nil {
-						return fmt.Errorf("marshal execution trace: %w", err)
+						return "", fmt.Errorf("marshal execution trace: %w", err)
 					}
 					value = dbscan.NilIfEmptyRawMessage(encoded)
 				}
 			case domain.ExecutionTrace:
 				encoded, err := json.Marshal(trace)
 				if err != nil {
-					return fmt.Errorf("marshal execution trace: %w", err)
+					return "", fmt.Errorf("marshal execution trace: %w", err)
 				}
 				value = dbscan.NilIfEmptyRawMessage(encoded)
 			}
@@ -997,20 +1006,20 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	}
 
 	query := fmt.Sprintf(
-		"UPDATE job_runs SET %s WHERE id = $2 AND status = $3",
+		"WITH old AS (SELECT status FROM job_runs WHERE id = $2 AND status = $3) UPDATE job_runs SET %s WHERE id = $2 AND status = $3 RETURNING (SELECT status FROM old) AS old_status",
 		strings.Join(setClauses, ", "),
 	)
 
-	tag, err := q.db.Exec(ctx, query, args...)
+	var oldStatus domain.RunStatus
+	err := q.db.QueryRow(ctx, query, args...).Scan(&oldStatus)
 	if err != nil {
-		return fmt.Errorf("update run status: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
+		}
+		return "", fmt.Errorf("update run status: %w", err)
 	}
 
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
-	}
-
-	return nil
+	return oldStatus, nil
 }
 
 func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error {

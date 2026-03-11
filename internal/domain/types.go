@@ -339,6 +339,7 @@ type WebhookDelivery struct {
 	JobID          string     `json:"job_id,omitempty"`
 	EventTriggerID string     `json:"event_trigger_id,omitempty"`
 	WebhookURL     string     `json:"webhook_url"`
+	RetryPolicy    string     `json:"webhook_retry_policy,omitempty"`
 	Status         string     `json:"status"`
 	Attempts       int        `json:"attempts"`
 	MaxAttempts    int        `json:"max_attempts"`
@@ -549,6 +550,12 @@ const (
 	WebhookStatusDelivered = "delivered"
 	WebhookStatusFailed    = "failed"
 	WebhookStatusDead      = "dead"
+)
+
+const (
+	WebhookRetryPolicyExponential = "exponential"
+	WebhookRetryPolicyLinear      = "linear"
+	WebhookRetryPolicyFixed       = "fixed"
 )
 
 // VersionPolicy controls how queued runs handle new job/workflow deployments.

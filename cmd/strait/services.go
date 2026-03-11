@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc/pool"
 )
 
@@ -94,7 +95,7 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 // connectRedis creates and verifies a Redis client for pub/sub. Returns a nil
 // publisher and client when Redis is not configured.
 // It retries with exponential backoff up to 5 times on transient failures.
-func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, interface{ Close() error }, error) {
+func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *redis.Client, error) {
 	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create redis client: %w", err)

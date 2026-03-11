@@ -82,6 +82,7 @@ type RunStore interface {
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	UpdateRunStatusReturningOld(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) (domain.RunStatus, error)
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
@@ -152,6 +153,7 @@ type WebhookDeliveryStore interface {
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
 	ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain.WebhookDelivery, error)
 	DeleteOldWebhookDeliveries(ctx context.Context, before time.Time, limit int) (int, error)
@@ -328,6 +330,14 @@ func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
 	_, err := q.db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID)
 	if err != nil {
 		return fmt.Errorf("pg_advisory_unlock: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) AdvisoryXactLock(ctx context.Context, lockID int64) error {
+	_, err := q.db.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockID)
+	if err != nil {
+		return fmt.Errorf("pg_advisory_xact_lock: %w", err)
 	}
 	return nil
 }

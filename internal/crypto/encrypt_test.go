@@ -195,6 +195,104 @@ func TestEncryptor_ConcurrentUse(t *testing.T) {
 	wg.Wait()
 }
 
+func TestKeyRotator_EncryptUsesPrimary(t *testing.T) {
+	t.Parallel()
+
+	primaryKey := []byte("0123456789abcdef0123456789abcdef")
+	oldKey := []byte("fedcba9876543210fedcba9876543210")
+
+	rotator, err := NewKeyRotator(primaryKey, oldKey)
+	if err != nil {
+		t.Fatalf("NewKeyRotator() error = %v", err)
+	}
+
+	plaintext := []byte("key-rotation-payload")
+	ciphertext, err := rotator.Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+
+	decrypted, err := rotator.Decrypt(ciphertext)
+	if err != nil {
+		t.Fatalf("Decrypt() error = %v", err)
+	}
+	if !bytes.Equal(decrypted, plaintext) {
+		t.Fatalf("Decrypt(Encrypt(x)) = %q, want %q", string(decrypted), string(plaintext))
+	}
+}
+
+func TestKeyRotator_DecryptWithOldKey(t *testing.T) {
+	t.Parallel()
+
+	primaryKey := []byte("0123456789abcdef0123456789abcdef")
+	oldKey := []byte("fedcba9876543210fedcba9876543210")
+
+	oldEncryptor, err := newEncryptorFromBytes(oldKey)
+	if err != nil {
+		t.Fatalf("newEncryptorFromBytes() error = %v", err)
+	}
+
+	ciphertext, err := oldEncryptor.Encrypt([]byte("legacy-secret"))
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+
+	rotator, err := NewKeyRotator(primaryKey, oldKey)
+	if err != nil {
+		t.Fatalf("NewKeyRotator() error = %v", err)
+	}
+
+	decrypted, err := rotator.Decrypt(ciphertext)
+	if err != nil {
+		t.Fatalf("Decrypt() error = %v", err)
+	}
+	if string(decrypted) != "legacy-secret" {
+		t.Fatalf("Decrypt() = %q, want %q", string(decrypted), "legacy-secret")
+	}
+}
+
+func TestKeyRotator_RotateKeyFlow(t *testing.T) {
+	t.Parallel()
+
+	oldPrimary := []byte("0123456789abcdef0123456789abcdef")
+	newPrimary := []byte("1234567890abcdef1234567890abcdef")
+
+	rotator, err := NewKeyRotator(oldPrimary)
+	if err != nil {
+		t.Fatalf("NewKeyRotator() error = %v", err)
+	}
+
+	beforeRotation, err := rotator.Encrypt([]byte("before-rotation"))
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+
+	if err := rotator.RotateKey(newPrimary); err != nil {
+		t.Fatalf("RotateKey() error = %v", err)
+	}
+
+	afterRotation, err := rotator.Encrypt([]byte("after-rotation"))
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+
+	plainBefore, err := rotator.Decrypt(beforeRotation)
+	if err != nil {
+		t.Fatalf("Decrypt(before) error = %v", err)
+	}
+	if string(plainBefore) != "before-rotation" {
+		t.Fatalf("Decrypt(before) = %q, want %q", string(plainBefore), "before-rotation")
+	}
+
+	plainAfter, err := rotator.Decrypt(afterRotation)
+	if err != nil {
+		t.Fatalf("Decrypt(after) error = %v", err)
+	}
+	if string(plainAfter) != "after-rotation" {
+		t.Fatalf("Decrypt(after) = %q, want %q", string(plainAfter), "after-rotation")
+	}
+}
+
 func mustEncryptor(t *testing.T, key string) *Encryptor {
 	t.Helper()
 

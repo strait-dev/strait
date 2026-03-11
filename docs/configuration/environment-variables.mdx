@@ -46,6 +46,7 @@ This page documents all environment variables available for configuring Strait.
 | `REAPER_INTERVAL` | Duration | `30s` | Interval for the stale run reaper process. |
 | `STALE_THRESHOLD` | Duration | `60s` | Threshold after which a run is considered stale. |
 | `POLLER_INTERVAL` | Duration | `5s` | Interval for the job poller to check for new work. |
+| `INDEX_MAINTENANCE_INTERVAL` | Duration | `24h` | Interval for partial index maintenance (`REINDEX INDEX CONCURRENTLY`). Set to `0` or negative to disable. |
 | `REAPER_DELETE_BATCH_SIZE` | Integer | `100` | Number of records to delete in a single reaper batch. |
 
 ## Database Pool

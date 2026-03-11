@@ -24,6 +24,10 @@ type createRoleRequest struct {
 }
 
 func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
+	if s.config == nil || !s.config.FFAuditLog {
+		return
+	}
+
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
@@ -72,8 +76,14 @@ func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.emitAuditEvent(r.Context(), "rbac.role.create", "role", role.ID, map[string]any{
-		"name": role.Name,
+	s.emitAuditEvent(r.Context(), "role.created", "role", role.ID, map[string]any{
+		"name":          role.Name,
+		"description":   role.Description,
+		"permissions":   role.Permissions,
+		"parent_role":   role.ParentRoleID,
+		"project_id":    role.ProjectID,
+		"is_system":     role.IsSystem,
+		"change_source": "rbac_api",
 	})
 	respondJSON(w, http.StatusCreated, role)
 }
@@ -157,6 +167,7 @@ func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	roleID := chi.URLParam(r, "roleID")
+	previousRole, _ := s.store.GetProjectRole(r.Context(), roleID)
 	role := &domain.ProjectRole{
 		ID:           roleID,
 		Name:         req.Name,
@@ -187,8 +198,11 @@ func (s *Server) handleUpdateRole(w http.ResponseWriter, r *http.Request) {
 		updated = role
 	}
 
-	s.emitAuditEvent(r.Context(), "rbac.role.update", "role", roleID, map[string]any{
-		"name": updated.Name,
+	s.emitAuditEvent(r.Context(), "role.updated", "role", roleID, map[string]any{
+		"changes": map[string]any{
+			"before": previousRole,
+			"after":  updated,
+		},
 	})
 	respondJSON(w, http.StatusOK, updated)
 }
@@ -205,7 +219,7 @@ func (s *Server) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("role deleted", "role_id", roleID, "actor", actorFromContext(r.Context()),
 		"project_id", projectIDFromContext(r.Context()))
-	s.emitAuditEvent(r.Context(), "rbac.role.delete", "role", roleID, nil)
+	s.emitAuditEvent(r.Context(), "role.deleted", "role", roleID, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -260,7 +274,10 @@ func (s *Server) handleAssignMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.permCache.Invalidate(m.ProjectID, m.UserID)
-	s.emitAuditEvent(r.Context(), "rbac.member.assign", "member", m.UserID, map[string]any{"role_id": m.RoleID})
+	s.emitAuditEvent(r.Context(), "permission.granted", "role", m.RoleID, map[string]any{
+		"user_id":    m.UserID,
+		"project_id": m.ProjectID,
+	})
 	respondJSON(w, http.StatusCreated, m)
 }
 
@@ -305,7 +322,11 @@ func (s *Server) handleBulkAssignMembers(w http.ResponseWriter, r *http.Request)
 		}
 
 		s.permCache.Invalidate(projectID, item.UserID)
-		s.emitAuditEvent(r.Context(), "rbac.member.assign", "member", item.UserID, map[string]any{"role_id": item.RoleID, "bulk": true})
+		s.emitAuditEvent(r.Context(), "permission.granted", "role", item.RoleID, map[string]any{
+			"user_id":    item.UserID,
+			"project_id": projectID,
+			"bulk":       true,
+		})
 		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
 	}
 
@@ -334,6 +355,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "userID")
 	projectID := projectIDFromContext(r.Context())
+	memberRole, _ := s.store.GetMemberRole(r.Context(), projectID, userID)
 
 	if err := s.store.RemoveMemberRole(r.Context(), projectID, userID); err != nil {
 		if errors.Is(err, store.ErrMemberNotFound) {
@@ -346,7 +368,17 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	s.permCache.Invalidate(projectID, userID)
 	slog.Info("member removed", "user_id", userID, "actor", actorFromContext(r.Context()),
 		"project_id", projectID)
-	s.emitAuditEvent(r.Context(), "rbac.member.remove", "member", userID, nil)
+	resourceID := userID
+	roleID := ""
+	if memberRole != nil && memberRole.RoleID != "" {
+		roleID = memberRole.RoleID
+		resourceID = memberRole.RoleID
+	}
+	s.emitAuditEvent(r.Context(), "permission.revoked", "role", resourceID, map[string]any{
+		"user_id":    userID,
+		"project_id": projectID,
+		"role_id":    roleID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -415,7 +447,12 @@ func (s *Server) handleCreateResourcePolicy(w http.ResponseWriter, r *http.Reque
 
 	// Invalidate cache for the affected user.
 	s.permCache.Invalidate(req.ProjectID, req.UserID)
-	s.emitAuditEvent(r.Context(), "rbac.resource_policy.create", "resource_policy", policy.ID, map[string]any{"resource_type": req.ResourceType, "resource_id": req.ResourceID, "user_id": req.UserID})
+	s.emitAuditEvent(r.Context(), "resource_policy.created", "resource_policy", policy.ID, map[string]any{
+		"resource_type": req.ResourceType,
+		"resource_id":   req.ResourceID,
+		"user_id":       req.UserID,
+		"actions":       req.Actions,
+	})
 
 	respondJSON(w, http.StatusCreated, policy)
 }
@@ -466,7 +503,7 @@ func (s *Server) handleDeleteResourcePolicy(w http.ResponseWriter, r *http.Reque
 
 	slog.Info("resource policy deleted", "policy_id", policyID, "actor", actorFromContext(r.Context()),
 		"affected_user", userID, "project_id", projectID)
-	s.emitAuditEvent(r.Context(), "rbac.resource_policy.delete", "resource_policy", policyID, map[string]any{"affected_user": userID})
+	s.emitAuditEvent(r.Context(), "resource_policy.deleted", "resource_policy", policyID, map[string]any{"affected_user": userID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -512,7 +549,13 @@ func (s *Server) handleCreateTagPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.permCache.Invalidate(req.ProjectID, req.UserID)
-	s.emitAuditEvent(r.Context(), "rbac.tag_policy.create", "tag_policy", policy.ID, map[string]any{"tag_key": req.TagKey, "tag_value": req.TagValue})
+	s.emitAuditEvent(r.Context(), "tag_policy.created", "tag_policy", policy.ID, map[string]any{
+		"tag_key":       req.TagKey,
+		"tag_value":     req.TagValue,
+		"resource_type": req.ResourceType,
+		"user_id":       req.UserID,
+		"actions":       req.Actions,
+	})
 	respondJSON(w, http.StatusCreated, policy)
 }
 
@@ -556,7 +599,7 @@ func (s *Server) handleDeleteTagPolicy(w http.ResponseWriter, r *http.Request) {
 	if projectID != "" && userID != "" {
 		s.permCache.Invalidate(projectID, userID)
 	}
-	s.emitAuditEvent(r.Context(), "rbac.tag_policy.delete", "tag_policy", policyID, nil)
+	s.emitAuditEvent(r.Context(), "tag_policy.deleted", "tag_policy", policyID, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

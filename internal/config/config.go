@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -20,6 +21,8 @@ type Config struct {
 	InternalSecret            string        `mapstructure:"INTERNAL_SECRET"`
 	JWTSigningKey             string        `mapstructure:"JWT_SIGNING_KEY"`
 	SecretEncryptionKey       string        `mapstructure:"SECRET_ENCRYPTION_KEY"`
+	EncryptionKey             string        `mapstructure:"ENCRYPTION_KEY"`
+	EncryptionKeyOld          []string      `mapstructure:"ENCRYPTION_KEY_OLD"`
 	OIDCEnabled               bool          `mapstructure:"OIDC_ENABLED"`
 	OIDCIssuer                string        `mapstructure:"OIDC_ISSUER"`
 	OIDCAudience              string        `mapstructure:"OIDC_AUDIENCE"`
@@ -140,9 +143,10 @@ type Config struct {
 	WorkerQueueSize       int `mapstructure:"WORKER_QUEUE_SIZE"`
 
 	// Scheduler settings
-	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
-	EventTriggerRetention time.Duration `mapstructure:"EVENT_TRIGGER_RETENTION"`
-	ReaperDeleteBatchSize int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
+	WorkflowRetention        time.Duration `mapstructure:"WORKFLOW_RETENTION"`
+	EventTriggerRetention    time.Duration `mapstructure:"EVENT_TRIGGER_RETENTION"`
+	IndexMaintenanceInterval time.Duration `mapstructure:"INDEX_MAINTENANCE_INTERVAL"`
+	ReaperDeleteBatchSize    int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
 
 	// Workflow settings
 	MaxWorkflowNestingDepth int `mapstructure:"MAX_WORKFLOW_NESTING_DEPTH"`
@@ -231,6 +235,8 @@ func setDefaults() {
 	viper.SetDefault("FF_AUDIT_LOG", false)
 	viper.SetDefault("WORKER_DRAIN_TIMEOUT", 30*time.Second)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
+	viper.SetDefault("ENCRYPTION_KEY", "")
+	viper.SetDefault("ENCRYPTION_KEY_OLD", []string{})
 	viper.SetDefault("WEBHOOK_TIMEOUT", 10*time.Second)
 	viper.SetDefault("WEBHOOK_IDLE_CONN_TIMEOUT", 60*time.Second)
 	viper.SetDefault("EXECUTOR_HTTP_TIMEOUT", 5*time.Minute)
@@ -241,6 +247,7 @@ func setDefaults() {
 	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
 	viper.SetDefault("WORKER_QUEUE_SIZE", 0)
 	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
+	viper.SetDefault("INDEX_MAINTENANCE_INTERVAL", 24*time.Hour)
 	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
 	viper.SetDefault("MAX_WORKFLOW_NESTING_DEPTH", 10)
 	viper.SetDefault("CDC_BATCH_SIZE", 10)
@@ -252,7 +259,7 @@ func BindEnv() error {
 	keys := []string{
 		"DATABASE_URL", "REDIS_URL", "REDIS_SENTINEL_MASTER", "REDIS_SENTINEL_ADDRS",
 		"MODE", "PORT", "WORKER_CONCURRENCY", "INTERNAL_SECRET", "JWT_SIGNING_KEY",
-		"SECRET_ENCRYPTION_KEY", "LOG_LEVEL", "HEARTBEAT_INTERVAL", "REAPER_INTERVAL",
+		"SECRET_ENCRYPTION_KEY", "ENCRYPTION_KEY", "ENCRYPTION_KEY_OLD", "LOG_LEVEL", "HEARTBEAT_INTERVAL", "REAPER_INTERVAL",
 		"STALE_THRESHOLD", "POLLER_INTERVAL", "RUN_RETENTION_SHORT", "RUN_RETENTION_LONG",
 		"OTEL_EXPORTER_OTLP_ENDPOINT", "WORKFLOW_RUN_RETENTION_DAYS", "DB_MAX_CONNS",
 		"DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME", "RATE_LIMIT_REQUESTS",
@@ -278,7 +285,7 @@ func BindEnv() error {
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_ATTEMPTS",
 		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
-		"WORKFLOW_RETENTION",
+		"WORKFLOW_RETENTION", "INDEX_MAINTENANCE_INTERVAL",
 		"REAPER_DELETE_BATCH_SIZE", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
 		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
 	}
@@ -327,6 +334,7 @@ func Load() (*Config, error) {
 	cfg.CORSAllowedOrigins = viper.GetStringSlice("CORS_ALLOWED_ORIGINS")
 	cfg.CORSAllowCredentials = viper.GetBool("CORS_ALLOW_CREDENTIALS")
 	cfg.RedisSentinelAddrs = viper.GetStringSlice("REDIS_SENTINEL_ADDRS")
+	cfg.EncryptionKeyOld = parseCSVEnv("ENCRYPTION_KEY_OLD")
 	cfg.WorkflowRunRetentionDays = viper.GetInt("WORKFLOW_RUN_RETENTION_DAYS")
 	cfg.WorkerPartitions = viper.GetStringSlice("WORKER_PARTITIONS")
 	cfg.WorkerPartitionWeights = viper.GetString("WORKER_PARTITION_WEIGHTS")
@@ -337,6 +345,7 @@ func Load() (*Config, error) {
 	cfg.WebhookDispatchTimeout = viper.GetDuration("WEBHOOK_DISPATCH_TIMEOUT")
 	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
 	cfg.EventTriggerRetention = viper.GetDuration("EVENT_TRIGGER_RETENTION")
+	cfg.IndexMaintenanceInterval = viper.GetDuration("INDEX_MAINTENANCE_INTERVAL")
 	// Legacy: support EVENT_TRIGGER_RETENTION_DAYS as days → duration.
 	if cfg.EventTriggerRetention == 0 && cfg.EventTriggerRetentionDays > 0 {
 		cfg.EventTriggerRetention = time.Duration(cfg.EventTriggerRetentionDays) * 24 * time.Hour
@@ -351,6 +360,13 @@ func Load() (*Config, error) {
 	}
 	if !viper.IsSet("CDC_WAIT_TIME_MS") && viper.IsSet("SEQUIN_WAIT_TIME_MS") {
 		cfg.CDCWaitTimeMs = viper.GetInt("SEQUIN_WAIT_TIME_MS")
+	}
+
+	if cfg.EncryptionKey == "" {
+		cfg.EncryptionKey = cfg.SecretEncryptionKey
+	}
+	if cfg.SecretEncryptionKey == "" {
+		cfg.SecretEncryptionKey = cfg.EncryptionKey
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -378,4 +394,22 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func parseCSVEnv(key string) []string {
+	raw := strings.TrimSpace(viper.GetString(key))
+	if raw == "" {
+		return []string{}
+	}
+
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+
+	return values
 }

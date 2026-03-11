@@ -35,15 +35,17 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 	}
 
 	query := `
-		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at, updated_at`
 
 	return q.db.QueryRow(ctx, query,
 		d.ID,
 		dbscan.NilIfEmptyString(d.RunID),
 		dbscan.NilIfEmptyString(d.JobID),
-		d.WebhookURL, d.Status, d.Attempts, d.MaxAttempts,
+		d.WebhookURL,
+		dbscan.NilIfEmptyString(d.RetryPolicy),
+		d.Status, d.Attempts, d.MaxAttempts,
 		d.LastStatusCode, dbscan.NilIfEmptyString(d.LastError), d.NextRetryAt, d.DeliveredAt,
 		dbscan.NilIfEmptyString(d.EventTriggerID),
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
@@ -92,6 +94,7 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		RunID:       run.ID,
 		JobID:       run.JobID,
 		WebhookURL:  job.WebhookURL,
+		RetryPolicy: domain.WebhookRetryPolicyExponential,
 		Status:      domain.WebhookStatusPending,
 		Attempts:    0,
 		MaxAttempts: maxAttempts,
@@ -100,10 +103,10 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 
 	query := `
 		INSERT INTO webhook_deliveries (
-			id, run_id, job_id, webhook_url, status, attempts, max_attempts, next_retry_at,
+			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, next_retry_at,
 			webhook_secret, payload, payload_size_bytes, event_type
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
 		RETURNING created_at, updated_at`
 
 	err = q.db.QueryRow(
@@ -113,6 +116,7 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		d.RunID,
 		d.JobID,
 		d.WebhookURL,
+		d.RetryPolicy,
 		d.Status,
 		d.Attempts,
 		d.MaxAttempts,
@@ -135,12 +139,13 @@ func (q *Queries) UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 
 	query := `
 		UPDATE webhook_deliveries
-		SET status = $1, attempts = $2, last_status_code = $3, last_error = $4,
-			next_retry_at = $5, delivered_at = $6, updated_at = NOW()
-		WHERE id = $7
+		SET webhook_retry_policy = $1, status = $2, attempts = $3, last_status_code = $4, last_error = $5,
+			next_retry_at = $6, delivered_at = $7, updated_at = NOW()
+		WHERE id = $8
 		RETURNING updated_at`
 
 	return q.db.QueryRow(ctx, query,
+		dbscan.NilIfEmptyString(d.RetryPolicy),
 		d.Status, d.Attempts, d.LastStatusCode, dbscan.NilIfEmptyString(d.LastError),
 		d.NextRetryAt, d.DeliveredAt, d.ID,
 	).Scan(&d.UpdatedAt)
@@ -150,7 +155,7 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.We
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWebhookDelivery")
 	defer span.End()
 
-	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
+	query := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
 					 event_trigger_id
 			  FROM webhook_deliveries WHERE id = $1`
@@ -165,11 +170,35 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.We
 	return d, nil
 }
 
+func (q *Queries) RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RetryWebhookDelivery")
+	defer span.End()
+
+	now := time.Now().UTC()
+	query := `
+		UPDATE webhook_deliveries
+		SET status = 'pending', attempts = 0, last_status_code = NULL, last_error = NULL,
+			next_retry_at = $1, delivered_at = NULL, updated_at = NOW()
+		WHERE id = $2 AND status IN ('failed', 'dead')
+		RETURNING id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
+			last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at, event_trigger_id`
+
+	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, now, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("webhook delivery not retriable")
+		}
+		return nil, fmt.Errorf("retry webhook delivery: %w", err)
+	}
+
+	return d, nil
+}
+
 func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWebhookDeliveries")
 	defer span.End()
 
-	baseQuery := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
+	baseQuery := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
 					 event_trigger_id
 				  FROM webhook_deliveries
@@ -213,7 +242,7 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListPendingWebhookRetries")
 	defer span.End()
 
-	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
+	query := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
 					 event_trigger_id
 			  FROM webhook_deliveries
@@ -242,7 +271,7 @@ func (q *Queries) ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListPendingRunWebhookDeliveries")
 	defer span.End()
 
-	query := `SELECT id, run_id, job_id, webhook_url, status, attempts, max_attempts,
+	query := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
 					 event_trigger_id
 			  FROM webhook_deliveries
@@ -301,10 +330,11 @@ func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 	var lastError *string
 	var runID *string
 	var jobID *string
+	var retryPolicy *string
 	var eventTriggerID *string
 
 	err := scanner.Scan(
-		&d.ID, &runID, &jobID, &d.WebhookURL, &d.Status,
+		&d.ID, &runID, &jobID, &d.WebhookURL, &retryPolicy, &d.Status,
 		&d.Attempts, &d.MaxAttempts, &d.LastStatusCode, &lastError,
 		&d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
 		&eventTriggerID,
@@ -320,6 +350,9 @@ func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 	}
 	if jobID != nil {
 		d.JobID = *jobID
+	}
+	if retryPolicy != nil {
+		d.RetryPolicy = *retryPolicy
 	}
 	if eventTriggerID != nil {
 		d.EventTriggerID = *eventTriggerID

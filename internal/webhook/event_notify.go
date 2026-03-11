@@ -37,7 +37,9 @@ type DeliveryWorker struct {
 	store  DeliveryStore
 	logger *slog.Logger
 
-	concurrency int
+	concurrency        int
+	defaultRetryPolicy string
+	circuitBreaker     WebhookCircuitBreaker
 }
 
 type EventNotifier = DeliveryWorker
@@ -52,15 +54,31 @@ func WithConcurrency(n int) DeliveryWorkerOption {
 	}
 }
 
+func WithRetryPolicy(policy string) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		switch policy {
+		case domain.WebhookRetryPolicyExponential, domain.WebhookRetryPolicyLinear, domain.WebhookRetryPolicyFixed:
+			w.defaultRetryPolicy = policy
+		}
+	}
+}
+
+func WithCircuitBreaker(circuitBreaker WebhookCircuitBreaker) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.circuitBreaker = circuitBreaker
+	}
+}
+
 func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	w := &DeliveryWorker{
-		client:      &http.Client{Timeout: 10 * time.Second},
-		store:       store,
-		logger:      logger,
-		concurrency: defaultDeliveryConcurrency,
+		client:             &http.Client{Timeout: 10 * time.Second},
+		store:              store,
+		logger:             logger,
+		concurrency:        defaultDeliveryConcurrency,
+		defaultRetryPolicy: domain.WebhookRetryPolicyExponential,
 	}
 	for _, opt := range opts {
 		opt(w)
@@ -98,6 +116,7 @@ func (n *DeliveryWorker) NotifyAsync(trigger *domain.EventTrigger) {
 	d := &domain.WebhookDelivery{
 		EventTriggerID: trigger.ID,
 		WebhookURL:     trigger.NotifyURL,
+		RetryPolicy:    n.defaultRetryPolicy,
 		Status:         domain.WebhookStatusPending,
 		Attempts:       0,
 		MaxAttempts:    5,
@@ -148,6 +167,7 @@ func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job,
 		RunID:       run.ID,
 		JobID:       run.JobID,
 		WebhookURL:  job.WebhookURL,
+		RetryPolicy: n.defaultRetryPolicy,
 		Status:      domain.WebhookStatusPending,
 		Attempts:    0,
 		MaxAttempts: 5,
@@ -210,6 +230,16 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	now := time.Now()
 	d.Attempts++
 
+	if n.circuitBreaker != nil {
+		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, d.WebhookURL)
+		if err != nil {
+			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url", d.WebhookURL, "error", err)
+		} else if !canDeliver {
+			n.recordFailure(ctx, d, now, true, "circuit breaker is open")
+			return
+		}
+	}
+
 	// Reconstruct payload from last_error (where we stashed it on creation)
 	// or build a minimal payload from what we know.
 	var body []byte
@@ -250,6 +280,9 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 
 	resp, err := n.client.Do(req)
 	if err != nil {
+		if n.circuitBreaker != nil {
+			n.circuitBreaker.RecordFailure(ctx, d.WebhookURL)
+		}
 		n.recordFailure(ctx, d, now, true, fmt.Sprintf("http request: %v", err))
 		return
 	}
@@ -259,6 +292,9 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	d.LastStatusCode = &statusCode
 
 	if statusCode >= 500 {
+		if n.circuitBreaker != nil {
+			n.circuitBreaker.RecordFailure(ctx, d.WebhookURL)
+		}
 		n.recordFailure(ctx, d, now, true, fmt.Sprintf("server error: status %d", statusCode))
 		return
 	}
@@ -269,6 +305,9 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	}
 
 	// Success.
+	if n.circuitBreaker != nil {
+		n.circuitBreaker.RecordSuccess(ctx, d.WebhookURL)
+	}
 	d.Status = domain.WebhookStatusDelivered
 	d.DeliveredAt = &now
 	d.LastError = ""
@@ -303,8 +342,7 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 		return
 	}
 
-	// Exponential backoff: 5s, 25s, 125s, 625s (~10min), capped at 30min.
-	backoff := min(time.Duration(pow(5, d.Attempts))*time.Second, 30*time.Minute)
+	backoff := backoffForRetryPolicy(n.retryPolicyForDelivery(d), d.Attempts)
 	nextAttempt := now.Add(backoff)
 	d.NextRetryAt = &nextAttempt
 	d.Status = domain.WebhookStatusPending
@@ -326,4 +364,35 @@ func pow(base, exp int) int {
 		result *= base
 	}
 	return result
+}
+
+func (n *DeliveryWorker) retryPolicyForDelivery(d *domain.WebhookDelivery) string {
+	switch d.RetryPolicy {
+	case domain.WebhookRetryPolicyExponential, domain.WebhookRetryPolicyLinear, domain.WebhookRetryPolicyFixed:
+		return d.RetryPolicy
+	default:
+		return n.defaultRetryPolicy
+	}
+}
+
+func backoffForRetryPolicy(policy string, attempts int) time.Duration {
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	var backoff time.Duration
+	switch policy {
+	case domain.WebhookRetryPolicyLinear:
+		backoff = time.Duration(5*attempts) * time.Second
+	case domain.WebhookRetryPolicyFixed:
+		backoff = 5 * time.Second
+	default:
+		backoff = time.Duration(pow(5, attempts)) * time.Second
+	}
+
+	if backoff > 30*time.Minute {
+		return 30 * time.Minute
+	}
+
+	return backoff
 }
