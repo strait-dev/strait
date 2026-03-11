@@ -168,6 +168,7 @@ func runServe(modeOverride string) error {
 
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
+		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
 

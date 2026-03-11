@@ -78,6 +78,23 @@ type Reaper struct {
 	logger                *slog.Logger
 }
 
+func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
+	if r.metrics == nil {
+		return
+	}
+	r.metrics.ReaperOperations.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("operation", operation),
+		attribute.String("status", status),
+	))
+}
+
+func (r *Reaper) recordDeleted(ctx context.Context, recordType string, count int64) {
+	if r.metrics == nil || count <= 0 {
+		return
+	}
+	r.metrics.ReaperRecordsDeleted.Add(ctx, count, metric.WithAttributes(attribute.String("type", recordType)))
+}
+
 // NewReaper creates a new stale and expired run reaper.
 func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRetention time.Duration, retentionEnabled bool, workflowCallback WorkflowCallback) *Reaper {
 	if shortRetention <= 0 {
@@ -200,6 +217,7 @@ func (r *Reaper) Run(ctx context.Context) {
 func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapOldWorkflowRuns")
 	defer span.End()
+	const operation = "reap_old_workflow_runs"
 
 	if r.workflowRetention <= 0 {
 		return
@@ -209,8 +227,11 @@ func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
 	count, err := r.store.DeleteWorkflowRunsFinishedBefore(ctx, before, r.deleteBatchLimit)
 	if err != nil {
 		slog.Error("failed to delete old workflow runs", "error", err)
+		r.recordOperation(ctx, operation, "error")
 		return
 	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "workflow_runs", count)
 	if count > 0 {
 		slog.Info("deleted old workflow runs", "count", count, "before", before.UTC())
 	}
@@ -371,12 +392,15 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapExpiredEventTriggers")
 	defer span.End()
+	const operation = "reap_expired_event_triggers"
 
 	triggers, err := r.store.ListExpiredEventTriggers(ctx)
 	if err != nil {
 		slog.Error("failed to list expired event triggers", "error", err)
+		r.recordOperation(ctx, operation, "error")
 		return
 	}
+	r.recordOperation(ctx, operation, "success")
 
 	now := time.Now()
 	for _, trigger := range triggers {
@@ -502,6 +526,7 @@ func (r *Reaper) reapInconsistentEventTriggers(ctx context.Context) {
 func (r *Reaper) reapOldEventTriggers(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapOldEventTriggers")
 	defer span.End()
+	const operation = "reap_old_event_triggers"
 
 	if r.eventTriggerRetention <= 0 {
 		return
@@ -511,8 +536,11 @@ func (r *Reaper) reapOldEventTriggers(ctx context.Context) {
 	count, err := r.store.DeleteEventTriggersFinishedBefore(ctx, before, r.deleteBatchLimit)
 	if err != nil {
 		slog.Error("failed to delete old event triggers", "error", err)
+		r.recordOperation(ctx, operation, "error")
 		return
 	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "event_triggers", count)
 	if count > 0 {
 		slog.Info("deleted old event triggers", "count", count, "before", before.UTC())
 	}
@@ -521,12 +549,15 @@ func (r *Reaper) reapOldEventTriggers(ctx context.Context) {
 func (r *Reaper) reapStale(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapStale")
 	defer span.End()
+	const operation = "reap_stale"
 
 	runs, err := r.store.ListStaleRuns(ctx, r.staleThreshold)
 	if err != nil {
 		slog.Error("failed to list stale runs", "error", err)
+		r.recordOperation(ctx, operation, "error")
 		return
 	}
+	r.recordOperation(ctx, operation, "success")
 
 	for _, run := range runs {
 		err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCrashed, map[string]any{
@@ -547,12 +578,15 @@ func (r *Reaper) reapStale(ctx context.Context) {
 func (r *Reaper) reapExpired(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapExpired")
 	defer span.End()
+	const operation = "reap_expired"
 
 	runs, err := r.store.ListExpiredRuns(ctx)
 	if err != nil {
 		slog.Error("failed to list expired runs", "error", err)
+		r.recordOperation(ctx, operation, "error")
 		return
 	}
+	r.recordOperation(ctx, operation, "success")
 
 	for _, run := range runs {
 		err := r.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusExpired, map[string]any{
@@ -573,12 +607,15 @@ func (r *Reaper) reapExpired(ctx context.Context) {
 func (r *Reaper) reapStaleDequeued(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapStaleDequeued")
 	defer span.End()
+	const operation = "reap_stale_dequeued"
 
 	runs, err := r.store.ListStaleDequeued(ctx, r.staleThreshold)
 	if err != nil {
 		slog.Error("failed to list stale dequeued runs", "error", err)
+		r.recordOperation(ctx, operation, "error")
 		return
 	}
+	r.recordOperation(ctx, operation, "success")
 
 	for _, run := range runs {
 		err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, map[string]any{
@@ -596,12 +633,16 @@ func (r *Reaper) reapStaleDequeued(ctx context.Context) {
 func (r *Reaper) reapTerminalRetention(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapTerminalRetention")
 	defer span.End()
+	const operation = "reap_terminal_retention"
 
 	deleted, err := r.store.DeleteTerminalRunsPastRetention(ctx, r.shortRetention, r.longRetention)
 	if err != nil {
 		slog.Error("failed to delete retained terminal runs", "error", err)
+		r.recordOperation(ctx, operation, "error")
 		return
 	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "terminal_runs", deleted)
 	if deleted > 0 {
 		slog.Info("deleted terminal runs past retention", "count", deleted)
 	}

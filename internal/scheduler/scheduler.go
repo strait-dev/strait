@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/sourcegraph/conc"
 
@@ -53,6 +54,8 @@ type SchedulerOption func(*Scheduler)
 // WithSchedulerMetrics attaches telemetry metrics to the reaper.
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	return func(s *Scheduler) {
+		s.cron.WithMetrics(m)
+		s.poller.WithMetrics(m)
 		s.reaper.WithMetrics(m)
 	}
 }
@@ -78,4 +81,11 @@ func (s *Scheduler) Stop() {
 	<-stopCtx.Done()
 	s.wg.Wait()
 	slog.Info("scheduler stopped")
+}
+
+func (s *Scheduler) PollerLastTick() time.Time {
+	if s.poller == nil {
+		return time.Time{}
+	}
+	return s.poller.LastTick()
 }

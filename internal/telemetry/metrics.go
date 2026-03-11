@@ -17,17 +17,24 @@ import (
 )
 
 type Metrics struct {
-	RunTransitions          metric.Int64Counter
-	DequeueDuration         metric.Float64Histogram
-	DispatchDuration        metric.Float64Histogram
-	DispatchErrors          metric.Int64Counter
-	ExecutionTraceDispatch  metric.Float64Histogram
-	ExecutionTraceQueueWait metric.Float64Histogram
-	WebhookDeliveriesTotal  metric.Int64Counter
-	WebhookDeliveryDuration metric.Float64Histogram
-	WebhookDeliveryAttempts metric.Int64Counter
-	WebhookCircuitBreaker   metric.Int64Gauge
-	WebhookPayloadBytes     metric.Int64Histogram
+	RunTransitions           metric.Int64Counter
+	DequeueDuration          metric.Float64Histogram
+	DispatchDuration         metric.Float64Histogram
+	DispatchErrors           metric.Int64Counter
+	ReaperOperations         metric.Int64Counter
+	ReaperRecordsDeleted     metric.Int64Counter
+	CronTriggers             metric.Int64Counter
+	PollerRunsQueued         metric.Int64Counter
+	WorkflowTriggers         metric.Int64Counter
+	WorkflowStepProgressions metric.Int64Counter
+	QueueDepth               metric.Int64ObservableGauge
+	ExecutionTraceDispatch   metric.Float64Histogram
+	ExecutionTraceQueueWait  metric.Float64Histogram
+	WebhookDeliveriesTotal   metric.Int64Counter
+	WebhookDeliveryDuration  metric.Float64Histogram
+	WebhookDeliveryAttempts  metric.Int64Counter
+	WebhookCircuitBreaker    metric.Int64Gauge
+	WebhookPayloadBytes      metric.Int64Histogram
 
 	// Event trigger metrics.
 	EventTriggersCreated     metric.Int64Counter
@@ -87,6 +94,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		"strait.dequeue.duration",
 		metric.WithDescription("Duration of dequeue operations"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create dequeue duration histogram: %w", err)
@@ -96,6 +104,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		"strait.dispatch.duration",
 		metric.WithDescription("Duration of HTTP dispatch operations"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create dispatch duration histogram: %w", err)
@@ -110,10 +119,74 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create dispatch errors counter: %w", err)
 	}
 
+	reaperOperations, err := meter.Int64Counter(
+		"strait.reaper.operations",
+		metric.WithDescription("Total reaper operations by operation and status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create reaper operations counter: %w", err)
+	}
+
+	reaperRecordsDeleted, err := meter.Int64Counter(
+		"strait.reaper.records_deleted",
+		metric.WithDescription("Total records deleted by reaper retention operations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create reaper records deleted counter: %w", err)
+	}
+
+	cronTriggers, err := meter.Int64Counter(
+		"strait.scheduler.cron_triggers",
+		metric.WithDescription("Total cron trigger attempts by status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create cron triggers counter: %w", err)
+	}
+
+	pollerRunsQueued, err := meter.Int64Counter(
+		"strait.scheduler.poller_runs_queued",
+		metric.WithDescription("Total delayed runs queued by poller"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create poller runs queued counter: %w", err)
+	}
+
+	workflowTriggers, err := meter.Int64Counter(
+		"strait.workflow.triggers",
+		metric.WithDescription("Total workflow trigger attempts by status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow triggers counter: %w", err)
+	}
+
+	workflowStepProgressions, err := meter.Int64Counter(
+		"strait.workflow.step_progressions",
+		metric.WithDescription("Total workflow step progressions by step type and status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow step progressions counter: %w", err)
+	}
+
+	queueDepth, err := meter.Int64ObservableGauge(
+		"strait.queue.depth",
+		metric.WithDescription("Current queue depth by status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create queue depth gauge: %w", err)
+	}
+
 	executionTraceDispatch, err := meter.Float64Histogram(
 		"strait.execution.trace.dispatch_duration",
 		metric.WithDescription("HTTP dispatch roundtrip duration from execution trace"),
 		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create execution trace dispatch histogram: %w", err)
@@ -123,6 +196,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		"strait.execution.trace.queue_wait_duration",
 		metric.WithDescription("Queue wait duration from execution trace"),
 		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create execution trace queue wait histogram: %w", err)
@@ -141,6 +215,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		"strait_webhook_delivery_duration_seconds",
 		metric.WithDescription("Webhook delivery HTTP request duration in seconds"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create webhook delivery duration histogram: %w", err)
@@ -286,6 +361,13 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		DequeueDuration:          dequeueDuration,
 		DispatchDuration:         dispatchDuration,
 		DispatchErrors:           dispatchErrors,
+		ReaperOperations:         reaperOperations,
+		ReaperRecordsDeleted:     reaperRecordsDeleted,
+		CronTriggers:             cronTriggers,
+		PollerRunsQueued:         pollerRunsQueued,
+		WorkflowTriggers:         workflowTriggers,
+		WorkflowStepProgressions: workflowStepProgressions,
+		QueueDepth:               queueDepth,
 		ExecutionTraceDispatch:   executionTraceDispatch,
 		ExecutionTraceQueueWait:  executionTraceQueueWait,
 		WebhookDeliveriesTotal:   webhookDeliveriesTotal,

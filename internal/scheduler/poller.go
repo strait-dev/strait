@@ -3,9 +3,11 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 )
 
 // PollerStore is the subset of store operations needed by DelayedPoller.
@@ -17,14 +19,23 @@ type PollerStore interface {
 type DelayedPoller struct {
 	store    PollerStore
 	interval time.Duration
+	metrics  *telemetry.Metrics
+	lastTick atomic.Int64
 }
 
 // NewDelayedPoller creates a new delayed run poller.
 func NewDelayedPoller(s PollerStore, interval time.Duration) *DelayedPoller {
-	return &DelayedPoller{
+	p := &DelayedPoller{
 		store:    s,
 		interval: interval,
 	}
+	p.lastTick.Store(time.Now().UnixNano())
+	return p
+}
+
+func (p *DelayedPoller) WithMetrics(m *telemetry.Metrics) *DelayedPoller {
+	p.metrics = m
+	return p
 }
 
 func (p *DelayedPoller) Run(ctx context.Context) {
@@ -38,6 +49,7 @@ func (p *DelayedPoller) Run(ctx context.Context) {
 			slog.Info("delayed poller stopping")
 			return
 		case <-ticker.C:
+			p.lastTick.Store(time.Now().UnixNano())
 			runs, err := p.store.ListDueRuns(ctx)
 			if err != nil {
 				slog.Error("failed to list due runs", "error", err)
@@ -50,9 +62,20 @@ func (p *DelayedPoller) Run(ctx context.Context) {
 					slog.Error("failed to queue due run", "run_id", run.ID, "job_id", run.JobID, "error", err)
 					continue
 				}
+				if p.metrics != nil {
+					p.metrics.PollerRunsQueued.Add(ctx, 1)
+				}
 
 				slog.Info("due run queued", "run_id", run.ID, "job_id", run.JobID)
 			}
 		}
 	}
+}
+
+func (p *DelayedPoller) LastTick() time.Time {
+	nanos := p.lastTick.Load()
+	if nanos <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
 }

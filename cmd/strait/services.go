@@ -356,10 +356,35 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	healthReg.Register(health.NewPoolChecker(p))
 
+	queueDepthThreshold := int64(max(cfg.WorkerConcurrency*100, 1000))
+	healthReg.Register(health.NewQueueDepthChecker(func(checkCtx context.Context) (int64, error) {
+		stats, err := queries.QueueStats(checkCtx)
+		if err != nil {
+			return 0, err
+		}
+		return int64(stats.Queued), nil
+	}, queueDepthThreshold))
+
+	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine, scheduler.WithSchedulerMetrics(metrics))
+	schedulerMaxAge := max(cfg.PollerInterval*3, 30*time.Second)
+	healthReg.Register(health.NewSchedulerChecker(sched.PollerLastTick, schedulerMaxAge))
+
 	if metrics != nil {
 		meter := otel.Meter("strait")
 		if err := metrics.ObservePool(meter, p); err != nil {
 			slog.Warn("failed to register pool metrics callback", "error", err)
+		}
+		if _, err := meter.RegisterCallback(func(callbackCtx context.Context, observer metric.Observer) error {
+			stats, err := queries.QueueStats(callbackCtx)
+			if err != nil {
+				return fmt.Errorf("load queue stats for queue depth metrics: %w", err)
+			}
+			observer.ObserveInt64(metrics.QueueDepth, int64(stats.Queued), metric.WithAttributes(attribute.String("status", "queued")))
+			observer.ObserveInt64(metrics.QueueDepth, int64(stats.Executing), metric.WithAttributes(attribute.String("status", "executing")))
+			observer.ObserveInt64(metrics.QueueDepth, int64(stats.Delayed), metric.WithAttributes(attribute.String("status", "delayed")))
+			return nil
+		}, metrics.QueueDepth); err != nil {
+			slog.Warn("failed to register queue depth metrics callback", "error", err)
 		}
 	}
 
@@ -404,7 +429,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 
 	// Start scheduler (cron, delayed poller, reaper)
-	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine, scheduler.WithSchedulerMetrics(metrics))
 	g.Go(func(ctx context.Context) error {
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)

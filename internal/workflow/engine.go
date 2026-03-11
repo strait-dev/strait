@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // DefaultMaxNestingDepth is the nesting limit when none is specified on the step.
@@ -26,6 +29,7 @@ type WorkflowEngine struct {
 	logger          *slog.Logger
 	maxNestingDepth int
 	onTriggerCreate EventTriggerNotifyFunc
+	metrics         *telemetry.Metrics
 }
 
 type EngineStore interface {
@@ -66,6 +70,18 @@ func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger
 func (e *WorkflowEngine) WithOnTriggerCreate(fn EventTriggerNotifyFunc) *WorkflowEngine {
 	e.onTriggerCreate = fn
 	return e
+}
+
+func (e *WorkflowEngine) WithMetrics(m *telemetry.Metrics) *WorkflowEngine {
+	e.metrics = m
+	return e
+}
+
+func (e *WorkflowEngine) recordTrigger(ctx context.Context, status string) {
+	if e.metrics == nil {
+		return
+	}
+	e.metrics.WorkflowTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }
 
 // WithMaxNestingDepth overrides the default sub-workflow nesting depth limit.
@@ -109,26 +125,35 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
+	triggerStatus := "success"
+	defer func() {
+		e.recordTrigger(ctx, triggerStatus)
+	}()
 
 	wf, err := e.store.GetWorkflow(ctx, workflowID)
 	if err != nil {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("get workflow: %w", err)
 	}
 	if wf == nil {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("workflow not found: %s", workflowID)
 	}
 	if !wf.Enabled {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("workflow is disabled: %s", workflowID)
 	}
 	if projectID == "" {
 		projectID = wf.ProjectID
 	}
 	if wf.ProjectID != "" && projectID != wf.ProjectID {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("workflow %s does not belong to project %s", workflowID, projectID)
 	}
 
 	steps, err := e.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
 	if err != nil {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("list workflow steps by version: %w", err)
 	}
 
@@ -136,11 +161,13 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	if len(stepOverrides) > 0 {
 		steps, err = applyStepOverrides(steps, stepOverrides)
 		if err != nil {
+			triggerStatus = "error"
 			return nil, fmt.Errorf("apply step overrides: %w", err)
 		}
 	}
 
 	if err := ValidateDAG(steps); err != nil {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("validate workflow dag: %w", err)
 	}
 
@@ -149,17 +176,20 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		for i := range maxConcurrencyRetries {
 			running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
 			if countErr != nil {
+				triggerStatus = "error"
 				return nil, fmt.Errorf("count running workflow runs: %w", countErr)
 			}
 			if running < wf.MaxConcurrentRuns {
 				break
 			}
 			if i == maxConcurrencyRetries-1 {
+				triggerStatus = "error"
 				return nil, fmt.Errorf("workflow %s: max concurrent runs (%d) reached, timed out waiting for slot", workflowID, wf.MaxConcurrentRuns)
 			}
 
 			select {
 			case <-ctx.Done():
+				triggerStatus = "error"
 				return nil, fmt.Errorf("wait for workflow concurrency slot: %w", ctx.Err())
 			case <-time.After(250 * time.Millisecond):
 			}
@@ -195,11 +225,13 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		wfRun.ExpiresAt = &expiresAt
 	}
 	if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("create workflow run: %w", err)
 	}
 
 	now := time.Now()
 	if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+		triggerStatus = "error"
 		return nil, fmt.Errorf("start workflow run: %w", err)
 	}
 	wfRun.Status = domain.WfStatusRunning
@@ -230,6 +262,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		}
 
 		if err := e.store.CreateWorkflowStepRun(ctx, stepRun); err != nil {
+			triggerStatus = "error"
 			return nil, fmt.Errorf("create step run %s: %w", step.StepRef, err)
 		}
 	}
@@ -238,12 +271,14 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	for _, root := range roots {
 		if wfRun.MaxParallelSteps > 0 && runningStarts >= wfRun.MaxParallelSteps {
 			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
+				triggerStatus = "error"
 				return nil, fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
 			}
 			root.stepRun.Status = domain.StepWaiting
 			continue
 		}
 		if err := e.startStep(ctx, root.stepRun, root.step, wfRun, nil); err != nil {
+			triggerStatus = "error"
 			return nil, fmt.Errorf("start root step %s: %w", root.step.StepRef, err)
 		}
 		if root.stepRun.Status == domain.StepRunning {
