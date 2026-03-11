@@ -2167,6 +2167,189 @@ paths:
               schema:
                 type: object
 
+  /v1/workflow-runs/{workflowRunID}/graph:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run graph
+      responses:
+        '200':
+          description: Workflow run graph
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflow-runs/{workflowRunID}/explain:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: step_ref
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: decision_type
+        in: query
+        required: false
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow step decisions
+      responses:
+        '200':
+          description: Workflow decisions
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stepRef
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [WorkflowRuns]
+      summary: Retry a single workflow step
+      responses:
+        '200':
+          description: Step retried
+
+  /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stepRef
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [WorkflowRuns]
+      summary: Replay a step subtree
+      responses:
+        '200':
+          description: Subtree replayed
+
+  /v1/workflows/{workflowID}/simulate:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Simulate workflow execution
+      responses:
+        '200':
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: fromVersionID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: toVersionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Diff workflow versions
+      responses:
+        '200':
+          description: Workflow version diff
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions/{versionID}/impact:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Workflow version impact
+      responses:
+        '200':
+          description: Workflow version impact
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflow-policies/{projectID}:
+    parameters:
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow policy
+      responses:
+        '200':
+          description: Workflow policy
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags: [Workflows]
+      summary: Upsert workflow policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Workflow policy updated
+
   /v1/stats:
     get:
       tags:
