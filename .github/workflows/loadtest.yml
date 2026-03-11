@@ -1,0 +1,107 @@
+name: Load Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      volume_tier:
+        description: "Volume tier for integration load tests"
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - large
+          - extreme
+      vegeta_duration:
+        description: "Vegeta test duration override (e.g. 10s, 30s)"
+        required: false
+        default: "10s"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loadtest-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  vegeta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Vet load tests
+        run: go vet -tags "loadtest,integration" ./test/loadtest/...
+
+      - name: Run Vegeta load tests
+        run: |
+          set -o pipefail
+          go test -json -tags "loadtest,integration" -timeout=30m -count=1 ./test/loadtest/... 2>&1 | tee vegeta-results.jsonl
+
+      - name: Generate Vegeta summary
+        if: always()
+        run: go run ./test/loadtest/cmd/summary -input vegeta-results.jsonl -output vegeta-summary.md -suite vegeta
+
+      - name: Publish Vegeta summary
+        if: always()
+        run: cat vegeta-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Vegeta artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vegeta-results
+          if-no-files-found: ignore
+          path: |
+            vegeta-results.jsonl
+            vegeta-summary.md
+
+  integration-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Run integration load tests
+        env:
+          LOADTEST_VOLUME_TIER: ${{ inputs.volume_tier }}
+        run: |
+          set -o pipefail
+          go test -json -tags=integration -run "TestLoad" -timeout=30m -count=1 ./internal/e2e/... 2>&1 | tee integration-load-results.jsonl
+
+      - name: Generate integration load summary
+        if: always()
+        run: go run ./test/loadtest/cmd/summary -input integration-load-results.jsonl -output integration-load-summary.md -suite integration
+
+      - name: Publish integration load summary
+        if: always()
+        run: cat integration-load-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload integration load artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-load-results
+          if-no-files-found: ignore
+          path: |
+            integration-load-results.jsonl
+            integration-load-summary.md
