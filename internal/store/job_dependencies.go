@@ -142,9 +142,8 @@ func (q *Queries) ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, 
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at, next_retry_at,
 		       expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
-		       workflow_step_run_id, max_attempts_override, timeout_secs_override,
-		       retry_backoff, retry_initial_delay_secs, retry_max_delay_secs, execution_trace,
-		       debug_mode, continuation_of, lineage_depth, tags, checkpoint_data,
+		       workflow_step_run_id, execution_trace,
+		       debug_mode, continuation_of, lineage_depth, tags,
 		       job_version_id, created_by
 		FROM job_runs
 		WHERE status = 'waiting' AND job_id = ANY($1)
@@ -221,9 +220,8 @@ func (q *Queries) findLatestTerminalDependencyRun(ctx context.Context, jobID, id
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at, next_retry_at,
 		       expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
-		       workflow_step_run_id, max_attempts_override, timeout_secs_override,
-		       retry_backoff, retry_initial_delay_secs, retry_max_delay_secs, execution_trace,
-		       debug_mode, continuation_of, lineage_depth, tags, checkpoint_data,
+		       workflow_step_run_id, execution_trace,
+		       debug_mode, continuation_of, lineage_depth, tags,
 		       job_version_id, created_by
 		FROM job_runs
 		WHERE job_id = $1

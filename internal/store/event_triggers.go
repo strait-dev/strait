@@ -396,7 +396,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
 		       et.notify_url, et.notify_status, et.trigger_type, et.sent_by
 		FROM event_triggers et
-		JOIN runs r ON r.id = et.job_run_id
+		JOIN job_runs r ON r.id = et.job_run_id
 		WHERE et.status = 'received'
 		  AND et.source_type = 'job_run'
 		  AND r.status = 'waiting'
@@ -602,18 +602,14 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 		if err := q.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
 			return fmt.Errorf("update trigger status: %w", err)
 		}
-		return q.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
-			"checkpoint_data": payload,
-		})
+		return q.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, nil)
 	}
 
 	return WithTx(ctx, txb, func(txQ *Queries) error {
 		if err := txQ.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
 			return fmt.Errorf("update trigger status: %w", err)
 		}
-		return txQ.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
-			"checkpoint_data": payload,
-		})
+		return txQ.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, nil)
 	})
 }
 

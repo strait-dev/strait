@@ -1458,7 +1458,7 @@ func (q *Queries) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID 
 	defer span.End()
 
 	query := `
-		UPDATE runs r
+		UPDATE job_runs r
 		SET status = 'canceled',
 		    finished_at = $2,
 		    error = NULLIF($3, '')
