@@ -388,7 +388,7 @@ func (q *Queries) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tag
 	}
 	defer rows.Close()
 
-	workflows := make([]domain.Workflow, 0)
+	workflows := make([]domain.Workflow, 0, limit)
 	for rows.Next() {
 		wf, scanErr := scanWorkflow(rows)
 		if scanErr != nil {

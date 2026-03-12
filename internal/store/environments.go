@@ -98,7 +98,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, projectID string, limit 
 	}
 	defer rows.Close()
 
-	envs := make([]domain.Environment, 0)
+	envs := make([]domain.Environment, 0, limit)
 	for rows.Next() {
 		env, scanErr := scanEnvironment(rows)
 		if scanErr != nil {

@@ -352,7 +352,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 	}
 	defer rows.Close()
 
-	var triggers []domain.EventTrigger
+	triggers := make([]domain.EventTrigger, 0, 1000)
 	for rows.Next() {
 		trigger, scanErr := scanEventTrigger(rows)
 		if scanErr != nil {

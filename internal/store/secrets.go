@@ -137,7 +137,7 @@ func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environm
 	}
 	defer rows.Close()
 
-	secrets := make([]domain.JobSecret, 0)
+	secrets := make([]domain.JobSecret, 0, limit)
 	for rows.Next() {
 		secret, scanErr := scanJobSecret(rows)
 		if scanErr != nil {
@@ -199,7 +199,7 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 	}
 	defer rows.Close()
 
-	secrets := make([]domain.JobSecret, 0)
+	secrets := make([]domain.JobSecret, 0, 64)
 	for rows.Next() {
 		secret, scanErr := scanJobSecret(rows)
 		if scanErr != nil {

@@ -58,7 +58,7 @@ func (q *Queries) ListWebhookSubscriptions(ctx context.Context, projectID string
 	}
 	defer rows.Close()
 
-	subs := make([]domain.WebhookSubscription, 0)
+	subs := make([]domain.WebhookSubscription, 0, 64)
 	for rows.Next() {
 		var sub domain.WebhookSubscription
 		if err := rows.Scan(&sub.ID, &sub.ProjectID, &sub.WebhookURL, &sub.EventTypes, &sub.Secret, &sub.Active, &sub.CreatedAt); err != nil {

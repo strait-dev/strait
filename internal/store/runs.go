@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/samber/lo"
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
 )
@@ -326,7 +325,7 @@ func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit in
 	}
 	defer rows.Close()
 
-	checkpoints := make([]domain.RunCheckpoint, 0)
+	checkpoints := make([]domain.RunCheckpoint, 0, limit)
 	for rows.Next() {
 		cp, scanErr := scanRunCheckpoint(rows)
 		if scanErr != nil {
@@ -417,7 +416,7 @@ func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cur
 	}
 	defer rows.Close()
 
-	usages := make([]domain.RunUsage, 0)
+	usages := make([]domain.RunUsage, 0, limit)
 	for rows.Next() {
 		u, scanErr := scanRunUsage(rows)
 		if scanErr != nil {
@@ -498,7 +497,7 @@ func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int,
 	}
 	defer rows.Close()
 
-	calls := make([]domain.RunToolCall, 0)
+	calls := make([]domain.RunToolCall, 0, limit)
 	for rows.Next() {
 		c, scanErr := scanRunToolCall(rows)
 		if scanErr != nil {
@@ -572,7 +571,7 @@ func (q *Queries) ListRunOutputs(ctx context.Context, runID string, limit int, c
 	}
 	defer rows.Close()
 
-	outputs := make([]domain.RunOutput, 0)
+	outputs := make([]domain.RunOutput, 0, max(limit, 0))
 	for rows.Next() {
 		o, scanErr := scanRunOutput(rows)
 		if scanErr != nil {
@@ -873,7 +872,7 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, limit)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -1060,7 +1059,10 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 	args := []any{to, id, from}
 	param := 4
 
-	keys := lo.Keys(fields)
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
@@ -1522,7 +1524,7 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, max(limit, 0))
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
@@ -1574,7 +1576,7 @@ func (q *Queries) ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue
 	}
 	defer rows.Close()
 
-	runs := make([]domain.JobRun, 0)
+	runs := make([]domain.JobRun, 0, max(limit, 0))
 	for rows.Next() {
 		run, scanErr := dbscan.ScanRun(rows)
 		if scanErr != nil {

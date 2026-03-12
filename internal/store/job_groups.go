@@ -90,7 +90,7 @@ func (q *Queries) ListJobGroups(ctx context.Context, projectID string, limit int
 	}
 	defer rows.Close()
 
-	groups := make([]domain.JobGroup, 0)
+	groups := make([]domain.JobGroup, 0, limit)
 	for rows.Next() {
 		group, scanErr := scanJobGroup(rows)
 		if scanErr != nil {
@@ -186,7 +186,7 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int
 	}
 	defer rows.Close()
 
-	jobs := make([]domain.Job, 0)
+	jobs := make([]domain.Job, 0, limit)
 	for rows.Next() {
 		job, scanErr := scanJob(rows)
 		if scanErr != nil {
