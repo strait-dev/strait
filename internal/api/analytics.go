@@ -3,10 +3,16 @@ package api
 import (
 	"net/http"
 	"strconv"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func (s *Server) handleGetPerformanceAnalytics(w http.ResponseWriter, r *http.Request) {
-	projectID := projectIDFromContext(r.Context())
+	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.GetPerformanceAnalytics")
+	defer span.End()
+
+	projectID := projectIDFromContext(ctx)
 
 	periodHours := 24
 	if v := r.URL.Query().Get("period_hours"); v != "" {
@@ -18,7 +24,9 @@ func (s *Server) handleGetPerformanceAnalytics(w http.ResponseWriter, r *http.Re
 		periodHours = parsed
 	}
 
-	analytics, err := s.store.GetPerformanceAnalytics(r.Context(), projectID, periodHours)
+	span.SetAttributes(attribute.Int("period_hours", periodHours))
+
+	analytics, err := s.store.GetPerformanceAnalytics(ctx, projectID, periodHours)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get analytics")
 		return

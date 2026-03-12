@@ -33,8 +33,13 @@ type Metrics struct {
 	WebhookDeliveriesTotal   metric.Int64Counter
 	WebhookDeliveryDuration  metric.Float64Histogram
 	WebhookDeliveryAttempts  metric.Int64Counter
+	WebhookRetryAttempts     metric.Int64Counter
 	WebhookCircuitBreaker    metric.Int64Gauge
 	WebhookPayloadBytes      metric.Int64Histogram
+	AnalyticsQueryDuration   metric.Float64Histogram
+	BulkOperationsTotal      metric.Int64Counter
+	BulkItemsProcessed       metric.Int64Counter
+	ChildCancellationsTotal  metric.Int64Counter
 
 	// Event trigger metrics.
 	EventTriggersCreated     metric.Int64Counter
@@ -230,6 +235,15 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create webhook delivery attempts counter: %w", err)
 	}
 
+	webhookRetryAttempts, err := meter.Int64Counter(
+		"strait.webhook.retry_attempts_total",
+		metric.WithDescription("Total webhook delivery retry attempts"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook retry attempts counter: %w", err)
+	}
+
 	webhookCircuitBreaker, err := meter.Int64Gauge(
 		"strait_webhook_circuit_breaker_state",
 		metric.WithDescription("Webhook circuit breaker state (1=current state, 0=other states)"),
@@ -282,6 +296,43 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create event trigger wait duration histogram: %w", err)
+	}
+
+	analyticsQueryDuration, err := meter.Float64Histogram(
+		"strait.analytics.query_duration_seconds",
+		metric.WithDescription("Duration of analytics query operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create analytics query duration histogram: %w", err)
+	}
+
+	bulkOperationsTotal, err := meter.Int64Counter(
+		"strait.bulk.operations_total",
+		metric.WithDescription("Total bulk operations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create bulk operations total counter: %w", err)
+	}
+
+	bulkItemsProcessed, err := meter.Int64Counter(
+		"strait.bulk.items_processed_total",
+		metric.WithDescription("Total items processed in bulk operations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create bulk items processed counter: %w", err)
+	}
+
+	childCancellationsTotal, err := meter.Int64Counter(
+		"strait.bulk.child_cancellations_total",
+		metric.WithDescription("Total cascading child run cancellations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create child cancellations total counter: %w", err)
 	}
 
 	poolRunning, err := meter.Int64ObservableGauge(
@@ -373,12 +424,17 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		WebhookDeliveriesTotal:   webhookDeliveriesTotal,
 		WebhookDeliveryDuration:  webhookDeliveryDuration,
 		WebhookDeliveryAttempts:  webhookDeliveryAttempts,
+		WebhookRetryAttempts:     webhookRetryAttempts,
 		WebhookCircuitBreaker:    webhookCircuitBreaker,
 		WebhookPayloadBytes:      webhookPayloadBytes,
 		EventTriggersCreated:     eventTriggersCreated,
 		EventTriggersReceived:    eventTriggersReceived,
 		EventTriggersTimedOut:    eventTriggersTimedOut,
 		EventTriggerWaitDuration: eventTriggerWaitDuration,
+		AnalyticsQueryDuration:   analyticsQueryDuration,
+		BulkOperationsTotal:      bulkOperationsTotal,
+		BulkItemsProcessed:       bulkItemsProcessed,
+		ChildCancellationsTotal:  childCancellationsTotal,
 		PoolRunningWorkers:       poolRunning,
 		PoolWaitingTasks:         poolWaiting,
 		PoolSubmittedTasks:       poolSubmitted,

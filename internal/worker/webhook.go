@@ -64,12 +64,16 @@ func SendWebhookWithClient(ctx context.Context, client *http.Client, job *domain
 		return WebhookResult{Delivered: true}
 	}
 
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
+	defer span.End()
+
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
 
 	var result WebhookResult
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		span.SetAttributes(attribute.Int("attempt_number", attempt))
 		result = sendWebhookOnceWith(ctx, client, job, run)
 		if result.Delivered {
 			slog.Info("webhook delivered",
@@ -130,12 +134,16 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 		return WebhookResult{Delivered: true}
 	}
 
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
+	defer span.End()
+
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
 
 	var result WebhookResult
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		span.SetAttributes(attribute.Int("attempt_number", attempt))
 		result = sendWebhookOnce(ctx, job, run)
 		if result.Delivered {
 			slog.Info("webhook delivered",

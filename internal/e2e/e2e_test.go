@@ -1304,3 +1304,330 @@ func TestE2E_IdempotencyBulkPerItem(t *testing.T) {
 		}
 	}
 }
+
+func TestAnalyticsEndpoint_ReturnsMetrics(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-analytics-metrics-" + newID()
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-metrics-key"}`, projectID))
+	if keyW.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
+	}
+	keyResp := mustDecodeObject(t, keyW)
+	apiKey := asString(t, keyResp, "key")
+	job := createJob(t, projectID, "Analytics Metrics", "analytics-metrics-"+newID())
+	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"kind":"analytics"}}`, "")
+	runID := asString(t, triggered, "id")
+
+	ctx := context.Background()
+	dequeued, err := testQueue.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("expected dequeued run")
+	}
+	if dequeued.ID != runID {
+		t.Fatalf("expected dequeued run %s, got %s", runID, dequeued.ID)
+	}
+
+	startedAt := time.Now().UTC()
+	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		"started_at": startedAt,
+	}); err != nil {
+		t.Fatalf("set executing: %v", err)
+	}
+	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": startedAt.Add(2 * time.Second),
+	}); err != nil {
+		t.Fatalf("set completed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/analytics/performance?period_hours=24", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	w := httptest.NewRecorder()
+	testServer.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("analytics status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	resp := mustDecodeObject(t, w)
+	if _, ok := resp["slowest_jobs"]; !ok {
+		t.Fatal("expected slowest_jobs key")
+	}
+	if _, ok := resp["throughput"]; !ok {
+		t.Fatal("expected throughput key")
+	}
+	if _, ok := resp["health_summary"]; !ok {
+		t.Fatal("expected health_summary key")
+	}
+	throughput := asObject(t, resp, "throughput")
+	if asInt(t, throughput, "completed") < 1 {
+		t.Fatalf("expected completed throughput >= 1, got %d", asInt(t, throughput, "completed"))
+	}
+}
+
+func TestAnalyticsEndpoint_PeriodHoursParam(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-analytics-period-" + newID()
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-period-key"}`, projectID))
+	if keyW.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
+	}
+	apiKey := asString(t, mustDecodeObject(t, keyW), "key")
+
+	for _, path := range []string{
+		"/v1/analytics/performance?period_hours=1",
+		"/v1/analytics/performance?period_hours=720",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		w := httptest.NewRecorder()
+		testServer.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("analytics %s status = %d, body = %s", path, w.Code, w.Body.String())
+		}
+	}
+
+	for _, path := range []string{
+		"/v1/analytics/performance?period_hours=0",
+		"/v1/analytics/performance?period_hours=999",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		w := httptest.NewRecorder()
+		testServer.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("analytics %s status = %d, want 400, body = %s", path, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestAnalyticsEndpoint_EmptyData(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-analytics-empty-" + newID()
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-empty-key"}`, projectID))
+	if keyW.Code != http.StatusCreated {
+		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
+	}
+	apiKey := asString(t, mustDecodeObject(t, keyW), "key")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/analytics/performance", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	w := httptest.NewRecorder()
+	testServer.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("analytics empty status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	resp := mustDecodeObject(t, w)
+	slowest, ok := resp["slowest_jobs"].([]any)
+	if !ok {
+		t.Fatalf("slowest_jobs type = %T, want []any", resp["slowest_jobs"])
+	}
+	if len(slowest) != 0 {
+		t.Fatalf("expected empty slowest_jobs, got %d", len(slowest))
+	}
+	throughput := asObject(t, resp, "throughput")
+	if asInt(t, throughput, "completed") != 0 || asInt(t, throughput, "failed") != 0 || asInt(t, throughput, "timed_out") != 0 || asInt(t, throughput, "canceled") != 0 {
+		t.Fatalf("expected zero throughput, got %+v", throughput)
+	}
+}
+
+func TestBulkCancel_WithChildRuns(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-bulk-cancel-children-" + newID()
+	parentJob := createJob(t, projectID, "Parent Bulk Cancel", "parent-bulk-cancel-"+newID())
+	childSlug := "child-bulk-cancel-" + newID()
+	createJob(t, projectID, "Child Bulk Cancel", childSlug)
+
+	parentRunIDs := make([]string, 0, 3)
+	parentTokens := make([]string, 0, 3)
+	for range 3 {
+		triggered := triggerJob(t, asString(t, parentJob, "id"), `{"payload":{"parent":true}}`, "")
+		parentRunIDs = append(parentRunIDs, asString(t, triggered, "id"))
+		parentTokens = append(parentTokens, asString(t, triggered, "run_token"))
+	}
+
+	ctx := context.Background()
+	for range 3 {
+		dequeued, err := testQueue.Dequeue(ctx)
+		if err != nil {
+			t.Fatalf("dequeue: %v", err)
+		}
+		if dequeued == nil {
+			t.Fatal("expected dequeued run")
+		}
+		if err := testStore.UpdateRunStatus(ctx, dequeued.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("set executing for %s: %v", dequeued.ID, err)
+		}
+	}
+
+	childRunIDs := make([]string, 0, 3)
+	for i := range parentRunIDs {
+		spawnBody := fmt.Sprintf(`{"job_slug":"%s","project_id":"%s","payload":{"child":true}}`, childSlug, projectID)
+		w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+parentRunIDs[i]+"/spawn", parentTokens[i], spawnBody)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("spawn child status = %d, body = %s", w.Code, w.Body.String())
+		}
+		childRunIDs = append(childRunIDs, asString(t, mustDecodeObject(t, w), "id"))
+	}
+
+	body := fmt.Sprintf(`{"run_ids":["%s","%s","%s"]}`, parentRunIDs[0], parentRunIDs[1], parentRunIDs[2])
+	w := doRequest(t, http.MethodPost, "/v1/runs/bulk-cancel", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bulk cancel status = %d, body = %s", w.Code, w.Body.String())
+	}
+	resp := mustDecodeObject(t, w)
+	if asInt(t, resp, "canceled") != 3 {
+		t.Fatalf("expected canceled=3, got %d", asInt(t, resp, "canceled"))
+	}
+
+	for _, runID := range parentRunIDs {
+		gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+		if gw.Code != http.StatusOK {
+			t.Fatalf("get parent run %s status = %d, body = %s", runID, gw.Code, gw.Body.String())
+		}
+		if asString(t, mustDecodeObject(t, gw), "status") != string(domain.StatusCanceled) {
+			t.Fatalf("expected parent run %s canceled", runID)
+		}
+	}
+
+	for _, runID := range childRunIDs {
+		gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+		if gw.Code != http.StatusOK {
+			t.Fatalf("get child run %s status = %d, body = %s", runID, gw.Code, gw.Body.String())
+		}
+		if asString(t, mustDecodeObject(t, gw), "status") != string(domain.StatusCanceled) {
+			t.Fatalf("expected child run %s canceled", runID)
+		}
+	}
+}
+
+func TestSDK_Heartbeat(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-sdk-heartbeat-" + newID()
+	job := createJob(t, projectID, "SDK Heartbeat", "sdk-heartbeat-"+newID())
+	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"hb":true}}`, "")
+	runID := asString(t, triggered, "id")
+	token := asString(t, triggered, "run_token")
+
+	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/heartbeat", token, "")
+	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+		t.Fatalf("sdk heartbeat status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+	if gw.Code != http.StatusOK {
+		t.Fatalf("get run status = %d, body = %s", gw.Code, gw.Body.String())
+	}
+	run := mustDecodeObject(t, gw)
+	if heartbeatRaw, ok := run["heartbeat_at"].(string); !ok || heartbeatRaw == "" {
+		t.Fatalf("expected heartbeat_at to be set, got %v", run["heartbeat_at"])
+	}
+}
+
+func TestSDK_LogAndProgress(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-sdk-log-progress-" + newID()
+	job := createJob(t, projectID, "SDK Log Progress", "sdk-log-progress-"+newID())
+	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"sdk":true}}`, "")
+	runID := asString(t, triggered, "id")
+	token := asString(t, triggered, "run_token")
+
+	logW := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", token, `{"level":"info","message":"test log"}`)
+	if logW.Code != http.StatusCreated {
+		t.Fatalf("sdk log status = %d, body = %s", logW.Code, logW.Body.String())
+	}
+
+	progressW := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/progress", token, `{"percent":50,"message":"halfway"}`)
+	if progressW.Code != http.StatusCreated {
+		t.Fatalf("sdk progress status = %d, body = %s", progressW.Code, progressW.Body.String())
+	}
+
+	eventsW := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/events", "")
+	if eventsW.Code != http.StatusOK {
+		t.Fatalf("list events status = %d, body = %s", eventsW.Code, eventsW.Body.String())
+	}
+	events := mustDecodeList(t, eventsW)
+
+	foundLog := false
+	foundProgress := false
+	for _, event := range events {
+		if asString(t, event, "message") == "test log" && asString(t, event, "level") == "info" {
+			foundLog = true
+		}
+		if asString(t, event, "type") == string(domain.EventProgress) {
+			foundProgress = true
+		}
+	}
+	if !foundLog {
+		t.Fatalf("expected log event, got %+v", events)
+	}
+	if !foundProgress {
+		t.Fatalf("expected progress event, got %+v", events)
+	}
+}
+
+func TestDebugMode_CapturesTrace(t *testing.T) {
+	mustClean(t)
+
+	projectID := "proj-debug-mode-" + newID()
+	job := createJob(t, projectID, "Debug Mode", "debug-mode-"+newID())
+	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"debug":true}}`, "")
+	runID := asString(t, triggered, "id")
+
+	debugW := doRequest(t, http.MethodPost, "/v1/runs/"+runID+"/debug", `{"debug_mode":true}`)
+	if debugW.Code != http.StatusOK {
+		t.Fatalf("set debug mode status = %d, body = %s", debugW.Code, debugW.Body.String())
+	}
+
+	ctx := context.Background()
+	dequeued, err := testQueue.Dequeue(ctx)
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	if dequeued == nil {
+		t.Fatal("expected dequeued run")
+	}
+	if dequeued.ID != runID {
+		t.Fatalf("expected dequeued run %s, got %s", runID, dequeued.ID)
+	}
+	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		"started_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("set executing: %v", err)
+	}
+	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now().UTC(),
+		"execution_trace": &domain.ExecutionTrace{
+			TotalMs:    150,
+			DispatchMs: 100,
+		},
+	}); err != nil {
+		t.Fatalf("set completed: %v", err)
+	}
+
+	gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
+	if gw.Code != http.StatusOK {
+		t.Fatalf("get run status = %d, body = %s", gw.Code, gw.Body.String())
+	}
+	run := mustDecodeObject(t, gw)
+	if !asBool(t, run, "debug_mode") {
+		t.Fatal("expected debug_mode=true")
+	}
+	trace, ok := run["execution_trace"].(map[string]any)
+	if !ok {
+		t.Fatalf("execution_trace type = %T, want map[string]any", run["execution_trace"])
+	}
+	if asInt(t, trace, "total_ms") <= 0 {
+		t.Fatalf("expected execution trace total_ms > 0, got %d", asInt(t, trace, "total_ms"))
+	}
+}

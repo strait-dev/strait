@@ -15,6 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type BulkTriggerRequest struct {
@@ -60,9 +62,12 @@ type BulkCancelResponse struct {
 }
 
 func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
+	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.BulkTriggerJob")
+	defer span.End()
+
 	jobID := chi.URLParam(r, "jobID")
 
-	job, err := s.store.GetJob(r.Context(), jobID)
+	job, err := s.store.GetJob(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, r, http.StatusNotFound, "job not found")
@@ -83,6 +88,8 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	span.SetAttributes(attribute.Int("item_count", len(req.Items)))
+
 	if !s.validateRequest(w, r, &req) {
 		return
 	}
@@ -97,7 +104,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	created := 0
 
 	var projectQuota *store.ProjectQuota
-	projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
+	projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
 		return
@@ -105,7 +112,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
-			queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
+			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 			if countErr != nil {
 				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project queued quota")
 				return
@@ -117,7 +124,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if projectQuota.MaxExecutingRuns > 0 {
-			activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
+			activeRuns, countErr := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
 			if countErr != nil {
 				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project active quota")
 				return
@@ -131,7 +138,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
-		runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
+		runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
 		if countErr != nil {
 			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job rate limit")
 			return
@@ -171,7 +178,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			existingRun, idempErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+			existingRun, idempErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
 			if idempErr != nil {
 				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key for item %d", itemIdx))
 				return
@@ -194,7 +201,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 		if job.DedupWindowSecs > 0 {
 			since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
-			existingRun, findErr := s.store.FindRecentRunByPayload(r.Context(), job.ID, payload, since)
+			existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
 			if findErr != nil {
 				respondError(w, r, http.StatusInternalServerError, "failed to evaluate payload deduplication")
 				return
@@ -269,14 +276,14 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			IdempotencyKey: item.IdempotencyKey,
 			JobVersion:     job.Version,
 			JobVersionID:   job.VersionID,
-			CreatedBy:      actorFromContext(r.Context()),
+			CreatedBy:      actorFromContext(ctx),
 			ExpiresAt:      &expiresAt,
 		}
 
-		if err := s.queue.Enqueue(r.Context(), run); err != nil {
+		if err := s.queue.Enqueue(ctx, run); err != nil {
 			// Handle race: concurrent bulk request with the same idempotency key.
 			if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
-				existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+				existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
 				if retryErr != nil {
 					slog.Error("idempotency conflict retry failed",
 						"job_id", job.ID,
@@ -325,11 +332,16 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
+	ctx, span := otel.Tracer("strait").Start(r.Context(), "api.BulkCancelRuns")
+	defer span.End()
+
 	var req BulkCancelRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
+
+	span.SetAttributes(attribute.Int("run_count", len(req.RunIDs)))
 
 	if !s.validateRequest(w, r, &req) {
 		return
@@ -345,7 +357,7 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 	failed := 0
 
 	for _, runID := range req.RunIDs {
-		run, err := s.store.GetRun(r.Context(), runID)
+		run, err := s.store.GetRun(ctx, runID)
 		if err != nil {
 			results = append(results, BulkCancelResult{
 				ID:     runID,
@@ -366,7 +378,7 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if err := s.store.UpdateRunStatus(r.Context(), run.ID, run.Status, domain.StatusCanceled, map[string]any{
+		if err := s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusCanceled, map[string]any{
 			"finished_at": time.Now(),
 			"error":       "canceled by user (bulk)",
 		}); err != nil {
@@ -381,7 +393,7 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 
 		var cursor *time.Time
 		for {
-			children, listErr := s.store.ListChildRuns(r.Context(), run.ID, 100, cursor)
+			children, listErr := s.store.ListChildRuns(ctx, run.ID, 100, cursor)
 			if listErr != nil {
 				slog.Error("failed to list child runs in bulk", "run_id", run.ID, "error", listErr)
 				break
@@ -392,7 +404,7 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 
 			for _, child := range children {
 				if !child.Status.IsTerminal() {
-					if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
+					if err := s.store.UpdateRunStatus(ctx, child.ID, child.Status, domain.StatusCanceled, map[string]any{
 						"finished_at": time.Now(),
 						"error":       "parent run canceled (bulk)",
 					}); err != nil {
