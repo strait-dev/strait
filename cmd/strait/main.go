@@ -42,7 +42,7 @@ func run(ctx context.Context) int {
 	return 0
 }
 
-func runServe(modeOverride string) error {
+func runServe(ctx context.Context, modeOverride string) error {
 	// Load config
 	cfg, err := config.Load()
 	if err != nil {
@@ -69,10 +69,6 @@ func runServe(modeOverride string) error {
 		"mode", cfg.Mode,
 		"port", cfg.Port,
 	)
-
-	// Context with signal cancellation
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	// Initialize OpenTelemetry tracing
 	shutdownTracer, err := telemetry.Init(ctx, "strait", cfg.OTELEndpoint)
