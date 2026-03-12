@@ -70,7 +70,7 @@ func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit i
 	}
 	defer rows.Close()
 
-	deps := make([]domain.JobDependency, 0)
+	deps := make([]domain.JobDependency, 0, limit)
 	for rows.Next() {
 		var dep domain.JobDependency
 		if err := rows.Scan(&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt); err != nil {

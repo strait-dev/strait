@@ -475,6 +475,30 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 	}
 }
 
+func BenchmarkRenderStringValue(b *testing.B) {
+	vars := map[string]any{
+		"name":  "test",
+		"count": 42,
+		"email": "test@example.com",
+	}
+
+	b.Run("no_vars", func(b *testing.B) {
+		for range b.N {
+			renderStringValue("plain string no vars", vars)
+		}
+	})
+	b.Run("single_var", func(b *testing.B) {
+		for range b.N {
+			renderStringValue("{{name}}", vars)
+		}
+	})
+	b.Run("mixed_content", func(b *testing.B) {
+		for range b.N {
+			renderStringValue("Hello {{name}}, your count is {{count}} and email is {{email}}", vars)
+		}
+	})
+}
+
 func TestRenderStringTemplate(t *testing.T) {
 	t.Parallel()
 

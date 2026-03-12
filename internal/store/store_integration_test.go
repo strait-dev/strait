@@ -1033,6 +1033,34 @@ func TestUpdateRunStatus(t *testing.T) {
 	}
 }
 
+func TestUpdateRunStatusReturningOld(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-update-run-status-old")
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	oldStatus, err := q.UpdateRunStatusReturningOld(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil)
+	if err != nil {
+		t.Fatalf("UpdateRunStatusReturningOld() error = %v", err)
+	}
+	if oldStatus != domain.StatusQueued {
+		t.Fatalf("old status = %q, want %q", oldStatus, domain.StatusQueued)
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusDequeued {
+		t.Fatalf("status = %q, want %q", got.Status, domain.StatusDequeued)
+	}
+}
+
 func TestUpdateRunStatus_InvalidTransition(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -2186,6 +2214,119 @@ func TestWebhookDelivery_PendingRetries(t *testing.T) {
 	}
 	if len(nonePending) != 0 {
 		t.Fatalf("ListPendingWebhookRetries(after updates) len = %d, want 0", len(nonePending))
+	}
+}
+
+func TestWebhookDelivery_EnqueueRunWebhookAndListPendingRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-webhook-enqueue-run")
+	run := mustCreateRun(t, ctx, q, job)
+	run.Status = domain.StatusCompleted
+	run.Result = []byte(`{"ok":true}`)
+
+	enqueued, err := q.EnqueueRunWebhook(ctx, job, run, 7)
+	if err != nil {
+		t.Fatalf("EnqueueRunWebhook() error = %v", err)
+	}
+	if enqueued.ID == "" {
+		t.Fatal("EnqueueRunWebhook() did not set ID")
+	}
+	if enqueued.RunID != run.ID {
+		t.Fatalf("EnqueueRunWebhook() run_id = %q, want %q", enqueued.RunID, run.ID)
+	}
+	if enqueued.EventTriggerID != "" {
+		t.Fatalf("EnqueueRunWebhook() event_trigger_id = %q, want empty", enqueued.EventTriggerID)
+	}
+	if enqueued.WebhookURL != job.WebhookURL {
+		t.Fatalf("EnqueueRunWebhook() webhook_url = %q, want %q", enqueued.WebhookURL, job.WebhookURL)
+	}
+	if enqueued.Status != domain.WebhookStatusPending {
+		t.Fatalf("EnqueueRunWebhook() status = %q, want %q", enqueued.Status, domain.WebhookStatusPending)
+	}
+	if enqueued.MaxAttempts != 7 {
+		t.Fatalf("EnqueueRunWebhook() max_attempts = %d, want 7", enqueued.MaxAttempts)
+	}
+	if enqueued.NextRetryAt == nil {
+		t.Fatal("EnqueueRunWebhook() next_retry_at = nil, want non-nil")
+	}
+
+	var payloadRaw []byte
+	var payloadSize int
+	var eventType string
+	var webhookSecret *string
+	err = testDB.Pool.QueryRow(ctx, `
+		SELECT payload, payload_size_bytes, event_type, webhook_secret
+		FROM webhook_deliveries
+		WHERE id = $1`, enqueued.ID,
+	).Scan(&payloadRaw, &payloadSize, &eventType, &webhookSecret)
+	if err != nil {
+		t.Fatalf("query enqueued webhook delivery payload error = %v", err)
+	}
+	if payloadSize != len(payloadRaw) {
+		t.Fatalf("payload_size_bytes = %d, want %d", payloadSize, len(payloadRaw))
+	}
+	if eventType != "run.completed" {
+		t.Fatalf("event_type = %q, want %q", eventType, "run.completed")
+	}
+	if webhookSecret == nil || *webhookSecret != job.WebhookSecret {
+		t.Fatalf("webhook_secret = %v, want %q", webhookSecret, job.WebhookSecret)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(payloadRaw, &payload); err != nil {
+		t.Fatalf("unmarshal payload error = %v", err)
+	}
+	if payload["run_id"] != run.ID {
+		t.Fatalf("payload run_id = %v, want %q", payload["run_id"], run.ID)
+	}
+	if payload["job_id"] != run.JobID {
+		t.Fatalf("payload job_id = %v, want %q", payload["job_id"], run.JobID)
+	}
+	if payload["project_id"] != run.ProjectID {
+		t.Fatalf("payload project_id = %v, want %q", payload["project_id"], run.ProjectID)
+	}
+	if payload["status"] != string(run.Status) {
+		t.Fatalf("payload status = %v, want %q", payload["status"], run.Status)
+	}
+
+	evtID := newID()
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO event_triggers (id, event_key, project_id, source_type, expires_at)
+		VALUES ($1, $2, $3, 'webhook', $4)`,
+		evtID, "evt-key-"+evtID, job.ProjectID, expiresAt,
+	)
+	if err != nil {
+		t.Fatalf("insert event_trigger error = %v", err)
+	}
+
+	now := time.Now().UTC().Add(-1 * time.Minute)
+	eventDelivery := &domain.WebhookDelivery{
+		JobID:          job.ID,
+		RunID:          run.ID,
+		EventTriggerID: evtID,
+		WebhookURL:     "https://example.com/event",
+		Status:         domain.WebhookStatusPending,
+		Attempts:       0,
+		MaxAttempts:    3,
+		NextRetryAt:    &now,
+	}
+	if err := q.CreateWebhookDelivery(ctx, eventDelivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery(event) error = %v", err)
+	}
+
+	pendingRun, err := q.ListPendingRunWebhookDeliveries(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingRunWebhookDeliveries() error = %v", err)
+	}
+	if len(pendingRun) != 1 {
+		t.Fatalf("ListPendingRunWebhookDeliveries() len = %d, want 1", len(pendingRun))
+	}
+	if pendingRun[0].ID != enqueued.ID {
+		t.Fatalf("ListPendingRunWebhookDeliveries() id = %q, want %q", pendingRun[0].ID, enqueued.ID)
 	}
 }
 
@@ -7720,4 +7861,1742 @@ func TestListWorkflowRunsByTag(t *testing.T) {
 	if runs[0].ID != wfRun.ID {
 		t.Fatalf("expected run %s, got %s", wfRun.ID, runs[0].ID)
 	}
+}
+
+func TestAuditEvents_CreateAndListFiltersAndSort(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-audit-events-" + newID()
+	base := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Microsecond)
+
+	ev1 := &domain.AuditEvent{ProjectID: projectID, ActorID: "actor-a", ActorType: "user", Action: "job.create", ResourceType: "job", ResourceID: "job-1"}
+	if err := q.CreateAuditEvent(ctx, ev1); err != nil {
+		t.Fatalf("CreateAuditEvent(ev1) error = %v", err)
+	}
+	if len(ev1.Details) != 0 {
+		t.Fatalf("CreateAuditEvent(ev1) details len = %d, want 0", len(ev1.Details))
+	}
+
+	ev2 := &domain.AuditEvent{ProjectID: projectID, ActorID: "actor-a", ActorType: "user", Action: "job.update", ResourceType: "job", ResourceID: "job-2", Details: json.RawMessage(`{"changed":true}`)}
+	if err := q.CreateAuditEvent(ctx, ev2); err != nil {
+		t.Fatalf("CreateAuditEvent(ev2) error = %v", err)
+	}
+
+	ev3 := &domain.AuditEvent{ProjectID: projectID, ActorID: "actor-b", ActorType: "api_key", Action: "workflow.update", ResourceType: "workflow", ResourceID: "wf-1"}
+	if err := q.CreateAuditEvent(ctx, ev3); err != nil {
+		t.Fatalf("CreateAuditEvent(ev3) error = %v", err)
+	}
+
+	evOther := &domain.AuditEvent{ProjectID: "project-other-audit-" + newID(), ActorID: "actor-a", ActorType: "user", Action: "job.create", ResourceType: "job", ResourceID: "job-x"}
+	if err := q.CreateAuditEvent(ctx, evOther); err != nil {
+		t.Fatalf("CreateAuditEvent(evOther) error = %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events SET created_at = $2 WHERE id = $1`, ev1.ID, base.Add(1*time.Minute)); err != nil {
+		t.Fatalf("set created_at ev1 error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events SET created_at = $2 WHERE id = $1`, ev2.ID, base.Add(2*time.Minute)); err != nil {
+		t.Fatalf("set created_at ev2 error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events SET created_at = $2 WHERE id = $1`, ev3.ID, base.Add(3*time.Minute)); err != nil {
+		t.Fatalf("set created_at ev3 error = %v", err)
+	}
+
+	allDesc, err := q.ListAuditEvents(ctx, projectID, "", "", "", 10, nil, nil, nil, false)
+	if err != nil {
+		t.Fatalf("ListAuditEvents(desc) error = %v", err)
+	}
+	if len(allDesc) != 3 {
+		t.Fatalf("ListAuditEvents(desc) len = %d, want 3", len(allDesc))
+	}
+	if allDesc[0].ID != ev3.ID || allDesc[1].ID != ev2.ID || allDesc[2].ID != ev1.ID {
+		t.Fatalf("ListAuditEvents(desc) order IDs = [%q %q %q], want [%q %q %q]", allDesc[0].ID, allDesc[1].ID, allDesc[2].ID, ev3.ID, ev2.ID, ev1.ID)
+	}
+
+	allAsc, err := q.ListAuditEvents(ctx, projectID, "", "", "", 10, nil, nil, nil, true)
+	if err != nil {
+		t.Fatalf("ListAuditEvents(asc) error = %v", err)
+	}
+	if len(allAsc) != 3 {
+		t.Fatalf("ListAuditEvents(asc) len = %d, want 3", len(allAsc))
+	}
+	if allAsc[0].ID != ev1.ID || allAsc[1].ID != ev2.ID || allAsc[2].ID != ev3.ID {
+		t.Fatalf("ListAuditEvents(asc) order IDs = [%q %q %q], want [%q %q %q]", allAsc[0].ID, allAsc[1].ID, allAsc[2].ID, ev1.ID, ev2.ID, ev3.ID)
+	}
+
+	actorA, err := q.ListAuditEvents(ctx, projectID, "actor-a", "", "", 10, nil, nil, nil, false)
+	if err != nil {
+		t.Fatalf("ListAuditEvents(actor) error = %v", err)
+	}
+	if len(actorA) != 2 {
+		t.Fatalf("ListAuditEvents(actor) len = %d, want 2", len(actorA))
+	}
+
+	resource, err := q.ListAuditEvents(ctx, projectID, "", "job", "job-2", 10, nil, nil, nil, false)
+	if err != nil {
+		t.Fatalf("ListAuditEvents(resource) error = %v", err)
+	}
+	if len(resource) != 1 || resource[0].ID != ev2.ID {
+		t.Fatalf("ListAuditEvents(resource) = %+v, want only %q", resource, ev2.ID)
+	}
+}
+
+func TestAuditEvents_PaginationAndTimeRange(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-audit-page-" + newID()
+	base := time.Now().UTC().Add(-20 * time.Minute).Truncate(time.Microsecond)
+
+	ids := make([]string, 0, 4)
+	for i := 0; i < 4; i++ {
+		ev := &domain.AuditEvent{
+			ProjectID:    projectID,
+			ActorID:      "actor-page",
+			ActorType:    "user",
+			Action:       "job.update",
+			ResourceType: "job",
+			ResourceID:   "job-page",
+		}
+		if err := q.CreateAuditEvent(ctx, ev); err != nil {
+			t.Fatalf("CreateAuditEvent(%d) error = %v", i, err)
+		}
+		ids = append(ids, ev.ID)
+		if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events SET created_at = $2 WHERE id = $1`, ev.ID, base.Add(time.Duration(i+1)*time.Minute)); err != nil {
+			t.Fatalf("set created_at(%d) error = %v", i, err)
+		}
+	}
+
+	page1, err := q.ListAuditEvents(ctx, projectID, "", "", "", 2, nil, nil, nil, false)
+	if err != nil {
+		t.Fatalf("ListAuditEvents(page1) error = %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("ListAuditEvents(page1) len = %d, want 2", len(page1))
+	}
+
+	cursor := page1[len(page1)-1].CreatedAt
+	page2, err := q.ListAuditEvents(ctx, projectID, "", "", "", 2, &cursor, nil, nil, false)
+	if err != nil {
+		t.Fatalf("ListAuditEvents(page2) error = %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("ListAuditEvents(page2) len = %d, want 2", len(page2))
+	}
+	for _, p1 := range page1 {
+		for _, p2 := range page2 {
+			if p1.ID == p2.ID {
+				t.Fatalf("pagination overlap id = %q", p1.ID)
+			}
+		}
+	}
+
+	from := base.Add(2 * time.Minute)
+	to := base.Add(3 * time.Minute)
+	ranged, err := q.ListAuditEvents(ctx, projectID, "", "", "", 10, nil, &from, &to, true)
+	if err != nil {
+		t.Fatalf("ListAuditEvents(range) error = %v", err)
+	}
+	if len(ranged) != 2 {
+		t.Fatalf("ListAuditEvents(range) len = %d, want 2", len(ranged))
+	}
+	if ranged[0].ID != ids[1] || ranged[1].ID != ids[2] {
+		t.Fatalf("ListAuditEvents(range) IDs = [%q %q], want [%q %q]", ranged[0].ID, ranged[1].ID, ids[1], ids[2])
+	}
+}
+
+func TestTagPolicy_CreateListDelete(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-tag-policy-" + newID()
+	userID := "user-" + newID()
+
+	p1 := &domain.TagPolicy{ProjectID: projectID, ResourceType: "job", UserID: userID, TagKey: "team", TagValue: "payments", Actions: []string{"jobs:read", "jobs:trigger"}}
+	if err := q.CreateTagPolicy(ctx, p1); err != nil {
+		t.Fatalf("CreateTagPolicy(p1) error = %v", err)
+	}
+	if p1.ID == "" || p1.CreatedAt.IsZero() {
+		t.Fatalf("CreateTagPolicy(p1) did not set ID/CreatedAt: %+v", *p1)
+	}
+
+	p2 := &domain.TagPolicy{ProjectID: projectID, ResourceType: "job", UserID: userID, TagKey: "env", Actions: []string{"jobs:read"}}
+	if err := q.CreateTagPolicy(ctx, p2); err != nil {
+		t.Fatalf("CreateTagPolicy(p2) error = %v", err)
+	}
+
+	list, err := q.ListTagPolicies(ctx, projectID, "job", userID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListTagPolicies() error = %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("ListTagPolicies() len = %d, want 2", len(list))
+	}
+
+	cursor := list[len(list)-1].CreatedAt
+	next, err := q.ListTagPolicies(ctx, projectID, "job", userID, 10, &cursor)
+	if err != nil {
+		t.Fatalf("ListTagPolicies(cursor) error = %v", err)
+	}
+	if len(next) != 0 {
+		t.Fatalf("ListTagPolicies(cursor) len = %d, want 0", len(next))
+	}
+
+	deletedProjectID, deletedUserID, err := q.DeleteTagPolicy(ctx, p1.ID)
+	if err != nil {
+		t.Fatalf("DeleteTagPolicy() error = %v", err)
+	}
+	if deletedProjectID != projectID || deletedUserID != userID {
+		t.Fatalf("DeleteTagPolicy() returned project/user = %q/%q, want %q/%q", deletedProjectID, deletedUserID, projectID, userID)
+	}
+
+	_, _, err = q.DeleteTagPolicy(ctx, p1.ID)
+	if !errors.Is(err, store.ErrTagPolicyNotFound) {
+		t.Fatalf("DeleteTagPolicy(not found) error = %v, want ErrTagPolicyNotFound", err)
+	}
+}
+
+func TestTagPolicy_GetActions(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-tag-actions-" + newID()
+	userID := "user-" + newID()
+
+	policies := []*domain.TagPolicy{
+		{ProjectID: projectID, ResourceType: "job", UserID: userID, TagKey: "team", TagValue: "payments", Actions: []string{"jobs:read", "jobs:trigger"}},
+		{ProjectID: projectID, ResourceType: "job", UserID: userID, TagKey: "env", TagValue: "", Actions: []string{"jobs:read", "jobs:write"}},
+		{ProjectID: projectID, ResourceType: "job", UserID: "other-user", TagKey: "team", TagValue: "payments", Actions: []string{"jobs:admin"}},
+	}
+	for i, p := range policies {
+		if err := q.CreateTagPolicy(ctx, p); err != nil {
+			t.Fatalf("CreateTagPolicy(%d) error = %v", i, err)
+		}
+	}
+
+	tags := map[string]string{"team": "payments", "env": "prod"}
+	actions, err := q.GetTagPolicyActions(ctx, projectID, "job", userID, tags)
+	if err != nil {
+		t.Fatalf("GetTagPolicyActions() error = %v", err)
+	}
+	if len(actions) != 3 {
+		t.Fatalf("GetTagPolicyActions() len = %d, want 3", len(actions))
+	}
+	want := map[string]bool{"jobs:read": true, "jobs:trigger": true, "jobs:write": true}
+	for _, action := range actions {
+		if !want[action] {
+			t.Fatalf("unexpected action %q", action)
+		}
+		delete(want, action)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing actions: %v", want)
+	}
+
+	none, err := q.GetTagPolicyActions(ctx, projectID, "job", userID, map[string]string{"team": "core"})
+	if err != nil {
+		t.Fatalf("GetTagPolicyActions(non-match) error = %v", err)
+	}
+	if none != nil {
+		t.Fatalf("GetTagPolicyActions(non-match) = %v, want nil", none)
+	}
+}
+
+func TestSeedProjectSystemRoles_Idempotent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-seed-roles-" + newID()
+	if err := q.SeedProjectSystemRoles(ctx, projectID); err != nil {
+		t.Fatalf("SeedProjectSystemRoles(first) error = %v", err)
+	}
+	if err := q.SeedProjectSystemRoles(ctx, projectID); err != nil {
+		t.Fatalf("SeedProjectSystemRoles(second) error = %v", err)
+	}
+
+	roles, err := q.ListProjectRoles(ctx, projectID, 50, nil)
+	if err != nil {
+		t.Fatalf("ListProjectRoles() error = %v", err)
+	}
+	if len(roles) != len(domain.SystemRolePermissions) {
+		t.Fatalf("ListProjectRoles() len = %d, want %d", len(roles), len(domain.SystemRolePermissions))
+	}
+	seen := make(map[string]bool, len(roles))
+	for _, role := range roles {
+		seen[role.Name] = true
+		if !role.IsSystem {
+			t.Fatalf("role %q IsSystem = false, want true", role.Name)
+		}
+	}
+	for name := range domain.SystemRolePermissions {
+		if !seen[name] {
+			t.Fatalf("missing seeded role %q", name)
+		}
+	}
+}
+
+func TestGetAPIKeyByID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	key := &domain.APIKey{ProjectID: "project-api-by-id-" + newID(), Name: "key-by-id", KeyHash: "hash-" + newID(), KeyPrefix: "sk_by_id", Scopes: []string{"jobs:read"}}
+	if err := q.CreateAPIKey(ctx, key); err != nil {
+		t.Fatalf("CreateAPIKey() error = %v", err)
+	}
+
+	got, err := q.GetAPIKeyByID(ctx, key.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID() error = %v", err)
+	}
+	if got.ID != key.ID || got.ProjectID != key.ProjectID || got.KeyHash != key.KeyHash {
+		t.Fatalf("GetAPIKeyByID() mismatch: got %+v want %+v", *got, *key)
+	}
+}
+
+func TestMarkAPIKeyRotated(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-api-rotate-" + newID()
+	oldKey := &domain.APIKey{ProjectID: projectID, Name: "old", KeyHash: "hash-" + newID(), KeyPrefix: "sk_old", Scopes: []string{"jobs:read"}}
+	newKey := &domain.APIKey{ProjectID: projectID, Name: "new", KeyHash: "hash-" + newID(), KeyPrefix: "sk_new", Scopes: []string{"jobs:read"}}
+	if err := q.CreateAPIKey(ctx, oldKey); err != nil {
+		t.Fatalf("CreateAPIKey(old) error = %v", err)
+	}
+	if err := q.CreateAPIKey(ctx, newKey); err != nil {
+		t.Fatalf("CreateAPIKey(new) error = %v", err)
+	}
+
+	grace := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Microsecond)
+	if err := q.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, grace); err != nil {
+		t.Fatalf("MarkAPIKeyRotated() error = %v", err)
+	}
+
+	got, err := q.GetAPIKeyByID(ctx, oldKey.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID(old) error = %v", err)
+	}
+	if got.ReplacedByKeyID != newKey.ID {
+		t.Fatalf("ReplacedByKeyID = %q, want %q", got.ReplacedByKeyID, newKey.ID)
+	}
+	if got.GraceExpiresAt == nil || !got.GraceExpiresAt.Equal(grace) {
+		t.Fatalf("GraceExpiresAt = %v, want %v", got.GraceExpiresAt, grace)
+	}
+}
+
+func TestGetJobAtVersion(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-job-at-version-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
+		ProjectID:   testutil.Ptr(projectID),
+		Name:        testutil.Ptr("job-v1"),
+		Slug:        testutil.Ptr("job-at-version-" + newID()),
+		EndpointURL: testutil.Ptr("https://example.com/v1"),
+	})
+	jobV1Name := job.Name
+	jobV1Endpoint := job.EndpointURL
+
+	job.Name = "job-v2"
+	job.EndpointURL = "https://example.com/v2"
+	job.UpdatedBy = "user-update"
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob() error = %v", err)
+	}
+
+	v1, err := q.GetJobAtVersion(ctx, job.ID, 1)
+	if err != nil {
+		t.Fatalf("GetJobAtVersion(v1) error = %v", err)
+	}
+	if v1.Name != jobV1Name || v1.EndpointURL != jobV1Endpoint || v1.Version != 1 {
+		t.Fatalf("GetJobAtVersion(v1) = %+v, want name=%q endpoint=%q version=1", *v1, jobV1Name, jobV1Endpoint)
+	}
+
+	v2, err := q.GetJobAtVersion(ctx, job.ID, job.Version)
+	if err != nil {
+		t.Fatalf("GetJobAtVersion(v2) error = %v", err)
+	}
+	if v2.Name != job.Name || v2.EndpointURL != job.EndpointURL {
+		t.Fatalf("GetJobAtVersion(v2) = %+v, want live job %+v", *v2, *job)
+	}
+}
+
+func TestGetJobVersionByVersionID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-job-version-id-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
+		ProjectID:   testutil.Ptr(projectID),
+		Name:        testutil.Ptr("job-version-id-v1"),
+		Slug:        testutil.Ptr("job-version-id-" + newID()),
+		EndpointURL: testutil.Ptr("https://example.com/version-id-v1"),
+	})
+
+	job.Name = "job-version-id-v2"
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob() error = %v", err)
+	}
+
+	versions, err := q.ListJobVersionsByJob(ctx, job.ID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListJobVersionsByJob() error = %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("ListJobVersionsByJob() len = %d, want 1", len(versions))
+	}
+	if versions[0].VersionID == "" {
+		t.Fatal("ListJobVersionsByJob()[0].VersionID is empty")
+	}
+
+	got, err := q.GetJobVersionByVersionID(ctx, versions[0].VersionID)
+	if err != nil {
+		t.Fatalf("GetJobVersionByVersionID() error = %v", err)
+	}
+	if got.ID != versions[0].ID || got.Version != 1 || got.Name != "job-version-id-v1" {
+		t.Fatalf("GetJobVersionByVersionID() = %+v, want id=%q version=1 name=%q", *got, versions[0].ID, "job-version-id-v1")
+	}
+}
+
+func TestListWorkflowVersions(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-workflow-versions-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID:   testutil.Ptr(projectID),
+		Name:        testutil.Ptr("wf-versions"),
+		Slug:        testutil.Ptr("wf-versions-" + newID()),
+		Description: testutil.Ptr("workflow versions test"),
+	})
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $2, cron_timezone = $3 WHERE id = $1`, wf.ID, "*/5 * * * *", "UTC"); err != nil {
+		t.Fatalf("set workflow cron fields error = %v", err)
+	}
+	wf.Cron = "*/5 * * * *"
+	wf.CronTimezone = "UTC"
+
+	stepRef := "step-" + newID()
+	if err := q.CreateWorkflowStep(ctx, &domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, JobID: job.ID, StepRef: stepRef}); err != nil {
+		t.Fatalf("CreateWorkflowStep() error = %v", err)
+	}
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, wf.Version); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot(v1) error = %v", err)
+	}
+	v1VersionID := "wfv1-" + newID()
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_versions SET version_id = $3 WHERE workflow_id = $1 AND version = $2`, wf.ID, 1, v1VersionID); err != nil {
+		t.Fatalf("set workflow version_id v1 error = %v", err)
+	}
+
+	wf.Name = "wf-versions-v2"
+	if err := q.UpdateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("UpdateWorkflow() error = %v", err)
+	}
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, wf.Version); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot(v2) error = %v", err)
+	}
+	v2VersionID := "wfv2-" + newID()
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_versions SET version_id = $3 WHERE workflow_id = $1 AND version = $2`, wf.ID, 2, v2VersionID); err != nil {
+		t.Fatalf("set workflow version_id v2 error = %v", err)
+	}
+
+	versions, err := q.ListWorkflowVersions(ctx, wf.ID, 10)
+	if err != nil {
+		t.Fatalf("ListWorkflowVersions() error = %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("ListWorkflowVersions() len = %d, want 2", len(versions))
+	}
+	if versions[0].Version != 2 || versions[1].Version != 1 {
+		t.Fatalf("ListWorkflowVersions() order versions = [%d %d], want [2 1]", versions[0].Version, versions[1].Version)
+	}
+}
+
+func TestGetWorkflowVersionByVersionID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-workflow-version-id-" + newID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID:   testutil.Ptr(projectID),
+		Name:        testutil.Ptr("wf-version-id"),
+		Slug:        testutil.Ptr("wf-version-id-" + newID()),
+		Description: testutil.Ptr("workflow version id test"),
+	})
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $2, cron_timezone = $3 WHERE id = $1`, wf.ID, "*/10 * * * *", "UTC"); err != nil {
+		t.Fatalf("set workflow cron fields error = %v", err)
+	}
+
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, wf.Version); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot() error = %v", err)
+	}
+	versionID := "wfid-" + newID()
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_versions SET version_id = $3 WHERE workflow_id = $1 AND version = $2`, wf.ID, wf.Version, versionID); err != nil {
+		t.Fatalf("set workflow version_id error = %v", err)
+	}
+
+	versions, err := q.ListWorkflowVersions(ctx, wf.ID, 10)
+	if err != nil {
+		t.Fatalf("ListWorkflowVersions() error = %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("ListWorkflowVersions() len = %d, want 1", len(versions))
+	}
+	if versions[0].VersionID == "" {
+		t.Fatal("ListWorkflowVersions()[0].VersionID is empty")
+	}
+
+	got, err := q.GetWorkflowVersionByVersionID(ctx, wf.ID, versions[0].VersionID)
+	if err != nil {
+		t.Fatalf("GetWorkflowVersionByVersionID() error = %v", err)
+	}
+	if got.ID != versions[0].ID || got.WorkflowID != wf.ID || got.Version != wf.Version {
+		t.Fatalf("GetWorkflowVersionByVersionID() = %+v, want %+v", *got, versions[0])
+	}
+}
+
+func TestRetryWebhookDelivery(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-webhook-retry-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
+		ProjectID:     testutil.Ptr(projectID),
+		WebhookURL:    testutil.Ptr("https://example.com/webhook-retry"),
+		WebhookSecret: testutil.Ptr("whsec-retry"),
+	})
+	run := testutil.MustCreateRun(t, ctx, q, job, nil)
+
+	sub := &domain.WebhookSubscription{ProjectID: projectID, WebhookURL: "https://example.com/sub-retry", EventTypes: []string{"run.completed"}, Secret: "secret", Active: true}
+	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+		t.Fatalf("CreateWebhookSubscription() error = %v", err)
+	}
+
+	statusCode := 502
+	failed := &domain.WebhookDelivery{
+		RunID:          run.ID,
+		JobID:          job.ID,
+		WebhookURL:     job.WebhookURL,
+		RetryPolicy:    domain.WebhookRetryPolicyExponential,
+		Status:         domain.WebhookStatusFailed,
+		Attempts:       3,
+		MaxAttempts:    5,
+		LastStatusCode: &statusCode,
+		LastError:      "bad gateway",
+	}
+	if err := q.CreateWebhookDelivery(ctx, failed); err != nil {
+		t.Fatalf("CreateWebhookDelivery(failed) error = %v", err)
+	}
+
+	retried, err := q.RetryWebhookDelivery(ctx, failed.ID)
+	if err != nil {
+		t.Fatalf("RetryWebhookDelivery() error = %v", err)
+	}
+	if retried.Status != domain.WebhookStatusPending || retried.Attempts != 0 {
+		t.Fatalf("RetryWebhookDelivery() status/attempts = %q/%d, want %q/0", retried.Status, retried.Attempts, domain.WebhookStatusPending)
+	}
+	if retried.NextRetryAt == nil {
+		t.Fatal("RetryWebhookDelivery() next_retry_at = nil, want non-nil")
+	}
+	if retried.LastStatusCode != nil || retried.LastError != "" || retried.DeliveredAt != nil {
+		t.Fatalf("RetryWebhookDelivery() reset fields mismatch: %+v", *retried)
+	}
+}
+
+func TestListPendingWebhookRetries(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-webhook-pending-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
+		ProjectID:     testutil.Ptr(projectID),
+		WebhookURL:    testutil.Ptr("https://example.com/webhook-pending"),
+		WebhookSecret: testutil.Ptr("whsec-pending"),
+	})
+	run := testutil.MustCreateRun(t, ctx, q, job, nil)
+
+	sub := &domain.WebhookSubscription{ProjectID: projectID, WebhookURL: "https://example.com/sub-pending", EventTypes: []string{"run.failed"}, Secret: "secret", Active: true}
+	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+		t.Fatalf("CreateWebhookSubscription() error = %v", err)
+	}
+
+	past := time.Now().UTC().Add(-2 * time.Minute)
+	future := time.Now().UTC().Add(20 * time.Minute)
+	due := &domain.WebhookDelivery{RunID: run.ID, JobID: job.ID, WebhookURL: job.WebhookURL, Status: domain.WebhookStatusPending, Attempts: 1, MaxAttempts: 5, NextRetryAt: &past}
+	notDue := &domain.WebhookDelivery{RunID: run.ID, JobID: job.ID, WebhookURL: job.WebhookURL, Status: domain.WebhookStatusPending, Attempts: 1, MaxAttempts: 5, NextRetryAt: &future}
+	failedDue := &domain.WebhookDelivery{RunID: run.ID, JobID: job.ID, WebhookURL: job.WebhookURL, Status: domain.WebhookStatusFailed, Attempts: 1, MaxAttempts: 5, NextRetryAt: &past}
+	for i, d := range []*domain.WebhookDelivery{due, notDue, failedDue} {
+		if err := q.CreateWebhookDelivery(ctx, d); err != nil {
+			t.Fatalf("CreateWebhookDelivery(%d) error = %v", i, err)
+		}
+	}
+
+	pending, err := q.ListPendingWebhookRetries(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingWebhookRetries() error = %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != due.ID {
+		t.Fatalf("ListPendingWebhookRetries() = %+v, want only %q", pending, due.ID)
+	}
+}
+
+func TestDeleteOldWebhookDeliveries(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-webhook-cleanup-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
+		ProjectID:     testutil.Ptr(projectID),
+		WebhookURL:    testutil.Ptr("https://example.com/webhook-cleanup"),
+		WebhookSecret: testutil.Ptr("whsec-cleanup"),
+	})
+	run := testutil.MustCreateRun(t, ctx, q, job, nil)
+
+	sub := &domain.WebhookSubscription{ProjectID: projectID, WebhookURL: "https://example.com/sub-cleanup", EventTypes: []string{"run.completed"}, Secret: "secret", Active: true}
+	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+		t.Fatalf("CreateWebhookSubscription() error = %v", err)
+	}
+
+	deliveredOld := &domain.WebhookDelivery{RunID: run.ID, JobID: job.ID, WebhookURL: job.WebhookURL, Status: domain.WebhookStatusDelivered, Attempts: 1, MaxAttempts: 3}
+	deadOld := &domain.WebhookDelivery{RunID: run.ID, JobID: job.ID, WebhookURL: job.WebhookURL, Status: domain.WebhookStatusDead, Attempts: 3, MaxAttempts: 3}
+	deliveredRecent := &domain.WebhookDelivery{RunID: run.ID, JobID: job.ID, WebhookURL: job.WebhookURL, Status: domain.WebhookStatusDelivered, Attempts: 1, MaxAttempts: 3}
+	pendingOld := &domain.WebhookDelivery{RunID: run.ID, JobID: job.ID, WebhookURL: job.WebhookURL, Status: domain.WebhookStatusPending, Attempts: 1, MaxAttempts: 3}
+	for i, d := range []*domain.WebhookDelivery{deliveredOld, deadOld, deliveredRecent, pendingOld} {
+		if err := q.CreateWebhookDelivery(ctx, d); err != nil {
+			t.Fatalf("CreateWebhookDelivery(%d) error = %v", i, err)
+		}
+	}
+
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	recent := time.Now().UTC().Add(-15 * time.Minute)
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE webhook_deliveries SET created_at = $2 WHERE id = $1`, deliveredOld.ID, old); err != nil {
+		t.Fatalf("set created_at deliveredOld error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE webhook_deliveries SET created_at = $2 WHERE id = $1`, deadOld.ID, old.Add(1*time.Minute)); err != nil {
+		t.Fatalf("set created_at deadOld error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE webhook_deliveries SET created_at = $2 WHERE id = $1`, deliveredRecent.ID, recent); err != nil {
+		t.Fatalf("set created_at deliveredRecent error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE webhook_deliveries SET created_at = $2 WHERE id = $1`, pendingOld.ID, old); err != nil {
+		t.Fatalf("set created_at pendingOld error = %v", err)
+	}
+
+	deleted, err := q.DeleteOldWebhookDeliveries(ctx, time.Now().UTC().Add(-24*time.Hour), 10)
+	if err != nil {
+		t.Fatalf("DeleteOldWebhookDeliveries() error = %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("DeleteOldWebhookDeliveries() deleted = %d, want 2", deleted)
+	}
+
+	if _, err := q.GetWebhookDelivery(ctx, deliveredOld.ID); err == nil {
+		t.Fatal("GetWebhookDelivery(deliveredOld) error = nil, want error")
+	}
+	if _, err := q.GetWebhookDelivery(ctx, deadOld.ID); err == nil {
+		t.Fatal("GetWebhookDelivery(deadOld) error = nil, want error")
+	}
+	if _, err := q.GetWebhookDelivery(ctx, deliveredRecent.ID); err != nil {
+		t.Fatalf("GetWebhookDelivery(deliveredRecent) error = %v", err)
+	}
+	if _, err := q.GetWebhookDelivery(ctx, pendingOld.ID); err != nil {
+		t.Fatalf("GetWebhookDelivery(pendingOld) error = %v", err)
+	}
+}
+
+func TestPauseJobsByGroup(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-pause-group-" + newID()
+	group := &domain.JobGroup{ID: newID(), ProjectID: projectID, Name: "pause-group", Slug: "pause-group-" + newID()}
+	if err := q.CreateJobGroup(ctx, group); err != nil {
+		t.Fatalf("CreateJobGroup() error = %v", err)
+	}
+
+	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
+	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
+	outside := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
+	for i, jobID := range []string{inGroupA.ID, inGroupB.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET group_id = $1 WHERE id = $2`, group.ID, jobID); err != nil {
+			t.Fatalf("assign group (%d) error = %v", i, err)
+		}
+	}
+
+	if err := q.PauseJobsByGroup(ctx, group.ID); err != nil {
+		t.Fatalf("PauseJobsByGroup() error = %v", err)
+	}
+
+	gotA, err := q.GetJob(ctx, inGroupA.ID)
+	if err != nil {
+		t.Fatalf("GetJob(inGroupA) error = %v", err)
+	}
+	gotB, err := q.GetJob(ctx, inGroupB.ID)
+	if err != nil {
+		t.Fatalf("GetJob(inGroupB) error = %v", err)
+	}
+	gotOut, err := q.GetJob(ctx, outside.ID)
+	if err != nil {
+		t.Fatalf("GetJob(outside) error = %v", err)
+	}
+	if gotA.Enabled || gotB.Enabled {
+		t.Fatalf("jobs in group enabled after pause: A=%v B=%v", gotA.Enabled, gotB.Enabled)
+	}
+	if !gotOut.Enabled {
+		t.Fatal("outside job enabled = false, want true")
+	}
+}
+
+func TestResumeJobsByGroup(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-resume-group-" + newID()
+	group := &domain.JobGroup{ID: newID(), ProjectID: projectID, Name: "resume-group", Slug: "resume-group-" + newID()}
+	if err := q.CreateJobGroup(ctx, group); err != nil {
+		t.Fatalf("CreateJobGroup() error = %v", err)
+	}
+
+	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(false)})
+	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(false)})
+	for i, jobID := range []string{inGroupA.ID, inGroupB.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET group_id = $1 WHERE id = $2`, group.ID, jobID); err != nil {
+			t.Fatalf("assign group (%d) error = %v", i, err)
+		}
+	}
+
+	if err := q.ResumeJobsByGroup(ctx, group.ID); err != nil {
+		t.Fatalf("ResumeJobsByGroup() error = %v", err)
+	}
+
+	gotA, err := q.GetJob(ctx, inGroupA.ID)
+	if err != nil {
+		t.Fatalf("GetJob(inGroupA) error = %v", err)
+	}
+	gotB, err := q.GetJob(ctx, inGroupB.ID)
+	if err != nil {
+		t.Fatalf("GetJob(inGroupB) error = %v", err)
+	}
+	if !gotA.Enabled || !gotB.Enabled {
+		t.Fatalf("jobs in group enabled after resume: A=%v B=%v", gotA.Enabled, gotB.Enabled)
+	}
+}
+
+func TestGetPerformanceAnalytics(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	pq := queue.NewPostgresQueue(testDB.Pool)
+
+	projectID := "project-analytics-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Slug: testutil.Ptr("analytics-job-" + newID())})
+
+	statuses := []domain.RunStatus{
+		domain.StatusCompleted,
+		domain.StatusCompleted,
+		domain.StatusCompleted,
+		domain.StatusFailed,
+		domain.StatusFailed,
+		domain.StatusTimedOut,
+	}
+
+	now := time.Now().UTC()
+	for i, st := range statuses {
+		run := testutil.BuildRun(job, &testutil.RunOpts{Status: testutil.Ptr(domain.StatusQueued)})
+		if err := pq.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue(%d) error = %v", i, err)
+		}
+		startedAt := now.Add(-time.Duration(i+12) * time.Minute)
+		finishedAt := startedAt.Add(time.Duration(20+i*5) * time.Second)
+		createdAt := startedAt.Add(-15 * time.Second)
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE job_runs
+			SET status = $2, started_at = $3, finished_at = $4, created_at = $5
+			WHERE id = $1
+		`, run.ID, st, startedAt, finishedAt, createdAt); err != nil {
+			t.Fatalf("update run(%d) status/times error = %v", i, err)
+		}
+	}
+
+	analytics, err := q.GetPerformanceAnalytics(ctx, projectID, 24)
+	if err != nil {
+		t.Fatalf("GetPerformanceAnalytics() error = %v", err)
+	}
+	if analytics.Throughput.Completed != 3 || analytics.Throughput.Failed != 2 || analytics.Throughput.TimedOut != 1 {
+		t.Fatalf("Throughput = %+v, want completed=3 failed=2 timed_out=1", analytics.Throughput)
+	}
+	if analytics.Throughput.PeriodHours != 24 {
+		t.Fatalf("Throughput.PeriodHours = %d, want 24", analytics.Throughput.PeriodHours)
+	}
+	if len(analytics.SlowestJobs) != 1 {
+		t.Fatalf("SlowestJobs len = %d, want 1", len(analytics.SlowestJobs))
+	}
+	if analytics.SlowestJobs[0].JobID != job.ID || analytics.SlowestJobs[0].TotalRuns != 6 || analytics.SlowestJobs[0].FailedRuns != 2 {
+		t.Fatalf("SlowestJobs[0] = %+v, want job_id=%q total_runs=6 failed_runs=2", analytics.SlowestJobs[0], job.ID)
+	}
+	if analytics.HealthSummary.TotalJobs != 1 || analytics.HealthSummary.ActiveJobs != 1 {
+		t.Fatalf("HealthSummary jobs = %+v, want total=1 active=1", analytics.HealthSummary)
+	}
+	if analytics.HealthSummary.SuccessRate < 0.49 || analytics.HealthSummary.SuccessRate > 0.51 {
+		t.Fatalf("HealthSummary.SuccessRate = %f, want about 0.5", analytics.HealthSummary.SuccessRate)
+	}
+}
+
+func TestGetJobHealthStats_RecentWindow(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	pq := queue.NewPostgresQueue(testDB.Pool)
+
+	projectID := "project-health-window-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+
+	now := time.Now().UTC()
+	runRecentCompleted := testutil.BuildRun(job, nil)
+	runRecentFailed := testutil.BuildRun(job, nil)
+	runOldCompleted := testutil.BuildRun(job, nil)
+	for i, run := range []*domain.JobRun{runRecentCompleted, runRecentFailed, runOldCompleted} {
+		if err := pq.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue(%d) error = %v", i, err)
+		}
+	}
+
+	recentStartA := now.Add(-8 * time.Minute)
+	recentEndA := recentStartA.Add(20 * time.Second)
+	recentStartB := now.Add(-6 * time.Minute)
+	recentEndB := recentStartB.Add(30 * time.Second)
+	oldStart := now.Add(-4 * time.Hour)
+	oldEnd := oldStart.Add(40 * time.Second)
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status = 'completed', created_at = $2, started_at = $3, finished_at = $4 WHERE id = $1`, runRecentCompleted.ID, now.Add(-8*time.Minute), recentStartA, recentEndA); err != nil {
+		t.Fatalf("update runRecentCompleted error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status = 'failed', created_at = $2, started_at = $3, finished_at = $4 WHERE id = $1`, runRecentFailed.ID, now.Add(-6*time.Minute), recentStartB, recentEndB); err != nil {
+		t.Fatalf("update runRecentFailed error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status = 'completed', created_at = $2, started_at = $3, finished_at = $4 WHERE id = $1`, runOldCompleted.ID, now.Add(-4*time.Hour), oldStart, oldEnd); err != nil {
+		t.Fatalf("update runOldCompleted error = %v", err)
+	}
+
+	stats, err := q.GetJobHealthStats(ctx, job.ID, now.Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("GetJobHealthStats() error = %v", err)
+	}
+	if stats.TotalRuns != 2 || stats.CompletedRuns != 1 || stats.FailedRuns != 1 {
+		t.Fatalf("GetJobHealthStats() = %+v, want total=2 completed=1 failed=1", *stats)
+	}
+	if stats.SuccessRate < 49.99 || stats.SuccessRate > 50.01 {
+		t.Fatalf("SuccessRate = %f, want 50", stats.SuccessRate)
+	}
+}
+
+func TestEventTriggerCreateAndGetByEventKey(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-create-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	trigger := &domain.EventTrigger{
+		ID:             newID(),
+		EventKey:       "evt-create-" + newID(),
+		ProjectID:      projectID,
+		SourceType:     "job_run",
+		JobRunID:       run.ID,
+		Status:         domain.EventTriggerStatusWaiting,
+		RequestPayload: json.RawMessage(`{"kind":"create"}`),
+		TimeoutSecs:    120,
+		RequestedAt:    now,
+		ExpiresAt:      now.Add(2 * time.Minute),
+		NotifyURL:      "https://example.com/notify",
+		NotifyStatus:   "pending",
+		TriggerType:    "event",
+	}
+
+	if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+		t.Fatalf("CreateEventTrigger() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetEventTriggerByEventKey() = nil")
+	}
+	if got.ID != trigger.ID {
+		t.Fatalf("ID = %q, want %q", got.ID, trigger.ID)
+	}
+	if got.JobRunID != run.ID {
+		t.Fatalf("JobRunID = %q, want %q", got.JobRunID, run.ID)
+	}
+	if !jsonEqual(got.RequestPayload, trigger.RequestPayload) {
+		t.Fatalf("RequestPayload = %s, want %s", string(got.RequestPayload), string(trigger.RequestPayload))
+	}
+}
+
+func TestEventTriggerGetByStepRunID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-step-" + newID()
+	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, projectID, domain.StepWaiting)
+	now := time.Now().UTC()
+	trigger := &domain.EventTrigger{
+		ID:                newID(),
+		EventKey:          "evt-step-" + newID(),
+		ProjectID:         projectID,
+		SourceType:        "workflow_step",
+		WorkflowRunID:     wfRun.ID,
+		WorkflowStepRunID: stepRun.ID,
+		Status:            domain.EventTriggerStatusWaiting,
+		RequestPayload:    json.RawMessage(`{"kind":"wait-step"}`),
+		TimeoutSecs:       90,
+		RequestedAt:       now,
+		ExpiresAt:         now.Add(3 * time.Minute),
+	}
+
+	if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+		t.Fatalf("CreateEventTrigger() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByStepRunID(ctx, stepRun.ID)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByStepRunID() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetEventTriggerByStepRunID() = nil")
+	}
+	if got.ID != trigger.ID {
+		t.Fatalf("ID = %q, want %q", got.ID, trigger.ID)
+	}
+}
+
+func TestEventTriggerGetByJobRunID(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-job-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+	trigger := &domain.EventTrigger{
+		ID:          newID(),
+		EventKey:    "evt-job-" + newID(),
+		ProjectID:   projectID,
+		SourceType:  "job_run",
+		JobRunID:    run.ID,
+		Status:      domain.EventTriggerStatusWaiting,
+		TimeoutSecs: 45,
+		RequestedAt: now,
+		ExpiresAt:   now.Add(5 * time.Minute),
+	}
+
+	if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+		t.Fatalf("CreateEventTrigger() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByJobRunID(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByJobRunID() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetEventTriggerByJobRunID() = nil")
+	}
+	if got.ID != trigger.ID {
+		t.Fatalf("ID = %q, want %q", got.ID, trigger.ID)
+	}
+}
+
+func TestUpdateEventTriggerStatus(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-update-status-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-update-status-"+newID(), time.Now().UTC().Add(-time.Minute), nil, nil)
+
+	response := json.RawMessage(`{"ok":true}`)
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	errMsg := "delivery failed once"
+	if err := q.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, response, &receivedAt, errMsg); err != nil {
+		t.Fatalf("UpdateEventTriggerStatus() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetEventTriggerByEventKey() = nil")
+	}
+	if got.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("Status = %q, want %q", got.Status, domain.EventTriggerStatusReceived)
+	}
+	if got.ReceivedAt == nil || !got.ReceivedAt.Equal(receivedAt) {
+		t.Fatalf("ReceivedAt = %v, want %v", got.ReceivedAt, receivedAt)
+	}
+	if !jsonEqual(got.ResponsePayload, response) {
+		t.Fatalf("ResponsePayload = %s, want %s", string(got.ResponsePayload), string(response))
+	}
+	if got.Error != errMsg {
+		t.Fatalf("Error = %q, want %q", got.Error, errMsg)
+	}
+}
+
+func TestSetEventTriggerSentBy(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-sent-by-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-sent-by-"+newID(), time.Now().UTC(), nil, nil)
+
+	if err := q.SetEventTriggerSentBy(ctx, trigger.ID, "api-key-123"); err != nil {
+		t.Fatalf("SetEventTriggerSentBy() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetEventTriggerByEventKey() = nil")
+	}
+	if got.SentBy != "api-key-123" {
+		t.Fatalf("SentBy = %q, want %q", got.SentBy, "api-key-123")
+	}
+}
+
+func TestUpdateEventTriggerNotifyStatus(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-notify-status-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-notify-status-"+newID(), time.Now().UTC(), nil, nil)
+
+	if err := q.UpdateEventTriggerNotifyStatus(ctx, trigger.ID, "sent"); err != nil {
+		t.Fatalf("UpdateEventTriggerNotifyStatus() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetEventTriggerByEventKey() = nil")
+	}
+	if got.NotifyStatus != "sent" {
+		t.Fatalf("NotifyStatus = %q, want %q", got.NotifyStatus, "sent")
+	}
+}
+
+func TestListEventTriggersByProject_Filters(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-list-project-" + newID()
+	otherProjectID := "proj-event-trigger-list-project-other-" + newID()
+
+	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, projectID, domain.StepWaiting)
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	_, runOther := mustCreateJobRunWithBuildFactory(t, ctx, q, otherProjectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-wf-waiting-"+newID(), now.Add(-30*time.Second), nil)
+	mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusReceived, "evt-list-proj-wf-received-"+newID(), now.Add(-20*time.Second), testutil.Ptr(now.Add(-10*time.Second)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-job-waiting-"+newID(), now.Add(-10*time.Second), nil, nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, otherProjectID, runOther.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-other-"+newID(), now.Add(-5*time.Second), nil, nil)
+
+	waiting, err := q.ListEventTriggersByProject(ctx, projectID, domain.EventTriggerStatusWaiting, "", "", 20, nil)
+	if err != nil {
+		t.Fatalf("ListEventTriggersByProject(status) error = %v", err)
+	}
+	if len(waiting) != 2 {
+		t.Fatalf("ListEventTriggersByProject(status) len = %d, want 2", len(waiting))
+	}
+
+	byWorkflowRun, err := q.ListEventTriggersByProject(ctx, projectID, "", wfRun.ID, "", 20, nil)
+	if err != nil {
+		t.Fatalf("ListEventTriggersByProject(workflowRunID) error = %v", err)
+	}
+	if len(byWorkflowRun) != 2 {
+		t.Fatalf("ListEventTriggersByProject(workflowRunID) len = %d, want 2", len(byWorkflowRun))
+	}
+
+	bySourceType, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "job_run", 20, nil)
+	if err != nil {
+		t.Fatalf("ListEventTriggersByProject(sourceType) error = %v", err)
+	}
+	if len(bySourceType) != 1 {
+		t.Fatalf("ListEventTriggersByProject(sourceType) len = %d, want 1", len(bySourceType))
+	}
+	if bySourceType[0].SourceType != "job_run" {
+		t.Fatalf("SourceType = %q, want %q", bySourceType[0].SourceType, "job_run")
+	}
+}
+
+func TestListEventTriggersByKeyPrefix_ProjectScoping(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-list-prefix-" + newID()
+	otherProjectID := "proj-event-trigger-list-prefix-other-" + newID()
+	_, runA := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	_, runB := mustCreateJobRunWithBuildFactory(t, ctx, q, otherProjectID, domain.StatusWaiting)
+
+	prefix := "batch.prefix."
+	now := time.Now().UTC()
+	matchA := mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, prefix+"one", now.Add(-3*time.Second), nil, nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusReceived, prefix+"received", now.Add(-2*time.Second), testutil.Ptr(now.Add(-time.Second)), nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, "other.prefix."+newID(), now.Add(-time.Second), nil, nil)
+	matchOtherProject := mustCreateJobRunEventTrigger(t, ctx, q, otherProjectID, runB.ID, domain.EventTriggerStatusWaiting, prefix+"two", now, nil, nil)
+
+	global, err := q.ListEventTriggersByKeyPrefix(ctx, prefix, "")
+	if err != nil {
+		t.Fatalf("ListEventTriggersByKeyPrefix(global) error = %v", err)
+	}
+	if len(global) != 2 {
+		t.Fatalf("ListEventTriggersByKeyPrefix(global) len = %d, want 2", len(global))
+	}
+
+	scoped, err := q.ListEventTriggersByKeyPrefix(ctx, prefix, projectID)
+	if err != nil {
+		t.Fatalf("ListEventTriggersByKeyPrefix(scoped) error = %v", err)
+	}
+	if len(scoped) != 1 {
+		t.Fatalf("ListEventTriggersByKeyPrefix(scoped) len = %d, want 1", len(scoped))
+	}
+	if scoped[0].ID != matchA.ID {
+		t.Fatalf("ListEventTriggersByKeyPrefix(scoped) id = %q, want %q", scoped[0].ID, matchA.ID)
+	}
+
+	if global[0].ID != matchA.ID && global[1].ID != matchA.ID {
+		t.Fatalf("ListEventTriggersByKeyPrefix(global) missing id %q", matchA.ID)
+	}
+	if global[0].ID != matchOtherProject.ID && global[1].ID != matchOtherProject.ID {
+		t.Fatalf("ListEventTriggersByKeyPrefix(global) missing id %q", matchOtherProject.ID)
+	}
+}
+
+func TestListEventTriggersByProject_Cursor(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-list-cursor-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-cursor-new-"+newID(), now.Add(-time.Minute), nil, nil)
+	middle := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-cursor-middle-"+newID(), now.Add(-2*time.Minute), nil, nil)
+	old := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-cursor-old-"+newID(), now.Add(-3*time.Minute), nil, nil)
+
+	list, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "", 10, testutil.Ptr(middle.RequestedAt))
+	if err != nil {
+		t.Fatalf("ListEventTriggersByProject(cursor) error = %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("ListEventTriggersByProject(cursor) len = %d, want 1", len(list))
+	}
+	if list[0].ID != old.ID {
+		t.Fatalf("ListEventTriggersByProject(cursor) id = %q, want %q", list[0].ID, old.ID)
+	}
+}
+
+func TestListEventTriggersExpired(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-list-expired-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+	expired := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-expired-old-"+newID(), now.Add(-2*time.Hour), nil, testutil.Ptr(now.Add(-time.Minute)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-expired-future-"+newID(), now.Add(-2*time.Hour), nil, testutil.Ptr(now.Add(2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-expired-received-"+newID(), now.Add(-2*time.Hour), testutil.Ptr(now.Add(-time.Minute)), testutil.Ptr(now.Add(-time.Minute)))
+
+	list, err := q.ListExpiredEventTriggers(ctx)
+	if err != nil {
+		t.Fatalf("ListExpiredEventTriggers() error = %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("ListExpiredEventTriggers() len = %d, want 1", len(list))
+	}
+	if list[0].ID != expired.ID {
+		t.Fatalf("ListExpiredEventTriggers() id = %q, want %q", list[0].ID, expired.ID)
+	}
+}
+
+func TestListEventTriggersReceivedWithStaleSteps(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-list-stale-" + newID()
+	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, projectID, domain.StepWaiting)
+	_, jobRun := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+
+	oldReceived := time.Now().UTC().Add(-time.Minute)
+	staleStep := mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusReceived, "evt-stale-step-"+newID(), oldReceived.Add(-time.Second), &oldReceived)
+	staleJob := mustCreateJobRunEventTrigger(t, ctx, q, projectID, jobRun.ID, domain.EventTriggerStatusReceived, "evt-stale-job-"+newID(), oldReceived.Add(-time.Second), &oldReceived, nil)
+	recentReceived := time.Now().UTC().Add(-10 * time.Second)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, jobRun.ID, domain.EventTriggerStatusReceived, "evt-not-stale-"+newID(), recentReceived.Add(-time.Second), &recentReceived, nil)
+
+	list, err := q.ListReceivedEventTriggersWithStaleSteps(ctx)
+	if err != nil {
+		t.Fatalf("ListReceivedEventTriggersWithStaleSteps() error = %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("ListReceivedEventTriggersWithStaleSteps() len = %d, want 2", len(list))
+	}
+
+	seenStep := false
+	seenJob := false
+	for _, trigger := range list {
+		if trigger.ID == staleStep.ID {
+			seenStep = true
+		}
+		if trigger.ID == staleJob.ID {
+			seenJob = true
+		}
+	}
+	if !seenStep || !seenJob {
+		t.Fatalf("stale IDs not found: step=%v job=%v", seenStep, seenJob)
+	}
+}
+
+func TestCancelEventTriggersByWorkflowRun_WaitingOnly(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-cancel-wf-" + newID()
+	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, projectID, domain.StepWaiting)
+	waiting := mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusWaiting, "evt-cancel-wf-waiting-"+newID(), time.Now().UTC().Add(-time.Minute), nil)
+	receivedAt := time.Now().UTC().Add(-time.Minute)
+	received := mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusReceived, "evt-cancel-wf-received-"+newID(), time.Now().UTC().Add(-time.Minute), &receivedAt)
+
+	affected, err := q.CancelEventTriggersByWorkflowRun(ctx, wfRun.ID)
+	if err != nil {
+		t.Fatalf("CancelEventTriggersByWorkflowRun() error = %v", err)
+	}
+	if affected != 1 {
+		t.Fatalf("CancelEventTriggersByWorkflowRun() affected = %d, want 1", affected)
+	}
+
+	gotWaiting, err := q.GetEventTriggerByEventKey(ctx, waiting.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(waiting) error = %v", err)
+	}
+	if gotWaiting == nil {
+		t.Fatal("GetEventTriggerByEventKey(waiting) = nil")
+	}
+	if gotWaiting.Status != domain.EventTriggerStatusCanceled {
+		t.Fatalf("waiting.Status = %q, want %q", gotWaiting.Status, domain.EventTriggerStatusCanceled)
+	}
+
+	gotReceived, err := q.GetEventTriggerByEventKey(ctx, received.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(received) error = %v", err)
+	}
+	if gotReceived == nil {
+		t.Fatal("GetEventTriggerByEventKey(received) = nil")
+	}
+	if gotReceived.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("received.Status = %q, want %q", gotReceived.Status, domain.EventTriggerStatusReceived)
+	}
+}
+
+func TestCancelEventTriggerByJobRun_WaitingOnly(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-cancel-job-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	waiting := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-cancel-job-waiting-"+newID(), time.Now().UTC(), nil, nil)
+	receivedAt := time.Now().UTC().Add(-time.Minute)
+	received := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-cancel-job-received-"+newID(), time.Now().UTC(), &receivedAt, nil)
+
+	if err := q.CancelEventTriggerByJobRun(ctx, run.ID); err != nil {
+		t.Fatalf("CancelEventTriggerByJobRun() error = %v", err)
+	}
+
+	gotWaiting, err := q.GetEventTriggerByEventKey(ctx, waiting.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(waiting) error = %v", err)
+	}
+	if gotWaiting == nil {
+		t.Fatal("GetEventTriggerByEventKey(waiting) = nil")
+	}
+	if gotWaiting.Status != domain.EventTriggerStatusCanceled {
+		t.Fatalf("waiting.Status = %q, want %q", gotWaiting.Status, domain.EventTriggerStatusCanceled)
+	}
+
+	gotReceived, err := q.GetEventTriggerByEventKey(ctx, received.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(received) error = %v", err)
+	}
+	if gotReceived == nil {
+		t.Fatal("GetEventTriggerByEventKey(received) = nil")
+	}
+	if gotReceived.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("received.Status = %q, want %q", gotReceived.Status, domain.EventTriggerStatusReceived)
+	}
+}
+
+func TestCountEventTriggersFinishedBefore(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-count-finished-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	oldReceived := now.Add(-3 * time.Hour)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-count-finished-received-"+newID(), now.Add(-4*time.Hour), &oldReceived, nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusTimedOut, "evt-count-finished-timeout-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-count-finished-canceled-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-count-finished-waiting-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-count-finished-recent-"+newID(), now.Add(-time.Hour), testutil.Ptr(now.Add(-time.Minute)), nil)
+
+	count, err := q.CountEventTriggersFinishedBefore(ctx, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("CountEventTriggersFinishedBefore() error = %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("CountEventTriggersFinishedBefore() = %d, want 3", count)
+	}
+}
+
+func TestDeleteEventTriggersFinishedBefore(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-delete-finished-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	oldReceived := now.Add(-3 * time.Hour)
+	oldA := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-delete-finished-a-"+newID(), now.Add(-4*time.Hour), &oldReceived, nil)
+	oldB := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusTimedOut, "evt-delete-finished-b-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
+	recent := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-delete-finished-recent-"+newID(), now.Add(-time.Hour), nil, testutil.Ptr(now.Add(-time.Minute)))
+	waiting := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-delete-finished-waiting-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
+
+	deleted, err := q.DeleteEventTriggersFinishedBefore(ctx, now.Add(-time.Hour), 1)
+	if err != nil {
+		t.Fatalf("DeleteEventTriggersFinishedBefore() first error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("DeleteEventTriggersFinishedBefore() first = %d, want 1", deleted)
+	}
+
+	remainingAfterFirst, err := q.CountEventTriggersFinishedBefore(ctx, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("CountEventTriggersFinishedBefore() after first delete error = %v", err)
+	}
+	if remainingAfterFirst != 1 {
+		t.Fatalf("remaining after first delete = %d, want 1", remainingAfterFirst)
+	}
+
+	deleted, err = q.DeleteEventTriggersFinishedBefore(ctx, now.Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatalf("DeleteEventTriggersFinishedBefore() second error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("DeleteEventTriggersFinishedBefore() second = %d, want 1", deleted)
+	}
+
+	if got, err := q.GetEventTriggerByEventKey(ctx, oldA.EventKey); err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(oldA) error = %v", err)
+	} else if got != nil {
+		t.Fatalf("oldA still exists with ID %q", got.ID)
+	}
+	if got, err := q.GetEventTriggerByEventKey(ctx, oldB.EventKey); err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(oldB) error = %v", err)
+	} else if got != nil {
+		t.Fatalf("oldB still exists with ID %q", got.ID)
+	}
+	if got, err := q.GetEventTriggerByEventKey(ctx, recent.EventKey); err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(recent) error = %v", err)
+	} else if got == nil {
+		t.Fatal("recent trigger should exist")
+	}
+	if got, err := q.GetEventTriggerByEventKey(ctx, waiting.EventKey); err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(waiting) error = %v", err)
+	} else if got == nil {
+		t.Fatal("waiting trigger should exist")
+	}
+}
+
+func TestBatchReceiveEventTriggers(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-batch-receive-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+	triggerA := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-batch-a-"+newID(), now.Add(-2*time.Minute), nil, nil)
+	triggerB := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-batch-b-"+newID(), now.Add(-time.Minute), nil, nil)
+
+	payload := json.RawMessage(`{"batched":true}`)
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	updatedIDs, err := q.BatchReceiveEventTriggers(ctx, []string{triggerA.ID, triggerB.ID}, payload, receivedAt, "batch-sender")
+	if err != nil {
+		t.Fatalf("BatchReceiveEventTriggers() error = %v", err)
+	}
+	if len(updatedIDs) != 2 {
+		t.Fatalf("BatchReceiveEventTriggers() len = %d, want 2", len(updatedIDs))
+	}
+
+	gotA, err := q.GetEventTriggerByEventKey(ctx, triggerA.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(triggerA) error = %v", err)
+	}
+	if gotA == nil {
+		t.Fatal("GetEventTriggerByEventKey(triggerA) = nil")
+	}
+	if gotA.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("triggerA status = %q, want %q", gotA.Status, domain.EventTriggerStatusReceived)
+	}
+	if gotA.SentBy != "batch-sender" {
+		t.Fatalf("triggerA sent_by = %q, want %q", gotA.SentBy, "batch-sender")
+	}
+	if !jsonEqual(gotA.ResponsePayload, payload) {
+		t.Fatalf("triggerA response payload = %s, want %s", string(gotA.ResponsePayload), string(payload))
+	}
+
+	gotB, err := q.GetEventTriggerByEventKey(ctx, triggerB.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(triggerB) error = %v", err)
+	}
+	if gotB == nil {
+		t.Fatal("GetEventTriggerByEventKey(triggerB) = nil")
+	}
+	if gotB.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("triggerB status = %q, want %q", gotB.Status, domain.EventTriggerStatusReceived)
+	}
+	if gotB.ReceivedAt == nil || !gotB.ReceivedAt.Equal(receivedAt) {
+		t.Fatalf("triggerB received_at = %v, want %v", gotB.ReceivedAt, receivedAt)
+	}
+}
+
+func TestReceiveEventAndRequeueRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-requeue-run-" + newID()
+	runStatus := domain.StatusWaiting
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	run := testutil.MustCreateRun(t, ctx, q, job, &testutil.RunOpts{Status: testutil.Ptr(runStatus)})
+	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-requeue-"+newID(), time.Now().UTC().Add(-time.Minute), nil, nil)
+
+	payload := json.RawMessage(`{"checkpoint":"resume"}`)
+	receivedAt := time.Now().UTC()
+	if err := q.ReceiveEventAndRequeueRun(ctx, trigger.ID, payload, receivedAt, run.ID); err != nil {
+		t.Fatalf("ReceiveEventAndRequeueRun() error = %v", err)
+	}
+
+	updatedRun, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if updatedRun.Status != domain.StatusQueued {
+		t.Fatalf("run status = %q, want %q", updatedRun.Status, domain.StatusQueued)
+	}
+
+	updatedTrigger, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if updatedTrigger == nil {
+		t.Fatal("GetEventTriggerByEventKey() = nil")
+	}
+	if updatedTrigger.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("trigger status = %q, want %q", updatedTrigger.Status, domain.EventTriggerStatusReceived)
+	}
+	if !jsonEqual(updatedTrigger.ResponsePayload, payload) {
+		t.Fatalf("trigger response payload = %s, want %s", string(updatedTrigger.ResponsePayload), string(payload))
+	}
+}
+
+func TestCountActiveEventTriggersByProject(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-count-active-" + newID()
+	otherProjectID := "proj-event-trigger-count-active-other-" + newID()
+	_, runA := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	_, runB := mustCreateJobRunWithBuildFactory(t, ctx, q, otherProjectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, "evt-count-active-a-"+newID(), now, nil, nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, "evt-count-active-b-"+newID(), now.Add(time.Second), nil, nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusReceived, "evt-count-active-received-"+newID(), now.Add(2*time.Second), testutil.Ptr(now.Add(3*time.Second)), nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, otherProjectID, runB.ID, domain.EventTriggerStatusWaiting, "evt-count-active-other-"+newID(), now.Add(4*time.Second), nil, nil)
+
+	count, err := q.CountActiveEventTriggersByProject(ctx, projectID)
+	if err != nil {
+		t.Fatalf("CountActiveEventTriggersByProject() error = %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("CountActiveEventTriggersByProject() = %d, want 2", count)
+	}
+}
+
+func TestAdvisoryLockTryAndRelease(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	lockID := int64(12345)
+	acquired, err := q.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock() error = %v", err)
+	}
+	if !acquired {
+		t.Fatal("TryAdvisoryLock() = false, want true")
+	}
+
+	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+		t.Fatalf("ReleaseAdvisoryLock() error = %v", err)
+	}
+}
+
+func TestAdvisoryLockConcurrentAcrossConnections(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	lockID := int64(23456)
+	connA, err := testDB.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Acquire(connA) error = %v", err)
+	}
+	defer connA.Release()
+
+	connB, err := testDB.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Acquire(connB) error = %v", err)
+	}
+	defer connB.Release()
+
+	qa := store.New(connA)
+	qb := store.New(connB)
+
+	acquiredA, err := qa.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock(connA) error = %v", err)
+	}
+	if !acquiredA {
+		t.Fatal("TryAdvisoryLock(connA) = false, want true")
+	}
+
+	acquiredB, err := qb.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock(connB) error = %v", err)
+	}
+	if acquiredB {
+		t.Fatal("TryAdvisoryLock(connB) = true, want false")
+	}
+
+	if err := qa.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+		t.Fatalf("ReleaseAdvisoryLock(connA) error = %v", err)
+	}
+
+	acquiredBAfterRelease, err := qb.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock(connB after release) error = %v", err)
+	}
+	if !acquiredBAfterRelease {
+		t.Fatal("TryAdvisoryLock(connB after release) = false, want true")
+	}
+
+	if err := qb.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+		t.Fatalf("ReleaseAdvisoryLock(connB) error = %v", err)
+	}
+
+	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+		t.Fatalf("ReleaseAdvisoryLock(cleanup) error = %v", err)
+	}
+}
+
+func TestAdvisoryLockXactLockWithinTransaction(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	lockID := int64(34567)
+	err := store.WithTx(ctx, testDB.Pool, func(txQ *store.Queries) error {
+		if lockErr := txQ.AdvisoryXactLock(ctx, lockID); lockErr != nil {
+			return lockErr
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTx(AdvisoryXactLock) error = %v", err)
+	}
+
+	acquired, err := q.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock() error = %v", err)
+	}
+	if !acquired {
+		t.Fatal("TryAdvisoryLock() = false, want true")
+	}
+
+	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+		t.Fatalf("ReleaseAdvisoryLock() error = %v", err)
+	}
+}
+
+func mustCreateJobRunWithBuildFactory(t *testing.T, ctx context.Context, q *store.Queries, projectID string, status domain.RunStatus) (*domain.Job, *domain.JobRun) {
+	t.Helper()
+
+	job := testutil.BuildJob(&testutil.JobOpts{
+		ID:        testutil.Ptr(newID()),
+		ProjectID: testutil.Ptr(projectID),
+		Name:      testutil.Ptr("job-" + newID()),
+		Slug:      testutil.Ptr("job-slug-" + newID()),
+	})
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	run := testutil.BuildRun(job, &testutil.RunOpts{
+		ID:     testutil.Ptr(newID()),
+		Status: testutil.Ptr(status),
+	})
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	return job, run
+}
+
+func mustCreateWorkflowStepFixture(t *testing.T, ctx context.Context, q *store.Queries, projectID string, stepStatus domain.StepRunStatus) (*domain.Workflow, *domain.WorkflowRun, *domain.WorkflowStepRun) {
+	t.Helper()
+
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: testutil.Ptr(projectID),
+		Name:      testutil.Ptr("workflow-" + newID()),
+		Slug:      testutil.Ptr("workflow-slug-" + newID()),
+	})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: testutil.Ptr(stepJob.ID), StepRef: testutil.Ptr("step-" + newID())})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	stepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{Status: testutil.Ptr(stepStatus), StepRef: testutil.Ptr(step.StepRef)})
+
+	return wf, wfRun, stepRun
+}
+
+func mustCreateJobRunEventTrigger(
+	t *testing.T,
+	ctx context.Context,
+	q *store.Queries,
+	projectID string,
+	jobRunID string,
+	status string,
+	eventKey string,
+	requestedAt time.Time,
+	receivedAt *time.Time,
+	expiresAt *time.Time,
+) *domain.EventTrigger {
+	t.Helper()
+
+	triggerExpiresAt := requestedAt.Add(5 * time.Minute)
+	if expiresAt != nil {
+		triggerExpiresAt = *expiresAt
+	}
+
+	trigger := &domain.EventTrigger{
+		ID:             newID(),
+		EventKey:       eventKey,
+		ProjectID:      projectID,
+		SourceType:     "job_run",
+		JobRunID:       jobRunID,
+		Status:         status,
+		RequestPayload: json.RawMessage(`{"source":"job"}`),
+		TimeoutSecs:    300,
+		RequestedAt:    requestedAt,
+		ReceivedAt:     receivedAt,
+		ExpiresAt:      triggerExpiresAt,
+		NotifyURL:      "https://example.com/notify-job",
+		NotifyStatus:   "pending",
+		TriggerType:    "event",
+	}
+	if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+		t.Fatalf("CreateEventTrigger() error = %v", err)
+	}
+
+	return trigger
+}
+
+func mustCreateWorkflowStepEventTrigger(
+	t *testing.T,
+	ctx context.Context,
+	q *store.Queries,
+	projectID string,
+	workflowRunID string,
+	workflowStepRunID string,
+	status string,
+	eventKey string,
+	requestedAt time.Time,
+	receivedAt *time.Time,
+) *domain.EventTrigger {
+	t.Helper()
+
+	trigger := &domain.EventTrigger{
+		ID:                newID(),
+		EventKey:          eventKey,
+		ProjectID:         projectID,
+		SourceType:        "workflow_step",
+		WorkflowRunID:     workflowRunID,
+		WorkflowStepRunID: workflowStepRunID,
+		Status:            status,
+		RequestPayload:    json.RawMessage(`{"source":"step"}`),
+		TimeoutSecs:       180,
+		RequestedAt:       requestedAt,
+		ReceivedAt:        receivedAt,
+		ExpiresAt:         requestedAt.Add(10 * time.Minute),
+		NotifyStatus:      "pending",
+		TriggerType:       "event",
+	}
+	if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+		t.Fatalf("CreateEventTrigger() error = %v", err)
+	}
+
+	return trigger
 }

@@ -127,42 +127,40 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 			}
 		}
 	}
-	if e.circuitBreaker {
-		allowed, retryAt, circuitErr := e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
-		if circuitErr != nil {
+	allowed, retryAt, circuitErr := e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
+	if circuitErr != nil {
+		e.logger.Error(
+			"circuit breaker check failed",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"endpoint", job.EndpointURL,
+			"error", circuitErr,
+		)
+		e.handleSystemFailure(ctx, run, "circuit breaker unavailable")
+		return
+	}
+
+	if !allowed {
+		fields := map[string]any{
+			"next_retry_at": retryAt,
+			"error":         "endpoint circuit breaker open",
+			"error_class":   "transient",
+			"started_at":    nil,
+			"finished_at":   nil,
+		}
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
 			e.logger.Error(
-				"circuit breaker check failed",
+				"failed to requeue run while circuit open",
 				"run_id", run.ID,
 				"job_id", run.JobID,
-				"endpoint", job.EndpointURL,
-				"error", circuitErr,
+				"error", err,
 			)
-			e.handleSystemFailure(ctx, run, "circuit breaker unavailable")
 			return
 		}
 
-		if !allowed {
-			fields := map[string]any{
-				"next_retry_at": retryAt,
-				"error":         "endpoint circuit breaker open",
-				"error_class":   "transient",
-				"started_at":    nil,
-				"finished_at":   nil,
-			}
-			if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
-				e.logger.Error(
-					"failed to requeue run while circuit open",
-					"run_id", run.ID,
-					"job_id", run.JobID,
-					"error", err,
-				)
-				return
-			}
-
-			e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
-			e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "circuit_open"})
-			return
-		}
+		e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
+		e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "circuit_open"})
+		return
 	}
 
 	acquired := e.tryAcquireBulkheadSlot(job.ID, job.MaxConcurrency)
@@ -206,15 +204,13 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	run.Status = domain.StatusExecuting
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
-	// Start heartbeat
-	hbCtx, hbCancel := context.WithCancel(ctx)
-	defer hbCancel()
-	go e.heartbeat.Run(hbCtx, run.ID)
+	e.heartbeat.Register(run.ID)
+	defer e.heartbeat.Deregister(run.ID)
 
 	timeout := time.Duration(policy.timeoutSecs) * time.Second
-	if e.adaptiveTimeout && policy.timeoutSecs > 0 {
+	if policy.timeoutSecs > 0 {
 		stats, err := e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
-		if err == nil && stats.P95DurationSecs > 0 {
+		if err == nil && stats != nil && stats.P95DurationSecs > 0 {
 			adaptiveTimeout := time.Duration(stats.P95DurationSecs * 1.5 * float64(time.Second))
 			if adaptiveTimeout > timeout {
 				timeout = adaptiveTimeout
@@ -267,11 +263,6 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 }
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
-	if !e.executionTracing {
-		result, err := e.dispatch(ctx, job, run)
-		return result, nil, err
-	}
-
 	dispatchStart := time.Now()
 	var connectStart time.Time
 	var connectDone time.Time
@@ -286,16 +277,14 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
 
 	var extraHeaders map[string]string
-	if e.secretInjection {
-		secrets, err := e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
-		}
-		if len(secrets) > 0 {
-			extraHeaders = make(map[string]string, len(secrets))
-			for _, secret := range secrets {
-				extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
-			}
+	secrets, err := e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+	}
+	if len(secrets) > 0 {
+		extraHeaders = make(map[string]string, len(secrets))
+		for _, secret := range secrets {
+			extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
 		}
 	}
 
@@ -321,7 +310,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	return result, execTrace, err
 }
 
-func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, error) {
+func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.Dispatch")
 	defer span.End()
 	start := time.Now()
@@ -332,20 +321,19 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}()
 
 	var extraHeaders map[string]string
-	if e.secretInjection {
-		secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
-		if err != nil {
-			return nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
-		}
-		if len(secrets) > 0 {
-			extraHeaders = make(map[string]string, len(secrets))
-			for _, secret := range secrets {
-				extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
-			}
+	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
+	if err != nil {
+		return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+	}
+	if len(secrets) > 0 {
+		extraHeaders = make(map[string]string, len(secrets))
+		for _, secret := range secrets {
+			extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
 		}
 	}
 
-	return e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
+	_, err = e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
+	return err
 }
 
 func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {

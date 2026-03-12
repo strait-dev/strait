@@ -79,13 +79,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		}
 
 		touchCtx := context.WithoutCancel(r.Context())
-		go func() {
+		s.bgPool.Submit(func() {
 			ctx, cancel := context.WithTimeout(touchCtx, 2*time.Second)
 			defer cancel()
 			if err := s.store.TouchAPIKeyLastUsed(ctx, apiKey.ID); err != nil {
 				slog.Error("failed to touch api key last used", "key_id", apiKey.ID, "error", err)
 			}
-		}()
+		})
 
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
 		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)
@@ -142,13 +142,13 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 		if s.actorSyncer != nil {
 			syncCtx := context.WithoutCancel(ctx)
-			go func() {
+			s.bgPool.Submit(func() {
 				syncCtx2, cancel := context.WithTimeout(syncCtx, 2*time.Second)
 				defer cancel()
 				if err := s.actorSyncer.UpsertKnownActor(syncCtx2, claims.Subject, claims.Email, claims.Name); err != nil {
 					slog.Warn("failed to sync actor from oidc", "actor_id", claims.Subject, "error", err)
 				}
-			}()
+			})
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -180,13 +180,13 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 				actorEmail := r.Header.Get("X-Actor-Email")
 				actorName := r.Header.Get("X-Actor-Name")
 				syncCtx := context.WithoutCancel(ctx)
-				go func() {
+				s.bgPool.Submit(func() {
 					syncCtx2, cancel := context.WithTimeout(syncCtx, 2*time.Second)
 					defer cancel()
 					if err := s.actorSyncer.UpsertKnownActor(syncCtx2, actorID, actorEmail, actorName); err != nil {
 						slog.Warn("failed to sync actor", "actor_id", actorID, "error", err)
 					}
-				}()
+				})
 			}
 
 			r = r.WithContext(ctx)

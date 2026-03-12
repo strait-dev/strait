@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
@@ -43,17 +43,25 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 	}
 
 	query := `
+		WITH idempotency_check AS (
+			SELECT 1 FROM job_runs
+			WHERE job_id = $2
+			  AND idempotency_key = $18
+			  AND idempotency_key IS NOT NULL
+			  AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
+			LIMIT 1
+		)
 		INSERT INTO job_runs (
 			id, job_id, project_id, status, attempt, payload, result, error,
 			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		)
-		VALUES (
+		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23, $24::jsonb, $25, $26
-		)
+		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -87,8 +95,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.CreatedBy),
 	).Scan(&run.CreatedAt)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_runs_idempotency" {
+		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
 			return domain.ErrIdempotencyConflict
 		}
 		return fmt.Errorf("create run: %w", err)
@@ -1587,4 +1594,213 @@ func (q *Queries) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []st
 		return 0, fmt.Errorf("cancel child runs: %w", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+func (q *Queries) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkReplayDeadLetterRuns")
+	defer span.End()
+
+	if len(runIDs) == 0 && projectID == "" {
+		return nil, fmt.Errorf("at least one run id or project_id is required")
+	}
+	if len(runIDs) > 0 && projectID != "" {
+		return nil, fmt.Errorf("provide either run_ids or project_id, not both")
+	}
+
+	idsToReplay := runIDs
+	if len(idsToReplay) == 0 {
+		if limit <= 0 {
+			limit = 100
+		}
+		query := `
+			SELECT id
+			FROM job_runs
+			WHERE project_id = $1 AND status = 'dead_letter'
+			ORDER BY created_at ASC
+			LIMIT $2`
+		rows, err := q.db.Query(ctx, query, projectID, limit)
+		if err != nil {
+			return nil, fmt.Errorf("select dead letter runs for bulk replay: %w", err)
+		}
+		defer rows.Close()
+
+		idsToReplay = make([]string, 0, limit)
+		for rows.Next() {
+			var runID string
+			if scanErr := rows.Scan(&runID); scanErr != nil {
+				return nil, fmt.Errorf("scan dead letter run id for bulk replay: %w", scanErr)
+			}
+			idsToReplay = append(idsToReplay, runID)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate dead letter run ids for bulk replay: %w", err)
+		}
+	}
+
+	replayed := make([]domain.JobRun, 0, len(idsToReplay))
+	replayRuns := func(runQ *Queries) error {
+		for _, runID := range idsToReplay {
+			run, err := runQ.GetRun(ctx, runID)
+			if err != nil {
+				if errors.Is(err, ErrRunNotFound) {
+					continue
+				}
+				return fmt.Errorf("get run %s for bulk replay: %w", runID, err)
+			}
+			if run.Status != domain.StatusDeadLetter {
+				continue
+			}
+
+			if err := runQ.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusReplayStaged, nil); err != nil {
+				return fmt.Errorf("stage run %s for replay: %w", runID, err)
+			}
+
+			if err := runQ.UpdateRunStatus(ctx, runID, domain.StatusReplayStaged, domain.StatusQueued, map[string]any{
+				"attempt":       1,
+				"error":         "",
+				"started_at":    nil,
+				"finished_at":   nil,
+				"heartbeat_at":  nil,
+				"next_retry_at": nil,
+			}); err != nil {
+				return fmt.Errorf("enqueue staged run %s: %w", runID, err)
+			}
+
+			updatedRun, err := runQ.GetRun(ctx, runID)
+			if err != nil {
+				return fmt.Errorf("get replayed run %s: %w", runID, err)
+			}
+			replayed = append(replayed, *updatedRun)
+		}
+
+		return nil
+	}
+
+	if beginner, ok := q.db.(TxBeginner); ok {
+		if err := WithTx(ctx, beginner, replayRuns); err != nil {
+			return nil, fmt.Errorf("bulk replay dead letter runs transaction: %w", err)
+		}
+	} else {
+		if err := replayRuns(q); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(replayed) == 0 {
+		return nil, fmt.Errorf("no dead_letter runs available for replay")
+	}
+
+	return replayed, nil
+}
+
+func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) (domain.RunStatus, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunStatus")
+	defer span.End()
+
+	if err := domain.ValidateTransition(from, to); err != nil {
+		return "", fmt.Errorf("invalid status transition: %w", err)
+	}
+
+	allowedColumns := map[string]struct{}{
+		"attempt":              {},
+		"payload":              {},
+		"result":               {},
+		"error":                {},
+		"error_class":          {},
+		"triggered_by":         {},
+		"scheduled_at":         {},
+		"started_at":           {},
+		"finished_at":          {},
+		"heartbeat_at":         {},
+		"next_retry_at":        {},
+		"expires_at":           {},
+		"execution_trace":      {},
+		"workflow_step_run_id": {},
+		"debug_mode":           {},
+		"continuation_of":      {},
+		"lineage_depth":        {},
+	}
+
+	setClauses := []string{"status = $1"}
+	args := []any{to, id, from}
+	param := 4
+
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		if _, ok := allowedColumns[key]; !ok {
+			return "", &domain.FieldError{Field: key}
+		}
+
+		value := fields[key]
+		if raw, ok := value.(json.RawMessage); ok {
+			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "execution_trace" {
+			switch trace := value.(type) {
+			case *domain.ExecutionTrace:
+				if trace == nil {
+					value = nil
+				} else {
+					encoded, err := json.Marshal(trace)
+					if err != nil {
+						return "", fmt.Errorf("marshal execution trace: %w", err)
+					}
+					value = dbscan.NilIfEmptyRawMessage(encoded)
+				}
+			case domain.ExecutionTrace:
+				encoded, err := json.Marshal(trace)
+				if err != nil {
+					return "", fmt.Errorf("marshal execution trace: %w", err)
+				}
+				value = dbscan.NilIfEmptyRawMessage(encoded)
+			}
+		}
+		if key == "error" || key == "workflow_step_run_id" {
+			if text, ok := value.(string); ok {
+				value = dbscan.NilIfEmptyString(text)
+			}
+		}
+
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		args = append(args, value)
+		param++
+	}
+
+	query := fmt.Sprintf(
+		"WITH old AS (SELECT status FROM job_runs WHERE id = $2 AND status = $3) UPDATE job_runs SET %s WHERE id = $2 AND status = $3 RETURNING (SELECT status FROM old) AS old_status",
+		strings.Join(setClauses, ", "),
+	)
+
+	var oldStatus domain.RunStatus
+	err := q.db.QueryRow(ctx, query, args...).Scan(&oldStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
+		}
+		return "", fmt.Errorf("update run status: %w", err)
+	}
+
+	return oldStatus, nil
+}
+
+func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BatchUpdateHeartbeat")
+	defer span.End()
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	query := `UPDATE job_runs SET heartbeat_at = NOW() WHERE id = ANY($1)`
+
+	if _, err := q.db.Exec(ctx, query, ids); err != nil {
+		return fmt.Errorf("batch update heartbeat: %w", err)
+	}
+
+	return nil
 }

@@ -96,18 +96,15 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 	results := make([]BulkTriggerResult, 0, len(req.Items))
 	created := 0
 
-	var projectQuota *store.ProjectQuota
-	if s.config.FFProjectQuotas || s.config.FFExecutionWindows {
-		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
-			return
-		}
+	projectQuota, err := s.store.GetProjectQuota(r.Context(), job.ProjectID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
+		return
 	}
 
 	// Pre-compute project quotas once (all items target the same job/project).
 	var queuedRuns, activeRuns int
-	if s.config.FFProjectQuotas && projectQuota != nil {
+	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
 			var countErr error
 			queuedRuns, countErr = s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
@@ -137,11 +134,9 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if s.config.FFPayloadValidation {
-			if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
-				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
-				return
-			}
+		if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
+			respondError(w, r, http.StatusBadRequest, fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
+			return
 		}
 
 		payload, _, payloadErr := canonicalizePayload(item.Payload)
@@ -179,7 +174,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if s.config.FFProjectQuotas && projectQuota != nil {
+		if projectQuota != nil {
 			if projectQuota.MaxQueuedRuns > 0 && (queuedRuns+enqueuedInBatch) >= projectQuota.MaxQueuedRuns {
 				respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
 				return
@@ -243,7 +238,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		scheduledAt := item.ScheduledAt
-		if s.config.FFExecutionWindows && job.ExecutionWindowCron != "" {
+		if job.ExecutionWindowCron != "" {
 			timezone := job.Timezone
 			if timezone == "" && projectQuota != nil {
 				timezone = projectQuota.Timezone

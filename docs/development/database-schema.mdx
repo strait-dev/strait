@@ -3,7 +3,7 @@ title: "Database Schema"
 description: "Detailed reference of the PostgreSQL database schema and migration system."
 ---
 
-Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000068_*` series) that run automatically on startup.
+Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000073_*` series) that run automatically on startup.
 
 ## Core Tables
 
@@ -21,6 +21,8 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `webhook_deliveries` | Webhook delivery tracking and dead letter queue (job runs + event triggers) |
 | `event_triggers` | Durable event waits for workflow steps and job runs |
 | `project_quotas` | Per-project quotas (max jobs, runs, concurrency, cost limits) |
+| `job_run_idempotency` | Global deduplication tracking for job runs across partitions |
+| `webhook_subscriptions` | Project-level webhook subscriptions for multiple event types |
 
 ## Workflow Tables
 
@@ -47,11 +49,12 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `run_outputs` | Structured outputs with optional schema validation |
 | `environments` | Environment definitions with key-value variables per project |
 | `environment_variables` | Environment variable key-value pairs with inheritance |
-| `endpoint_circuit_state` | Circuit breaker state per endpoint URL |
+| `endpoint_circuit_state` | Circuit breaker state per endpoint URL (state, failures, opened_at, last_failure_at) |
 | `pricing_catalog` | Static pricing table for AI model cost calculation |
 | `job_secrets` | Encrypted secrets scoped to job and environment |
-| `job_groups` | Logical grouping of jobs |
+| `job_groups` | Logical grouping of jobs (full CRUD with name, description, project scope) |
 | `job_dependencies` | Inter-job dependency definitions |
+| `audit_events` | Immutable audit trail for security-sensitive operations (migration 000057) |
 
 ## Key Columns
 
@@ -73,6 +76,11 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `workflow_policies.max_depth` | `INT` | Maximum DAG depth enforced by policy checks |
 | `project_quotas.max_cost_per_run_microusd` | `BIGINT` | Per-run cost limit in micro-USD |
 | `project_quotas.max_daily_cost_microusd` | `BIGINT` | Daily project cost limit in micro-USD |
+| `webhook_deliveries.workflow_run_id` | `TEXT` | FK to workflow_runs for workflow-triggered webhooks |
+| `webhook_deliveries.event_type` | `TEXT` | Type of event being delivered (e.g., `run.completed`) |
+| `audit_events.resource_type` | `TEXT` | Type of resource affected (e.g., `job`, `workflow`) |
+| `audit_events.changes` | `JSONB` | Detailed diff of changes made during the event |
+| `webhook_subscriptions.event_types` | `TEXT[]` | Array of event types this subscription listens to |
 
 ## Relationships
 
@@ -113,10 +121,10 @@ updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 ### Key Indexes
 
-- `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` — Reaper timeout lookup
-- `idx_event_triggers_project_status`: `(project_id, status)` — List queries
-- `idx_event_triggers_event_key_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
-- `idx_event_triggers_step_run`: `(workflow_step_run_id) WHERE workflow_step_run_id IS NOT NULL` — Step-to-trigger lookup
+- `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` -- Reaper timeout lookup
+- `idx_event_triggers_project_status`: `(project_id, status)` -- List queries
+- `idx_event_triggers_event_key_prefix`: `(event_key text_pattern_ops)` -- Prefix matching for batch resolution
+- `idx_event_triggers_step_run`: `(workflow_step_run_id) WHERE workflow_step_run_id IS NOT NULL` -- Step-to-trigger lookup
 
 ### Performance Indexes
 
@@ -128,11 +136,75 @@ updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 ### webhook_deliveries Extensions
 
-The `webhook_deliveries` table is shared between job run webhooks and event trigger webhooks:
+The `webhook_deliveries` table (migration 000009, extended in 000061 and 000062) is shared between job run webhooks and event trigger webhooks:
 
-- `event_trigger_id TEXT` column (FK to event_triggers)
-- `run_id` and `job_id` are nullable to support event trigger deliveries
-- Same table serves both job run and event trigger webhook deliveries
+```sql
+id                TEXT PRIMARY KEY
+run_id            TEXT                -- FK to job_runs (nullable)
+job_id            TEXT                -- FK to jobs (nullable)
+event_trigger_id  TEXT                -- FK to event_triggers (nullable)
+workflow_run_id   TEXT                -- FK to workflow_runs (nullable)
+subscription_id   TEXT                -- FK to webhook_subscriptions (nullable)
+webhook_url       TEXT NOT NULL
+status            TEXT NOT NULL DEFAULT 'pending'  -- pending, delivering, delivered, failed, dead
+attempts          INT NOT NULL DEFAULT 0
+max_attempts      INT NOT NULL DEFAULT 5
+last_status_code  INT
+last_error        TEXT
+next_retry_at     TIMESTAMPTZ
+delivered_at      TIMESTAMPTZ
+payload           JSONB
+event_type        TEXT
+sequence          INT NOT NULL DEFAULT 0
+created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+Key indexes:
+- `idx_webhook_deliveries_pending`: `(next_retry_at ASC) WHERE status = 'pending'` -- Delivery worker queue
+- `idx_webhook_deliveries_run_seq`: `(run_id, sequence) WHERE run_id IS NOT NULL` -- Ordered delivery per run
+- `idx_webhook_deliveries_event_trigger`: `(event_trigger_id) WHERE event_trigger_id IS NOT NULL`
+- `idx_webhook_deliveries_status_created`: `(status, created_at)`
+
+### endpoint_circuit_state
+
+The circuit breaker state table (migration 000022) tracks per-endpoint failure state:
+
+```sql
+endpoint_url    TEXT PRIMARY KEY
+state           TEXT NOT NULL DEFAULT 'closed'  -- closed, open, half_open
+failures        INT NOT NULL DEFAULT 0
+opened_at       TIMESTAMPTZ
+last_failure_at TIMESTAMPTZ
+updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+### job_runs Key Indexes
+
+- `idx_runs_queue_covering`: `(created_at ASC) INCLUDE (job_id, priority, scheduled_at, next_retry_at) WHERE status = 'queued'` -- Covering index for dequeue
+- `idx_runs_status_project_covering`: `(project_id, status, created_at DESC) INCLUDE (job_id, priority, scheduled_at, next_retry_at)` -- Covering index for list queries
+- `idx_runs_heartbeat`: `(heartbeat_at) WHERE status = 'executing'` -- Stale run detection
+- `idx_runs_expires`: `(expires_at) WHERE expires_at IS NOT NULL AND status IN ('delayed', 'queued')` -- Expiration reaper
+- `idx_job_runs_parent_run_id`: `(parent_run_id) WHERE parent_run_id IS NOT NULL` -- Parent-child lookup
+- `idx_runs_metadata`: GIN index on `metadata` (migration 000016) -- JSONB filtering
+- `idx_jobs_tags`: GIN index on `tags` (migration 000054) -- Tag-based filtering
+
+### FK Constraints on job_runs
+
+Important for partitioning considerations:
+
+- `job_runs.parent_run_id` -- Self-referential FK dropped in migration 000066 to support range partitioning. Integrity is enforced at the application layer.
+- `run_events.run_id` -- No ON DELETE clause
+- `run_checkpoints.run_id` -- ON DELETE CASCADE
+- `run_usage.run_id` -- ON DELETE CASCADE
+- `run_tool_calls.run_id` -- ON DELETE CASCADE
+- `run_outputs.run_id` -- ON DELETE CASCADE
+
+### Miscellaneous Indexes
+
+- `idx_idempotency_expires`: `(expires_at) WHERE expires_at IS NOT NULL` on `job_run_idempotency`
+- `idx_audit_events_resource_lookup`: `(resource_type, resource_id)` on `audit_events`
+- `idx_webhook_subscriptions_project_active`: `(project_id, created_at DESC) WHERE active = TRUE` on `webhook_subscriptions`
 
 ## Migrations
 
@@ -160,11 +232,25 @@ Migrations follow a sequential 6-digit numbering scheme:
 The event trigger schema was developed across 7 incremental migrations during development. These were squashed into `000061_event_trigger_support` before merge to reduce startup time and rollback complexity.
 </Note>
 
+### Recent Migrations
+
+| Migration | Description |
+| :--- | :--- |
+| `000062_webhook_deliveries_extend` | Extends webhook deliveries with workflow run context, subscriptions, and unified delivery worker columns. |
+| `000063_autovacuum_tuning` | Optimizes autovacuum settings for high-churn tables (job_runs, webhook_deliveries, run_events). |
+| `000064_uuidv7_defaults` | Adds native uuidv7() defaults for primary keys using the pg_uuidv7 extension. |
+| `000065_job_run_idempotency` | Introduces a dedicated table for global job run idempotency tracking across partitions. |
+| `000066_job_runs_partitioning` | Converts job_runs to a range-partitioned table by created_at with automated partition management. |
+| `000067_queue_notify_trigger` | Adds a pg_notify trigger to wake up queue workers immediately on new job insertion. |
+| `000068_covering_indexes` | Adds covering indexes (INCLUDE clause) to job_runs and webhook_deliveries for index-only scans. |
+| `000069_audit_events_extend` | Extends audit events with resource context, changes, and client metadata (IP, User-Agent). |
+| `000070_webhook_subscriptions` | Adds webhook subscriptions table for multi-event project-level webhook management. |
+
 ### Adding New Migrations
 
 1. Create a new pair of SQL files in the `migrations/` directory using the next sequence number:
-   - `000069_your_feature.up.sql`
-   - `000069_your_feature.down.sql`
+   - `000074_your_feature.up.sql`
+   - `000074_your_feature.down.sql`
 2. Ensure the migration is idempotent.
 3. The application will automatically detect and apply the new migration on the next startup.
 

@@ -25,6 +25,9 @@ type mockAPIStore struct {
 	deleteJobFn                         func(ctx context.Context, id string) error
 	deleteJobGroupFn                    func(ctx context.Context, id string) error
 	listJobsByGroupFn                   func(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	pauseJobsByGroupFn                  func(ctx context.Context, groupID string) error
+	resumeJobsByGroupFn                 func(ctx context.Context, groupID string) error
+	getJobGroupStatsFn                  func(ctx context.Context, groupID string) (*store.JobGroupStats, error)
 	createEnvironmentFn                 func(ctx context.Context, env *domain.Environment) error
 	getEnvironmentFn                    func(ctx context.Context, id string) (*domain.Environment, error)
 	listEnvironmentsFn                  func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
@@ -56,6 +59,7 @@ type mockAPIStore struct {
 	countProjectActiveRunsFn            func(ctx context.Context, projectID string) (int, error)
 	listRunsByProjectFn                 func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	listDeadLetterRunsFn                func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	bulkReplayDeadLetterRunsFn          func(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	updateRunStatusFn                   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	replayDeadLetterRunFn               func(ctx context.Context, runID string) (*domain.JobRun, error)
 	updateRunMetadataFn                 func(ctx context.Context, id string, annotations map[string]string) error
@@ -63,6 +67,9 @@ type mockAPIStore struct {
 	insertEventFn                       func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn           func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn             func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
+	createWebhookSubscriptionFn         func(ctx context.Context, sub *domain.WebhookSubscription) error
+	listWebhookSubscriptionsFn          func(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	deleteWebhookSubscriptionFn         func(ctx context.Context, id string) error
 	createAPIKeyFn                      func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn              func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	revokeAPIKeyFn                      func(ctx context.Context, id string) error
@@ -72,7 +79,9 @@ type mockAPIStore struct {
 	markAPIKeyRotatedFn                 func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	touchAPIKeyLastUsedFn               func(ctx context.Context, id string) error
 	updateHeartbeatFn                   func(ctx context.Context, id string) error
+	batchUpdateHeartbeatFn              func(ctx context.Context, ids []string) error
 	queueStatsFn                        func(ctx context.Context) (*store.QueueStats, error)
+	getPerformanceAnalyticsFn           func(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	createWorkflowFn                    func(ctx context.Context, w *domain.Workflow) error
 	getWorkflowFn                       func(ctx context.Context, id string) (*domain.Workflow, error)
 	getWorkflowBySlugFn                 func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
@@ -119,8 +128,14 @@ type mockAPIStore struct {
 	listProjectRolesFn                  func(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
 	deleteProjectRoleFn                 func(ctx context.Context, id string) error
 	assignMemberRoleFn                  func(ctx context.Context, m *domain.ProjectMemberRole) error
+	getMemberRoleFn                     func(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error)
 	listProjectMembersFn                func(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error)
 	removeMemberRoleFn                  func(ctx context.Context, projectID, userID string) error
+	createResourcePolicyFn              func(ctx context.Context, p *domain.ResourcePolicy) error
+	deleteResourcePolicyFn              func(ctx context.Context, id string) (string, string, error)
+	createTagPolicyFn                   func(ctx context.Context, p *domain.TagPolicy) error
+	deleteTagPolicyFn                   func(ctx context.Context, id string) (string, string, error)
+	createAuditEventFn                  func(ctx context.Context, ev *domain.AuditEvent) error
 	createEventTriggerFn                func(ctx context.Context, trigger *domain.EventTrigger) error
 	getEventTriggerByEventKeyFn         func(ctx context.Context, key string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
@@ -135,6 +150,7 @@ type mockAPIStore struct {
 	countEventTriggersFinishedBeforeFn  func(ctx context.Context, before time.Time) (int64, error)
 	countActiveEventTriggersByProjectFn func(ctx context.Context, projectID string) (int, error)
 	getWebhookDeliveryFn                func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	retryWebhookDeliveryFn              func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
 	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	cancelJobRunsByWorkflowRunFn        func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
@@ -225,6 +241,27 @@ func (m *mockAPIStore) ListJobsByGroup(ctx context.Context, groupID string, limi
 		return m.listJobsByGroupFn(ctx, groupID, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) PauseJobsByGroup(ctx context.Context, groupID string) error {
+	if m.pauseJobsByGroupFn != nil {
+		return m.pauseJobsByGroupFn(ctx, groupID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ResumeJobsByGroup(ctx context.Context, groupID string) error {
+	if m.resumeJobsByGroupFn != nil {
+		return m.resumeJobsByGroupFn(ctx, groupID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetJobGroupStats(ctx context.Context, groupID string) (*store.JobGroupStats, error) {
+	if m.getJobGroupStatsFn != nil {
+		return m.getJobGroupStatsFn(ctx, groupID)
+	}
+	return &store.JobGroupStats{GroupID: groupID, RunCounts: map[string]int{}}, nil
 }
 
 func (m *mockAPIStore) CreateEnvironment(ctx context.Context, env *domain.Environment) error {
@@ -448,6 +485,13 @@ func (m *mockAPIStore) ListDeadLetterRuns(ctx context.Context, projectID string,
 	return nil, nil
 }
 
+func (m *mockAPIStore) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+	if m.bulkReplayDeadLetterRunsFn != nil {
+		return m.bulkReplayDeadLetterRunsFn(ctx, runIDs, projectID, limit)
+	}
+	return nil, nil
+}
+
 func (m *mockAPIStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	if m.updateRunStatusFn != nil {
 		return m.updateRunStatusFn(ctx, id, from, to, fields)
@@ -495,6 +539,27 @@ func (m *mockAPIStore) ListWebhookDeliveries(ctx context.Context, projectID, sta
 		return m.listWebhookDeliveriesFn(ctx, projectID, status, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error {
+	if m.createWebhookSubscriptionFn != nil {
+		return m.createWebhookSubscriptionFn(ctx, sub)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error) {
+	if m.listWebhookSubscriptionsFn != nil {
+		return m.listWebhookSubscriptionsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteWebhookSubscription(ctx context.Context, id string) error {
+	if m.deleteWebhookSubscriptionFn != nil {
+		return m.deleteWebhookSubscriptionFn(ctx, id)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
@@ -564,11 +629,25 @@ func (m *mockAPIStore) UpdateHeartbeat(ctx context.Context, id string) error {
 	return nil
 }
 
+func (m *mockAPIStore) BatchUpdateHeartbeat(ctx context.Context, ids []string) error {
+	if m.batchUpdateHeartbeatFn != nil {
+		return m.batchUpdateHeartbeatFn(ctx, ids)
+	}
+	return nil
+}
+
 func (m *mockAPIStore) QueueStats(ctx context.Context) (*store.QueueStats, error) {
 	if m.queueStatsFn != nil {
 		return m.queueStatsFn(ctx)
 	}
 	return &store.QueueStats{}, nil
+}
+
+func (m *mockAPIStore) GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error) {
+	if m.getPerformanceAnalyticsFn != nil {
+		return m.getPerformanceAnalyticsFn(ctx, projectID, periodHours)
+	}
+	return &store.PerformanceAnalytics{}, nil
 }
 
 func (m *mockAPIStore) CreateWorkflow(ctx context.Context, w *domain.Workflow) error {
@@ -966,7 +1045,10 @@ func (m *mockAPIStore) AssignMemberRole(ctx context.Context, m2 *domain.ProjectM
 	return nil
 }
 
-func (m *mockAPIStore) GetMemberRole(_ context.Context, _, _ string) (*domain.ProjectMemberRole, error) {
+func (m *mockAPIStore) GetMemberRole(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error) {
+	if m.getMemberRoleFn != nil {
+		return m.getMemberRoleFn(ctx, projectID, userID)
+	}
 	return nil, nil
 }
 
@@ -988,7 +1070,10 @@ func (m *mockAPIStore) SeedProjectSystemRoles(_ context.Context, _ string) error
 	return nil
 }
 
-func (m *mockAPIStore) CreateResourcePolicy(_ context.Context, _ *domain.ResourcePolicy) error {
+func (m *mockAPIStore) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error {
+	if m.createResourcePolicyFn != nil {
+		return m.createResourcePolicyFn(ctx, p)
+	}
 	return nil
 }
 
@@ -996,7 +1081,10 @@ func (m *mockAPIStore) GetResourcePolicies(_ context.Context, _, _, _ string) ([
 	return nil, nil
 }
 
-func (m *mockAPIStore) DeleteResourcePolicy(_ context.Context, _ string) (string, string, error) {
+func (m *mockAPIStore) DeleteResourcePolicy(ctx context.Context, id string) (string, string, error) {
+	if m.deleteResourcePolicyFn != nil {
+		return m.deleteResourcePolicyFn(ctx, id)
+	}
 	return "", "", nil
 }
 
@@ -1004,7 +1092,10 @@ func (m *mockAPIStore) ListResourcePolicies(_ context.Context, _, _ string, _ in
 	return nil, nil
 }
 
-func (m *mockAPIStore) CreateTagPolicy(_ context.Context, _ *domain.TagPolicy) error {
+func (m *mockAPIStore) CreateTagPolicy(ctx context.Context, p *domain.TagPolicy) error {
+	if m.createTagPolicyFn != nil {
+		return m.createTagPolicyFn(ctx, p)
+	}
 	return nil
 }
 
@@ -1012,7 +1103,10 @@ func (m *mockAPIStore) ListTagPolicies(_ context.Context, _, _, _ string, _ int,
 	return nil, nil
 }
 
-func (m *mockAPIStore) DeleteTagPolicy(_ context.Context, _ string) (string, string, error) {
+func (m *mockAPIStore) DeleteTagPolicy(ctx context.Context, id string) (string, string, error) {
+	if m.deleteTagPolicyFn != nil {
+		return m.deleteTagPolicyFn(ctx, id)
+	}
 	return "", "", store.ErrTagPolicyNotFound
 }
 
@@ -1020,7 +1114,10 @@ func (m *mockAPIStore) GetTagPolicyActions(_ context.Context, _, _, _ string, _ 
 	return nil, nil
 }
 
-func (m *mockAPIStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+func (m *mockAPIStore) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error {
+	if m.createAuditEventFn != nil {
+		return m.createAuditEventFn(ctx, ev)
+	}
 	return nil
 }
 
@@ -1124,6 +1221,13 @@ func (m *mockAPIStore) CountActiveEventTriggersByProject(ctx context.Context, pr
 func (m *mockAPIStore) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
 	if m.getWebhookDeliveryFn != nil {
 		return m.getWebhookDeliveryFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+	if m.retryWebhookDeliveryFn != nil {
+		return m.retryWebhookDeliveryFn(ctx, id)
 	}
 	return nil, nil
 }

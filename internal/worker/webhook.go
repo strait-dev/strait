@@ -65,12 +65,16 @@ func SendWebhookWithClient(ctx context.Context, client *http.Client, job *domain
 		return WebhookResult{Delivered: true}
 	}
 
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
+	defer span.End()
+
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
 
 	var result WebhookResult
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		span.SetAttributes(attribute.Int("attempt_number", attempt))
 		result = sendWebhookOnceWith(ctx, client, job, run)
 		if result.Delivered {
 			slog.Info("webhook delivered",
@@ -131,12 +135,16 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 		return WebhookResult{Delivered: true}
 	}
 
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
+	defer span.End()
+
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
 
 	var result WebhookResult
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		span.SetAttributes(attribute.Int("attempt_number", attempt))
 		result = sendWebhookOnce(ctx, job, run)
 		if result.Delivered {
 			slog.Info("webhook delivered",
@@ -253,9 +261,8 @@ func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte)
 
 	// New headers.
 	req.Header.Set("X-Strait-Timestamp", ts)
-	req.Header.Set("X-Strait-Signature", "sha256="+sig)
-	// Backwards compatibility header.
-	req.Header.Set("X-Webhook-Signature", "sha256="+sig)
+	req.Header.Set("X-Strait-Signature", "v1="+sig)
+	req.Header.Set("X-Webhook-Signature", "v1="+sig)
 }
 
 func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun) WebhookResult {

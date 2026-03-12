@@ -1,7 +1,69 @@
 ---
 title: "Monitoring & Alerts"
-description: "Production monitoring baselines for auth, RBAC, audit events, and webhooks."
+description: "Production monitoring baselines for health checks, metrics, auth, RBAC, audit events, and webhooks."
 ---
+
+## Health Endpoints
+
+Strait exposes two health endpoints for infrastructure orchestration:
+
+### Liveness: `GET /health`
+
+Returns 200 if the process is alive. Use as Kubernetes liveness probe.
+
+### Readiness: `GET /health/ready`
+
+Returns 200 when all dependencies are ready. Returns 503 with details when not ready.
+
+```json
+{
+  "ready": false,
+  "checks": {
+    "database": "ok",
+    "redis": "unavailable"
+  }
+}
+```
+
+The health check system uses a component registry (`internal/health/registry.go`) where subsystems register their health check functions.
+
+### Kubernetes Configuration
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 6
+```
+
+## Prometheus Metrics
+
+Metrics exposed at `GET /metrics`:
+
+| Metric | Type | Description |
+| :--- | :--- | :--- |
+| `strait_run_transitions_total` | Counter | FSM state transitions (by from_status, to_status) |
+| `strait_dispatch_duration_seconds` | Histogram | HTTP dispatch latency (by job_id, outcome) |
+| `strait_dequeue_duration_seconds` | Histogram | Queue polling latency |
+| `strait_worker_pool_active` | Gauge | Active worker goroutines |
+| `strait_worker_pool_queued` | Gauge | Tasks waiting in pool buffer |
+| `strait_analytics_query_duration_seconds` | Histogram | Analytics query latency (by period_hours) |
+| `strait_bulk_operations_total` | Counter | Bulk trigger/cancel operations |
+| `strait_bulk_items_processed_total` | Counter | Items processed in bulk operations |
+| `strait_bulk_child_cancellations_total` | Counter | Cascading child run cancellations |
+| `strait_webhook_retry_attempts_total` | Counter | Webhook delivery retry attempts |
+
+## Monitoring Assets
 
 Use the monitoring assets in `ops/monitoring/` as a baseline:
 
@@ -15,6 +77,10 @@ Use the monitoring assets in `ops/monitoring/` as a baseline:
 - RBAC control-plane mutation rate
 - Audit event insert errors
 - Webhook delivery failures
+- Worker pool utilization
+- Database connection pool saturation
+- Analytics query latency spikes
+- Bulk operation failure rate
 
 ## Recommended SLO Checks
 
@@ -22,6 +88,10 @@ Use the monitoring assets in `ops/monitoring/` as a baseline:
 - Permission cache hit ratio >= 0.80 under normal load
 - Audit event write error rate = 0
 - Webhook terminal failure rate stays within agreed threshold
+- Health endpoint responds within 1s
+- Worker pool active/capacity ratio < 0.9
+- Analytics query p95 < 2s
+- Bulk cancel success rate >= 99%
 
 ## Related Runbooks
 

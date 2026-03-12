@@ -37,12 +37,14 @@ func newTestServerWithActorSyncer(t *testing.T, s APIStore, q *mockQueue, pub *m
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "01234567890123456789012345678901",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config:      cfg,
 		Store:       s,
 		Queue:       q,
 		ActorSyncer: syncer,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func TestActorFromContext_WithUserHeader(t *testing.T) {

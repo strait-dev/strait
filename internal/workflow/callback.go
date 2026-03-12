@@ -53,6 +53,7 @@ type CallbackStore interface {
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
 }
 

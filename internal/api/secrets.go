@@ -20,11 +20,6 @@ type createSecretRequest struct {
 }
 
 func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFSecretInjection {
-		respondError(w, r, http.StatusNotFound, "secret injection is not enabled")
-		return
-	}
-
 	var req createSecretRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -56,11 +51,6 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListSecrets(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFSecretInjection {
-		respondError(w, r, http.StatusNotFound, "secret injection is not enabled")
-		return
-	}
-
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
@@ -87,11 +77,6 @@ func (s *Server) handleListSecrets(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 func (s *Server) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFSecretInjection {
-		respondError(w, r, http.StatusNotFound, "secret injection is not enabled")
-		return
-	}
-
 	secretID := chi.URLParam(r, "secretID")
 	if err := s.store.DeleteJobSecret(r.Context(), secretID); err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {

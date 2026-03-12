@@ -202,6 +202,10 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusNotFound, "job not found")
 		return
 	}
+	if err := validateRunCreationJobID(job.ID); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	parentRun, err := s.store.GetRun(r.Context(), parentRunID)
 	if err != nil {
@@ -249,11 +253,6 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 	parentRunID := chi.URLParam(r, "runID")
 
-	if !s.config.FFRunContinuation {
-		respondError(w, r, http.StatusNotFound, "run continuation is not enabled")
-		return
-	}
-
 	var req struct {
 		Payload json.RawMessage `json:"payload,omitempty"`
 	}
@@ -290,6 +289,10 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 	job, err := s.store.GetJob(r.Context(), parentRun.JobID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get job")
+		return
+	}
+	if err := validateRunCreationJobID(job.ID); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 

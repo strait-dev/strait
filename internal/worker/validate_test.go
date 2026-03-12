@@ -66,9 +66,46 @@ func TestValidateEndpointURL_MissingHost(t *testing.T) {
 
 func TestValidateEndpointURL_CloudMetadata(t *testing.T) {
 	t.Parallel()
-	// AWS metadata endpoint — must be blocked
 	if err := validateEndpointURL("http://169.254.169.254/latest/meta-data/iam/security-credentials/"); err == nil {
 		t.Error("validateEndpointURL(AWS metadata) = nil, want error for link-local address")
+	}
+}
+
+func TestValidateEndpointURL_CGNAT(t *testing.T) {
+	t.Parallel()
+	urls := []string{
+		"http://100.64.0.1/internal",
+		"http://100.100.100.100/admin",
+		"http://100.127.255.254/secret",
+	}
+	for _, u := range urls {
+		if err := validateEndpointURL(u); err == nil {
+			t.Errorf("validateEndpointURL(%q) = nil, want error for CGNAT address", u)
+		}
+	}
+}
+
+func TestValidateEndpointURL_IPv6ULA(t *testing.T) {
+	t.Parallel()
+	urls := []string{
+		"http://[fc00::1]/internal",
+		"http://[fd12:3456:789a::1]/admin",
+		"http://[fdff:ffff:ffff::1]/secret",
+	}
+	for _, u := range urls {
+		if err := validateEndpointURL(u); err == nil {
+			t.Errorf("validateEndpointURL(%q) = nil, want error for IPv6 ULA address", u)
+		}
+	}
+}
+
+func TestValidateEndpointURL_CGNATBoundary(t *testing.T) {
+	t.Parallel()
+	if err := validateEndpointURL("http://100.63.255.255/ok"); err != nil {
+		t.Errorf("validateEndpointURL(just below CGNAT) = %v, want nil", err)
+	}
+	if err := validateEndpointURL("http://100.128.0.0/ok"); err != nil {
+		t.Errorf("validateEndpointURL(just above CGNAT) = %v, want nil", err)
 	}
 }
 

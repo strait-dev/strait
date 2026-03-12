@@ -14,19 +14,20 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func newSDKWaitEventTestServer(t *testing.T, s APIStore, ffEnabled bool) *Server {
+func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		JWTSigningKey:   "test-jwt-key-must-be-32-chars-long",
-		InternalSecret:  "test-secret",
-		FFEventTriggers: ffEnabled,
+		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+		InternalSecret: "test-secret",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config: cfg,
 		Store:  s,
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func makeSDKRunToken(t *testing.T, runID string) string {
@@ -62,7 +63,7 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 		},
 	}
 
-	srv := newSDKWaitEventTestServer(t, ms, true)
+	srv := newSDKWaitEventTestServer(t, ms)
 
 	body := `{"event_key":"aml:app-123","timeout_secs":7200}`
 	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
@@ -108,24 +109,6 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 	}
 }
 
-func TestHandleSDKWaitForEvent_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-
-	srv := newSDKWaitEventTestServer(t, &mockAPIStore{}, false)
-
-	body := `{"event_key":"some-key"}`
-	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+makeSDKRunToken(t, "run-1"))
-
-	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusNotFound, rr.Body.String())
-	}
-}
-
 func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
 	t.Parallel()
 
@@ -135,7 +118,7 @@ func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
 		},
 	}
 
-	srv := newSDKWaitEventTestServer(t, ms, true)
+	srv := newSDKWaitEventTestServer(t, ms)
 
 	body := `{"event_key":"some-key"}`
 	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
@@ -153,7 +136,7 @@ func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
 func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
 	t.Parallel()
 
-	srv := newSDKWaitEventTestServer(t, &mockAPIStore{}, true)
+	srv := newSDKWaitEventTestServer(t, &mockAPIStore{})
 
 	body := `{}`
 	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
@@ -186,7 +169,7 @@ func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
 		},
 	}
 
-	srv := newSDKWaitEventTestServer(t, ms, true)
+	srv := newSDKWaitEventTestServer(t, ms)
 
 	body := `{"event_key":"some-key"}`
 	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
@@ -214,7 +197,7 @@ func TestHandleSDKWaitForEvent_RunNotFound(t *testing.T) {
 		},
 	}
 
-	srv := newSDKWaitEventTestServer(t, ms, true)
+	srv := newSDKWaitEventTestServer(t, ms)
 
 	body := `{"event_key":"some-key"}`
 	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))

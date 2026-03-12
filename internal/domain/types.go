@@ -21,6 +21,7 @@ const (
 	StatusCanceled     RunStatus = "canceled"
 	StatusExpired      RunStatus = "expired"
 	StatusDeadLetter   RunStatus = "dead_letter"
+	StatusReplayStaged RunStatus = "replay_staged"
 )
 
 const (
@@ -339,6 +340,7 @@ type WebhookDelivery struct {
 	JobID          string     `json:"job_id,omitempty"`
 	EventTriggerID string     `json:"event_trigger_id,omitempty"`
 	WebhookURL     string     `json:"webhook_url"`
+	RetryPolicy    string     `json:"webhook_retry_policy,omitempty"`
 	Status         string     `json:"status"`
 	Attempts       int        `json:"attempts"`
 	MaxAttempts    int        `json:"max_attempts"`
@@ -348,6 +350,16 @@ type WebhookDelivery struct {
 	DeliveredAt    *time.Time `json:"delivered_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type WebhookSubscription struct {
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"project_id"`
+	WebhookURL string    `json:"webhook_url"`
+	EventTypes []string  `json:"event_types"`
+	Secret     string    `json:"secret"`
+	Active     bool      `json:"active"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // APIKey represents a per-project API key for authentication.
@@ -434,7 +446,7 @@ func (s RunStatus) IsValid() bool {
 	switch s {
 	case StatusDelayed, StatusQueued, StatusDequeued, StatusExecuting, StatusWaiting,
 		StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed,
-		StatusCanceled, StatusExpired:
+		StatusCanceled, StatusExpired, StatusDeadLetter, StatusReplayStaged:
 		return true
 	default:
 		return false
@@ -560,6 +572,12 @@ const (
 	WebhookStatusDelivered = "delivered"
 	WebhookStatusFailed    = "failed"
 	WebhookStatusDead      = "dead"
+)
+
+const (
+	WebhookRetryPolicyExponential = "exponential"
+	WebhookRetryPolicyLinear      = "linear"
+	WebhookRetryPolicyFixed       = "fixed"
 )
 
 // VersionPolicy controls how queued runs handle new job/workflow deployments.

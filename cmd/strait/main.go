@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/health"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -101,15 +102,28 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 	defer dbPool.Close()
 
+	poolTuner, err := store.NewPoolTuner(dbPool, slog.Default(), cfg.DBMaxConns, cfg.DBMinConns)
+	if err != nil {
+		return fmt.Errorf("init pool tuner: %w", err)
+	}
+
 	// Run migrations
 	if err := runMigrations(cfg.DatabaseURL); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
+	cacheWarmer, err := store.NewCacheWarmer(dbPool, slog.Default())
+	if err != nil {
+		return fmt.Errorf("init cache warmer: %w", err)
+	}
+	if err := cacheWarmer.Warm(ctx); err != nil {
+		return fmt.Errorf("warm query cache: %w", err)
+	}
+
 	// Create dependencies
 	queries := store.New(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
-	q := queue.NewPostgresQueue(dbPool)
+	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(true))
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -120,7 +134,19 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	g := concpool.New().WithContext(ctx).WithFailFast()
-	eventNotifier := webhook.NewEventNotifier(queries, slog.Default())
+	g.Go(func(ctx context.Context) error {
+		return poolTuner.Run(ctx)
+	})
+
+	webhookOptions := []webhook.DeliveryWorkerOption{}
+	if rdb != nil {
+		webhookOptions = append(webhookOptions, webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)))
+	}
+	webhookOptions = append(webhookOptions,
+		webhook.WithMetrics(metrics),
+		webhook.WithMaxPayloadBytes(cfg.WebhookMaxPayloadBytes),
+	)
+	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
 	onTriggerCreate := func(trigger *domain.EventTrigger) {
 		if metrics != nil {
@@ -131,22 +157,25 @@ func runServe(ctx context.Context, modeOverride string) error {
 			)
 			metrics.EventTriggersCreated.Add(context.Background(), 1, attrs)
 		}
-		eventNotifier.NotifyAsync(trigger)
+		eventNotifier.NotifyAsyncWithContext(ctx, trigger)
 	}
 
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
+		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics)
 
-	// Start the webhook delivery worker (processes event trigger notifications from the DLQ).
-	g.Go(func(ctx context.Context) error {
-		return eventNotifier.RunWorker(ctx, 5*time.Second)
-	})
+	healthReg := health.NewRegistry()
+	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
+		_, err := queries.QueueStats(ctx)
+		return err
+	}))
 
 	startCDCConsumer(g, cfg, pub)
-	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine)
-	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine)
+	startWebhookWorker(g, cfg, eventNotifier)
+	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg)
+	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine, healthReg)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

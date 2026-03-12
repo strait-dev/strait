@@ -352,7 +352,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 	}
 	defer rows.Close()
 
-	var triggers []domain.EventTrigger
+	triggers := make([]domain.EventTrigger, 0, 1000)
 	for rows.Next() {
 		trigger, scanErr := scanEventTrigger(rows)
 		if scanErr != nil {
@@ -597,20 +597,36 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReceiveEventAndRequeueRun")
 	defer span.End()
 
+	requeueRun := func(txQ *Queries) error {
+		tag, err := txQ.db.Exec(ctx,
+			`UPDATE job_runs SET status = $1 WHERE id = $2 AND status = $3`,
+			domain.StatusQueued,
+			jobRunID,
+			domain.StatusWaiting,
+		)
+		if err != nil {
+			return fmt.Errorf("requeue run: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("%w: id %s from %s", ErrRunConflict, jobRunID, domain.StatusWaiting)
+		}
+		return nil
+	}
+
 	txb, ok := q.db.(TxBeginner)
 	if !ok {
 		// Fallback: not a pool (e.g., already in a tx). Execute sequentially.
 		if err := q.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
 			return fmt.Errorf("update trigger status: %w", err)
 		}
-		return q.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, nil)
+		return requeueRun(q)
 	}
 
 	return WithTx(ctx, txb, func(txQ *Queries) error {
 		if err := txQ.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
 			return fmt.Errorf("update trigger status: %w", err)
 		}
-		return txQ.UpdateRunStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, nil)
+		return requeueRun(txQ)
 	})
 }
 

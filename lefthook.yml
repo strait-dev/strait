@@ -9,6 +9,12 @@ pre-commit:
       glob: "*.go"
       fail_text: "golangci-lint failed — fix lint errors before committing"
     openapi_parity:
-      run: go run ./scripts/check_openapi_parity.go
-      glob: "{internal/api/routes.go,internal/api/openapi.yaml,docs/openapi.yaml,scripts/check_openapi_parity.go}"
+      run: go run ./scripts/check-openapi-parity
+      glob: "{internal/api/routes.go,internal/api/openapi.yaml,docs/openapi.yaml,scripts/check-openapi-parity/main.go}"
       fail_text: "OpenAPI parity check failed — sync routes.go with both OpenAPI specs before committing"
+
+commit-msg:
+  commands:
+    conventional_commits:
+      run: "grep -qE '^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert)(\\(.+\\))?!?: .{1,}$' {1} || (echo 'Commit message must follow Conventional Commits: type(scope): message' && exit 1)"
+      fail_text: "Commit message must follow Conventional Commits format: type(scope): message"

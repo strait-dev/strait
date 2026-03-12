@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type Status string
@@ -54,12 +56,11 @@ func (r *Registry) CheckAll(ctx context.Context) CheckResult {
 	r.mu.RUnlock()
 
 	results := make([]ComponentResult, len(checkers))
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for i, c := range checkers {
-		wg.Add(1)
-		go func(idx int, checker Checker) {
-			defer wg.Done()
+		idx, checker := i, c
+		wg.Go(func() {
 			start := time.Now()
 			err := checker.Check(ctx)
 			latency := time.Since(start)
@@ -76,7 +77,7 @@ func (r *Registry) CheckAll(ctx context.Context) CheckResult {
 				cr.Status = StatusUp
 			}
 			results[idx] = cr
-		}(i, c)
+		})
 	}
 
 	wg.Wait()

@@ -45,12 +45,14 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 	if pub != nil {
 		p = pub
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config: cfg,
 		Store:  s,
 		Queue:  q,
 		PubSub: p,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, pinger Pinger) *Server {
@@ -63,13 +65,15 @@ func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPu
 	if pub != nil {
 		p = pub
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config: cfg,
 		Store:  s,
 		Queue:  q,
 		PubSub: p,
 		Pinger: pinger,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func authedRequest(method, path string, body string) *http.Request {
@@ -160,28 +164,25 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
-}
 
-func TestHandleCreateJob_TagsFeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-
-	body := `{
-		"project_id": "proj-1",
-		"name": "Tagged Job",
-		"slug": "tagged-job",
-		"endpoint_url": "https://example.com/callback",
-		"tags": {"team": "core"}
-	}`
-
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	var resp struct {
+		Error struct {
+			Code    string   `json:"code"`
+			Message string   `json:"message"`
+			Details []string `json:"details"`
+		} `json:"error"`
 	}
-	if !strings.Contains(w.Body.String(), "job tags feature is not enabled") {
-		t.Fatalf("expected disabled-tags error, got %s", w.Body.String())
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Error.Code != ErrorCodeValidationError {
+		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
+	}
+	if resp.Error.Message != "validation failed" {
+		t.Fatalf("expected validation failed message, got %q", resp.Error.Message)
+	}
+	if len(resp.Error.Details) == 0 {
+		t.Fatal("expected validation details")
 	}
 }
 
@@ -205,7 +206,6 @@ func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
 	}
 
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFJobTags = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", string(body)))
 
@@ -234,7 +234,6 @@ func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
 	}
 
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFJobTags = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", string(body)))
 
@@ -345,7 +344,6 @@ func TestHandleCreateJobGroup_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	body := `{
 		"project_id": "proj-1",
@@ -367,23 +365,23 @@ func TestHandleCreateJobGroup_Success(t *testing.T) {
 func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
-}
 
-func TestHandleCreateJobGroup_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{"project_id":"proj-1","name":"Core","slug":"core"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Error.Code != ErrorCodeValidationError {
+		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
 	}
 }
 
@@ -395,7 +393,6 @@ func TestHandleGetJobGroup_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1", ""))
@@ -413,7 +410,6 @@ func TestHandleGetJobGroup_NotFound(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/missing", ""))
@@ -434,7 +430,6 @@ func TestHandleListJobGroups_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/?project_id=proj-1", ""))
@@ -460,7 +455,6 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/job-groups/group-123", ""))
@@ -481,7 +475,6 @@ func TestHandleListJobsByGroup_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1/jobs", ""))
@@ -508,7 +501,6 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobTags = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
@@ -521,20 +513,6 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp))
-	}
-}
-
-func TestHandleListJobs_FilterByTag_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "job tags feature is not enabled") {
-		t.Fatalf("expected disabled-tags error, got %s", w.Body.String())
 	}
 }
 
@@ -560,7 +538,6 @@ func TestHandleCreateJobDependency_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobDependencies = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-2"}`))
@@ -590,7 +567,6 @@ func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobDependencies = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-1"}`))
@@ -608,25 +584,12 @@ func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobDependencies = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestHandleCreateJobDependency_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-2"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }
 
@@ -638,7 +601,6 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobDependencies = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies", ""))
@@ -667,7 +629,6 @@ func TestHandleDeleteJobDependency_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobDependencies = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-1/dependencies/dep-9", ""))
@@ -1293,7 +1254,6 @@ func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobTags = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", string(body)))
 
@@ -1328,7 +1288,6 @@ func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobTags = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", string(body)))
 
@@ -1379,7 +1338,6 @@ func TestHandleReplayRun_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunReplay = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
 
@@ -1408,27 +1366,6 @@ func TestHandleReplayRun_Success(t *testing.T) {
 	}
 }
 
-func TestHandleReplayRun_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-			t.Fatal("GetRun should not be called when replay feature is disabled")
-			return nil, nil
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "run replay is not enabled") {
-		t.Fatalf("expected replay-disabled error, got %s", w.Body.String())
-	}
-}
-
 func TestHandleReplayRun_DisabledJob(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
@@ -1441,7 +1378,6 @@ func TestHandleReplayRun_DisabledJob(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunReplay = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
 
@@ -1462,7 +1398,6 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunReplay = true
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
 
@@ -1486,7 +1421,6 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunDLQ = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/dlq?project_id=proj-1&limit=25", ""))
@@ -1505,25 +1439,6 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 	}
 }
 
-func TestHandleListDeadLetterRuns_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{
-		listDeadLetterRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			t.Fatal("ListDeadLetterRuns should not be called when FFRunDLQ is disabled")
-			return nil, nil
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/dlq?project_id=proj-1", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
@@ -1536,7 +1451,6 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunDLQ = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/dlq-replay", ""))
@@ -1563,13 +1477,56 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunDLQ = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/dlq-replay", ""))
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		bulkReplayDeadLetterRunsFn: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+			if len(runIDs) != 2 || runIDs[0] != "run-1" || runIDs[1] != "run-2" {
+				t.Fatalf("unexpected run_ids: %+v", runIDs)
+			}
+			if projectID != "" {
+				t.Fatalf("expected empty project_id, got %q", projectID)
+			}
+			if limit != 0 {
+				t.Fatalf("expected zero limit for run_ids mode, got %d", limit)
+			}
+			return []domain.JobRun{
+				{ID: "run-1", Status: domain.StatusQueued, Attempt: 1},
+				{ID: "run-2", Status: domain.StatusQueued, Attempt: 1},
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1","run-2"]}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Count    int             `json:"count"`
+		Replayed []domain.JobRun `json:"replayed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Count != 2 {
+		t.Fatalf("expected count=2, got %d", resp.Count)
+	}
+	if len(resp.Replayed) != 2 {
+		t.Fatalf("expected 2 replayed runs, got %d", len(resp.Replayed))
 	}
 }
 
@@ -1598,7 +1555,6 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 	mq := &mockQueue{}
 	srv := newTestServer(t, ms, mq, nil)
 	// Enable dry-run feature
-	srv.config.FFDryRun = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"dry_run": true}`))
@@ -1727,7 +1683,6 @@ func TestHandleBatchCreateJobs_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	body := `{"jobs":[
 		{"project_id":"proj-1","name":"Job A","slug":"job-a","endpoint_url":"https://example.com/a"},
@@ -1766,7 +1721,6 @@ func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	// First job valid, second missing required fields
 	body := `{"jobs":[
@@ -1799,7 +1753,6 @@ func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	body := `{"jobs":[
 		{"project_id":"","name":"","slug":"","endpoint_url":""},
@@ -1816,7 +1769,6 @@ func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
 func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", `{"jobs":[]}`))
@@ -1826,26 +1778,9 @@ func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
 	}
 }
 
-func TestHandleBatchCreateJobs_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	// FFBatchJobOps defaults to false
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", `{"jobs":[{"project_id":"p","name":"n","slug":"s","endpoint_url":"https://example.com"}]}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-	if !strings.Contains(w.Body.String(), "batch job operations feature is not enabled") {
-		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
-	}
-}
-
 func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	jobs := make([]map[string]string, 51)
 	for i := range jobs {
@@ -1880,7 +1815,6 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1","job-2","job-3"]}`))
@@ -1914,7 +1848,6 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-disable", `{"ids":["job-1","job-2"]}`))
@@ -1938,7 +1871,6 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":[]}`))
@@ -1951,25 +1883,9 @@ func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
 	}
 }
 
-func TestHandleBatchEnableJobs_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1"]}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-	if !strings.Contains(w.Body.String(), "batch job operations feature is not enabled") {
-		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
-	}
-}
-
 func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFBatchJobOps = true
 
 	ids := make([]string, 51)
 	for i := range ids {
@@ -2010,7 +1926,6 @@ func TestHandleGetJobHealth_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobHealthScoring = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health?window=7d", ""))
@@ -2048,7 +1963,6 @@ func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobHealthScoring = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health", ""))
@@ -2074,7 +1988,6 @@ func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobHealthScoring = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health?window=2w", ""))
@@ -2095,28 +2008,12 @@ func TestHandleGetJobHealth_NotFound(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobHealthScoring = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/missing/health", ""))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-}
-
-func TestHandleGetJobHealth_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-	if !strings.Contains(w.Body.String(), "job health scoring feature is not enabled") {
-		t.Fatalf("expected feature-disabled error, got %s", w.Body.String())
 	}
 }
 
@@ -2133,7 +2030,6 @@ func TestHandleCreateEnvironment_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	body := `{
 		"project_id": "proj-1",
@@ -2156,25 +2052,12 @@ func TestHandleCreateEnvironment_Success(t *testing.T) {
 func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestHandleCreateEnvironment_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{"project_id":"proj-1","name":"Development","slug":"dev"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -2198,7 +2081,6 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-1", ""))
@@ -2234,7 +2116,6 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/?project_id=proj-1", ""))
@@ -2261,7 +2142,6 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-1/variables", ""))
@@ -2300,7 +2180,6 @@ func TestHandleGetDebugBundle_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFDebugBundle = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
@@ -2324,25 +2203,6 @@ func TestHandleGetDebugBundle_Success(t *testing.T) {
 	}
 }
 
-func TestHandleGetDebugBundle_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{
-		getDebugBundleFn: func(_ context.Context, _ string) (*domain.DebugBundle, error) {
-			t.Fatal("GetDebugBundle should not be called when FFDebugBundle is disabled")
-			return nil, nil
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
@@ -2352,7 +2212,6 @@ func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFDebugBundle = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
@@ -2375,7 +2234,6 @@ func TestHandleSetDebugMode_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFDebugBundle = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
@@ -2391,25 +2249,6 @@ func TestHandleSetDebugMode_Success(t *testing.T) {
 	}
 }
 
-func TestHandleSetDebugMode_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{
-		updateRunDebugModeFn: func(_ context.Context, _ string, _ bool) error {
-			t.Fatal("UpdateRunDebugMode should not be called when FFDebugBundle is disabled")
-			return nil
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
@@ -2419,7 +2258,6 @@ func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFDebugBundle = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
@@ -2462,7 +2300,6 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 			return nil
 		},
 	}, nil)
-	srv.config.FFRunReplay = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=2", ""))
@@ -2503,7 +2340,6 @@ func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunReplay = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=99", ""))
@@ -2529,7 +2365,6 @@ func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunReplay = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=abc", ""))
@@ -2553,7 +2388,6 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))
@@ -2572,19 +2406,6 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 	}
 }
 
-func TestHandleListRunLineage_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFRunContinuation = false
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestHandleListRunLineage_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
@@ -2593,7 +2414,6 @@ func TestHandleListRunLineage_StoreError(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))

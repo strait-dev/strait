@@ -675,7 +675,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 	}
 	defer rows.Close()
 
-	jobs := make([]domain.Job, 0)
+	jobs := make([]domain.Job, 0, limit)
 	for rows.Next() {
 		job, scanErr := scanJob(rows)
 		if scanErr != nil {

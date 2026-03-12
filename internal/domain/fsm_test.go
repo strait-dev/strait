@@ -81,6 +81,7 @@ func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		{StatusCanceled, true},
 		{StatusExpired, true},
 		{StatusDeadLetter, false},
+		{StatusReplayStaged, false},
 	}
 
 	for _, tc := range tests {
@@ -108,6 +109,7 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 		StatusCanceled,
 		StatusExpired,
 		StatusDeadLetter,
+		StatusReplayStaged,
 	}
 
 	for _, status := range allStatuses {
@@ -143,7 +145,11 @@ func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
 	}{
 		{name: "executing to dead_letter is valid", from: StatusExecuting, to: StatusDeadLetter},
 		{name: "dead_letter to queued is valid", from: StatusDeadLetter, to: StatusQueued},
+		{name: "dead_letter to replay_staged is valid", from: StatusDeadLetter, to: StatusReplayStaged},
+		{name: "replay_staged to queued is valid", from: StatusReplayStaged, to: StatusQueued},
+		{name: "replay_staged to canceled is valid", from: StatusReplayStaged, to: StatusCanceled},
 		{name: "dead_letter to completed is invalid", from: StatusDeadLetter, to: StatusCompleted, wantErr: true},
+		{name: "replay_staged to completed is invalid", from: StatusReplayStaged, to: StatusCompleted, wantErr: true},
 	}
 
 	for _, tc := range tests {

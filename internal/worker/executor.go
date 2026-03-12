@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/domain"
@@ -53,7 +54,9 @@ type WorkflowCallback interface {
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                   *Pool
+	concurrencyLimit       ConcurrencyLimitProvider
 	queue                  queue.Queue
+	wake                   <-chan struct{}
 	store                  ExecutorStore
 	httpClient             *http.Client
 	pollInterval           time.Duration
@@ -63,13 +66,6 @@ type Executor struct {
 	workflowCallback       WorkflowCallback
 	partitionCycle         []string
 	nextPartition          int
-	circuitBreaker         bool
-	secretInjection        bool
-	smartRetry             bool
-	bulkheads              bool
-	executionTracing       bool
-	adaptiveTimeout        bool
-	dlqEnabled             bool
 	jobActiveRuns          map[string]int
 	jobActiveRunsMu        sync.Mutex
 	circuitThreshold       int
@@ -78,12 +74,24 @@ type Executor struct {
 	webhookClient          *http.Client
 	webhookMaxRetry        int
 	webhookDispatchTimeout time.Duration
+	stop                   chan struct{}
+	done                   chan struct{}
+	stopOnce               sync.Once
+	pollWG                 sync.WaitGroup
+	pollInFlight           atomic.Int64
+	runStarted             atomic.Bool
+}
+
+type ConcurrencyLimitProvider interface {
+	CurrentLimit() int
 }
 
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
 	Pool                    *Pool
 	Queue                   queue.Queue
+	Wake                    <-chan struct{}
+	ConcurrencyLimit        ConcurrencyLimitProvider
 	Store                   ExecutorStore
 	Publisher               pubsub.Publisher
 	HTTPClient              *http.Client
@@ -93,13 +101,6 @@ type ExecutorConfig struct {
 	WorkflowCallback        WorkflowCallback
 	Partitions              []string
 	PartitionWeights        string
-	CircuitBreaker          bool
-	SecretInjection         bool
-	SmartRetry              bool
-	Bulkheads               bool
-	ExecutionTracing        bool
-	AdaptiveTimeout         bool
-	DLQEnabled              bool
 	ExecutorHTTPTimeout     time.Duration
 	ExecutorIdleConnTimeout time.Duration
 	WebhookTimeout          time.Duration
@@ -162,7 +163,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 
 	return &Executor{
 		pool:                   cfg.Pool,
+		concurrencyLimit:       cfg.ConcurrencyLimit,
 		queue:                  cfg.Queue,
+		wake:                   cfg.Wake,
 		store:                  cfg.Store,
 		httpClient:             httpClient,
 		pollInterval:           cfg.PollInterval,
@@ -171,13 +174,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		metrics:                cfg.Metrics,
 		workflowCallback:       cfg.WorkflowCallback,
 		partitionCycle:         buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
-		circuitBreaker:         cfg.CircuitBreaker,
-		secretInjection:        cfg.SecretInjection,
-		smartRetry:             cfg.SmartRetry,
-		bulkheads:              cfg.Bulkheads,
-		executionTracing:       cfg.ExecutionTracing,
-		adaptiveTimeout:        cfg.AdaptiveTimeout,
-		dlqEnabled:             cfg.DLQEnabled,
 		jobActiveRuns:          make(map[string]int),
 		circuitThreshold:       defaultCircuitFailureThreshold,
 		circuitOpenFor:         defaultCircuitOpenDuration,
@@ -185,11 +181,13 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		webhookClient:          whClient,
 		webhookMaxRetry:        whMaxAttempts,
 		webhookDispatchTimeout: whDispatchTimeout,
+		stop:                   make(chan struct{}),
+		done:                   make(chan struct{}),
 	}
 }
 
 func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {
-	if !e.bulkheads || maxConcurrency <= 0 {
+	if maxConcurrency <= 0 {
 		return true
 	}
 
@@ -205,7 +203,7 @@ func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool
 }
 
 func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
-	if !e.bulkheads || maxConcurrency <= 0 {
+	if maxConcurrency <= 0 {
 		return
 	}
 
@@ -257,9 +255,15 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 	}
 }
 
-// Run starts the polling loop. Blocks until ctx is canceled.
+// Run starts the heartbeat manager and polling loop. Blocks until ctx is canceled.
 func (e *Executor) Run(ctx context.Context) {
+	e.runStarted.Store(true)
+	defer close(e.done)
+
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
+
+	go e.heartbeat.Run(ctx)
+
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
@@ -268,8 +272,44 @@ func (e *Executor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			e.logger.Info("executor stopping")
 			return
-		case <-ticker.C:
+		case <-e.stop:
+			e.logger.Info("executor stopping")
+			return
+		case _, ok := <-e.wake:
+			if !ok {
+				e.wake = nil
+				continue
+			}
+			e.pollWG.Add(1)
+			e.pollInFlight.Add(1)
 			e.poll(ctx)
+			e.pollInFlight.Add(-1)
+			e.pollWG.Done()
+		case <-ticker.C:
+			e.pollWG.Add(1)
+			e.pollInFlight.Add(1)
+			e.poll(ctx)
+			e.pollInFlight.Add(-1)
+			e.pollWG.Done()
 		}
 	}
+}
+
+func (e *Executor) Shutdown(ctx context.Context) error {
+	e.stopOnce.Do(func() {
+		close(e.stop)
+	})
+
+	if !e.runStarted.Load() {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-e.done:
+	}
+
+	e.pollWG.Wait()
+	return nil
 }

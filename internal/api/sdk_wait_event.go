@@ -38,11 +38,6 @@ func (e *quotaExceededError) Error() string {
 func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 
-	if !s.config.FFEventTriggers {
-		respondError(w, r, http.StatusNotFound, "event triggers feature is not enabled")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 
 	var req SDKWaitForEventRequest
@@ -102,16 +97,13 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("update run status: %w", err)
 		}
 
-		// Enforce per-project event trigger quota if configured.
-		if s.config.FFProjectQuotas {
-			quota, qErr := txStore.GetProjectQuota(r.Context(), run.ProjectID)
-			if qErr == nil && quota != nil && quota.MaxActiveEventTriggers > 0 {
-				active, cErr := txStore.CountActiveEventTriggersByProject(r.Context(), run.ProjectID)
-				if cErr != nil {
-					slog.Warn("failed to count active triggers for quota check", "project_id", run.ProjectID, "error", cErr)
-				} else if active >= quota.MaxActiveEventTriggers {
-					return &quotaExceededError{max: quota.MaxActiveEventTriggers}
-				}
+		quota, qErr := txStore.GetProjectQuota(r.Context(), run.ProjectID)
+		if qErr == nil && quota != nil && quota.MaxActiveEventTriggers > 0 {
+			active, cErr := txStore.CountActiveEventTriggersByProject(r.Context(), run.ProjectID)
+			if cErr != nil {
+				slog.Warn("failed to count active triggers for quota check", "project_id", run.ProjectID, "error", cErr)
+			} else if active >= quota.MaxActiveEventTriggers {
+				return &quotaExceededError{max: quota.MaxActiveEventTriggers}
 			}
 		}
 

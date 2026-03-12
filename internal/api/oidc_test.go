@@ -80,6 +80,7 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 		},
 		Store: ms,
 	})
+	t.Cleanup(srv.Close)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 	r.Header.Set("Authorization", "Bearer "+signed)
@@ -114,6 +115,7 @@ func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
 		},
 		Store: &mockAPIStore{},
 	})
+	t.Cleanup(srv.Close)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 	r.Header.Set("Authorization", "Bearer "+signed)
@@ -148,6 +150,7 @@ func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
 		},
 		Store: &mockAPIStore{},
 	})
+	t.Cleanup(srv.Close)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 	r.Header.Set("Authorization", "Bearer "+signed)

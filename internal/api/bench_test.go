@@ -58,6 +58,7 @@ func BenchmarkHandleTriggerJob(b *testing.B) {
 		Store:  ms,
 		Queue:  mq,
 	})
+	b.Cleanup(srv.Close)
 	body := `{"payload":{"key":"value"}}`
 	var reqCount atomic.Uint64
 
@@ -92,6 +93,7 @@ func BenchmarkHandleBulkTrigger(b *testing.B) {
 		Store:  ms,
 		Queue:  mq,
 	})
+	b.Cleanup(srv.Close)
 	body := `{"items":[{},{},{},{},{},{},{},{},{},{}]}`
 
 	b.ReportAllocs()
@@ -127,6 +129,7 @@ func BenchmarkHandleBulkCancel(b *testing.B) {
 		Store:  ms,
 		Queue:  &mockQueue{},
 	})
+	b.Cleanup(srv.Close)
 	body := `{"run_ids":["run-1","run-2","run-3","run-4","run-5","run-6","run-7","run-8","run-9","run-10"]}`
 
 	b.ReportAllocs()
@@ -156,6 +159,7 @@ func BenchmarkHandleStats(b *testing.B) {
 		Store:  ms,
 		Queue:  &mockQueue{},
 	})
+	b.Cleanup(srv.Close)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -194,6 +198,7 @@ func BenchmarkHandleListJobs(b *testing.B) {
 		Store:  ms,
 		Queue:  &mockQueue{},
 	})
+	b.Cleanup(srv.Close)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -230,6 +235,7 @@ func BenchmarkAPIKeyAuth(b *testing.B) {
 		Store:  ms,
 		Queue:  &mockQueue{},
 	})
+	b.Cleanup(srv.Close)
 	auth := "Bearer " + rawKey
 
 	b.ReportAllocs()

@@ -13,6 +13,13 @@ import (
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
 	available := e.pool.Available()
+	if e.concurrencyLimit != nil {
+		target := max(e.concurrencyLimit.CurrentLimit(), 1)
+		adaptiveAvailable := target - e.pool.ActiveCount()
+		if adaptiveAvailable < available {
+			available = adaptiveAvailable
+		}
+	}
 	if available <= 0 {
 		return
 	}
@@ -49,7 +56,7 @@ func (e *Executor) poll(ctx context.Context) {
 		)
 
 		execCtx := context.WithoutCancel(ctx)
-		e.pool.Submit(ctx, func() {
+		e.pool.Submit(execCtx, func() {
 			defer func() {
 				if r := recover(); r != nil {
 					e.logger.Error("panic in executor goroutine", "run_id", run.ID, "panic", r)

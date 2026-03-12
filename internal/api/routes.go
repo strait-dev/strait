@@ -23,6 +23,7 @@ func (s *Server) routes() chi.Router {
 		AllowCredentials: s.config.CORSAllowCredentials,
 		MaxAge:           300,
 	}))
+	r.Use(securityHeaders)
 
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -114,6 +115,9 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateJobGroup)
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteJobGroup)
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", s.handleListJobsByGroup)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause-all", s.handlePauseAllJobsByGroup)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume-all", s.handleResumeAllJobsByGroup)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", s.handleGetJobGroupStats)
 			})
 		})
 
@@ -131,6 +135,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/runs", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListRuns)
 			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dlq", s.handleListDeadLetterRuns)
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-dlq-replay", s.handleBulkReplayDeadLetterRuns)
 			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel", s.handleBulkCancelRuns)
 			r.Route("/{runID}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleGetRun)
@@ -154,6 +159,19 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/webhook-deliveries", s.handleListWebhookDeliveries)
 		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", s.handleRetryWebhookDelivery)
 
+		r.Route("/webhooks", func(r chi.Router) {
+			r.Route("/deliveries", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookDeliveries)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", s.handleGetWebhookDelivery)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/retry", s.handleRetryWebhookDelivery)
+			})
+			r.Route("/subscriptions", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/", s.handleCreateWebhookSubscription)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookSubscriptions)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/{id}", s.handleDeleteWebhookSubscription)
+			})
+		})
+
 		r.Route("/api-keys", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage), httprate.LimitByIP(10, time.Minute)).Post("/", s.handleCreateAPIKey)
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", s.handleListAPIKeys)
@@ -162,6 +180,10 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", s.handleStats)
+
+		r.Route("/analytics", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/performance", s.handleGetPerformanceAnalytics)
+		})
 
 		r.Route("/roles", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/", s.handleCreateRole)

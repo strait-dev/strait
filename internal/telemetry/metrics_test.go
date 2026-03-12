@@ -41,6 +41,21 @@ func TestInitMetrics(t *testing.T) {
 	if metrics.DispatchErrors == nil {
 		t.Error("DispatchErrors is nil")
 	}
+	if metrics.WebhookDeliveriesTotal == nil {
+		t.Error("WebhookDeliveriesTotal is nil")
+	}
+	if metrics.WebhookDeliveryDuration == nil {
+		t.Error("WebhookDeliveryDuration is nil")
+	}
+	if metrics.WebhookDeliveryAttempts == nil {
+		t.Error("WebhookDeliveryAttempts is nil")
+	}
+	if metrics.WebhookCircuitBreaker == nil {
+		t.Error("WebhookCircuitBreaker is nil")
+	}
+	if metrics.WebhookPayloadBytes == nil {
+		t.Error("WebhookPayloadBytes is nil")
+	}
 }
 
 func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
@@ -209,12 +224,52 @@ func TestStraitMetricInstruments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Int64Counter(dispatch.errors) error = %v", err)
 	}
+	webhookDeliveriesTotal, err := meter.Int64Counter("strait_webhook_deliveries_total",
+		metric.WithDescription("Total webhook deliveries by delivery status and retry policy"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		t.Fatalf("Int64Counter(webhook.deliveries.total) error = %v", err)
+	}
+	webhookDeliveryDuration, err := meter.Float64Histogram("strait_webhook_delivery_duration_seconds",
+		metric.WithDescription("Webhook delivery HTTP request duration in seconds"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		t.Fatalf("Float64Histogram(webhook.delivery.duration) error = %v", err)
+	}
+	webhookDeliveryAttempts, err := meter.Int64Counter("strait_webhook_delivery_attempts_total",
+		metric.WithDescription("Total webhook delivery attempts"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		t.Fatalf("Int64Counter(webhook.delivery.attempts) error = %v", err)
+	}
+	webhookCircuitBreaker, err := meter.Int64Gauge("strait_webhook_circuit_breaker_state",
+		metric.WithDescription("Webhook circuit breaker state (1=current state, 0=other states)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		t.Fatalf("Int64Gauge(webhook.circuit_breaker.state) error = %v", err)
+	}
+	webhookPayloadBytes, err := meter.Int64Histogram("strait_webhook_payload_bytes",
+		metric.WithDescription("Webhook payload size in bytes"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		t.Fatalf("Int64Histogram(webhook.payload.bytes) error = %v", err)
+	}
 
 	ctx := context.Background()
 	runTransitions.Add(ctx, 10)
 	dequeueDuration.Record(ctx, 0.05)
 	dispatchDuration.Record(ctx, 1.2)
 	dispatchErrors.Add(ctx, 2)
+	webhookDeliveriesTotal.Add(ctx, 1)
+	webhookDeliveryDuration.Record(ctx, 0.2)
+	webhookDeliveryAttempts.Add(ctx, 1)
+	webhookCircuitBreaker.Record(ctx, 1)
+	webhookPayloadBytes.Record(ctx, 256)
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {
@@ -224,7 +279,7 @@ func TestStraitMetricInstruments(t *testing.T) {
 	if len(rm.ScopeMetrics) == 0 {
 		t.Fatal("no scope metrics collected")
 	}
-	if got := len(rm.ScopeMetrics[0].Metrics); got != 4 {
-		t.Errorf("collected %d metrics, want 4", got)
+	if got := len(rm.ScopeMetrics[0].Metrics); got != 9 {
+		t.Errorf("collected %d metrics, want 9", got)
 	}
 }

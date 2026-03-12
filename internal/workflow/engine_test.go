@@ -448,6 +448,85 @@ func TestTriggerWorkflow(t *testing.T) {
 
 }
 
+func TestTriggerWorkflow_NestingDepthExceeded(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			switch id {
+			case "wf-parent", "wf-child":
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			default:
+				return nil, nil
+			}
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, _ int) ([]domain.WorkflowStep, error) {
+			if workflowID == "wf-parent" {
+				return []domain.WorkflowStep{{
+					ID:              "step-sub",
+					StepRef:         "sub",
+					StepType:        domain.WorkflowStepTypeSubWorkflow,
+					SubWorkflowID:   "wf-child",
+					MaxNestingDepth: 1,
+				}}, nil
+			}
+			return []domain.WorkflowStep{{ID: "child-root", StepRef: "child-root", JobID: "job-child"}}, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			run.ID = "wr-" + run.WorkflowID
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+			sr.ID = "sr-" + sr.StepRef
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "parent-run" {
+				return &domain.WorkflowRun{ID: "parent-run"}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+	_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "parent-run", "")
+	if err == nil {
+		t.Fatal("expected nesting depth error")
+	}
+	if !strings.Contains(err.Error(), "nesting depth") {
+		t.Fatalf("error = %v, want nesting depth context", err)
+	}
+}
+
+func TestTriggerWorkflow_ConcurrencyLimitReached(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1, MaxConcurrentRuns: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "step-a", JobID: "job-a", StepRef: "a"}}, nil
+		},
+		countRunningWorkflowRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 1, nil
+		},
+	}
+	mq := &mockEngineQueue{}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
+	if err == nil {
+		t.Fatal("expected concurrency limit error")
+	}
+	if !strings.Contains(err.Error(), "max concurrent runs") {
+		t.Fatalf("error = %v, want max concurrent runs context", err)
+	}
+}
+
 func TestMergePayloads(t *testing.T) {
 	t.Parallel()
 	t.Run("object merge with parent outputs", func(t *testing.T) {
@@ -521,6 +600,7 @@ type mockCallbackStore struct {
 	getEventTriggerByStepRunIDFn        func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	getEventTriggerByEventKeyFn         func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	advisoryXactLockFn                  func(ctx context.Context, lockID int64) error
 	createWorkflowStepDecisionFn        func(ctx context.Context, d *domain.WorkflowStepDecision) error
 }
 
@@ -541,6 +621,13 @@ func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, event
 func (m *mockCallbackStore) UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
 	if m.updateEventTriggerStatusFn != nil {
 		return m.updateEventTriggerStatusFn(ctx, id, status, responsePayload, receivedAt, errMsg)
+	}
+	return nil
+}
+
+func (m *mockCallbackStore) AdvisoryXactLock(ctx context.Context, lockID int64) error {
+	if m.advisoryXactLockFn != nil {
+		return m.advisoryXactLockFn(ctx, lockID)
 	}
 	return nil
 }

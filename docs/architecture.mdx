@@ -104,137 +104,26 @@ The core logic resides in `internal/` directory, organized into specialized pack
   </Card>
 </CardGroup>
 
-## Technology Stack & Design Rationale
-
-### Go 1.26
-
-**Why This Technology:**
-
-Go is ideal for a distributed job orchestration service because it combines enterprise-grade performance with operational simplicity. The single binary distribution eliminates runtime dependency management—no Python venvs, no node_modules, no container images required. This dramatically reduces deployment complexity and attack surface.
-
-Go's concurrency primitives—goroutines, channels, and the sync package—provide a robust foundation for parallel job execution without external dependencies. The worker pool can spin up hundreds of concurrent goroutines with minimal overhead, each handling independent job dispatches. Channels enable elegant coordination between the executor, scheduler, and background maintenance tasks without complex distributed coordination systems.
-
-For a job orchestration service, cold start performance matters. Go compiles to native code that starts instantly, crucial for rapid worker scaling during traffic spikes. Unlike interpreted languages, there's no JIT warmup period or garbage collection tuning needed at scale.
-
-The standard library provides production-ready HTTP server, JSON handling, and cryptographic primitives without external dependencies. This reduces vulnerability surface and ensures long-term stability—critical infrastructure that won't be abandoned in 3 years.
-
-### PostgreSQL 18 with SELECT FOR UPDATE SKIP LOCKED
-
-**Why This Technology:**
-
-Using PostgreSQL as both the job queue and state store eliminates distributed transaction complexity. When a job is triggered, the enqueue operation and state update happen in a single database transaction. No message broker coordination is required—no RabbitMQ, SQS, or Kafka to manage, configure, or scale horizontally. This reduces operational overhead significantly while ensuring exactly-once semantics.
-
-`SELECT FOR UPDATE SKIP LOCKED` is the key mechanism that enables PostgreSQL to function as a message queue. Multiple workers can poll the same table concurrently, but each query locks only rows it will process and skips rows already locked by other workers. This provides lock-free dequeue with ACID guarantees at the database level. No distributed locks, no leader election, no coordination service.
-
-Batch dequeue operations use Common Table Expressions (CTEs) to claim up to N rows in a single database round-trip. This amortizes connection overhead and improves throughput at scale.
-
-PostgreSQL provides excellent support for JSONB fields, enabling flexible job metadata, workflow DAG definitions, and execution traces without schema migrations for every new field. The partial indexes on `status = 'queued'` and `priority DESC, created_at ASC` ensure efficient dequeue queries even with millions of queued runs.
-
-### Redis 8
-
-**Why This Technology:**
-
-Redis provides the pub/sub layer that decouples real-time streaming from the transactional database layer. When a job run completes, state changes are published to Redis channels. Clients can subscribe to these channels via Server-Sent Events (SSE) for real-time dashboards without polling the API. This reduces database load and provides sub-second latency for UI updates.
-
-For Change Data Capture (CDC), Sequin streams Postgres WAL events through Redis channels. This enables real-time notifications when job definitions change, workflows update, or runs complete—without application-level triggers that run within transactions and could slow down operations under load.
-
-Redis cluster mode provides horizontal scalability for the pub/sub layer. As the number of concurrent SSE connections grows, the Redis cluster can distribute channel subscriptions across multiple nodes.
-
-### pgx/v5 (Raw SQL over ORM)
-
-**Why This Technology:**
-
-The `pgx/v5` library provides low-level access to PostgreSQL with fine-grained control over connection pooling, prepared statements, and transaction boundaries. For performance-critical operations like `SELECT FOR UPDATE SKIP LOCKED`, using raw SQL ensures the exact query structure needed for lock-free dequeue. ORMs introduce abstraction layers that may not support these patterns efficiently or may generate suboptimal queries for batch operations.
-
-Connection pooling is configurable and critical for production deployments. The pool manages connection lifecycle, limits concurrent connections to prevent database exhaustion, and provides metrics for monitoring. Transactions use the `WithTx` helper to wrap multiple queries in ACID boundaries for operations like enqueue with budget checks.
-
-Prepared statements are automatically used for repeated queries, reducing parsing overhead. This is particularly important for worker dequeue loops that execute the same queries millions of times.
-
-### Chi/v5 HTTP Router
-
-**Why This Technology:**
-
-Chi is a lightweight, composable HTTP router that provides excellent performance with minimal allocations in the hot request path. For a job orchestration service API handling thousands of requests per second, memory allocation efficiency translates directly to better throughput and lower GC pressure.
-
-The middleware chain composes independently—RequestID generation, real IP extraction, OTel tracing, request logging, panic recovery, rate limiting, and authentication can each be developed, tested, and debugged separately. This modularity enables adding cross-cutting concerns without modifying route handlers.
-
-### sourcegraph/conc (Structured Concurrency)
-
-**Why This Technology:**
-
-The `sourcegraph/conc` library provides panic-safe goroutine pools and context-aware execution patterns. In a job orchestration service, background goroutines handle scheduling, heartbeat monitoring, webhook dispatch, and retention cleanup. If any of these goroutines panic, `conc` automatically recovers and logs the stack trace without crashing the entire process.
-
-Context-aware pools automatically cancel all work when the parent context is canceled. This is crucial for graceful shutdown—when Strait receives SIGTERM, all in-flight operations complete before the process exits. Pools also enforce size limits, preventing unbounded goroutine spawns that could exhaust process memory under error conditions.
-
-### alitto/pond/v2 (Worker Pool)
-
-**Why This Technology:**
-
-The `alitto/pond/v2` library implements a production-grade worker pool with bounded queue backpressure. Tasks are submitted to a buffered channel, and a configurable number of worker goroutines consume from this channel. The buffer size provides backpressure—when the queue is full, task submission blocks rather than growing unbounded memory usage.
-
-The pool exposes Prometheus metrics for active workers, queued tasks, and task completion time. These metrics enable horizontal scaling decisions—monitoring queue depth to add workers proactively before latency increases. Graceful shutdown waits for all in-flight tasks to complete, ensuring no job work is lost during deployments.
-
-### Sequin (Change Data Capture)
-
-**Why This Technology:**
-
-Sequin captures Postgres Write-Ahead Log (WAL) events in real-time and streams them through Redis. This enables applications to react to data changes without polling. For a job orchestration service, this means real-time dashboards, audit trails, and trigger-based workflows without adding application-level triggers that run within transactions.
-
-Logical replication slots provide the CDC stream without affecting transaction performance. Multiple consumers can subscribe to the same slot for different purposes—SSE streaming, cache invalidation, and external event forwarding.
-
-### OpenTelemetry (Distributed Tracing & Metrics)
-
-**Why This Technology:**
-
-OpenTelemetry provides vendor-neutral observability that works with Prometheus, Jaeger, Tempo, or any OTLP-compatible backend. The `otelchi` middleware automatically traces every HTTP request with span ID, parent/child relationships, and performance timings.
-
-Spans cover database queries, queue operations, HTTP dispatches, and workflow step execution. When debugging production issues, distributed tracing links a slow job run across the API server, worker, and external endpoint to pinpoint latency sources. Metrics expose Prometheus counters and histograms for run transitions, dequeue duration, and HTTP dispatch latency, enabling alerting and capacity planning.
-
-### golang-jwt/v5
-
-**Why This Technology:**
-
-The `golang-jwt/v5` library generates HS256 JWT tokens with the `JWT_SIGNING_KEY` for SDK authentication. Tokens include the run ID as the subject, an expiration timestamp, and issued-at claim. This allows job executors to interact with the `/sdk/v1/*` endpoints for a specific run without managing session state or long-lived credentials.
-
-JWT tokens enable stateless authentication—the server validates the signature and claims on each request without database lookups. The 60-second default expiration ensures tokens cannot be reused after the run completes.
-
-### robfig/cron/v3
-
-**Why This Technology:**
-
-The `robfig/cron/v3` library implements standard 5-field cron expressions for job scheduling. This enables time-based job triggering—hourly, daily, weekly, or custom schedules—without building custom scheduling logic.
-
-The cron scheduler maintains job IDs and schedules in memory, triggering a tick when the next execution time arrives. Timezone support ensures jobs run at the correct time regardless of server location.
-
-### golang-migrate/v4 with go:embed
-
-**Why This Technology:**
-
-The `golang-migrate/v4` library manages SQL schema migrations with up/down files. Using `go:embed` embeds migration files directly in the Go binary, eliminating the need to bundle migration files separately or mount them in containers.
-
-Migrations run automatically on startup, checking the `schema_migrations` table for the current version and applying any pending migrations. This ensures database schema is always synchronized with application code, preventing deployment failures due to mismatched schema versions.
-
-### samber/lo (Type-Safe Utilities)
-
-**Why This Technology:**
-
-The `samber/lo` library provides type-safe generic collection utilities—Map, Filter, Reduce, GroupBy, and more—for Go code. Without generics, common operations require verbose boilerplate or unsafe type assertions. These utilities provide concise, readable code for data transformations without sacrificing type safety.
-
-Map operations support functional composition, enabling pipeline-style data processing in job payloads and workflow step outputs. Type parameters inferred from usage reduce boilerplate compared to the Go standard library.
-
-### google/go-cmp
-
-**Why This Technology:**
-
-The `google/go-cmp` library provides structural comparison with human-readable diffs for test assertions. When testing job run transitions, expected vs. actual JSONB payloads can be compared with deep equality, not just pointer equality. The diff output shows exactly which fields differ, speeding up test debugging.
-
-### testcontainers-go
-
-**Why This Technology:**
-
-The `testcontainers-go` library spins up real Postgres and Redis containers for integration tests. Tests execute against actual database behavior—including `SELECT FOR UPDATE SKIP LOCKED` semantics and transaction isolation—rather than mocks that may not match production.
-
-Containers are provisioned with deterministic ports and automatically cleaned up after tests complete. This enables CI pipelines to run integration tests without external infrastructure dependencies.
+## Technology Stack
+
+| Component | Technology | Role |
+| :--- | :--- | :--- |
+| Runtime | Go 1.26 | Single binary, native concurrency, instant cold start |
+| Database | PostgreSQL 18 | State store + message queue via `SELECT FOR UPDATE SKIP LOCKED` |
+| Cache/PubSub | Redis 8 | Pub/sub for SSE streaming, CDC event distribution |
+| SQL Driver | pgx/v5 | Raw SQL with connection pooling and prepared statements |
+| HTTP Router | Chi/v5 | Composable middleware, low-allocation request handling |
+| Concurrency | sourcegraph/conc | Panic-safe goroutine pools with context-aware cancellation |
+| Worker Pool | alitto/pond/v2 | Bounded queue backpressure with Prometheus metrics |
+| CDC | Sequin | Postgres WAL streaming through Redis channels |
+| Observability | OpenTelemetry | Vendor-neutral tracing (Jaeger/Tempo) and Prometheus metrics |
+| Auth Tokens | golang-jwt/v5 | HS256 JWT for SDK run tokens (60s expiry) |
+| Scheduling | robfig/cron/v3 | 5-field cron expressions with timezone support |
+| Migrations | golang-migrate/v4 | Embedded SQL migrations via `go:embed` |
+| Utilities | samber/lo | Type-safe generic collection operations |
+| Testing | google/go-cmp, testcontainers-go | Structural diffs, real Postgres/Redis in integration tests |
+
+For detailed rationale behind each technology choice, see [Technology Choices](/docs/development/technology-choices).
 
 ## Queue Mechanics
 
@@ -299,7 +188,7 @@ The lifecycle of a job run is managed by an FSM with 13 possible states.
     │  │ completed failed timed_out system_failed    │
     │  │                │                             │
     │  │                v (max attempts reached       │
-    │  │          ┌─────────────┐  + FF_RUN_DLQ)     │
+    │  │          ┌─────────────┐                     │
     │  │          │ dead_letter │                     │
     │  │          └─────────────┘                     │
     │  │                                              │
@@ -353,7 +242,7 @@ The system implements two distinct authentication schemes:
 
 <Steps>
   <Step title="Trigger">
-    API receives POST to `/v1/jobs/{id}/trigger`. Cost budget check if FF_COST_BUDGETS enabled. Create job_run with status=queued or delayed. Generate JWT run token.
+    API receives POST to `/v1/jobs/{id}/trigger`. Cost budget check is performed. Create job_run with status=queued or delayed. Generate JWT run token.
   </Step>
   <Step title="Dequeue">
     Worker calls `DequeueN`, claiming runs via `SKIP LOCKED` and updating status to `dequeued`. Optimistic lock ensures only one worker claims each run.
@@ -362,22 +251,22 @@ The system implements two distinct authentication schemes:
     Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if strait process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
   </Step>
   <Step title="Resolve Environment">
-    If FF_ENVIRONMENTS enabled and job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
+    If job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
   </Step>
   <Step title="Dispatch">
     Executor sends HTTP POST to resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
   </Step>
   <Step title="Execution Tracing">
-    If FF_EXECUTION_TRACING enabled, capture timing breakdown: queue_wait_ms, dequeue_ms, connect_ms, ttfb_ms, transfer_ms, total_ms. Stored as JSONB in `execution_trace` column.
+    Capture timing breakdown: queue_wait_ms, dequeue_ms, connect_ms, ttfb_ms, transfer_ms, total_ms. Stored as JSONB in `execution_trace` column.
   </Step>
   <Step title="Result Handling">
-    2xx response → status=completed, store result. Non-2xx → schedule retry using job's retry_strategy or mark failed. Timeout → retry or timed_out. Adaptive timeout adjustment if FF_ADAPTIVE_TIMEOUT enabled.
+    2xx response → status=completed, store result. Non-2xx → schedule retry using job's retry_strategy or mark failed. Timeout → retry or timed_out. Adaptive timeout adjustment applied.
   </Step>
   <Step title="DLQ">
-    If FF_RUN_DLQ enabled and attempt >= max_attempts, transition to `dead_letter` instead of `failed`. Dead-lettered runs excluded from normal listings.
+    If attempt >= max_attempts, transition to `dead_letter` instead of `failed`. Dead-lettered runs excluded from normal listings.
   </Step>
   <Step title="Webhook">
-    Upon reaching terminal state, send signed POST to job's `webhook_url`. Fire-and-forget—no retries for webhooks.
+    Upon reaching terminal state, send signed POST to job's `webhook_url`. Job-run webhooks are retried up to 3 times with exponential backoff (1s, 5s delays). Event-trigger webhooks use persistent delivery via the `webhook_deliveries` table with up to 5 retries and exponential backoff, surviving process restarts. See [Webhooks](/docs/concepts/webhooks) for the full delivery lifecycle.
   </Step>
   <Step title="PubSub">
     State change published to Redis channel `run:{runID}` for SSE streaming.
@@ -713,8 +602,8 @@ updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 Partial and composite indexes ensure query performance at scale:
 
-- `idx_runs_queue`: `(status) WHERE status = 'queued'` — Fast dequeue lookup
-- `idx_runs_priority`: `(priority DESC, created_at ASC) WHERE status = 'queued'` — Priority-ordered FIFO
+- `idx_runs_queue`: `(status, next_retry_at, priority DESC, created_at ASC) WHERE status = 'queued'` — Composite dequeue lookup covering priority ordering and retry gating
+- `idx_runs_priority`: `(priority DESC, created_at ASC) WHERE status = 'queued'` — Priority-ordered FIFO fallback
 - `idx_runs_idempotency`: `(job_id, idempotency_key) WHERE idempotency_key IS NOT NULL` UNIQUE — Deduplication
 - `idx_runs_heartbeat`: `(heartbeat_at) WHERE status = 'executing'` — Stale run detection
 - `idx_runs_retry`: `(next_retry_at) WHERE status = 'queued' AND next_retry_at IS NOT NULL` — Retry gating
@@ -768,15 +657,9 @@ This flexibility enables horizontal scaling without multiple deployment artifact
 
 When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (strait shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
 
-### Feature Flags for Progressive Rollout
+### Engine Capabilities
 
-All new engine capabilities are gated behind boolean environment variables (defaulting to `false`). This enables:
-
-- **Progressive rollout**: Enable features individually in production environments
-- **Safe testing**: Test new behaviors without affecting existing workloads
-- **Independent lifecycle**: Each feature can be enabled/disabled without code changes
-
-Feature flags are validated at startup—if a flag requires additional configuration (e.g., `FF_SECRET_INJECTION` requires `SECRET_ENCRYPTION_KEY`), validation fails with a clear error message.
+Engine capabilities described in this document are built in and available by default.
 
 ### Micro-USD Cost Tracking
 
@@ -823,6 +706,8 @@ Endpoint URL validation happens in both the API server (job creation/update) and
 - Private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 - Loopback addresses (127.0.0.0/8, ::1/128)
 - Link-local addresses (169.254.0.0/16)
+- CGNAT addresses (100.64.0.0/10)
+- IPv6 Unique Local Addresses (fc00::/7)
 
 ## Performance Optimizations
 
@@ -963,6 +848,26 @@ The scheduler package runs several background goroutines:
   </Tab>
 </Tabs>
 
+## Health Endpoints
+
+Strait exposes health and readiness endpoints for infrastructure orchestration:
+
+- **`GET /health`** (liveness): Returns 200 if the process is alive. Used by Kubernetes liveness probes.
+- **`GET /health/ready`** (readiness): Returns 200 when all dependencies are ready (database, Redis, worker pool). Returns 503 with a JSON body detailing which component is not ready. Used by Kubernetes readiness probes to prevent routing traffic to uninitialized instances.
+
+The health check system uses a component registry (`internal/health/registry.go`) where each subsystem registers its health check function. This enables extensible readiness verification without modifying the health endpoint handler.
+
+## Resilience Patterns
+
+Strait implements several resilience patterns to protect against cascading failures:
+
+- **Circuit Breaker**: Per-endpoint circuit breaker tracks consecutive failures. When a threshold is reached, the circuit opens and subsequent dispatches are short-circuited to prevent overwhelming a failing endpoint. State is persisted in the `endpoint_circuit_state` PostgreSQL table.
+- **Concurrency Limiting**: Per-job `max_concurrency` cap is enforced at dequeue time via a COUNT subquery in the SKIP LOCKED query.
+- **Rate Limiting**: Per-job `rate_limit_max` and `rate_limit_window_secs` control dispatch throughput.
+- **Retry Strategies**: Configurable per-job with exponential, linear, fixed, or custom per-attempt delays. All strategies apply +/-20% jitter to prevent thundering herd.
+
+For detailed resilience patterns, see [Resilience](/docs/concepts/resilience).
+
 ## Related Documentation
 
 - [Introduction](/docs/introduction) — Product overview and key features
@@ -974,3 +879,19 @@ The scheduler package runs several background goroutines:
 - [DAG Operations Playbook](/docs/guides/dag-operations-playbook) — On-call triage, recovery, and hardening runbook for DAG incidents
 - [Event Triggers](/docs/concepts/event-triggers) — Durable external event waits
 - [CDC](/docs/concepts/cdc) — Real-time change data capture
+- [Resilience](/docs/concepts/resilience) — Circuit breaker, rate limiting, and graceful degradation
+- [Security](/docs/guides/security) — SSRF protection, HMAC signing, and access control
+
+## Performance Characteristics
+
+### Queue Throughput
+
+Strait's queue is backed by PostgreSQL `SELECT FOR UPDATE SKIP LOCKED`, which provides lock-free concurrent dequeue. Under typical workloads, a single instance can sustain 1000+ dequeue operations per second with 32 concurrent workers.
+
+### Analytics Query Cost
+
+The analytics endpoint scans the `job_runs` table for a configurable time window (1-720 hours). Query cost scales linearly with the number of runs in the window. For datasets exceeding 1M runs in the analysis period, consider reducing `period_hours` or implementing materialized view pre-aggregation.
+
+### Bulk Operation Limits
+
+Bulk trigger and cancel endpoints accept up to 100 items per request. Each item is processed within a single database transaction for atomicity. Bulk cancel additionally propagates to child runs, which can amplify the number of affected rows.

@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,5 +287,65 @@ func TestDequeueN_DBError(t *testing.T) {
 	}
 	if runs != nil {
 		t.Errorf("runs = %v, want nil on error", runs)
+	}
+}
+
+func TestDequeueN_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	var query string
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			query = sql
+			return nil, errors.New("forced query error")
+		},
+	}
+
+	q := NewPostgresQueue(db, WithPriorityAging(true))
+	_, _ = q.DequeueN(context.Background(), 10)
+
+	if !strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
+		t.Fatalf("DequeueN() query missing priority aging formula: %s", query)
+	}
+}
+
+func TestDequeueNByProject_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	var query string
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			query = sql
+			return nil, errors.New("forced query error")
+		},
+	}
+
+	q := NewPostgresQueue(db, WithPriorityAging(true))
+	_, _ = q.DequeueNByProject(context.Background(), 10, "proj-1")
+
+	if !strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
+		t.Fatalf("DequeueNByProject() query missing priority aging formula: %s", query)
+	}
+}
+
+func TestDequeueN_QueryUsesStaticPriorityWhenAgingDisabled(t *testing.T) {
+	t.Parallel()
+
+	var query string
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			query = sql
+			return nil, errors.New("forced query error")
+		},
+	}
+
+	q := NewPostgresQueue(db, WithPriorityAging(false))
+	_, _ = q.DequeueN(context.Background(), 10)
+
+	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
+		t.Fatalf("DequeueN() query missing static priority ordering: %s", query)
+	}
+	if strings.Contains(query, "EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
+		t.Fatalf("DequeueN() query unexpectedly contains priority aging formula: %s", query)
 	}
 }

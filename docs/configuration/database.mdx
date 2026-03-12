@@ -45,6 +45,41 @@ Key indexes are implemented to support high-throughput operations:
 - **Workflow DAG**: Indexes on `workflow_step_runs(workflow_run_id, status)` for efficient dependency resolution.
 - **Retention**: Brin indexes on `created_at` columns for fast range-based cleanup.
 
+### PgBouncer Mode
+
+When running behind PgBouncer in transaction-pooling mode, enable `DB_PGBOUNCER_MODE=true` to avoid using features incompatible with connection poolers (prepared statements, advisory locks in session mode).
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DB_PGBOUNCER_MODE` | `false` | Adjusts connection behavior for PgBouncer compatibility. |
+
+### Async I/O (PostgreSQL 18)
+
+PostgreSQL 18 introduces native async I/O via `io_uring` on Linux, which can significantly reduce context switches for write-heavy workloads like heartbeat updates, run state transitions, and queue operations.
+
+To enable async I/O in your PostgreSQL 18 deployment:
+
+```ini
+# postgresql.conf
+io_method = io_uring
+io_workers = 4           # match your CPU core count
+io_max_concurrency = 128 # concurrent I/O operations
+```
+
+Recommended tuning for Strait workloads:
+
+| Parameter | Recommended | Description |
+| :--- | :--- | :--- |
+| `io_method` | `io_uring` | Use kernel async I/O instead of `sync` (default). |
+| `io_workers` | CPU cores | Number of I/O worker threads. |
+| `io_max_concurrency` | `128` | Max concurrent async I/O operations. |
+| `effective_io_concurrency` | `200` | Bitmap heap scan concurrency hint. |
+| `maintenance_io_concurrency` | `10` | Maintenance operation concurrency. |
+
+<Note>
+  Async I/O requires Linux 5.1+ with `io_uring` support. On other platforms, PostgreSQL falls back to synchronous I/O. No application-level changes are needed.
+</Note>
+
 ### Connection Retries
 
 Strait implements an exponential backoff strategy for database connection failures:
@@ -52,6 +87,13 @@ Strait implements an exponential backoff strategy for database connection failur
 - **Strategy**: Exponential backoff.
 - **Delays**: 1s, 2s, 4s, 8s, 16s.
 - **Max Retries**: 5 attempts.
+
+### Redis Graceful Degradation
+
+By default, Strait operates in fail-open mode for Redis: if Redis becomes unavailable, real-time pub/sub features degrade gracefully while core job execution continues unaffected.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
 
 ## Redis
 

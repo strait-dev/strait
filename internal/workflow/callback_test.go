@@ -562,6 +562,48 @@ func TestOnStepCompleted_AdvancesWorkflow(t *testing.T) {
 	}
 }
 
+func TestFanInAndStartReadyChildren_AcquiresAdvisoryXactLock(t *testing.T) {
+	t.Parallel()
+
+	var lockCalled bool
+
+	ms := &mockCallbackStore{
+		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+			return []store.StepDepResult{{
+				StepRunID:     "sr-child",
+				StepRef:       "step-b",
+				DepsCompleted: 1,
+				DepsRequired:  1,
+			}}, nil
+		},
+		advisoryXactLockFn: func(_ context.Context, lockID int64) error {
+			lockCalled = lockID != 0
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "step-b"}}, nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{{ID: "sr-child", StepRef: "step-b", Status: domain.StepCompleted}}, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	err := cb.fanInAndStartReadyChildren(context.Background(), &domain.WorkflowStepRun{WorkflowRunID: "wr-1", StepRef: "step-a"}, &wfCtx{
+		run:   &domain.WorkflowRun{ID: "wr-1", Status: domain.WfStatusRunning},
+		steps: []domain.WorkflowStep{{StepRef: "step-a"}, {StepRef: "step-b"}},
+	})
+	if err != nil {
+		t.Fatalf("fanInAndStartReadyChildren() error = %v", err)
+	}
+	if !lockCalled {
+		t.Fatal("expected AdvisoryXactLock to be called")
+	}
+}
+
 func TestOnStepCompleted_StepNotFound(t *testing.T) {
 	t.Parallel()
 

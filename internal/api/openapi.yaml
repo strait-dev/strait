@@ -26,6 +26,8 @@ tags:
     description: Project-level API key management
   - name: Stats
     description: Queue and system statistics
+  - name: Analytics
+    description: Performance analytics insights
   - name: Secrets
     description: Job and environment secret management
   - name: EventTriggers
@@ -608,6 +610,61 @@ paths:
                 items:
                   $ref: '#/components/schemas/Job'
 
+  /v1/job-groups/{groupID}/pause-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Pause all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group paused
+
+  /v1/job-groups/{groupID}/resume-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Resume all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group resumed
+
+  /v1/job-groups/{groupID}/stats:
+    get:
+      tags:
+        - JobGroups
+      summary: Get aggregate run stats for a job group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Aggregate run counts by status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobGroupStats'
+
   /v1/environments:
     get:
       tags:
@@ -902,6 +959,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobRun'
 
+  /v1/runs/bulk-dlq-replay:
+    post:
+      tags:
+        - Runs
+      summary: Bulk replay dead-lettered runs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDLQReplayRequest'
+      responses:
+        '200':
+          description: Runs replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkDLQReplayResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: No eligible dead-letter runs to replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /v1/runs/{runID}/stream:
     get:
       tags:
@@ -1074,7 +1164,7 @@ paths:
       tags:
         - Runs
       summary: Get debug bundle
-      description: Requires FF_DEBUG_BUNDLE feature flag.
+      description: Returns a debug bundle with diagnostic information for the run.
       security:
         - bearerAuth: []
       parameters:
@@ -2365,6 +2455,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/QueueStats'
 
+  /v1/analytics/performance:
+    get:
+      tags:
+        - Analytics
+      summary: Performance analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period_hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+          description: Time window in hours (1-720)
+      responses:
+        '200':
+          description: Performance analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PerformanceAnalytics'
+
   /v1/webhook-deliveries:
     get:
       tags:
@@ -2712,11 +2824,166 @@ paths:
         '409':
           description: Only failed deliveries can be retried
 
+  /v1/webhooks/deliveries:
+    get:
+      tags:
+        - Webhooks
+      summary: List webhook deliveries
+      description: |
+        List webhook deliveries for a project with optional status filtering
+        and cursor-based pagination.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, delivered, failed, dead]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of webhook deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookDelivery'
+
+  /v1/webhooks/deliveries/{id}:
+    get:
+      tags:
+        - Webhooks
+      summary: Get webhook delivery details
+      description: Returns a single webhook delivery by ID.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook delivery details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+
+  /v1/webhooks/deliveries/{id}/retry:
+    post:
+      tags:
+        - Webhooks
+      summary: Retry a webhook delivery
+      description: |
+        Resets a failed or dead webhook delivery to pending status for retry.
+        Only deliveries with status failed or dead can be retried.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery reset for retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+        '409':
+          description: Delivery is not in a retriable status
+
+  /v1/webhooks/subscriptions:
+    post:
+      tags:
+        - Webhooks
+      summary: Create a webhook subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookSubscriptionRequest'
+      responses:
+        '201':
+          description: Webhook subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+    get:
+      tags:
+        - Webhooks
+      summary: List active webhook subscriptions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active webhook subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookSubscription'
+
+  /v1/webhooks/subscriptions/{id}:
+    delete:
+      tags:
+        - Webhooks
+      summary: Delete a webhook subscription
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Webhook subscription deleted
+
   /sdk/v1/runs/{runID}/wait-for-event:
     post:
       tags:
         - SDK
       summary: Pause a run to wait for an external event
+      description: |
+        Transitions the run from executing to waiting and creates an event trigger.
+        When the event is received via POST /v1/events/{eventKey}/send, the run
+        transitions back to queued with checkpoint data and is re-dispatched.
       security:
         - runToken: []
       parameters:
@@ -3059,7 +3326,7 @@ paths:
       tags:
         - SDK
       summary: Create a continuation run
-      description: Requires FF_RUN_CONTINUATION feature flag.
+      description: Creates a continuation run that inherits context from the parent run.
       security:
         - runToken: []
       parameters:
@@ -3523,6 +3790,16 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    JobGroupStats:
+      type: object
+      properties:
+        group_id:
+          type: string
+        run_counts:
+          type: object
+          additionalProperties:
+            type: integer
 
     Environment:
       type: object
@@ -4085,6 +4362,27 @@ components:
           type: string
           format: date-time
 
+    WebhookSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
     QueueStats:
       type: object
       properties:
@@ -4095,17 +4393,115 @@ components:
         delayed:
           type: integer
 
+    PerformanceAnalytics:
+      type: object
+      properties:
+        slowest_jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              job_id:
+                type: string
+              job_slug:
+                type: string
+              avg_duration_secs:
+                type: number
+              p95_duration_secs:
+                type: number
+              total_runs:
+                type: integer
+              failed_runs:
+                type: integer
+        throughput:
+          type: object
+          properties:
+            completed:
+              type: integer
+            failed:
+              type: integer
+            timed_out:
+              type: integer
+            canceled:
+              type: integer
+            period_hours:
+              type: integer
+        health_summary:
+          type: object
+          properties:
+            total_jobs:
+              type: integer
+            active_jobs:
+              type: integer
+            success_rate:
+              type: number
+            avg_duration_secs:
+              type: number
+            queue_depth:
+              type: integer
+
     ErrorResponse:
       type: object
       required:
         - error
       properties:
         error:
-          type: string
-        code:
-          type: string
+          oneOf:
+            - type: string
+            - $ref: '#/components/schemas/APIError'
         request_id:
           type: string
+
+    APIError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - validation_error
+            - not_found
+            - conflict
+            - rate_limited
+            - internal_error
+            - unauthorized
+            - forbidden
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+
+    BulkDLQReplayRequest:
+      type: object
+      properties:
+        run_ids:
+          type: array
+          items:
+            type: string
+        project_id:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+      description: Provide either run_ids or project_id with optional limit.
+
+    BulkDLQReplayResponse:
+      type: object
+      required:
+        - replayed
+        - count
+      properties:
+        replayed:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobRun'
+        count:
+          type: integer
 
     CreateJobRequest:
       type: object
@@ -4259,8 +4655,31 @@ components:
       properties:
         name:
           type: string
+        slug:
+          type: string
         description:
           type: string
+
+    CreateWebhookSubscriptionRequest:
+      type: object
+      required:
+        - project_id
+        - webhook_url
+        - event_types
+        - secret
+      properties:
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
 
     CreateEnvironmentRequest:
       type: object

@@ -31,7 +31,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 	sched := &Scheduler{
 		cron:   NewCronScheduler(ctx, s, q, wfTrigger),
 		poller: NewDelayedPoller(s, slog.Default(), cfg.PollerInterval),
-		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
+		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, true, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).

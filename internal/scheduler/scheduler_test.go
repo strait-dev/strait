@@ -16,6 +16,7 @@ type mockSchedulerStore struct {
 	cron   *mockCronStore
 	poller *mockPollerStore
 	reaper *mockReaperStore
+	index  *mockIndexMaintenanceStore
 }
 
 func (m *mockSchedulerStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -110,6 +111,13 @@ func (m *mockSchedulerStore) DeleteEventTriggersFinishedBefore(ctx context.Conte
 	return m.reaper.DeleteEventTriggersFinishedBefore(ctx, before, limit)
 }
 
+func (m *mockSchedulerStore) ReindexIndexConcurrently(ctx context.Context, indexName string) error {
+	if m.index == nil {
+		return nil
+	}
+	return m.index.ReindexIndexConcurrently(ctx, indexName)
+}
+
 func (m *mockSchedulerStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 	return m.reaper.CancelNonTerminalStepRuns(ctx, workflowRunID, finishedAt, reason)
 }
@@ -117,12 +125,12 @@ func (m *mockSchedulerStore) CancelNonTerminalStepRuns(ctx context.Context, work
 func (m *mockSchedulerStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 	return m.reaper.CancelJobRunsByWorkflowRun(ctx, workflowRunID, finishedAt, reason)
 }
-
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
-		PollerInterval: 100 * time.Millisecond,
-		ReaperInterval: 100 * time.Millisecond,
-		StaleThreshold: 30 * time.Second,
+		PollerInterval:           100 * time.Millisecond,
+		ReaperInterval:           100 * time.Millisecond,
+		StaleThreshold:           30 * time.Second,
+		IndexMaintenanceInterval: time.Hour,
 	}
 }
 
@@ -132,6 +140,7 @@ func TestScheduler_New(t *testing.T) {
 		cron:   &mockCronStore{},
 		poller: &mockPollerStore{},
 		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
 	}
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
@@ -148,6 +157,7 @@ func TestScheduler_Start_Success(t *testing.T) {
 		},
 		poller: &mockPollerStore{},
 		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
 	}
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
@@ -169,6 +179,7 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 		},
 		poller: &mockPollerStore{},
 		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
 	}
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
@@ -189,6 +200,7 @@ func TestScheduler_Stop(t *testing.T) {
 		},
 		poller: &mockPollerStore{},
 		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
 	}
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)

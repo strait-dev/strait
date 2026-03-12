@@ -1,0 +1,194 @@
+package crypto
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"io"
+	"sync"
+)
+
+var (
+	errInvalidKeyLength   = errors.New("invalid key length")
+	errCiphertextTooShort = errors.New("ciphertext too short")
+	errDecryptFailed      = errors.New("decrypt failed")
+)
+
+type Encryptor struct {
+	aead cipher.AEAD
+}
+
+type KeyRotator struct {
+	mu      sync.RWMutex
+	primary *Encryptor
+	old     []*Encryptor
+}
+
+func NewEncryptor(key string) (*Encryptor, error) {
+	keyBytes, err := parseKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return newEncryptorFromBytes(keyBytes)
+}
+
+func NewKeyRotator(primaryKey []byte, oldKeys ...[]byte) (*KeyRotator, error) {
+	primary, err := newEncryptorFromBytes(primaryKey)
+	if err != nil {
+		return nil, err
+	}
+
+	old := make([]*Encryptor, 0, len(oldKeys))
+	for _, key := range oldKeys {
+		e, encryptorErr := newEncryptorFromBytes(key)
+		if encryptorErr != nil {
+			return nil, encryptorErr
+		}
+		old = append(old, e)
+	}
+
+	return &KeyRotator{primary: primary, old: old}, nil
+}
+
+func (k *KeyRotator) Encrypt(plaintext []byte) ([]byte, error) {
+	k.mu.RLock()
+	primary := k.primary
+	k.mu.RUnlock()
+
+	return primary.Encrypt(plaintext)
+}
+
+func (k *KeyRotator) Decrypt(ciphertext []byte) ([]byte, error) {
+	k.mu.RLock()
+	primary := k.primary
+	old := append([]*Encryptor(nil), k.old...)
+	k.mu.RUnlock()
+
+	if len(ciphertext) < primary.aead.NonceSize() {
+		return nil, errCiphertextTooShort
+	}
+
+	all := make([]*Encryptor, 0, len(old)+1)
+	all = append(all, primary)
+	all = append(all, old...)
+
+	for _, e := range all {
+		plaintext, err := e.Decrypt(ciphertext)
+		if err == nil {
+			return plaintext, nil
+		}
+		if !errors.Is(err, errDecryptFailed) {
+			return nil, err
+		}
+	}
+
+	return nil, errDecryptFailed
+}
+
+func (k *KeyRotator) RotateKey(newPrimary []byte) error {
+	encryptor, err := newEncryptorFromBytes(newPrimary)
+	if err != nil {
+		return err
+	}
+
+	k.mu.Lock()
+	k.old = append([]*Encryptor{k.primary}, k.old...)
+	k.primary = encryptor
+	k.mu.Unlock()
+
+	return nil
+}
+
+func newEncryptorFromBytes(key []byte) (*Encryptor, error) {
+	if len(key) != 32 {
+		return nil, errInvalidKeyLength
+	}
+
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+
+	block, err := aes.NewCipher(keyCopy)
+	if err != nil {
+		return nil, errInvalidKeyLength
+	}
+
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Encryptor{aead: aead}, nil
+}
+
+func (e *Encryptor) Encrypt(plaintext []byte) ([]byte, error) {
+	nonce := make([]byte, e.aead.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	sealed := e.aead.Seal(nil, nonce, plaintext, nil)
+	out := make([]byte, 0, len(nonce)+len(sealed))
+	out = append(out, nonce...)
+	out = append(out, sealed...)
+
+	return out, nil
+}
+
+func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	nonceSize := e.aead.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, errCiphertextTooShort
+	}
+
+	nonce := ciphertext[:nonceSize]
+	data := ciphertext[nonceSize:]
+	plaintext, err := e.aead.Open(nil, nonce, data, nil)
+	if err != nil {
+		return nil, errDecryptFailed
+	}
+
+	return plaintext, nil
+}
+
+func (e *Encryptor) EncryptString(plaintext string) (string, error) {
+	ciphertext, err := e.Encrypt([]byte(plaintext))
+	if err != nil {
+		return "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+func (e *Encryptor) DecryptString(ciphertext string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", err
+	}
+
+	plaintext, err := e.Decrypt(raw)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
+}
+
+func parseKey(key string) ([]byte, error) {
+	if len(key) == 32 {
+		return []byte(key), nil
+	}
+
+	if len(key) == 64 {
+		decoded, err := hex.DecodeString(key)
+		if err != nil || len(decoded) != 32 {
+			return nil, errInvalidKeyLength
+		}
+		return decoded, nil
+	}
+
+	return nil, errInvalidKeyLength
+}

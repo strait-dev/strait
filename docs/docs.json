@@ -31,12 +31,16 @@
               "concepts/dag-runtime",
               "concepts/scheduling",
               "concepts/retry-strategies",
+              "concepts/resilience",
               "concepts/event-triggers",
               "concepts/webhooks",
               "concepts/environments",
               "concepts/versioning",
               "concepts/cost-budgets",
-              "concepts/cdc"
+              "concepts/cdc",
+              "concepts/adaptive-concurrency",
+              "concepts/audit-logging",
+              "concepts/webhook-subscriptions"
             ]
           },
           {
@@ -49,6 +53,7 @@
               "guides/api-key-rotation",
               "guides/security",
               "guides/deployment",
+              "guides/performance-tuning",
               "guides/job-dependencies",
               "guides/debug-bundles",
               "guides/job-groups",
@@ -72,6 +77,7 @@
               "development/contributing",
               "development/testing",
               "development/database-schema",
+              "development/technology-choices",
               "migrations"
             ]
           },

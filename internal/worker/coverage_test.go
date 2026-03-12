@@ -581,8 +581,8 @@ func TestSendWebhookWithClient_HMACSignature(t *testing.T) {
 	if gotSig == "" {
 		t.Fatal("expected X-Webhook-Signature header to be set")
 	}
-	if len(gotSig) < 10 || gotSig[:7] != "sha256=" {
-		t.Fatalf("expected signature to start with sha256=, got %s", gotSig)
+	if len(gotSig) < 5 || gotSig[:3] != "v1=" {
+		t.Fatalf("expected signature to start with v1=, got %s", gotSig)
 	}
 }
 
@@ -892,12 +892,12 @@ func TestExecutor_HandleFailure_PublishesAndCallsBack(t *testing.T) {
 	updates := ms.statusUpdates()
 	found := false
 	for _, u := range updates {
-		if u.to == domain.StatusFailed {
+		if u.to == domain.StatusDeadLetter {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("expected status transition to failed")
+		t.Fatal("expected status transition to dead_letter")
 	}
 }
 

@@ -138,9 +138,17 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Propagate cancellation to child runs
-	children, err := s.store.ListChildRuns(r.Context(), run.ID, 10000, nil)
-	if err == nil {
+	var cursor *time.Time
+	for {
+		children, listErr := s.store.ListChildRuns(r.Context(), run.ID, 100, cursor)
+		if listErr != nil {
+			slog.Error("failed to list child runs", "run_id", run.ID, "error", listErr)
+			break
+		}
+		if len(children) == 0 {
+			break
+		}
+
 		for _, child := range children {
 			if !child.Status.IsTerminal() {
 				if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
@@ -151,6 +159,9 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		lastCreatedAt := children[len(children)-1].CreatedAt
+		cursor = &lastCreatedAt
 	}
 
 	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
@@ -196,10 +207,6 @@ func (s *Server) handleGetRunDependencyStatus(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunReplay {
-		respondError(w, r, http.StatusNotFound, "run replay is not enabled")
-		return
-	}
 	runID := chi.URLParam(r, "runID")
 	originalRun, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
@@ -303,11 +310,6 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunDLQ {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	query := r.URL.Query()
 	projectID := query.Get("project_id")
 	if projectID == "" {
@@ -333,11 +335,6 @@ func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunDLQ {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 	run, err := s.store.ReplayDeadLetterRun(r.Context(), runID)
 	if err != nil {
@@ -354,6 +351,65 @@ func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Reques
 	}
 
 	respondJSON(w, http.StatusOK, run)
+}
+
+func (s *Server) handleBulkReplayDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunIDs    []string `json:"run_ids"`
+		ProjectID string   `json:"project_id"`
+		Limit     int      `json:"limit"`
+	}
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	hasRunIDs := len(req.RunIDs) > 0
+	hasProjectID := req.ProjectID != ""
+	if hasRunIDs == hasProjectID {
+		respondError(w, r, http.StatusBadRequest, APIError{
+			Code:    ErrorCodeValidationError,
+			Message: "provide either run_ids or project_id",
+		})
+		return
+	}
+
+	if hasRunIDs {
+		if len(req.RunIDs) > 500 {
+			respondError(w, r, http.StatusBadRequest, APIError{
+				Code:    ErrorCodeValidationError,
+				Message: "too many run_ids (max 500)",
+			})
+			return
+		}
+	} else {
+		if req.Limit <= 0 {
+			req.Limit = 100
+		}
+		if req.Limit > 500 {
+			respondError(w, r, http.StatusBadRequest, APIError{
+				Code:    ErrorCodeValidationError,
+				Message: "limit must be <= 500",
+			})
+			return
+		}
+	}
+
+	runs, err := s.store.BulkReplayDeadLetterRuns(r.Context(), req.RunIDs, req.ProjectID, req.Limit)
+	if err != nil {
+		errMsg := err.Error()
+		switch {
+		case strings.Contains(errMsg, "at least one") || strings.Contains(errMsg, "provide either"):
+			respondError(w, r, http.StatusBadRequest, APIError{Code: ErrorCodeValidationError, Message: errMsg})
+		case strings.Contains(errMsg, "no dead_letter"):
+			respondError(w, r, http.StatusConflict, APIError{Code: ErrorCodeConflict, Message: errMsg})
+		default:
+			respondError(w, r, http.StatusInternalServerError, "failed to bulk replay dead letter runs")
+		}
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"replayed": runs, "count": len(runs)})
 }
 
 func isReplayableRunStatus(status domain.RunStatus) bool {
@@ -386,11 +442,6 @@ func (s *Server) handleListChildRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetDebugBundle(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFDebugBundle {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 	bundle, err := s.store.GetDebugBundle(r.Context(), runID)
 	if err != nil {
@@ -406,11 +457,6 @@ func (s *Server) handleGetDebugBundle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFDebugBundle {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -434,11 +480,6 @@ func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListRunLineage(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunContinuation {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 
 	limit, cursor, err := parsePaginationParams(r)

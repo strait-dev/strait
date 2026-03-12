@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"slices"
 	"time"
 
@@ -15,6 +16,11 @@ import (
 )
 
 func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx) error {
+	lockID := advisoryXactLockIDForStepRun(stepRun.ID)
+	if err := s.store.AdvisoryXactLock(ctx, lockID); err != nil {
+		return fmt.Errorf("advisory xact lock for step %s: %w", stepRun.StepRef, err)
+	}
+
 	if _, err := s.store.IncrementStepDeps(ctx, stepRun.WorkflowRunID, stepRun.StepRef); err != nil {
 		return fmt.Errorf("increment step deps: %w", err)
 	}
@@ -132,6 +138,12 @@ func (s *StepCallback) scheduleRunnableSteps(
 	}
 
 	return nil
+}
+
+func advisoryXactLockIDForStepRun(stepRunID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(stepRunID))
+	return int64(h.Sum64() & 0x7fffffffffffffff)
 }
 
 func (s *StepCallback) recordStepWaitDuration(ctx context.Context, wfRun *domain.WorkflowRun, step domain.WorkflowStep, stepRun domain.WorkflowStepRun) {

@@ -272,10 +272,6 @@ func (s *Server) handleSDKProgress(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSDKAnnotate(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
-	if !s.config.FFRunAnnotations {
-		respondError(w, r, http.StatusNotFound, "run annotations feature is not enabled")
-		return
-	}
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {

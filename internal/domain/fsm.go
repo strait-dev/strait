@@ -17,7 +17,8 @@ var validTransitions = map[RunStatus][]RunStatus{
 	StatusSystemFailed: {},
 	StatusCanceled:     {},
 	StatusExpired:      {},
-	StatusDeadLetter:   {StatusQueued},
+	StatusDeadLetter:   {StatusQueued, StatusReplayStaged},
+	StatusReplayStaged: {StatusQueued, StatusCanceled},
 }
 
 func ValidateTransition(from, to RunStatus) error {

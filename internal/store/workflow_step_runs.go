@@ -272,7 +272,10 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	args := []any{status, id}
 	param := 3
 
-	keys := lo.Keys(fields)
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
 	sort.Strings(keys)
 
 	for _, key := range keys {

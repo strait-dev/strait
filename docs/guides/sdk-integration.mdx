@@ -27,7 +27,6 @@ Report the completion percentage of a job.
 ### Annotations
 `POST /annotate`
 Add or update metadata annotations on the run.
-- **Feature Flag**: `FF_RUN_ANNOTATIONS`
 - **Limit**: Max 50 annotations per run.
 
 ### Heartbeat
@@ -61,7 +60,6 @@ Store structured results or artifacts produced by the job.
 ### Wait for Event
 `POST /wait-for-event`
 Pause the current run and wait for an external event to arrive. The run transitions to `waiting` status.
-- **Feature Flag**: `FF_EVENT_TRIGGERS`
 - **Fields**: `event_key` (required, globally unique), `timeout_secs` (default: 3600), `notify_url` (optional webhook).
 - **Behavior**: When the event arrives via `POST /v1/events/{eventKey}/send`, the run is re-queued with the event payload as checkpoint data and re-dispatched to your endpoint.
 
@@ -126,13 +124,9 @@ client.cancel_event_trigger("approval:order-789")
 client.close()
 ```
 
-## Feature Flags
+## Endpoint Availability
 
-Some endpoints are gated by feature flags in Strait configuration:
-- `FF_RUN_ANNOTATIONS`: Gates `/annotate`.
-- `FF_RUN_CONTINUATION`: Gates `/continue`.
-- `FF_EVENT_TRIGGERS`: Gates `/wait-for-event`.
-- `FF_DEBUG_BUNDLE`: Required for some advanced telemetry features.
+All SDK endpoints documented on this page are always available.
 
 ## Example: Reporting Progress
 
