@@ -103,6 +103,45 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if projectQuota != nil {
+		if projectQuota.MaxQueuedRuns > 0 {
+			queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
+			if countErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project queued quota")
+				return
+			}
+			if queuedRuns+len(req.Items) > projectQuota.MaxQueuedRuns {
+				respondError(w, r, http.StatusTooManyRequests, "project queued quota would be exceeded")
+				return
+			}
+		}
+
+		if projectQuota.MaxExecutingRuns > 0 {
+			activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
+			if countErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to evaluate project active quota")
+				return
+			}
+			if activeRuns >= projectQuota.MaxExecutingRuns {
+				respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
+				return
+			}
+		}
+	}
+
+	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+		runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
+		if countErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job rate limit")
+			return
+		}
+		if runCount+len(req.Items) > job.RateLimitMax {
+			respondError(w, r, http.StatusTooManyRequests, "job rate limit would be exceeded")
+			return
+		}
+	}
+
 	for _, item := range req.Items {
 		itemIdx := len(results)
 
@@ -150,45 +189,6 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 					IdempotencyHit: true,
 				})
 				continue
-			}
-		}
-
-		if projectQuota != nil {
-			if projectQuota.MaxQueuedRuns > 0 {
-				queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
-				if countErr != nil {
-					respondError(w, r, http.StatusInternalServerError, "failed to evaluate project queued quota")
-					return
-				}
-				if queuedRuns >= projectQuota.MaxQueuedRuns {
-					respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
-					return
-				}
-			}
-
-			if projectQuota.MaxExecutingRuns > 0 {
-				activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
-				if countErr != nil {
-					respondError(w, r, http.StatusInternalServerError, "failed to evaluate project active quota")
-					return
-				}
-				if activeRuns >= projectQuota.MaxExecutingRuns {
-					respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
-					return
-				}
-			}
-		}
-
-		if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
-			since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
-			runCount, countErr := s.store.CountRunsForJobSince(r.Context(), job.ID, since)
-			if countErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to evaluate job rate limit")
-				return
-			}
-			if runCount >= job.RateLimitMax {
-				respondError(w, r, http.StatusTooManyRequests, "job rate limit exceeded")
-				return
 			}
 		}
 
@@ -379,8 +379,17 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		children, err := s.store.ListChildRuns(r.Context(), run.ID, 10000, nil)
-		if err == nil {
+		var cursor *time.Time
+		for {
+			children, listErr := s.store.ListChildRuns(r.Context(), run.ID, 100, cursor)
+			if listErr != nil {
+				slog.Error("failed to list child runs in bulk", "run_id", run.ID, "error", listErr)
+				break
+			}
+			if len(children) == 0 {
+				break
+			}
+
 			for _, child := range children {
 				if !child.Status.IsTerminal() {
 					if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
@@ -391,6 +400,9 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+
+			lastCreatedAt := children[len(children)-1].CreatedAt
+			cursor = &lastCreatedAt
 		}
 
 		results = append(results, BulkCancelResult{

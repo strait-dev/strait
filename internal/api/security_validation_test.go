@@ -107,6 +107,7 @@ func TestHandleTriggerJob_RejectsPayloadOver5MB(t *testing.T) {
 		Store: store,
 		Queue: &mockQueue{},
 	})
+	t.Cleanup(srv.Close)
 
 	body := `{"payload":{"blob":"` + strings.Repeat("a", maxPayloadSize+1) + `"}}`
 	w := httptest.NewRecorder()

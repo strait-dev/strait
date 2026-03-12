@@ -20,12 +20,14 @@ func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
 		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
 		InternalSecret: "test-secret",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config: cfg,
 		Store:  s,
 		Queue:  &mockQueue{},
 		PubSub: &mockPublisher{},
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func makeSDKRunToken(t *testing.T, runID string) string {

@@ -198,27 +198,28 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status s
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWebhookDeliveries")
 	defer span.End()
 
-	baseQuery := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
-					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
-					 event_trigger_id
-				  FROM webhook_deliveries
-				  WHERE job_id IN (SELECT id FROM jobs WHERE project_id = $1)`
+	baseQuery := `SELECT wd.id, wd.run_id, wd.job_id, wd.webhook_url, wd.webhook_retry_policy, wd.status, wd.attempts, wd.max_attempts,
+					 wd.last_status_code, wd.last_error, wd.next_retry_at, wd.delivered_at, wd.created_at, wd.updated_at,
+					 wd.event_trigger_id
+				  FROM webhook_deliveries wd
+				  JOIN jobs j ON wd.job_id = j.id
+				  WHERE j.project_id = $1`
 	args := []any{projectID}
 	param := 2
 
 	if status != "" {
-		baseQuery += fmt.Sprintf(" AND status = $%d", param)
+		baseQuery += fmt.Sprintf(" AND wd.status = $%d", param)
 		args = append(args, status)
 		param++
 	}
 
 	if cursor != nil {
-		baseQuery += fmt.Sprintf(" AND created_at < $%d", param)
+		baseQuery += fmt.Sprintf(" AND wd.created_at < $%d", param)
 		args = append(args, *cursor)
 		param++
 	}
 
-	baseQuery += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	baseQuery += fmt.Sprintf(" ORDER BY wd.created_at DESC LIMIT $%d", param)
 	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, baseQuery, args...)

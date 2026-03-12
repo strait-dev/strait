@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/samber/lo"
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
 )
 
@@ -1299,7 +1300,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string, limit i
 	param := 2
 
 	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
+		query += fmt.Sprintf(" AND created_at > $%d", param)
 		args = append(args, *cursor)
 		param++
 	}
@@ -1396,29 +1397,52 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 		return nil, err
 	}
 
-	events, err := q.ListEvents(ctx, runID, 10000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle events: %w", err)
-	}
+	var (
+		events      []domain.RunEvent
+		checkpoints []domain.RunCheckpoint
+		usage       []domain.RunUsage
+		toolCalls   []domain.RunToolCall
+		outputs     []domain.RunOutput
 
-	checkpoints, err := q.ListRunCheckpoints(ctx, runID, 1000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle checkpoints: %w", err)
-	}
+		eventsErr      error
+		checkpointsErr error
+		usageErr       error
+		toolCallsErr   error
+		outputsErr     error
+	)
 
-	usage, err := q.ListRunUsage(ctx, runID, 1000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle usage: %w", err)
-	}
+	var wg conc.WaitGroup
+	wg.Go(func() {
+		events, eventsErr = q.ListEvents(ctx, runID, 10000, nil)
+	})
+	wg.Go(func() {
+		checkpoints, checkpointsErr = q.ListRunCheckpoints(ctx, runID, 1000, nil)
+	})
+	wg.Go(func() {
+		usage, usageErr = q.ListRunUsage(ctx, runID, 1000, nil)
+	})
+	wg.Go(func() {
+		toolCalls, toolCallsErr = q.ListRunToolCalls(ctx, runID, 1000, nil)
+	})
+	wg.Go(func() {
+		outputs, outputsErr = q.ListRunOutputs(ctx, runID, 10000, nil)
+	})
+	wg.Wait()
 
-	toolCalls, err := q.ListRunToolCalls(ctx, runID, 1000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle tool calls: %w", err)
+	if eventsErr != nil {
+		return nil, fmt.Errorf("get debug bundle events: %w", eventsErr)
 	}
-
-	outputs, err := q.ListRunOutputs(ctx, runID, 10000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle outputs: %w", err)
+	if checkpointsErr != nil {
+		return nil, fmt.Errorf("get debug bundle checkpoints: %w", checkpointsErr)
+	}
+	if usageErr != nil {
+		return nil, fmt.Errorf("get debug bundle usage: %w", usageErr)
+	}
+	if toolCallsErr != nil {
+		return nil, fmt.Errorf("get debug bundle tool calls: %w", toolCallsErr)
+	}
+	if outputsErr != nil {
+		return nil, fmt.Errorf("get debug bundle outputs: %w", outputsErr)
 	}
 
 	return &domain.DebugBundle{

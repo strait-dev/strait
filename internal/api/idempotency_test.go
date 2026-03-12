@@ -2453,12 +2453,14 @@ func newTestServerWithWorkflowEngine(t *testing.T, s APIStore, q *mockQueue, wf 
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "01234567890123456789012345678901",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config:         cfg,
 		Store:          s,
 		Queue:          q,
 		WorkflowEngine: wf,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func TestIdempotency_WorkflowTriggerIgnoresIdempotencyHeader(t *testing.T) {

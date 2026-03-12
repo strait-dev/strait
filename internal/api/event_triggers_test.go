@@ -27,13 +27,15 @@ func newEventTriggersTestServerWithPubSub(t *testing.T, s APIStore, wfCallback W
 		InternalSecret: "test-secret",
 		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config:           cfg,
 		Store:            s,
 		Queue:            &mockQueue{},
 		PubSub:           ps,
 		WorkflowCallback: wfCallback,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func TestHandleSendEvent_Success(t *testing.T) {

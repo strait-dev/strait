@@ -481,9 +481,12 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 			updatedIDs = append(updatedIDs, id)
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
 			if parentRunID != "run-parent" {
 				t.Fatalf("unexpected parent run ID: %s", parentRunID)
+			}
+			if cursor != nil {
+				return nil, nil
 			}
 			return []domain.JobRun{
 				{ID: "run-child-1", Status: domain.StatusExecuting},

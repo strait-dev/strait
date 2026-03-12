@@ -44,12 +44,14 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 	if pub != nil {
 		p = pub
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config: cfg,
 		Store:  s,
 		Queue:  q,
 		PubSub: p,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, pinger Pinger) *Server {
@@ -62,13 +64,15 @@ func newTestServerWithPinger(t *testing.T, s APIStore, q *mockQueue, pub *mockPu
 	if pub != nil {
 		p = pub
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config: cfg,
 		Store:  s,
 		Queue:  q,
 		PubSub: p,
 		Pinger: pinger,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func authedRequest(method, path string, body string) *http.Request {

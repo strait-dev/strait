@@ -138,9 +138,17 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Propagate cancellation to child runs
-	children, err := s.store.ListChildRuns(r.Context(), run.ID, 10000, nil)
-	if err == nil {
+	var cursor *time.Time
+	for {
+		children, listErr := s.store.ListChildRuns(r.Context(), run.ID, 100, cursor)
+		if listErr != nil {
+			slog.Error("failed to list child runs", "run_id", run.ID, "error", listErr)
+			break
+		}
+		if len(children) == 0 {
+			break
+		}
+
 		for _, child := range children {
 			if !child.Status.IsTerminal() {
 				if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
@@ -151,6 +159,9 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		lastCreatedAt := children[len(children)-1].CreatedAt
+		cursor = &lastCreatedAt
 	}
 
 	updatedRun, err := s.store.GetRun(r.Context(), run.ID)

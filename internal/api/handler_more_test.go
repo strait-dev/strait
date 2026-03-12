@@ -316,7 +316,10 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 			updates[id] = to
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
+			if cursor != nil {
+				return nil, nil
+			}
 			return []domain.JobRun{
 				{ID: "child-running", ParentRunID: parentRunID, Status: domain.StatusQueued},
 				{ID: "child-done", ParentRunID: parentRunID, Status: domain.StatusCompleted},
