@@ -193,6 +193,8 @@ func setDefaults() {
 	viper.SetDefault("FF_JOB_DEPENDENCIES", false)
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
 	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
+	viper.SetDefault("FF_EVENT_TRIGGERS", false)
+	viper.SetDefault("PERMISSION_CACHE_TTL", 5*time.Minute)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 	viper.SetDefault("WEBHOOK_TIMEOUT", 10*time.Second)
 	viper.SetDefault("WEBHOOK_IDLE_CONN_TIMEOUT", 60*time.Second)
@@ -239,6 +241,8 @@ func BindEnv() error {
 		"WORKFLOW_RETENTION",
 		"REAPER_DELETE_BATCH_SIZE", "WF_STALL_THRESHOLD", "WF_STALL_ACTION", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
 		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
+		"FF_EVENT_TRIGGERS", "PERMISSION_CACHE_TTL",
+		"EVENT_TRIGGER_RETENTION", "EVENT_TRIGGER_RETENTION_DAYS",
 	}
 
 	for _, key := range keys {
