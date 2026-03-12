@@ -361,10 +361,10 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	if !callbackCalled {
 		t.Fatal("expected workflow callback to be called for workflow_step source")
 	}
-	// Step status should NOT be updated directly by the handler —
-	// that's the callback's responsibility (avoids double-update).
-	if stepRunStatusUpdatedDirectly {
-		t.Fatal("step run status should not be updated directly by handler; callback handles it")
+	// With runInTx, both trigger and step status are updated atomically
+	// by the handler (even in pass-through mode without a real TxPool).
+	if !stepRunStatusUpdatedDirectly {
+		t.Fatal("step run status should be updated by handler inside runInTx")
 	}
 }
 

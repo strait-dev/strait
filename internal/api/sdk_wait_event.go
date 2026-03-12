@@ -23,6 +23,14 @@ type SDKWaitForEventRequest struct {
 	NotifyURL  string `json:"notify_url,omitempty"`
 }
 
+// quotaExceededError signals that a per-project quota limit was hit inside a
+// transaction, allowing the caller to distinguish quota failures from other errors.
+type quotaExceededError struct{ max int }
+
+func (e *quotaExceededError) Error() string {
+	return fmt.Sprintf("quota exceeded: max %d active event triggers", e.max)
+}
+
 // handleSDKWaitForEvent pauses a run to wait for an external event.
 // The run transitions to StatusWaiting and an event trigger row is created.
 // When the event is received via POST /v1/events/{eventKey}/send, the run
@@ -67,12 +75,6 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Transition run to waiting.
-	if err := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusExecuting, domain.StatusWaiting, nil); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to update run status")
-		return
-	}
-
 	timeoutSecs := req.TimeoutSec
 	if timeoutSecs <= 0 {
 		timeoutSecs = domain.DefaultEventTimeoutSecs
@@ -80,24 +82,6 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
-
-	// Enforce per-project event trigger quota if configured.
-	if s.config.FFProjectQuotas {
-		quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
-		if qErr == nil && quota != nil && quota.MaxActiveEventTriggers > 0 {
-			active, cErr := s.store.CountActiveEventTriggersByProject(r.Context(), run.ProjectID)
-			if cErr != nil {
-				slog.Warn("failed to count active triggers for quota check", "project_id", run.ProjectID, "error", cErr)
-			} else if active >= quota.MaxActiveEventTriggers {
-				// Rollback: re-enable the run.
-				if rbErr := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusWaiting, domain.StatusExecuting, nil); rbErr != nil {
-					slog.Warn("failed to rollback run status after quota exceeded", "run_id", run.ID, "error", rbErr)
-				}
-				respondError(w, r, http.StatusTooManyRequests, fmt.Sprintf("project has reached maximum active event triggers (%d)", quota.MaxActiveEventTriggers))
-				return
-			}
-		}
-	}
 
 	trigger := &domain.EventTrigger{
 		ID:          uuid.Must(uuid.NewV7()).String(),
@@ -112,14 +96,33 @@ func (s *Server) handleSDKWaitForEvent(w http.ResponseWriter, r *http.Request) {
 		NotifyURL:   req.NotifyURL,
 	}
 
-	if err := s.store.CreateEventTrigger(r.Context(), trigger); err != nil {
-		// Rollback status. Note: there is a theoretical race window between the
-		// executing→waiting transition and this rollback where the reaper could
-		// act on the waiting run. The window is milliseconds vs the reaper's 10s+
-		// interval, so the risk is negligible. Log failures rather than ignoring.
-		if rbErr := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusWaiting, domain.StatusExecuting, nil); rbErr != nil {
-			slog.Warn("failed to rollback run status after trigger creation failure",
-				"run_id", run.ID, "error", rbErr)
+	var quotaErr *quotaExceededError
+	if err := s.runInTx(r.Context(), func(txStore APIStore) error {
+		if err := txStore.UpdateRunStatus(r.Context(), run.ID, domain.StatusExecuting, domain.StatusWaiting, nil); err != nil {
+			return fmt.Errorf("update run status: %w", err)
+		}
+
+		// Enforce per-project event trigger quota if configured.
+		if s.config.FFProjectQuotas {
+			quota, qErr := txStore.GetProjectQuota(r.Context(), run.ProjectID)
+			if qErr == nil && quota != nil && quota.MaxActiveEventTriggers > 0 {
+				active, cErr := txStore.CountActiveEventTriggersByProject(r.Context(), run.ProjectID)
+				if cErr != nil {
+					slog.Warn("failed to count active triggers for quota check", "project_id", run.ProjectID, "error", cErr)
+				} else if active >= quota.MaxActiveEventTriggers {
+					return &quotaExceededError{max: quota.MaxActiveEventTriggers}
+				}
+			}
+		}
+
+		if err := txStore.CreateEventTrigger(r.Context(), trigger); err != nil {
+			return fmt.Errorf("create event trigger: %w", err)
+		}
+		return nil
+	}); err != nil {
+		if errors.As(err, &quotaErr) {
+			respondError(w, r, http.StatusTooManyRequests, fmt.Sprintf("project has reached maximum active event triggers (%d)", quotaErr.max))
+			return
 		}
 		if errors.Is(err, store.ErrEventKeyConflict) {
 			respondError(w, r, http.StatusConflict, "event key already in use")

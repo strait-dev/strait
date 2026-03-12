@@ -264,6 +264,7 @@ type Server struct {
 	maxRequestBodySize int64
 	permCache          *permissionCache
 	oidcVerifier       *oidcVerifier
+	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -313,6 +314,19 @@ func NewServer(deps ServerDeps) *Server {
 		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
 		oidcVerifier:       verifier,
 	}
+
+	if deps.TxPool != nil {
+		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
+			return store.WithTx(ctx, deps.TxPool, func(q *store.Queries) error {
+				return fn(q)
+			})
+		}
+	} else {
+		srv.runInTx = func(_ context.Context, fn func(s APIStore) error) error {
+			return fn(srv.store)
+		}
+	}
+
 	srv.router = srv.routes()
 	return srv
 }

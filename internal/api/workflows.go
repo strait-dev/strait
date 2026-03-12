@@ -165,26 +165,25 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.CreateWorkflow(r.Context(), wf); err != nil {
+	var steps []domain.WorkflowStep
+	if err := s.runInTx(r.Context(), func(txStore APIStore) error {
+		if err := txStore.CreateWorkflow(r.Context(), wf); err != nil {
+			return fmt.Errorf("create workflow: %w", err)
+		}
+		for i := range candidateSteps {
+			candidateSteps[i].WorkflowID = wf.ID
+			if err := txStore.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
+				return fmt.Errorf("create workflow step %q: %w", candidateSteps[i].StepRef, err)
+			}
+			steps = append(steps, candidateSteps[i])
+		}
+		if err := txStore.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
+			return fmt.Errorf("create workflow version snapshot: %w", err)
+		}
+		return nil
+	}); err != nil {
 		slog.Error("failed to create workflow", "error", err)
 		respondError(w, r, http.StatusInternalServerError, "failed to create workflow")
-		return
-	}
-
-	var steps []domain.WorkflowStep
-	for i := range candidateSteps {
-		candidateSteps[i].WorkflowID = wf.ID
-		if err := s.store.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
-			slog.Error("failed to create workflow step", "step_ref", candidateSteps[i].StepRef, "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
-			return
-		}
-		steps = append(steps, candidateSteps[i])
-	}
-
-	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
-		slog.Error("failed to create workflow version snapshot", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to create workflow version snapshot")
 		return
 	}
 
@@ -355,35 +354,32 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	wf.UpdatedBy = actorFromContext(r.Context())
 
-	if err := s.store.UpdateWorkflow(r.Context(), wf); err != nil {
+	if err := s.runInTx(r.Context(), func(txStore APIStore) error {
+		if err := txStore.UpdateWorkflow(r.Context(), wf); err != nil {
+			return fmt.Errorf("update workflow: %w", err)
+		}
+		if req.Steps != nil {
+			if err := txStore.DeleteStepsByWorkflow(r.Context(), wf.ID); err != nil {
+				return fmt.Errorf("delete workflow steps: %w", err)
+			}
+			for i := range candidateSteps {
+				candidateSteps[i].WorkflowID = wf.ID
+				if err := txStore.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
+					return fmt.Errorf("create workflow step %q: %w", candidateSteps[i].StepRef, err)
+				}
+			}
+		}
+		if err := txStore.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
+			return fmt.Errorf("create workflow version snapshot: %w", err)
+		}
+		return nil
+	}); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
 			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
 		slog.Error("failed to update workflow", "error", err)
 		respondError(w, r, http.StatusInternalServerError, "failed to update workflow")
-		return
-	}
-
-	if req.Steps != nil {
-		if err := s.store.DeleteStepsByWorkflow(r.Context(), wf.ID); err != nil {
-			slog.Error("failed to delete workflow steps", "error", err)
-			respondError(w, r, http.StatusInternalServerError, "failed to delete workflow steps")
-			return
-		}
-		for i := range candidateSteps {
-			candidateSteps[i].WorkflowID = wf.ID
-			if err := s.store.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
-				slog.Error("failed to create workflow step", "step_ref", candidateSteps[i].StepRef, "error", err)
-				respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
-				return
-			}
-		}
-	}
-
-	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
-		slog.Error("failed to create workflow version snapshot", "error", err)
-		respondError(w, r, http.StatusInternalServerError, "failed to create workflow version snapshot")
 		return
 	}
 
@@ -1015,11 +1011,6 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:           actorFromContext(r.Context()),
 		UpdatedBy:           actorFromContext(r.Context()),
 	}
-	if err := s.store.CreateWorkflow(r.Context(), newWf); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow")
-		return
-	}
-
 	sourceSteps, err := s.store.ListStepsByWorkflow(r.Context(), sourceID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list source workflow steps")
@@ -1027,43 +1018,50 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newSteps := make([]domain.WorkflowStep, 0, len(sourceSteps))
-	for _, src := range sourceSteps {
-		step := domain.WorkflowStep{
-			WorkflowID:            newWf.ID,
-			JobID:                 src.JobID,
-			StepRef:               src.StepRef,
-			DependsOn:             src.DependsOn,
-			Condition:             src.Condition,
-			OnFailure:             src.OnFailure,
-			Payload:               src.Payload,
-			StepType:              src.StepType,
-			ApprovalTimeoutSecs:   src.ApprovalTimeoutSecs,
-			ApprovalApprovers:     src.ApprovalApprovers,
-			RetryMaxAttempts:      src.RetryMaxAttempts,
-			RetryBackoff:          src.RetryBackoff,
-			RetryInitialDelaySecs: src.RetryInitialDelaySecs,
-			RetryMaxDelaySecs:     src.RetryMaxDelaySecs,
-			TimeoutSecsOverride:   src.TimeoutSecsOverride,
-			OutputTransform:       src.OutputTransform,
-			SubWorkflowID:         src.SubWorkflowID,
-			MaxNestingDepth:       src.MaxNestingDepth,
-			EventKey:              src.EventKey,
-			EventTimeoutSecs:      src.EventTimeoutSecs,
-			EventNotifyURL:        src.EventNotifyURL,
-			EventEmitKey:          src.EventEmitKey,
-			SleepDurationSecs:     src.SleepDurationSecs,
-			ConcurrencyKey:        src.ConcurrencyKey,
-			ResourceClass:         src.ResourceClass,
+	if err := s.runInTx(r.Context(), func(txStore APIStore) error {
+		if err := txStore.CreateWorkflow(r.Context(), newWf); err != nil {
+			return fmt.Errorf("create cloned workflow: %w", err)
 		}
-		if err := s.store.CreateWorkflowStep(r.Context(), &step); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to create cloned workflow step")
-			return
+		for _, src := range sourceSteps {
+			step := domain.WorkflowStep{
+				WorkflowID:            newWf.ID,
+				JobID:                 src.JobID,
+				StepRef:               src.StepRef,
+				DependsOn:             src.DependsOn,
+				Condition:             src.Condition,
+				OnFailure:             src.OnFailure,
+				Payload:               src.Payload,
+				StepType:              src.StepType,
+				ApprovalTimeoutSecs:   src.ApprovalTimeoutSecs,
+				ApprovalApprovers:     src.ApprovalApprovers,
+				RetryMaxAttempts:      src.RetryMaxAttempts,
+				RetryBackoff:          src.RetryBackoff,
+				RetryInitialDelaySecs: src.RetryInitialDelaySecs,
+				RetryMaxDelaySecs:     src.RetryMaxDelaySecs,
+				TimeoutSecsOverride:   src.TimeoutSecsOverride,
+				OutputTransform:       src.OutputTransform,
+				SubWorkflowID:         src.SubWorkflowID,
+				MaxNestingDepth:       src.MaxNestingDepth,
+				EventKey:              src.EventKey,
+				EventTimeoutSecs:      src.EventTimeoutSecs,
+				EventNotifyURL:        src.EventNotifyURL,
+				EventEmitKey:          src.EventEmitKey,
+				SleepDurationSecs:     src.SleepDurationSecs,
+				ConcurrencyKey:        src.ConcurrencyKey,
+				ResourceClass:         src.ResourceClass,
+			}
+			if err := txStore.CreateWorkflowStep(r.Context(), &step); err != nil {
+				return fmt.Errorf("create cloned workflow step %q: %w", step.StepRef, err)
+			}
+			newSteps = append(newSteps, step)
 		}
-		newSteps = append(newSteps, step)
-	}
-
-	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), newWf.ID, newWf.Version); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to snapshot cloned workflow version")
+		if err := txStore.CreateWorkflowVersionSnapshot(r.Context(), newWf.ID, newWf.Version); err != nil {
+			return fmt.Errorf("snapshot cloned workflow version: %w", err)
+		}
+		return nil
+	}); err != nil {
+		slog.Error("failed to clone workflow", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "failed to clone workflow")
 		return
 	}
 
