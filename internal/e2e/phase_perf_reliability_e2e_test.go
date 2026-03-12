@@ -229,7 +229,13 @@ func (m *mockDeliveryStoreE2E) UpdateWebhookDelivery(_ context.Context, d *domai
 }
 
 func (m *mockDeliveryStoreE2E) ListPendingWebhookRetries(context.Context) ([]domain.WebhookDelivery, error) {
-	return m.deliveries, nil
+	var pending []domain.WebhookDelivery
+	for _, d := range m.deliveries {
+		if d.Status == domain.WebhookStatusPending {
+			pending = append(pending, d)
+		}
+	}
+	return pending, nil
 }
 
 func (m *mockDeliveryStoreE2E) UpdateEventTriggerNotifyStatus(context.Context, string, string) error {

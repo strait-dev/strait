@@ -202,8 +202,8 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status s
 					 wd.last_status_code, wd.last_error, wd.next_retry_at, wd.delivered_at, wd.created_at, wd.updated_at,
 					 wd.event_trigger_id
 				  FROM webhook_deliveries wd
-				  JOIN jobs j ON wd.job_id = j.id
-				  WHERE j.project_id = $1`
+				  LEFT JOIN jobs j ON wd.job_id = j.id
+				  WHERE (j.project_id = $1 OR wd.job_id IS NULL)`
 	args := []any{projectID}
 	param := 2
 

@@ -8268,9 +8268,6 @@ func TestRetryWebhookDelivery(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	if _, err := testDB.Pool.Exec(ctx, `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS webhook_retry_policy TEXT`); err != nil {
-		t.Fatalf("add webhook_retry_policy column error = %v", err)
-	}
 
 	projectID := "project-webhook-retry-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
@@ -8320,9 +8317,6 @@ func TestListPendingWebhookRetries(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	if _, err := testDB.Pool.Exec(ctx, `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS webhook_retry_policy TEXT`); err != nil {
-		t.Fatalf("add webhook_retry_policy column error = %v", err)
-	}
 
 	projectID := "project-webhook-pending-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
@@ -8361,9 +8355,6 @@ func TestDeleteOldWebhookDeliveries(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	if _, err := testDB.Pool.Exec(ctx, `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS webhook_retry_policy TEXT`); err != nil {
-		t.Fatalf("add webhook_retry_policy column error = %v", err)
-	}
 
 	projectID := "project-webhook-cleanup-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
@@ -8744,7 +8735,7 @@ func TestUpdateEventTriggerStatus(t *testing.T) {
 	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-update-status-"+newID(), time.Now().UTC().Add(-time.Minute), nil, nil)
 
 	response := json.RawMessage(`{"ok":true}`)
-	receivedAt := time.Now().UTC()
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
 	errMsg := "delivery failed once"
 	if err := q.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, response, &receivedAt, errMsg); err != nil {
 		t.Fatalf("UpdateEventTriggerStatus() error = %v", err)
@@ -9175,7 +9166,7 @@ func TestBatchReceiveEventTriggers(t *testing.T) {
 	triggerB := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-batch-b-"+newID(), now.Add(-time.Minute), nil, nil)
 
 	payload := json.RawMessage(`{"batched":true}`)
-	receivedAt := time.Now().UTC()
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
 	updatedIDs, err := q.BatchReceiveEventTriggers(ctx, []string{triggerA.ID, triggerB.ID}, payload, receivedAt, "batch-sender")
 	if err != nil {
 		t.Fatalf("BatchReceiveEventTriggers() error = %v", err)
