@@ -32,7 +32,11 @@ jobs:
           set -o pipefail
           go test -bench . -benchmem -run=^$ -count=3 ./internal/... | tee benchmark-results.txt
 
-      - name: Upload benchmark results
+      - name: Format benchmark summary
+        if: always() && hashFiles('benchmark-results.txt') != ''
+        run: go run ./scripts/format-benchmarks benchmark-results.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:

@@ -49,7 +49,7 @@ The strait solves the complexity of background job processing by combining queue
 Run OpenAPI route parity manually before committing docs/API changes:
 
 ```bash
-go run ./scripts/check_openapi_parity.go
+go run ./scripts/check-openapi-parity
 ```
 
 Then run hooks/checks:
