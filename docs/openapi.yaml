@@ -314,18 +314,14 @@ paths:
         content:
           application/json:
             schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/TriggerJobRequest'
+              $ref: '#/components/schemas/BulkTriggerRequest'
       responses:
-        '202':
-          description: Runs triggered
+        '201':
+          description: Bulk trigger results
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/JobRun'
+                $ref: '#/components/schemas/BulkTriggerResponse'
 
   /v1/jobs/{jobID}/versions:
     get:
@@ -822,8 +818,11 @@ paths:
                     type: string
       responses:
         '200':
-          description: Runs canceled
-
+          description: Bulk cancel results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkCancelResponse'
   /v1/runs/{runID}:
     get:
       tags:
@@ -1360,13 +1359,19 @@ paths:
           required: true
           schema:
             type: string
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, dot]
+          description: Output format. Default is JSON adjacency list; 'dot' returns Graphviz DOT.
       responses:
         '200':
           description: DAG graph data
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/WorkflowGraphResponse'
 
   /v1/workflow-runs:
     get:
@@ -2054,7 +2059,19 @@ paths:
           type: string
     post:
       tags: [Workflows]
-      summary: Validate and render a workflow execution plan
+      summary: Validate a workflow DAG structure
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                steps:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/WorkflowStep'
       responses:
         '200':
           description: Dry run result
@@ -2062,6 +2079,11 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  valid:
+                    type: boolean
+                  step_count:
+                    type: integer
 
   /v1/workflows/{workflowID}/plan:
     parameters:
@@ -2073,6 +2095,23 @@ paths:
     post:
       tags: [Workflows]
       summary: Build topological workflow plan preview
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                step_overrides:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      step_ref:
+                        type: string
+                      enabled:
+                        type: boolean
       responses:
         '200':
           description: Plan preview
@@ -2080,6 +2119,21 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  workflow_id:
+                    type: string
+                  workflow_version:
+                    type: integer
+                  step_count:
+                    type: integer
+                  roots:
+                    type: array
+                    items:
+                      type: string
+                  topological_order:
+                    type: array
+                    items:
+                      type: string
 
   /v1/workflows/{workflowID}/versions:
     parameters:
@@ -4563,6 +4617,15 @@ components:
           type: string
         skip_if_running:
           type: boolean
+        enabled:
+          type: boolean
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
         steps:
           type: array
           items:
@@ -4588,6 +4651,17 @@ components:
         cron_timezone:
           type: string
         skip_if_running:
+          type: boolean
+        slug:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
+        backwards_compatible:
           type: boolean
         steps:
           type: array
@@ -4820,4 +4894,88 @@ components:
           type: string
           enum: [event, sleep]
         sent_by:
+          type: string
+
+    BulkTriggerRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              payload:
+                type: object
+              scheduled_at:
+                type: string
+                format: date-time
+              priority:
+                type: integer
+              idempotency_key:
+                type: string
+              tags:
+                type: object
+                additionalProperties:
+                  type: string
+
+    BulkTriggerResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+              run_token:
+                type: string
+              idempotency_hit:
+                type: boolean
+        total:
+          type: integer
+        created:
+          type: integer
+
+    BulkCancelResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+              error:
+                type: string
+        total:
+          type: integer
+        canceled:
+          type: integer
+        failed:
+          type: integer
+
+    WorkflowGraphResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+        roots:
+          type: array
+          items:
+            type: string
+        adjacency:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        dot:
           type: string

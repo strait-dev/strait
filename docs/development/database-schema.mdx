@@ -3,7 +3,7 @@ title: "Database Schema"
 description: "Detailed reference of the PostgreSQL database schema and migration system."
 ---
 
-Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000066_*` series) that run automatically on startup.
+Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000068_*` series) that run automatically on startup.
 
 ## Core Tables
 
@@ -118,6 +118,14 @@ updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 - `idx_event_triggers_event_key_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
 - `idx_event_triggers_step_run`: `(workflow_step_run_id) WHERE workflow_step_run_id IS NOT NULL` — Step-to-trigger lookup
 
+### Performance Indexes
+
+- `idx_workflow_runs_status_expires`: `(status, expires_at) WHERE expires_at IS NOT NULL` -- Reaper timeout lookup
+- `idx_workflow_runs_status_finished`: `(status, finished_at) WHERE finished_at IS NOT NULL` -- Retention deletion
+- `idx_step_runs_workflow_run_status`: `(workflow_run_id, status)` -- Step run queries by run and status
+- `idx_step_decisions_step_run_id`: `(step_run_id)` -- CASCADE deletes on decisions
+- `idx_job_runs_active_by_job`: `(job_id) WHERE status IN ('queued', 'dequeued', 'executing')` -- Active run counting
+
 ### webhook_deliveries Extensions
 
 The `webhook_deliveries` table is shared between job run webhooks and event trigger webhooks:
@@ -145,6 +153,8 @@ Migrations follow a sequential 6-digit numbering scheme:
 | `000064_workflow_step_decisions` | Adds explainability decision log table + run/step indexes. |
 | `000065_workflow_step_resource_class` | Adds `resource_class` scheduling bucket to workflow step tables. |
 | `000066_workflow_policies` | Adds per-project DAG governance policy table. |
+| `000067_add_performance_indexes` | Adds reaper/poller/step-run indexes for `workflow_runs`, `workflow_step_runs`, and `workflow_step_decisions`. |
+| `000068_dequeue_active_runs_index` | Adds partial index on `job_runs` for active run counting during dequeue. |
 
 <Note>
 The event trigger schema was developed across 7 incremental migrations during development. These were squashed into `000061_event_trigger_support` before merge to reduce startup time and rollback complexity.
@@ -153,8 +163,8 @@ The event trigger schema was developed across 7 incremental migrations during de
 ### Adding New Migrations
 
 1. Create a new pair of SQL files in the `migrations/` directory using the next sequence number:
-   - `000067_your_feature.up.sql`
-   - `000067_your_feature.down.sql`
+   - `000069_your_feature.up.sql`
+   - `000069_your_feature.down.sql`
 2. Ensure the migration is idempotent.
 3. The application will automatically detect and apply the new migration on the next startup.
 

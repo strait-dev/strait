@@ -80,6 +80,11 @@ Rate limits are applied per IP address:
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: Reset the selected step and descendants, then resume progression.
 - `GET /v1/workflow-policies/{projectID}` / `PUT /v1/workflow-policies/{projectID}`: Read and update project-level DAG governance policy.
 
+### Bulk Operations
+
+- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to 100 runs in a single request. Supports per-item payload, priority, idempotency keys, and tags. Returns structured results with per-item status. Rate limited to 30 requests per minute.
+- `POST /v1/runs/bulk-cancel`: Cancel up to 100 runs in a single request. Returns per-run cancel status with error details for runs that could not be canceled.
+
 ### Version Analysis
 
 - `POST /v1/workflows/{workflowID}/simulate`: Returns snapshot ordering metadata (`predicted_order`, `step_count`).

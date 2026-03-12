@@ -724,6 +724,11 @@ Partial and composite indexes ensure query performance at scale:
 - `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` — Reaper timeout lookup
 - `idx_event_triggers_project_status`: `(project_id, status)` — Project-scoped list queries
 - `idx_event_triggers_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
+- `idx_workflow_runs_status_expires`: `(status, expires_at) WHERE expires_at IS NOT NULL` -- Reaper timeout lookup for workflow runs
+- `idx_workflow_runs_status_finished`: `(status, finished_at) WHERE finished_at IS NOT NULL` -- Retention deletion queries
+- `idx_step_runs_workflow_run_status`: `(workflow_run_id, status)` -- Step run queries filtered by run and status
+- `idx_step_decisions_step_run_id`: `(step_run_id)` -- CASCADE deletes on workflow step decisions
+- `idx_job_runs_active_by_job`: `(job_id) WHERE status IN ('queued', 'dequeued', 'executing')` -- Dequeue active run counting
 
 ## Design Decisions
 
@@ -787,7 +792,7 @@ The DLQ is modeled as a first-class FSM state (`dead_letter`) rather than a sepa
 
 ### Transactional Event Sends
 
-When an event resolves a workflow step trigger, the trigger status update and step completion are wrapped in a single database transaction (`store.WithTx`). If either operation fails, both roll back atomically. This prevents the inconsistency where a trigger is marked `received` but the step remains `waiting`.
+When an event resolves a workflow step trigger, the trigger status update and step completion are wrapped in a single database transaction via `runInTx`. If either operation fails, both roll back atomically. This prevents the inconsistency where a trigger is marked `received` but the step remains `waiting`. The same pattern wraps workflow create/update/clone, SDK wait-for-event, and workflow run retry operations.
 
 Fan-in progression (starting downstream steps) runs outside the transaction because it involves queue operations and multiple tables. The reconciliation reaper acts as a safety net for edge cases where progression fails.
 
@@ -818,6 +823,36 @@ Endpoint URL validation happens in both the API server (job creation/update) and
 - Private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 - Loopback addresses (127.0.0.0/8, ::1/128)
 - Link-local addresses (169.254.0.0/16)
+
+## Performance Optimizations
+
+### Workflow Context Caching
+
+During step callback processing, the workflow engine loads the workflow run, step definitions, and step-by-ref index. These are immutable for the lifetime of a single callback. The `wfCtx` struct caches this data after the first load, eliminating 10-15 redundant database queries per step completion in multi-step workflows.
+
+### Transaction Safety via runInTx
+
+Multi-step write operations (workflow creation, event trigger registration, retry runs) use a `runInTx` abstraction that wraps store calls in a database transaction. In production, this delegates to `store.WithTx`; in tests, it passes through to the mock store directly. This provides atomicity without requiring mock implementations of `pgx.Tx`.
+
+Key operations wrapped in transactions:
+- Workflow create/update/clone (version snapshot + steps)
+- SDK wait-for-event (run status + event trigger creation)
+- Workflow run retry (new run + step runs)
+- Event send (trigger resolution + step completion)
+
+### Bounded Reaper Queries
+
+All reaper and poller queries include a `LIMIT` clause (default 1000) to prevent unbounded result sets during incident recovery or backlog processing. The retention worker uses CTE-based batch deletes with `FOR UPDATE SKIP LOCKED` (batch size 5000) instead of unbounded `DELETE` statements.
+
+### Reaper N+1 Elimination
+
+The workflow timeout reaper previously issued 2+2N database calls per timed-out workflow run (fetching step runs individually, then canceling each). This was replaced with 4 bulk calls per run using existing `CancelNonTerminalStepRuns` and `CancelJobRunsByWorkflowRun` methods.
+
+### Bulk Operation Batching
+
+Bulk cancel (`POST /v1/runs/bulk-cancel`) was rewritten from 4N queries to 3 queries: batch fetch via `GetRunsByIDs`, batch cancel via `BulkCancelRuns` (single UPDATE with status filter), and batch child cancel via `CancelChildRunsByParentIDs`.
+
+Bulk trigger (`POST /v1/jobs/{jobID}/trigger/bulk`) pre-computes project quota counts once before the loop instead of per-item, eliminating 2 redundant queries per item.
 
 ## Graceful Shutdown
 
