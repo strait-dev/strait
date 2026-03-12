@@ -249,7 +249,7 @@ func newPendingDelivery(id, webhookURL string) domain.WebhookDelivery {
 		WebhookURL:  webhookURL,
 		Status:      domain.WebhookStatusPending,
 		Attempts:    0,
-		MaxAttempts: 5,
+		MaxAttempts: 100,
 		NextRetryAt: &nextRetryAt,
 		LastError:   `{"id":"` + id + `"}`,
 	}

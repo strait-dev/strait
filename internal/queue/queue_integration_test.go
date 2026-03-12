@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -511,22 +510,6 @@ func TestEnqueue_IdempotencyConflict(t *testing.T) {
 	st := mustStore(t)
 	mustClean(t, ctx)
 
-	partitionTable := "job_runs_p" + time.Now().UTC().Format("2006_01")
-	if _, err := testDB.Pool.Exec(ctx, `DROP INDEX IF EXISTS idx_runs_idempotency`); err != nil {
-		t.Fatalf("drop idx_runs_idempotency error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, fmt.Sprintf(
-		`CREATE UNIQUE INDEX idx_runs_idempotency ON %s (job_id, idempotency_key)
-		 WHERE idempotency_key IS NOT NULL
-		   AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')`,
-		partitionTable,
-	)); err != nil {
-		t.Fatalf("create idx_runs_idempotency error = %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = testDB.Pool.Exec(context.Background(), `DROP INDEX IF EXISTS idx_runs_idempotency`)
-	})
-
 	job := mustCreateJob(t, ctx, st, "project-queue-enqueue-idempotency-conflict")
 	runA := &domain.JobRun{
 		ID:             newID(),
@@ -558,22 +541,6 @@ func TestEnqueue_IdempotencyAllowsAfterTerminal(t *testing.T) {
 	q := mustQueue(t)
 	st := mustStore(t)
 	mustClean(t, ctx)
-
-	partitionTable := "job_runs_p" + time.Now().UTC().Format("2006_01")
-	if _, err := testDB.Pool.Exec(ctx, `DROP INDEX IF EXISTS idx_runs_idempotency`); err != nil {
-		t.Fatalf("drop idx_runs_idempotency error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, fmt.Sprintf(
-		`CREATE UNIQUE INDEX idx_runs_idempotency ON %s (job_id, idempotency_key)
-		 WHERE idempotency_key IS NOT NULL
-		   AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')`,
-		partitionTable,
-	)); err != nil {
-		t.Fatalf("create idx_runs_idempotency error = %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = testDB.Pool.Exec(context.Background(), `DROP INDEX IF EXISTS idx_runs_idempotency`)
-	})
 
 	job := mustCreateJob(t, ctx, st, "project-queue-enqueue-idempotency-terminal")
 	runA := &domain.JobRun{

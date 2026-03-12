@@ -106,7 +106,7 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, next_retry_at,
 			webhook_secret, payload, payload_size_bytes, event_type
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, octet_length($11::jsonb::text), $12)
 		RETURNING created_at, updated_at`
 
 	err = q.db.QueryRow(
@@ -123,7 +123,6 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		d.NextRetryAt,
 		dbscan.NilIfEmptyString(job.WebhookSecret),
 		payload,
-		len(payload),
 		fmt.Sprintf("run.%s", run.Status),
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
