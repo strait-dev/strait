@@ -2292,11 +2292,22 @@ func TestWebhookDelivery_EnqueueRunWebhookAndListPendingRun(t *testing.T) {
 		t.Fatalf("payload status = %v, want %q", payload["status"], run.Status)
 	}
 
+	evtID := newID()
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO event_triggers (id, event_key, project_id, source_type, expires_at)
+		VALUES ($1, $2, $3, 'webhook', $4)`,
+		evtID, "evt-key-"+evtID, job.ProjectID, expiresAt,
+	)
+	if err != nil {
+		t.Fatalf("insert event_trigger error = %v", err)
+	}
+
 	now := time.Now().UTC().Add(-1 * time.Minute)
 	eventDelivery := &domain.WebhookDelivery{
 		JobID:          job.ID,
 		RunID:          run.ID,
-		EventTriggerID: "evt-not-run-webhook",
+		EventTriggerID: evtID,
 		WebhookURL:     "https://example.com/event",
 		Status:         domain.WebhookStatusPending,
 		Attempts:       0,
