@@ -69,6 +69,34 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 	}
 }
 
+// wfCtx caches immutable workflow data for a single callback invocation.
+// Step definitions for a given (workflowID, version) never change after creation,
+// so fetching them once per entry point is safe.
+type wfCtx struct {
+	run       *domain.WorkflowRun
+	steps     []domain.WorkflowStep
+	stepByRef map[string]domain.WorkflowStep
+}
+
+func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wfCtx, error) {
+	wfRun, err := s.store.GetWorkflowRun(ctx, workflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("get workflow run: %w", err)
+	}
+	if wfRun == nil {
+		return nil, fmt.Errorf("workflow run not found: %s", workflowRunID)
+	}
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return nil, fmt.Errorf("list steps by workflow version: %w", err)
+	}
+	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
+	for _, st := range steps {
+		stepByRef[st.StepRef] = st
+	}
+	return &wfCtx{run: wfRun, steps: steps, stepByRef: stepByRef}, nil
+}
+
 func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
 	s.metrics = m
 	return s
@@ -96,21 +124,22 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 		return nil
 	}
 
+	wc, wcErr := s.loadWfCtx(ctx, stepRun.WorkflowRunID)
+	if wcErr != nil {
+		s.logger.Error("failed to load workflow context", "workflow_run_id", stepRun.WorkflowRunID, "error", wcErr)
+		return fmt.Errorf("load workflow context: %w", wcErr)
+	}
+
 	stepStatus, fields := mapRunStatusToStepStatus(run)
 
 	// Apply output transformation for completed steps before persisting.
 	if stepStatus == domain.StepCompleted {
-		var wfRunForTransform *domain.WorkflowRun
-		wfRunForTransform, err = s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
-		if err != nil {
-			wfRunForTransform = nil
-		}
 		if rawOut, ok := fields["output"].(json.RawMessage); ok && len(rawOut) > 0 {
-			if transformPath := s.lookupOutputTransform(ctx, stepRun, wfRunForTransform); transformPath != "" {
-				transformed, transformErr := ApplyOutputTransform(rawOut, transformPath)
+			if step, ok := wc.stepByRef[stepRun.StepRef]; ok && step.OutputTransform != "" {
+				transformed, transformErr := ApplyOutputTransform(rawOut, step.OutputTransform)
 				if transformErr != nil {
 					s.logger.Warn("output transform failed, keeping original output",
-						"step_ref", stepRun.StepRef, "transform", transformPath, "error", transformErr)
+						"step_ref", stepRun.StepRef, "transform", step.OutputTransform, "error", transformErr)
 				} else {
 					fields["output"] = transformed
 				}
@@ -134,7 +163,7 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 
 	// Check if step retry is needed before handling failure
 	if stepStatus == domain.StepFailed {
-		if shouldRetry, nextRetryAt, newAttempt, err := s.checkStepRetry(ctx, stepRun, run); err != nil {
+		if shouldRetry, nextRetryAt, newAttempt, err := s.checkStepRetry(ctx, stepRun, run, wc); err != nil {
 			s.logger.Error("failed to check step retry", "step_run_id", stepRun.ID, "error", err)
 			return fmt.Errorf("check step retry: %w", err)
 		} else if shouldRetry {
@@ -150,21 +179,21 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	switch stepStatus {
 	case domain.StepCompleted:
 		// Auto-emit event if step has event_emit_key configured.
-		s.tryEmitEvent(ctx, stepRun)
+		s.tryEmitEvent(ctx, stepRun, wc)
 
-		if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
+		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 			s.logger.Error("failed to process completed step", "step_ref", stepRun.StepRef, "error", err)
 			return fmt.Errorf("process completed step %s: %w", stepRun.StepRef, err)
 		}
-		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
+		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	case domain.StepFailed:
-		if err := s.handleFailedStep(ctx, stepRun); err != nil {
+		if err := s.handleFailedStep(ctx, stepRun, wc); err != nil {
 			s.logger.Error("failed to process failed step", "step_ref", stepRun.StepRef, "error", err)
 			return fmt.Errorf("process failed step %s: %w", stepRun.StepRef, err)
 		}
 		return nil
 	default:
-		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
+		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	}
 }
 
@@ -202,16 +231,21 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 		targetStepRun.Output = trigger.ResponsePayload
 	}
 
+	wc, wcErr := s.loadWfCtx(ctx, targetStepRun.WorkflowRunID)
+	if wcErr != nil {
+		return fmt.Errorf("load workflow context: %w", wcErr)
+	}
+
 	// Auto-emit event if step has event_emit_key configured.
-	s.tryEmitEvent(ctx, targetStepRun)
+	s.tryEmitEvent(ctx, targetStepRun, wc)
 
 	// Fan-in and start ready children.
-	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun); err != nil {
+	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun, wc); err != nil {
 		s.logger.Error("failed to process event-completed step", "step_ref", targetStepRun.StepRef, "error", err)
 		return fmt.Errorf("process event-completed step %s: %w", targetStepRun.StepRef, err)
 	}
 
-	return s.checkWorkflowCompletion(ctx, targetStepRun.WorkflowRunID)
+	return s.checkWorkflowCompletion(ctx, targetStepRun.WorkflowRunID, wc)
 }
 
 // OnStepCompleted handles workflow progression after a step is externally completed
@@ -229,14 +263,20 @@ func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string
 		return
 	}
 
-	s.tryEmitEvent(ctx, target)
+	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
+	if wcErr != nil {
+		s.logger.Error("OnStepCompleted: failed to load workflow context", "workflow_run_id", workflowRunID, "error", wcErr)
+		return
+	}
 
-	if err := s.fanInAndStartReadyChildren(ctx, target); err != nil {
+	s.tryEmitEvent(ctx, target, wc)
+
+	if err := s.fanInAndStartReadyChildren(ctx, target, wc); err != nil {
 		s.logger.Error("OnStepCompleted: failed to advance workflow", "step_ref", target.StepRef, "error", err)
 		return
 	}
 
-	if err := s.checkWorkflowCompletion(ctx, workflowRunID); err != nil {
+	if err := s.checkWorkflowCompletion(ctx, workflowRunID, wc); err != nil {
 		s.logger.Error("OnStepCompleted: failed to check workflow completion", "workflow_run_id", workflowRunID, "error", err)
 	}
 }
@@ -257,7 +297,13 @@ func (s *StepCallback) OnStepFailed(ctx context.Context, workflowRunID string, s
 		return
 	}
 
-	if err := s.handleFailedStep(ctx, target); err != nil {
+	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
+	if wcErr != nil {
+		s.logger.Error("OnStepFailed: failed to load workflow context", "error", wcErr)
+		return
+	}
+
+	if err := s.handleFailedStep(ctx, target, wc); err != nil {
 		s.logger.Error("OnStepFailed: failed to handle step failure", "step_ref", target.StepRef, "error", err)
 	}
 }
@@ -290,25 +336,14 @@ func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[str
 	}
 }
 
-// tryEmitEvent looks up the step definition for a completed step run and
-// auto-emits an event if event_emit_key is configured. Non-fatal on failure.
-func (s *StepCallback) tryEmitEvent(ctx context.Context, stepRun *domain.WorkflowStepRun) {
-	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
-	if err != nil || wfRun == nil {
+// tryEmitEvent uses the cached step definitions to check if a completed step
+// has event_emit_key configured, and auto-emits an event if so. Non-fatal on failure.
+func (s *StepCallback) tryEmitEvent(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx) {
+	step, ok := wc.stepByRef[stepRun.StepRef]
+	if !ok {
 		return
 	}
-
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
-	if err != nil {
-		return
-	}
-
-	for i := range steps {
-		if steps[i].StepRef == stepRun.StepRef {
-			s.emitEventIfConfigured(ctx, stepRun, &steps[i], wfRun)
-			return
-		}
-	}
+	s.emitEventIfConfigured(ctx, stepRun, &step, wc.run)
 }
 
 // emitEventIfConfigured checks if a step has event_emit_key set and if so,
@@ -353,9 +388,7 @@ func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domai
 		}
 	case domain.EventSourceJobRun:
 		if trigger.JobRunID != "" {
-			if err := s.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
-				"checkpoint_data": stepRun.Output,
-			}); err != nil {
+			if err := s.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusQueued, nil); err != nil {
 				s.logger.Error("emit event: failed to re-queue job run", "event_key", emitKey, "job_run_id", trigger.JobRunID, "error", err)
 			}
 		}

@@ -16,6 +16,15 @@ func newTestCallback(ms *mockCallbackStore) *StepCallback {
 	return NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 }
 
+// testWfCtx builds a wfCtx from inline data for tests that call internal methods directly.
+func testWfCtx(run *domain.WorkflowRun, steps []domain.WorkflowStep) *wfCtx {
+	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
+	for _, st := range steps {
+		stepByRef[st.StepRef] = st
+	}
+	return &wfCtx{run: run, steps: steps, stepByRef: stepByRef}
+}
+
 func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 	t.Parallel()
 	skippedIDs := make(map[string]bool)
@@ -50,7 +59,15 @@ func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 
 	cb := newTestCallback(ms)
 	stepRun := &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepFailed}
-	if err := cb.handleFailedStep(context.Background(), stepRun); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+		[]domain.WorkflowStep{
+			{StepRef: "a", OnFailure: domain.SkipDependents},
+			{StepRef: "b", DependsOn: []string{"a"}},
+			{StepRef: "c"},
+		},
+	)
+	if err := cb.handleFailedStep(context.Background(), stepRun, wc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !skippedIDs["sr-b"] {
@@ -89,7 +106,13 @@ func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
 
 	cb := newTestCallback(ms)
 	stepRun := &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepFailed}
-	if err := cb.handleFailedStep(context.Background(), stepRun); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+		[]domain.WorkflowStep{
+			{StepRef: "a", OnFailure: domain.Continue},
+		},
+	)
+	if err := cb.handleFailedStep(context.Background(), stepRun, wc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !workflowChecked {
@@ -122,7 +145,13 @@ func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
 
 	cb := newTestCallback(ms)
 	stepRun := &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepFailed, Error: "boom"}
-	if err := cb.handleFailedStep(context.Background(), stepRun); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+		[]domain.WorkflowStep{
+			{StepRef: "a"},
+		},
+	)
+	if err := cb.handleFailedStep(context.Background(), stepRun, wc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !workflowFailed {
@@ -188,7 +217,11 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 	}
 
 	cb := newTestCallback(ms)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1"); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+		[]domain.WorkflowStep{{StepRef: "s1"}, {StepRef: "s2"}},
+	)
+	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if wfStatus != domain.WfStatusCompleted {
@@ -213,7 +246,11 @@ func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
 	}
 
 	cb := newTestCallback(ms)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1"); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+		[]domain.WorkflowStep{{StepRef: "s1"}, {StepRef: "s2"}},
+	)
+	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if wfUpdated {
@@ -247,7 +284,14 @@ func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
 	}
 
 	cb := newTestCallback(ms)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1"); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+		[]domain.WorkflowStep{
+			{StepRef: "s1", OnFailure: domain.Continue},
+			{StepRef: "s2"},
+		},
+	)
+	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if wfStatus != domain.WfStatusCompleted {
@@ -281,7 +325,14 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 	}
 
 	cb := newTestCallback(ms)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1"); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+		[]domain.WorkflowStep{
+			{StepRef: "s1", OnFailure: domain.FailWorkflow},
+			{StepRef: "s2"},
+		},
+	)
+	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if wfStatus != domain.WfStatusFailed {
@@ -321,7 +372,16 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	}
 
 	cb := newTestCallback(ms)
-	if err := cb.skipDependentSteps(context.Background(), "wr-1", "wf-1", "a"); err != nil {
+	wc := testWfCtx(
+		&domain.WorkflowRun{WorkflowVersion: 1},
+		[]domain.WorkflowStep{
+			{StepRef: "a"},
+			{StepRef: "b", DependsOn: []string{"a"}},
+			{StepRef: "c", DependsOn: []string{"b"}},
+			{StepRef: "d"},
+		},
+	)
+	if err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !skippedIDs["sr-b"] {
@@ -417,7 +477,14 @@ func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 	}
 
 	// Call tryEmitEvent which should resolve the waiting trigger AND resume the step.
-	cb.tryEmitEvent(context.Background(), emitterStepRun)
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusRunning, Payload: json.RawMessage(`{"env":"prod"}`)},
+		[]domain.WorkflowStep{
+			{StepRef: "emitter", EventEmitKey: "chain:{{env}}:done"},
+			{StepRef: "waiter", StepType: domain.WorkflowStepTypeWaitForEvent, EventKey: "chain:prod:done"},
+		},
+	)
+	cb.tryEmitEvent(context.Background(), emitterStepRun, wc)
 
 	if resolvedTriggerID != "evt-waiter" {
 		t.Fatalf("expected trigger evt-waiter to be resolved, got %q", resolvedTriggerID)
@@ -438,6 +505,12 @@ func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
 		},
 		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
 			return errors.New("store error")
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "s1"}}, nil
 		},
 	}
 

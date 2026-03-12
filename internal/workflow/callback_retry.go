@@ -9,26 +9,8 @@ import (
 	"strait/internal/worker"
 )
 
-func (s *StepCallback) checkStepRetry(ctx context.Context, stepRun *domain.WorkflowStepRun, _ *domain.JobRun) (bool, time.Time, int, error) {
-	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
-	if err != nil {
-		return false, time.Time{}, 0, fmt.Errorf("get workflow run: %w", err)
-	}
-	if wfRun == nil {
-		return false, time.Time{}, 0, fmt.Errorf("workflow run not found: %s", stepRun.WorkflowRunID)
-	}
-
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
-	if err != nil {
-		return false, time.Time{}, 0, fmt.Errorf("list workflow steps: %w", err)
-	}
-
-	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, st := range steps {
-		stepByRef[st.StepRef] = st
-	}
-
-	failedStep, ok := stepByRef[stepRun.StepRef]
+func (s *StepCallback) checkStepRetry(_ context.Context, stepRun *domain.WorkflowStepRun, _ *domain.JobRun, wc *wfCtx) (bool, time.Time, int, error) {
+	failedStep, ok := wc.stepByRef[stepRun.StepRef]
 	if !ok {
 		return false, time.Time{}, 0, fmt.Errorf("step definition not found for %s", stepRun.StepRef)
 	}
@@ -78,26 +60,8 @@ func (s *StepCallback) scheduleStepRetry(ctx context.Context, jobRun *domain.Job
 	return nil
 }
 
-func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.WorkflowStepRun) error {
-	wfRun, err := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
-	if err != nil {
-		return fmt.Errorf("get workflow run: %w", err)
-	}
-	if wfRun == nil {
-		return fmt.Errorf("workflow run not found: %s", stepRun.WorkflowRunID)
-	}
-
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
-	if err != nil {
-		return fmt.Errorf("list workflow steps: %w", err)
-	}
-
-	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, st := range steps {
-		stepByRef[st.StepRef] = st
-	}
-
-	failedStep, ok := stepByRef[stepRun.StepRef]
+func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx) error {
+	failedStep, ok := wc.stepByRef[stepRun.StepRef]
 	if !ok {
 		return fmt.Errorf("step definition not found for %s", stepRun.StepRef)
 	}
@@ -109,19 +73,19 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 
 	switch policy {
 	case domain.FailWorkflow:
-		return s.failWorkflowAndCancel(ctx, wfRun, stepRun)
+		return s.failWorkflowAndCancel(ctx, wc.run, stepRun)
 	case domain.SkipDependents:
-		if err := s.skipDependentSteps(ctx, stepRun.WorkflowRunID, wfRun.WorkflowID, stepRun.StepRef); err != nil {
+		if err := s.skipDependentSteps(ctx, stepRun.WorkflowRunID, wc, stepRun.StepRef); err != nil {
 			return fmt.Errorf("skip dependents: %w", err)
 		}
-		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
+		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	case domain.Continue:
-		if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
+		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 			return fmt.Errorf("fan-in for continue policy on step %s: %w", stepRun.StepRef, err)
 		}
-		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
+		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	default:
-		return s.failWorkflowAndCancel(ctx, wfRun, stepRun)
+		return s.failWorkflowAndCancel(ctx, wc.run, stepRun)
 	}
 }
 
@@ -148,19 +112,9 @@ func (s *StepCallback) cancelRemainingSteps(ctx context.Context, workflowRunID s
 	return nil
 }
 
-func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID, workflowID, failedStepRef string) error {
-	wfRun, err := s.store.GetWorkflowRun(ctx, workflowRunID)
-	if err != nil {
-		return fmt.Errorf("get workflow run: %w", err)
-	}
-
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, workflowID, wfRun.WorkflowVersion)
-	if err != nil {
-		return fmt.Errorf("list workflow steps: %w", err)
-	}
-
-	dependents := make(map[string][]string, len(steps))
-	for _, step := range steps {
+func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID string, wc *wfCtx, failedStepRef string) error {
+	dependents := make(map[string][]string, len(wc.steps))
+	for _, step := range wc.steps {
 		for _, dep := range step.DependsOn {
 			dependents[dep] = append(dependents[dep], step.StepRef)
 		}
