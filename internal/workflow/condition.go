@@ -7,6 +7,10 @@ import (
 	"strait/internal/domain"
 )
 
+type conditionEnvelope struct {
+	Type string `json:"type"`
+}
+
 type stepStatusCondition struct {
 	Type    string `json:"type"`
 	StepRef string `json:"step_ref"`
@@ -26,13 +30,13 @@ func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.Step
 		return true, nil
 	}
 
-	var envelopeData map[string]any
-	if err := json.Unmarshal(cond, &envelopeData); err != nil {
+	var envelope conditionEnvelope
+	if err := json.Unmarshal(cond, &envelope); err != nil {
 		return false, fmt.Errorf("unmarshal condition envelope: %w", err)
 	}
 
-	condType, ok := envelopeData["type"].(string)
-	if !ok {
+	condType := envelope.Type
+	if condType == "" {
 		return false, fmt.Errorf("unknown condition type: %q", "")
 	}
 

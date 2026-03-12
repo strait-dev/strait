@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -332,6 +333,11 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false
 	}
+	// Fast path: byte-equal payloads are always semantically equal.
+	if bytes.Equal(a, b) {
+		return true
+	}
+	// Slow path: normalize via round-trip for semantic comparison.
 	var va, vb any
 	if err := json.Unmarshal(a, &va); err != nil {
 		return false
@@ -339,9 +345,15 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	if err := json.Unmarshal(b, &vb); err != nil {
 		return false
 	}
-	ea, _ := json.Marshal(va)
-	eb, _ := json.Marshal(vb)
-	return string(ea) == string(eb)
+	ea, err := json.Marshal(va)
+	if err != nil {
+		return false
+	}
+	eb, err := json.Marshal(vb)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(ea, eb)
 }
 
 // handleGetEventTriggerStats returns aggregate statistics for event triggers.

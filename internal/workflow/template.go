@@ -79,28 +79,36 @@ func renderStringValue(s string, vars map[string]any) any {
 		return s
 	}
 
-	matches := templateVarRegex.FindAllStringIndex(s, -1)
+	matches := templateVarRegex.FindAllStringSubmatchIndex(s, -1)
 	if len(matches) == 0 {
 		return s
 	}
 
 	// Entire string is a single "{{var_name}}" — preserve the variable's type.
 	if len(matches) == 1 && matches[0][0] == 0 && matches[0][1] == len(s) {
-		varName := templateVarRegex.FindStringSubmatch(s)[1]
+		varName := s[matches[0][2]:matches[0][3]]
 		if val, ok := resolveVar(vars, varName); ok {
 			return val
 		}
 		return s
 	}
 
-	// Mixed content: interpolate with string conversion.
-	return templateVarRegex.ReplaceAllStringFunc(s, func(match string) string {
-		varName := templateVarRegex.FindStringSubmatch(match)[1]
+	// Mixed content: build result from parts.
+	var buf strings.Builder
+	buf.Grow(len(s))
+	prev := 0
+	for _, m := range matches {
+		buf.WriteString(s[prev:m[0]])
+		varName := s[m[2]:m[3]]
 		if val, ok := resolveVar(vars, varName); ok {
-			return stringify(val)
+			buf.WriteString(stringify(val))
+		} else {
+			buf.WriteString(s[m[0]:m[1]])
 		}
-		return match
-	})
+		prev = m[1]
+	}
+	buf.WriteString(s[prev:])
+	return buf.String()
 }
 
 // resolveVar looks up a variable name in the vars map. Supports dot-separated
