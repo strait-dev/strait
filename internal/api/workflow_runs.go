@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -135,48 +136,19 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		respondError(w, r, http.StatusConflict, "failed to cancel workflow run")
 		return
 	}
+	now := time.Now()
+	reason := "workflow canceled by user"
 
-	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), run.ID, 10000, nil)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
+	// Bulk-cancel all non-terminal step runs in one UPDATE.
+	if _, err := s.store.CancelNonTerminalStepRuns(r.Context(), run.ID, now, reason); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to cancel workflow step runs")
 		return
 	}
 
-	now := time.Now()
-	for _, stepRun := range stepRuns {
-		if !stepRun.Status.IsTerminal() {
-			if err := s.store.UpdateStepRunStatus(r.Context(), stepRun.ID, domain.StepCanceled, map[string]any{
-				"finished_at": now,
-				"error":       "workflow canceled by user",
-			}); err != nil {
-				respondError(w, r, http.StatusConflict, "failed to cancel workflow step run")
-				return
-			}
-		}
-
-		if stepRun.JobRunID == "" {
-			continue
-		}
-
-		jobRun, err := s.store.GetRun(r.Context(), stepRun.JobRunID)
-		if err != nil {
-			if errors.Is(err, store.ErrRunNotFound) {
-				continue
-			}
-			respondError(w, r, http.StatusInternalServerError, "failed to get step job run")
-			return
-		}
-		if jobRun.Status.IsTerminal() {
-			continue
-		}
-
-		if err := s.store.UpdateRunStatus(r.Context(), jobRun.ID, jobRun.Status, domain.StatusCanceled, map[string]any{
-			"finished_at": now,
-			"error":       "workflow canceled by user",
-		}); err != nil {
-			respondError(w, r, http.StatusConflict, "failed to cancel step job run")
-			return
-		}
+	// Bulk-cancel all non-terminal job runs linked to this workflow run.
+	if _, err := s.store.CancelJobRunsByWorkflowRun(r.Context(), run.ID, now, reason); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to cancel workflow job runs")
+		return
 	}
 
 	// Cancel any pending event triggers for this workflow (non-fatal).
@@ -695,6 +667,13 @@ func (s *Server) handleRetryWorkflowStep(w http.ResponseWriter, r *http.Request)
 	}
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	stepRef := chi.URLParam(r, "stepRef")
+
+	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if err != nil {
+		respondError(w, r, http.StatusNotFound, "workflow run not found")
+		return
+	}
+
 	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
 	if err != nil || stepRun == nil {
 		respondError(w, r, http.StatusNotFound, "workflow step run not found")
@@ -704,14 +683,31 @@ func (s *Server) handleRetryWorkflowStep(w http.ResponseWriter, r *http.Request)
 		respondError(w, r, http.StatusBadRequest, "step run must be terminal to retry")
 		return
 	}
+
+	// If the workflow run is terminal, transition it back to running so
+	// ResumeWorkflowRun can proceed. If it is paused, ResumeWorkflowRun
+	// handles the transition internally.
+	if run.Status.IsTerminal() {
+		if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, run.Status, domain.WfStatusRunning, nil); err != nil {
+			respondError(w, r, http.StatusConflict, "failed to reopen workflow run for retry")
+			return
+		}
+	}
+
 	if err := s.store.UpdateStepRunStatus(r.Context(), stepRun.ID, domain.StepPending, map[string]any{"started_at": nil, "finished_at": nil, "error": "", "output": nil, "event_key": nil}); err != nil {
 		respondError(w, r, http.StatusConflict, "failed to reset step run")
 		return
 	}
-	if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
-		respondError(w, r, http.StatusConflict, err.Error())
-		return
+
+	// Only call ResumeWorkflowRun if the run was paused (it handles pause->running).
+	// If we already set it to running above, just schedule directly.
+	if run.Status == domain.WfStatusPaused {
+		if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
+			respondError(w, r, http.StatusConflict, err.Error())
+			return
+		}
 	}
+
 	updated, _ := s.store.GetStepRunByWorkflowRunAndRef(r.Context(), workflowRunID, stepRef)
 	respondJSON(w, http.StatusOK, map[string]any{"step_run": updated})
 }
@@ -765,14 +761,21 @@ func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Requ
 		respondError(w, r, http.StatusInternalServerError, "failed to list workflow step runs")
 		return
 	}
+	var resetErrs []string
 	reset := 0
 	for _, sr := range stepRuns {
 		if _, ok := toReset[sr.StepRef]; !ok {
 			continue
 		}
-		if err := s.store.UpdateStepRunStatus(r.Context(), sr.ID, domain.StepPending, map[string]any{"started_at": nil, "finished_at": nil, "error": "", "output": nil, "event_key": nil}); err == nil {
-			reset++
+		if err := s.store.UpdateStepRunStatus(r.Context(), sr.ID, domain.StepPending, map[string]any{"started_at": nil, "finished_at": nil, "error": "", "output": nil, "event_key": nil}); err != nil {
+			resetErrs = append(resetErrs, fmt.Sprintf("%s: %v", sr.StepRef, err))
+			continue
 		}
+		reset++
+	}
+	if len(resetErrs) > 0 {
+		respondError(w, r, http.StatusConflict, fmt.Sprintf("failed to reset %d step(s): %s", len(resetErrs), strings.Join(resetErrs, "; ")))
+		return
 	}
 	if err := s.workflowCallback.ResumeWorkflowRun(r.Context(), workflowRunID); err != nil {
 		respondError(w, r, http.StatusConflict, err.Error())

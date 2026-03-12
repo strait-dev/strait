@@ -1450,3 +1450,26 @@ func marshalTagsForRun(tags map[string]string) []byte {
 	b, _ := json.Marshal(tags)
 	return b
 }
+
+// CancelJobRunsByWorkflowRun bulk-cancels all non-terminal job runs linked
+// to step runs of the given workflow run.
+func (q *Queries) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelJobRunsByWorkflowRun")
+	defer span.End()
+
+	query := `
+		UPDATE runs r
+		SET status = 'canceled',
+		    finished_at = $2,
+		    error = NULLIF($3, '')
+		FROM workflow_step_runs wsr
+		WHERE wsr.job_run_id = r.id
+		  AND wsr.workflow_run_id = $1
+		  AND r.status NOT IN ('completed', 'failed', 'canceled')`
+
+	tag, err := q.db.Exec(ctx, query, workflowRunID, finishedAt, reason)
+	if err != nil {
+		return 0, fmt.Errorf("cancel job runs by workflow run: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

@@ -367,12 +367,15 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 	query := `
 		UPDATE workflow_step_runs wsr
 		SET deps_completed = deps_completed + 1
-		FROM workflow_steps ws
-		WHERE wsr.workflow_step_id = ws.id
+		FROM workflow_runs wr
+		JOIN workflow_version_steps wvs
+		  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
+		  AND wvs.step_ref = wsr.step_ref
+		WHERE wr.id = wsr.workflow_run_id
 		  AND wsr.workflow_run_id = $1
 		  AND wsr.status = 'waiting'
-		  AND $2 = ANY(ws.depends_on)
-		RETURNING wsr.id, wsr.step_ref, wsr.deps_completed, wsr.deps_required, ws.job_id, ws.condition, ws.payload, wsr.workflow_run_id`
+		  AND $2 = ANY(wvs.depends_on)
+		RETURNING wsr.id, wsr.step_ref, wsr.deps_completed, wsr.deps_required, wvs.job_id, wvs.condition, wvs.payload, wsr.workflow_run_id`
 
 	rows, err := q.db.Query(ctx, query, workflowRunID, completedStepRef)
 	if err != nil {

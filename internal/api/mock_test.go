@@ -134,6 +134,8 @@ type mockAPIStore struct {
 	countActiveEventTriggersByProjectFn func(ctx context.Context, projectID string) (int, error)
 	getWebhookDeliveryFn                func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
+	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	cancelJobRunsByWorkflowRunFn        func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -1120,4 +1122,18 @@ func (m *mockAPIStore) UpdateWebhookDelivery(ctx context.Context, d *domain.Webh
 		return m.updateWebhookDeliveryFn(ctx, d)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelNonTerminalStepRunsFn != nil {
+		return m.cancelNonTerminalStepRunsFn(ctx, workflowRunID, finishedAt, reason)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelJobRunsByWorkflowRunFn != nil {
+		return m.cancelJobRunsByWorkflowRunFn(ctx, workflowRunID, finishedAt, reason)
+	}
+	return 0, nil
 }

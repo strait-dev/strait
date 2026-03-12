@@ -951,8 +951,8 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		getWorkflowRunCalls := 0
-		stepStatusUpdates := 0
-		runStatusUpdates := 0
+		stepsCanceled := false
+		jobsCanceled := false
 		published := map[string]int{}
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -968,31 +968,19 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 				}
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{
-					{ID: "sr-running", StepRef: "s1", Status: domain.StepRunning, JobRunID: "run-1"},
-					{ID: "sr-done", StepRef: "s2", Status: domain.StepCompleted, JobRunID: "run-2"},
-				}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id != "sr-running" || status != domain.StepCanceled {
-					t.Fatalf("unexpected step status update: %s %s", id, status)
+			cancelNonTerminalStepRunsFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
+				if workflowRunID != "wr-1" {
+					t.Fatalf("unexpected workflowRunID: %s", workflowRunID)
 				}
-				stepStatusUpdates++
-				return nil
+				stepsCanceled = true
+				return 1, nil
 			},
-			getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-				if id == "run-1" {
-					return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+			cancelJobRunsByWorkflowRunFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
+				if workflowRunID != "wr-1" {
+					t.Fatalf("unexpected workflowRunID: %s", workflowRunID)
 				}
-				return &domain.JobRun{ID: id, Status: domain.StatusCompleted}, nil
-			},
-			updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
-				if id != "run-1" || from != domain.StatusExecuting || to != domain.StatusCanceled {
-					t.Fatalf("unexpected run status update: %s %s -> %s", id, from, to)
-				}
-				runStatusUpdates++
-				return nil
+				jobsCanceled = true
+				return 1, nil
 			},
 		}
 
@@ -1007,11 +995,11 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
-		if stepStatusUpdates != 1 {
-			t.Fatalf("step status updates = %d, want 1", stepStatusUpdates)
+		if !stepsCanceled {
+			t.Fatal("expected CancelNonTerminalStepRuns to be called")
 		}
-		if runStatusUpdates != 1 {
-			t.Fatalf("job run status updates = %d, want 1", runStatusUpdates)
+		if !jobsCanceled {
+			t.Fatal("expected CancelJobRunsByWorkflowRun to be called")
 		}
 		if published["workflow-run:wr-1"] != 1 {
 			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
@@ -1450,6 +1438,9 @@ func TestHandleRetryWorkflowStep(t *testing.T) {
 		return nil
 	}}
 	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+		},
 		getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
 			return &domain.WorkflowStepRun{ID: "sr-1", StepRef: "review", Status: domain.StepFailed}, nil
 		},
@@ -1750,7 +1741,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("list_step_runs_error", func(t *testing.T) {
+	t.Run("cancel_step_runs_error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -1759,8 +1750,8 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return nil, errors.New("db down")
+			cancelNonTerminalStepRunsFn: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+				return 0, errors.New("db down")
 			},
 		}
 
@@ -1773,7 +1764,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("step_update_conflict", func(t *testing.T) {
+	t.Run("cancel_job_runs_error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -1782,82 +1773,8 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return errors.New("step conflict")
-			},
-		}
-
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wr-1", ""))
-
-		if w.Code != http.StatusConflict {
-			t.Fatalf("expected 409, got %d", w.Code)
-		}
-	})
-
-	t.Run("job_run_not_found_skipped", func(t *testing.T) {
-		t.Parallel()
-		getCalls := 0
-		runStatusUpdates := 0
-		ms := &mockAPIStore{
-			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-				getCalls++
-				if getCalls == 1 {
-					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
-				}
-				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusCanceled}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return nil
-			},
-			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-				return nil, store.ErrRunNotFound
-			},
-			updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-				runStatusUpdates++
-				return nil
-			},
-		}
-
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, nil)
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wr-1", ""))
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-		}
-		if runStatusUpdates != 0 {
-			t.Fatalf("job run status updates = %d, want 0", runStatusUpdates)
-		}
-	})
-
-	t.Run("get_job_run_error", func(t *testing.T) {
-		t.Parallel()
-		ms := &mockAPIStore{
-			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-				return &domain.WorkflowRun{ID: id, Status: domain.WfStatusRunning}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return nil
-			},
-			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-				return nil, errors.New("db unavailable")
+			cancelJobRunsByWorkflowRunFn: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+				return 0, errors.New("db down")
 			},
 		}
 

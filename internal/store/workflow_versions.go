@@ -24,10 +24,12 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 	insertVersion := `
 		INSERT INTO workflow_versions (
 			id, workflow_id, version, project_id, name, slug, description, enabled,
-			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+			version_id, created_by, updated_by
 		)
 		SELECT $1, id, version, project_id, name, slug, description, enabled,
-		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, '')
 		FROM workflows
 		WHERE id = $2 AND version = $3
 		ON CONFLICT (workflow_id, version)
@@ -42,7 +44,10 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			max_parallel_steps = EXCLUDED.max_parallel_steps,
 			cron = EXCLUDED.cron,
 			cron_timezone = EXCLUDED.cron_timezone,
-			skip_if_running = EXCLUDED.skip_if_running`
+			skip_if_running = EXCLUDED.skip_if_running,
+			version_id = EXCLUDED.version_id,
+			created_by = EXCLUDED.created_by,
+			updated_by = EXCLUDED.updated_by`
 
 	tag, err := q.db.Exec(ctx, insertVersion, versionID, workflowID, version)
 	if err != nil {

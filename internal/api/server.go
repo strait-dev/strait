@@ -151,6 +151,8 @@ type WorkflowStore interface {
 	GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
 	UpsertWorkflowPolicy(ctx context.Context, p *domain.WorkflowPolicy) error
 	GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
+	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 }
 
 // EventTriggerStore handles event trigger operations.
