@@ -3420,6 +3420,8 @@ components:
           type: string
         parent_workflow_run_id:
           type: string
+        parent_step_run_id:
+          type: string
         tags:
           type: object
           additionalProperties:
@@ -4378,6 +4380,8 @@ components:
             - job
             - approval
             - sub_workflow
+            - wait_for_event
+            - sleep
         approval_timeout_secs:
           type: integer
         approval_approvers:
@@ -4403,7 +4407,21 @@ components:
           type: string
         max_nesting_depth:
           type: integer
-
+        event_key:
+          type: string
+        event_timeout_secs:
+          type: integer
+        event_notify_url:
+          type: string
+        sleep_duration_secs:
+          type: integer
+        event_emit_key:
+          type: string
+        concurrency_key:
+          type: string
+        resource_class:
+          type: string
+          enum: [small, medium, large]
     TriggerWorkflowRequest:
       type: object
       properties:
@@ -4509,3 +4527,284 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RunOutput'
+
+
+    EventTrigger:
+      type: object
+      properties:
+        id:
+          type: string
+        event_key:
+          type: string
+        project_id:
+          type: string
+        source_type:
+          type: string
+          enum: [workflow_step, job_run]
+        workflow_run_id:
+          type: string
+        workflow_step_run_id:
+          type: string
+        job_run_id:
+          type: string
+        status:
+          type: string
+          enum: [waiting, received, timed_out, canceled]
+        request_payload:
+          type: object
+        response_payload:
+          type: object
+        timeout_secs:
+          type: integer
+        requested_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+        notify_url:
+          type: string
+        notify_status:
+          type: string
+          enum: [pending, sent, failed]
+        trigger_type:
+          type: string
+          enum: [event, sleep]
+        sent_by:
+          type: string
+
+    JobDependency:
+      type: object
+      properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        depends_on_job_id:
+          type: string
+        condition:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    WorkflowRunGraphEdge:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+
+    WorkflowRunGraphNode:
+      type: object
+      properties:
+        step_ref:
+          type: string
+        type:
+          type: string
+          enum: [job, approval, sub_workflow, wait_for_event, sleep]
+        status:
+          $ref: '#/components/schemas/StepRunStatus'
+        depends_on:
+          type: array
+          items:
+            type: string
+        attempt:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+
+    WorkflowRunGraphResponse:
+      type: object
+      properties:
+        workflow_run_id:
+          type: string
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunGraphNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunGraphEdge'
+        roots:
+          type: array
+          items:
+            type: string
+        runnable:
+          type: array
+          items:
+            type: string
+        critical_path:
+          type: array
+          items:
+            type: string
+        critical_path_estimate_ms:
+          type: integer
+          format: int64
+        critical_path_remaining_ms:
+          type: integer
+          format: int64
+
+    WorkflowStepDecision:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_run_id:
+          type: string
+        step_run_id:
+          type: string
+        step_ref:
+          type: string
+        decision_type:
+          type: string
+          enum: [scheduler, concurrency, resource, condition]
+        decision:
+          type: string
+        explanation:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+    WorkflowStepDecisionListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowStepDecision'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    RetryWorkflowStepResponse:
+      type: object
+      properties:
+        step_run:
+          allOf:
+            - $ref: '#/components/schemas/WorkflowStepRun'
+          nullable: true
+
+    ReplayWorkflowSubtreeResponse:
+      type: object
+      properties:
+        reset_steps:
+          type: integer
+
+    WorkflowSimulationResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        predicted_order:
+          type: array
+          items:
+            type: string
+        step_count:
+          type: integer
+
+    WorkflowVersionDiffResponse:
+      type: object
+      properties:
+        from_version_id:
+          type: string
+        to_version_id:
+          type: string
+        added_steps:
+          type: array
+          items:
+            type: string
+        removed_steps:
+          type: array
+          items:
+            type: string
+
+    WorkflowVersionImpactResponse:
+      type: object
+      properties:
+        version_id:
+          type: string
+        matching_runs:
+          type: integer
+        sampled_runs:
+          type: integer
+
+    WorkflowPolicyUpsertRequest:
+      type: object
+      properties:
+        max_fan_out:
+          type: integer
+        max_depth:
+          type: integer
+        forbidden_step_types:
+          type: array
+          items:
+            type: string
+        require_approval_for_deploy:
+          type: boolean
+
+    WorkflowPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        max_fan_out:
+          type: integer
+        max_depth:
+          type: integer
+        forbidden_step_types:
+          type: array
+          items:
+            type: string
+        require_approval_for_deploy:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RunDependencyStatusResponse:
+      type: object
+      properties:
+        run_id:
+          type: string
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/RunStatus'
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobDependency'
+        dependencies_satisfied:
+          type: boolean

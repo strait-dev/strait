@@ -4771,3 +4771,53 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RunOutput'
+
+
+    EventTrigger:
+      type: object
+      properties:
+        id:
+          type: string
+        event_key:
+          type: string
+        project_id:
+          type: string
+        source_type:
+          type: string
+          enum: [workflow_step, job_run]
+        workflow_run_id:
+          type: string
+        workflow_step_run_id:
+          type: string
+        job_run_id:
+          type: string
+        status:
+          type: string
+          enum: [waiting, received, timed_out, canceled]
+        request_payload:
+          type: object
+        response_payload:
+          type: object
+        timeout_secs:
+          type: integer
+        requested_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+        notify_url:
+          type: string
+        notify_status:
+          type: string
+          enum: [pending, sent, failed]
+        trigger_type:
+          type: string
+          enum: [event, sleep]
+        sent_by:
+          type: string
