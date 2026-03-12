@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -236,7 +237,10 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 	if err != nil {
 		return WebhookResult{Error: "delivery failed: " + err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return WebhookResult{StatusCode: resp.StatusCode, Delivered: true}
@@ -298,7 +302,10 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 	if err != nil {
 		return WebhookResult{Error: "delivery failed: " + err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return WebhookResult{StatusCode: resp.StatusCode, Delivered: true}

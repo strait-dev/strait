@@ -47,6 +47,10 @@ type Metrics struct {
 	EventTriggersTimedOut    metric.Int64Counter
 	EventTriggerWaitDuration metric.Float64Histogram
 
+	WorkflowDependencyWaits  metric.Int64Counter
+	WorkflowStepWaitDuration metric.Float64Histogram
+	WorkflowStalledRuns      metric.Int64Counter
+
 	// Worker pool gauges (reported via ObservePool callback).
 	PoolRunningWorkers metric.Int64ObservableGauge
 	PoolWaitingTasks   metric.Int64ObservableGauge
@@ -335,6 +339,33 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create child cancellations total counter: %w", err)
 	}
 
+	workflowDependencyWaits, err := meter.Int64Counter(
+		"strait.workflow.dependency_waits",
+		metric.WithDescription("Total runs created in waiting state due to unsatisfied dependencies"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow dependency waits counter: %w", err)
+	}
+
+	workflowStepWaitDuration, err := meter.Float64Histogram(
+		"strait.workflow.step_wait_duration",
+		metric.WithDescription("Time a workflow step spent waiting before running"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow step wait duration histogram: %w", err)
+	}
+
+	workflowStalledRuns, err := meter.Int64Counter(
+		"strait.workflow.stalled_runs",
+		metric.WithDescription("Total stalled workflow runs detected by reaper"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow stalled runs counter: %w", err)
+	}
+
 	poolRunning, err := meter.Int64ObservableGauge(
 		"strait.pool.running_workers",
 		metric.WithDescription("Number of goroutines currently executing tasks"),
@@ -435,6 +466,9 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		BulkOperationsTotal:      bulkOperationsTotal,
 		BulkItemsProcessed:       bulkItemsProcessed,
 		ChildCancellationsTotal:  childCancellationsTotal,
+		WorkflowDependencyWaits:  workflowDependencyWaits,
+		WorkflowStepWaitDuration: workflowStepWaitDuration,
+		WorkflowStalledRuns:      workflowStalledRuns,
 		PoolRunningWorkers:       poolRunning,
 		PoolWaitingTasks:         poolWaiting,
 		PoolSubmittedTasks:       poolSubmitted,

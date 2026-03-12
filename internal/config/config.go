@@ -94,6 +94,11 @@ type Config struct {
 	EventTriggerRetention    time.Duration `mapstructure:"EVENT_TRIGGER_RETENTION"`
 	IndexMaintenanceInterval time.Duration `mapstructure:"INDEX_MAINTENANCE_INTERVAL"`
 	ReaperDeleteBatchSize    int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
+	StalledWorkflowThreshold time.Duration `mapstructure:"WF_STALL_THRESHOLD"`
+	StalledWorkflowAction    string        `mapstructure:"WF_STALL_ACTION"`
+	WfMaxStepCap             int           `mapstructure:"WF_MAX_STEP_CAP"`
+	WfStepConcurrencyLimit   int           `mapstructure:"WF_STEP_CONCURRENCY_LIMIT"`
+	DependencyStatusCacheTTL time.Duration `mapstructure:"DEPENDENCY_STATUS_CACHE_TTL"`
 
 	// Workflow settings
 	MaxWorkflowNestingDepth int `mapstructure:"MAX_WORKFLOW_NESTING_DEPTH"`
@@ -141,6 +146,7 @@ func setDefaults() {
 	viper.SetDefault("ADAPTIVE_CONCURRENCY_MAX", 100)
 	viper.SetDefault("DB_PGBOUNCER_MODE", false)
 	viper.SetDefault("WORKER_DRAIN_TIMEOUT", 30*time.Second)
+	viper.SetDefault("PERMISSION_CACHE_TTL", 5*time.Minute)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 	viper.SetDefault("ENCRYPTION_KEY", "")
 	viper.SetDefault("ENCRYPTION_KEY_OLD", []string{})
@@ -157,6 +163,11 @@ func setDefaults() {
 	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
 	viper.SetDefault("INDEX_MAINTENANCE_INTERVAL", 24*time.Hour)
 	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
+	viper.SetDefault("WF_STALL_THRESHOLD", 15*time.Minute)
+	viper.SetDefault("WF_STALL_ACTION", "log_only")
+	viper.SetDefault("WF_MAX_STEP_CAP", 0)
+	viper.SetDefault("WF_STEP_CONCURRENCY_LIMIT", 0)
+	viper.SetDefault("DEPENDENCY_STATUS_CACHE_TTL", 5*time.Second)
 	viper.SetDefault("MAX_WORKFLOW_NESTING_DEPTH", 10)
 	viper.SetDefault("CDC_BATCH_SIZE", 10)
 	viper.SetDefault("CDC_WAIT_TIME_MS", 5000)
@@ -180,9 +191,12 @@ func BindEnv() error {
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_MAX_ATTEMPTS",
 		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
-		"WORKFLOW_RETENTION", "INDEX_MAINTENANCE_INTERVAL",
-		"REAPER_DELETE_BATCH_SIZE", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
+		"WORKFLOW_RETENTION", "INDEX_MAINTENANCE_INTERVAL", "REAPER_DELETE_BATCH_SIZE",
+		"WF_STALL_THRESHOLD", "WF_STALL_ACTION", "WF_MAX_STEP_CAP", "WF_STEP_CONCURRENCY_LIMIT",
+		"DEPENDENCY_STATUS_CACHE_TTL", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
 		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
+		"PERMISSION_CACHE_TTL",
+		"EVENT_TRIGGER_RETENTION", "EVENT_TRIGGER_RETENTION_DAYS",
 	}
 
 	for _, key := range keys {
@@ -242,6 +256,11 @@ func Load() (*Config, error) {
 	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
 	cfg.EventTriggerRetention = viper.GetDuration("EVENT_TRIGGER_RETENTION")
 	cfg.IndexMaintenanceInterval = viper.GetDuration("INDEX_MAINTENANCE_INTERVAL")
+	cfg.StalledWorkflowThreshold = viper.GetDuration("WF_STALL_THRESHOLD")
+	cfg.StalledWorkflowAction = viper.GetString("WF_STALL_ACTION")
+	cfg.WfMaxStepCap = viper.GetInt("WF_MAX_STEP_CAP")
+	cfg.WfStepConcurrencyLimit = viper.GetInt("WF_STEP_CONCURRENCY_LIMIT")
+	cfg.DependencyStatusCacheTTL = viper.GetDuration("DEPENDENCY_STATUS_CACHE_TTL")
 	// Legacy: support EVENT_TRIGGER_RETENTION_DAYS as days → duration.
 	if cfg.EventTriggerRetention == 0 && cfg.EventTriggerRetentionDays > 0 {
 		cfg.EventTriggerRetention = time.Duration(cfg.EventTriggerRetentionDays) * 24 * time.Hour

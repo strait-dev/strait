@@ -15,8 +15,6 @@ import (
 	"strait/internal/store"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 func (e *WorkflowEngine) startStep(
@@ -28,21 +26,10 @@ func (e *WorkflowEngine) startStep(
 ) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.startStep")
 	defer span.End()
-	stepType := string(step.StepType)
-	recordProgression := func(status string) {
-		if e.metrics == nil {
-			return
-		}
-		e.metrics.WorkflowStepProgressions.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("step_type", stepType),
-			attribute.String("status", status),
-		))
-	}
 
 	now := time.Now()
 	if step.StepType == domain.WorkflowStepTypeApproval {
 		if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
-			recordProgression("error")
 			return fmt.Errorf("set approval step waiting: %w", err)
 		}
 
@@ -59,7 +46,6 @@ func (e *WorkflowEngine) startStep(
 			approval.ExpiresAt = &expiresAt
 		}
 		if err := e.store.CreateWorkflowStepApproval(ctx, approval); err != nil {
-			recordProgression("error")
 			return fmt.Errorf("create workflow step approval: %w", err)
 		}
 
@@ -88,47 +74,23 @@ func (e *WorkflowEngine) startStep(
 
 		stepRun.Status = domain.StepWaiting
 		stepRun.StartedAt = &now
-		recordProgression(string(stepRun.Status))
 		return nil
 	}
 
 	if step.StepType == domain.WorkflowStepTypeWaitForEvent {
-		err := e.startWaitForEventStep(ctx, stepRun, step, wfRun, now)
-		if err != nil {
-			recordProgression("error")
-			return err
-		}
-		recordProgression(string(stepRun.Status))
-		return nil
+		return e.startWaitForEventStep(ctx, stepRun, step, wfRun, now)
 	}
 
 	if step.StepType == domain.WorkflowStepTypeSleep {
-		err := e.startSleepStep(ctx, stepRun, step, wfRun, now)
-		if err != nil {
-			recordProgression("error")
-			return err
-		}
-		recordProgression(string(stepRun.Status))
-		return nil
+		return e.startSleepStep(ctx, stepRun, step, wfRun, now)
 	}
 
 	if step.StepType == domain.WorkflowStepTypeSubWorkflow {
-		err := e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
-		if err != nil {
-			recordProgression("error")
-			return err
-		}
-		recordProgression(string(stepRun.Status))
-		return nil
+		return e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
 	}
 
-	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
-		recordProgression("error")
-		return fmt.Errorf("set step run running: %w", err)
-	}
-	stepRun.Status = domain.StepRunning
-	stepRun.StartedAt = &now
-
+	// For regular job steps: enqueue first, then mark running.
+	// This avoids orphan running steps if enqueue fails.
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
 	jobRun := &domain.JobRun{
@@ -142,16 +104,18 @@ func (e *WorkflowEngine) startStep(
 		CreatedBy:           "system:workflow",
 	}
 	if err := e.queue.Enqueue(ctx, jobRun); err != nil {
-		recordProgression("error")
 		return fmt.Errorf("enqueue step job run: %w", err)
 	}
 
-	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"job_run_id": jobRun.ID}); err != nil {
-		recordProgression("error")
-		return fmt.Errorf("attach job run to step run: %w", err)
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{
+		"started_at": now,
+		"job_run_id": jobRun.ID,
+	}); err != nil {
+		return fmt.Errorf("set step run running: %w", err)
 	}
+	stepRun.Status = domain.StepRunning
+	stepRun.StartedAt = &now
 	stepRun.JobRunID = jobRun.ID
-	recordProgression(string(stepRun.Status))
 
 	return nil
 }
@@ -186,7 +150,7 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
 
-	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID)
+	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID, stepRun.ID)
 	if err != nil {
 		return fmt.Errorf("trigger sub-workflow for step %s: %w", step.StepRef, err)
 	}

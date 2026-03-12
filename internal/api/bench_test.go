@@ -351,35 +351,38 @@ func TestConcurrentBulkCancel(t *testing.T) {
 	const runsPerRequest = 5
 	totalRuns := goroutines * runsPerRequest
 
-	runs := make(map[string]domain.RunStatus, totalRuns)
-	cancelAttempts := make(map[string]int, totalRuns)
+	runs := make(map[string]*domain.JobRun, totalRuns)
 	for i := range totalRuns {
-		runs[fmt.Sprintf("run-%d", i)] = domain.StatusExecuting
+		id := fmt.Sprintf("run-%d", i)
+		runs[id] = &domain.JobRun{ID: id, Status: domain.StatusExecuting}
 	}
 
 	var mu sync.Mutex
+	cancelAttempts := make(map[string]int, totalRuns)
 	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
 			mu.Lock()
 			defer mu.Unlock()
-			st, ok := runs[id]
-			if !ok {
-				return nil, fmt.Errorf("run not found")
+			result := make(map[string]*domain.JobRun)
+			for _, id := range ids {
+				if r, ok := runs[id]; ok {
+					result[id] = r
+				}
 			}
-			return &domain.JobRun{ID: id, Status: st}, nil
+			return result, nil
 		},
-		updateRunStatusFn: func(_ context.Context, id string, _, to domain.RunStatus, _ map[string]any) error {
+		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
 			mu.Lock()
 			defer mu.Unlock()
-			if _, ok := runs[id]; !ok {
-				return fmt.Errorf("run not found")
+			results := make([]store.BulkCancelResult, 0, len(ids))
+			for _, id := range ids {
+				cancelAttempts[id]++
+				results = append(results, store.BulkCancelResult{ID: id, Canceled: true})
 			}
-			runs[id] = to
-			cancelAttempts[id]++
-			return nil
+			return results, nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			return nil, nil
+		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)

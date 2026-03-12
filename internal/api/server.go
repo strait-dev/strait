@@ -81,6 +81,7 @@ type JobStore interface {
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
 	ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	DeleteJobDependency(ctx context.Context, id string) error
+	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 }
 
 // RunStore handles job runs, events, checkpoints, and related data.
@@ -128,6 +129,9 @@ type RunStore interface {
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
+	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
 // WorkflowStore handles workflows, steps, runs, and approvals.
@@ -154,10 +158,15 @@ type WorkflowStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	ListWorkflowStepDecisions(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error)
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
 	GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
+	UpsertWorkflowPolicy(ctx context.Context, p *domain.WorkflowPolicy) error
+	GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
+	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 }
 
 // EventTriggerStore handles event trigger operations.
@@ -285,6 +294,7 @@ type Server struct {
 	permCache          *permissionCache
 	oidcVerifier       *oidcVerifier
 	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
+	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -335,6 +345,19 @@ func NewServer(deps ServerDeps) *Server {
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
 	}
+
+	if deps.TxPool != nil {
+		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
+			return store.WithTx(ctx, deps.TxPool, func(q *store.Queries) error {
+				return fn(q)
+			})
+		}
+	} else {
+		srv.runInTx = func(_ context.Context, fn func(s APIStore) error) error {
+			return fn(srv.store)
+		}
+	}
+
 	srv.router = srv.routes()
 	return srv
 }

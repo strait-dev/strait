@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -168,7 +169,9 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 	// For now, store a marker so the worker can look up the trigger.
 	d.LastError = string(payload) // stash payload in last_error temporarily on creation
 
-	if err := n.store.CreateWebhookDelivery(ctx, d); err != nil {
+	createCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := n.store.CreateWebhookDelivery(createCtx, d); err != nil {
 		n.logger.Error("failed to enqueue webhook delivery", "trigger_id", trigger.ID, "error", err)
 		return
 	}
@@ -392,7 +395,10 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		span.SetStatus(codes.Error, errMsg)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	statusCode := resp.StatusCode
 	span.SetAttributes(attribute.Int("status_code", statusCode))

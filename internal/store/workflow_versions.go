@@ -24,10 +24,12 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 	insertVersion := `
 		INSERT INTO workflow_versions (
 			id, workflow_id, version, project_id, name, slug, description, enabled,
-			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+			version_id, created_by, updated_by
 		)
 		SELECT $1, id, version, project_id, name, slug, description, enabled,
-		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running
+		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
+		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, '')
 		FROM workflows
 		WHERE id = $2 AND version = $3
 		ON CONFLICT (workflow_id, version)
@@ -42,7 +44,10 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			max_parallel_steps = EXCLUDED.max_parallel_steps,
 			cron = EXCLUDED.cron,
 			cron_timezone = EXCLUDED.cron_timezone,
-			skip_if_running = EXCLUDED.skip_if_running`
+			skip_if_running = EXCLUDED.skip_if_running,
+			version_id = EXCLUDED.version_id,
+			created_by = EXCLUDED.created_by,
+			updated_by = EXCLUDED.updated_by`
 
 	tag, err := q.db.Exec(ctx, insertVersion, versionID, workflowID, version)
 	if err != nil {
@@ -63,7 +68,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			timeout_secs_override, output_transform,
 			sub_workflow_id, max_nesting_depth,
-			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key
+			event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
+			concurrency_key, resource_class
 		)
 		SELECT
 			$1 || ':' || step_ref,
@@ -89,7 +95,9 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			event_timeout_secs,
 			event_notify_url,
 			sleep_duration_secs,
-			event_emit_key
+			event_emit_key,
+			concurrency_key,
+			resource_class
 		FROM workflow_steps
 		WHERE workflow_id = $2`
 
@@ -130,6 +138,8 @@ func (q *Queries) ListStepsByWorkflowVersion(ctx context.Context, workflowID str
 			wvs.event_notify_url,
 			wvs.sleep_duration_secs,
 			wvs.event_emit_key,
+			wvs.concurrency_key,
+			wvs.resource_class,
 			wvs.created_at
 		FROM workflow_version_steps wvs
 		JOIN workflow_versions wv ON wv.id = wvs.workflow_version_id
@@ -250,12 +260,13 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= NOW()
-		ORDER BY expires_at ASC`
+		ORDER BY expires_at ASC
+		LIMIT 1000`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {

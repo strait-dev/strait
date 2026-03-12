@@ -29,6 +29,7 @@ type WorkflowTrigger interface {
 }
 
 type CronScheduler struct {
+	ctx             context.Context
 	cron            *cron.Cron
 	store           CronStore
 	queue           queue.Queue
@@ -37,8 +38,9 @@ type CronScheduler struct {
 }
 
 // NewCronScheduler creates a new cron-based job and workflow scheduler.
-func NewCronScheduler(s CronStore, q queue.Queue, workflowTrigger WorkflowTrigger) *CronScheduler {
+func NewCronScheduler(ctx context.Context, s CronStore, q queue.Queue, workflowTrigger WorkflowTrigger) *CronScheduler {
 	return &CronScheduler{
+		ctx:             ctx,
 		cron:            cron.New(),
 		store:           s,
 		queue:           q,
@@ -67,7 +69,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 	for _, j := range jobs {
 		job := j
 		_, err := cs.cron.AddFunc(job.Cron, func() {
-			cs.triggerJob(ctx, job)
+			cs.triggerJob(cs.ctx, job)
 		})
 		if err != nil {
 			return fmt.Errorf("register cron job %s: %w", job.ID, err)
@@ -82,7 +84,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 				expr = fmt.Sprintf("CRON_TZ=%s %s", workflow.CronTimezone, workflow.Cron)
 			}
 			_, err := cs.cron.AddFunc(expr, func() {
-				cs.triggerWorkflow(ctx, workflow)
+				cs.triggerWorkflow(cs.ctx, workflow)
 			})
 			if err != nil {
 				return fmt.Errorf("register cron workflow %s: %w", workflow.ID, err)

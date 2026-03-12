@@ -19,6 +19,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 // maxIdempotencyKeyLength is the maximum allowed length for idempotency keys.
@@ -244,6 +246,8 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		status = domain.StatusDelayed
 	}
 
+	dependencyKey := extractDependencyKey(payload)
+
 	// Inherit job tags, then overlay with trigger-specific tags.
 	runTags := make(map[string]string, len(job.Tags)+len(req.Tags))
 	maps.Copy(runTags, job.Tags)
@@ -265,6 +269,65 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		JobVersionID:   job.VersionID,
 		CreatedBy:      actorFromContext(r.Context()),
 		ExpiresAt:      &expiresAt,
+	}
+	if dependencyKey != "" {
+		run.Metadata = map[string]string{"dependency_key": dependencyKey}
+	}
+
+	if status == domain.StatusQueued {
+		satisfied, depErr := s.store.AreJobDependenciesSatisfied(r.Context(), run)
+		if depErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job dependencies")
+			return
+		}
+		if !satisfied {
+			run.Status = domain.StatusWaiting
+			if s.metrics != nil {
+				attrs := otelmetric.WithAttributes(
+					otelattr.String("project_id", run.ProjectID),
+					otelattr.String("job_id", run.JobID),
+				)
+				s.metrics.WorkflowDependencyWaits.Add(r.Context(), 1, attrs)
+			}
+			if err := s.store.CreateRun(r.Context(), run); err != nil {
+				if errors.Is(err, domain.ErrIdempotencyConflict) && idempotencyKey != "" {
+					existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+					if retryErr != nil {
+						slog.Error("idempotency conflict retry failed",
+							"job_id", job.ID,
+							"idempotency_key", idempotencyKey,
+							"error", retryErr)
+						respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key after conflict")
+						return
+					}
+					if existingRun != nil {
+						slog.Warn("idempotency conflict resolved",
+							"job_id", job.ID,
+							"idempotency_key", idempotencyKey,
+							"winning_run_id", existingRun.ID)
+						respondJSON(w, http.StatusCreated, map[string]any{
+							"id":              existingRun.ID,
+							"status":          existingRun.Status,
+							"idempotency_hit": true,
+						})
+						return
+					}
+					slog.Error("idempotency conflict retry returned nil",
+						"job_id", job.ID,
+						"idempotency_key", idempotencyKey)
+				}
+				respondError(w, r, http.StatusInternalServerError, "failed to create waiting run")
+				return
+			}
+			respondJSON(w, http.StatusCreated, map[string]any{
+				"id":              run.ID,
+				"status":          run.Status,
+				"payload_hash":    payloadHash,
+				"run_token":       tokenString,
+				"idempotency_hit": false,
+			})
+			return
+		}
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {
@@ -327,6 +390,20 @@ func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, erro
 
 	hash := sha256.Sum256(canonical)
 	return canonical, hex.EncodeToString(hash[:]), nil
+}
+
+func extractDependencyKey(payload json.RawMessage) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return ""
+	}
+	if key, ok := body["dependency_key"].(string); ok {
+		return key
+	}
+	return ""
 }
 
 func alignToExecutionWindow(requested *time.Time, now time.Time, expr, tz string) (*time.Time, error) {

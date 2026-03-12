@@ -19,8 +19,8 @@ func newServerStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start strait server",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runServe(mode)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runServe(cmd.Context(), mode)
 		},
 	}
 

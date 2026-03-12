@@ -35,8 +35,8 @@ func (m *mockSchedulerStore) DeleteWorkflowRunsFinishedBefore(ctx context.Contex
 	return m.reaper.DeleteWorkflowRunsFinishedBefore(ctx, before, limit)
 }
 
-func (m *mockSchedulerStore) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
-	return m.poller.ListDueRuns(ctx)
+func (m *mockSchedulerStore) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
+	return m.poller.ActivateDueRuns(ctx, limit)
 }
 
 func (m *mockSchedulerStore) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
@@ -84,7 +84,7 @@ func (m *mockSchedulerStore) UpdateWorkflowStepApproval(ctx context.Context, id 
 }
 
 func (m *mockSchedulerStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
-	return m.poller.UpdateRunStatus(ctx, id, from, to, fields)
+	return m.reaper.UpdateRunStatus(ctx, id, from, to, fields)
 }
 
 func (m *mockSchedulerStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
@@ -118,6 +118,13 @@ func (m *mockSchedulerStore) ReindexIndexConcurrently(ctx context.Context, index
 	return m.index.ReindexIndexConcurrently(ctx, indexName)
 }
 
+func (m *mockSchedulerStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	return m.reaper.CancelNonTerminalStepRuns(ctx, workflowRunID, finishedAt, reason)
+}
+
+func (m *mockSchedulerStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	return m.reaper.CancelJobRunsByWorkflowRun(ctx, workflowRunID, finishedAt, reason)
+}
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval:           100 * time.Millisecond,
@@ -136,7 +143,7 @@ func TestScheduler_New(t *testing.T) {
 		index:  &mockIndexMaintenanceStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	if s == nil {
 		t.Fatal("expected scheduler to be non-nil")
 	}
@@ -153,7 +160,7 @@ func TestScheduler_Start_Success(t *testing.T) {
 		index:  &mockIndexMaintenanceStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -175,7 +182,7 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 		index:  &mockIndexMaintenanceStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	err := s.Start(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -196,7 +203,7 @@ func TestScheduler_Stop(t *testing.T) {
 		index:  &mockIndexMaintenanceStore{},
 	}
 
-	s := New(testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)

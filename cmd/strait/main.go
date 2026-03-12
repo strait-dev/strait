@@ -43,7 +43,7 @@ func run(ctx context.Context) int {
 	return 0
 }
 
-func runServe(modeOverride string) error {
+func runServe(ctx context.Context, modeOverride string) error {
 	// Load config
 	cfg, err := config.Load()
 	if err != nil {
@@ -70,10 +70,6 @@ func runServe(modeOverride string) error {
 		"mode", cfg.Mode,
 		"port", cfg.Port,
 	)
-
-	// Context with signal cancellation
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	// Initialize OpenTelemetry tracing
 	shutdownTracer, err := telemetry.Init(ctx, "strait", cfg.OTELEndpoint)
@@ -168,7 +164,7 @@ func runServe(modeOverride string) error {
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
-	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default())
+	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics)
 
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {

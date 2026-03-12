@@ -28,6 +28,7 @@
               "concepts/jobs",
               "concepts/runs",
               "concepts/workflows",
+              "concepts/dag-runtime",
               "concepts/scheduling",
               "concepts/retry-strategies",
               "concepts/resilience",
@@ -59,6 +60,7 @@
               "guides/idempotency",
               "guides/sdk-integration",
               "guides/workflow-approvals",
+              "guides/dag-operations-playbook",
               "guides/event-triggers"
             ]
           },

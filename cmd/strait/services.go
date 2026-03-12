@@ -381,10 +381,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		return int64(stats.Queued), nil
 	}, queueDepthThreshold))
 
-	sched := scheduler.New(cfg, queries, q, stepCallback, workflowEngine, scheduler.WithSchedulerMetrics(metrics))
-	schedulerMaxAge := max(cfg.PollerInterval*3, 30*time.Second)
-	healthReg.Register(health.NewSchedulerChecker(sched.PollerLastTick, schedulerMaxAge))
-
 	if metrics != nil {
 		meter := otel.Meter("strait")
 		if err := metrics.ObservePool(meter, p); err != nil {
@@ -458,6 +454,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
+		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine, scheduler.WithSchedulerMetrics(metrics))
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}

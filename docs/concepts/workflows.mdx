@@ -12,6 +12,12 @@ A workflow is defined as a Directed Acyclic Graph (DAG) where:
 - **Dependencies**: The edges of the graph, defined by the `depends_on` field.
 - **Fan-in/Fan-out**: Multiple steps can depend on one (fan-out), or one step can depend on many (fan-in).
 
+Validation guardrail: a workflow can include up to **1000** steps.
+
+<Note>
+For implementation-level behavior (scheduler decisions, explainability APIs, critical-path estimates, policy enforcement, and replay controls), see [DAG Runtime](/docs/concepts/dag-runtime).
+</Note>
+
 ## Step Types
 
 | Type | Description |
@@ -30,6 +36,8 @@ Workflows use a snapshotting mechanism. Every time a workflow's steps are update
 
 Steps can define a `condition` (JSON) that must evaluate to true before the step starts.
 - **step_status**: Check the status of a dependency (e.g., `completed`, `failed`).
+- **step_status_in**: Check a dependency against a set of statuses.
+- **not**: Invert a nested condition.
 - **Composite Logic**: Use `all_of` or `any_of` for complex boolean logic.
 
 If a condition is false, the step is marked as `skipped`.
@@ -63,6 +71,8 @@ The `on_failure` field determines the workflow's behavior when a step fails:
 
 - `max_concurrent_runs`: Limits how many instances of the workflow can run simultaneously.
 - `max_parallel_steps`: Limits the number of steps that can execute in parallel within a single workflow run.
+- `concurrency_key` (step-level): Serializes steps that share the same key, even if they are otherwise ready to run.
+- `resource_class` (step-level): Assigns a step to a capacity bucket (`small`, `medium`, or `large`). The scheduler respects per-class capacity limits when determining which steps to start.
 
 ## Sub-workflow Nesting
 
@@ -70,9 +80,44 @@ Workflows can trigger other workflows using the `sub_workflow` step type.
 - **Depth Limit**: The engine enforces a default maximum nesting depth of 10 to prevent infinite recursion.
 - **Propagation**: When a sub-workflow completes, its outputs are aggregated and returned to the parent step.
 
+## Workflow Policies
+
+Project-level governance controls that apply to all workflows in a project:
+
+| Policy | Description |
+| :--- | :--- |
+| `max_fan_out` | Maximum number of direct dependents a single step can have. Prevents explosion of parallelism. |
+| `max_depth` | Maximum DAG depth (longest path from root to leaf). Limits nesting complexity. |
+| `forbidden_step_types` | List of step types that cannot be used in workflows for this project. |
+| `require_approval_for_deploy` | When true, requires an approval step before any deploy-type step. |
+
+Policies are managed via `GET /v1/workflow-policies/{projectID}` and `PUT /v1/workflow-policies/{projectID}`. They are enforced at workflow create, update, and trigger time.
+
 ## Step Overrides
 
 At trigger time, you can provide `step_overrides` to selectively enable or disable specific steps for that specific run.
+
+For previewing the resulting execution order (after overrides), use `POST /v1/workflows/{workflowID}/plan`. This endpoint accepts optional `step_overrides`, applies them to the current workflow version, validates the resulting DAG, and returns the topological execution order, root steps, and step count.
+
+For validating a DAG structure without persisting changes, use `POST /v1/workflows/{workflowID}/dry-run`. This accepts an optional `steps` array and returns whether the DAG is valid.
+
+## Runtime Introspection and Recovery
+
+Beyond definition and execution, workflow runs expose runtime control APIs:
+
+- `GET /v1/workflow-runs/{workflowRunID}/graph`: execution graph, runnable set, and critical-path estimate.
+- `GET /v1/workflow-runs/{workflowRunID}/explain`: paginated scheduler/condition decision log.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: retry a single terminal step.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: replay a branch from a selected step.
+
+Version analysis APIs:
+
+- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}`
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact`
+- `POST /v1/workflows/{workflowID}/simulate`
+
+These endpoints are intended for operations and incident response, not only workflow authoring.
+For detailed endpoint payloads and operational runbooks, see [DAG Runtime](/docs/concepts/dag-runtime) and [DAG Operations Playbook](/docs/guides/dag-operations-playbook).
 
 ## Workflow FSMs
 

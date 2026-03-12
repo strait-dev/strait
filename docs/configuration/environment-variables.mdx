@@ -36,6 +36,7 @@ This page documents all environment variables available for configuring Strait.
 | `DEFAULT_JOB_MAX_ATTEMPTS` | Integer | `3` | Default maximum retry attempts for jobs. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | Integer | `300` | Default timeout for jobs in seconds. |
 | `WORKER_QUEUE_SIZE` | Integer | `0` | Bounded task queue size for the worker pool. When the queue is full, task submission blocks until a slot opens, providing backpressure. `0` means unbounded. |
+| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
 
 ## Scheduler Configuration
 
@@ -54,8 +55,8 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `DB_MAX_CONNS` | Integer | `25` | Maximum number of open connections to the database. |
 | `DB_MIN_CONNS` | Integer | `5` | Minimum number of idle connections in the pool. |
-| `DB_MAX_CONN_LIFETIME` | Duration | `30m` | Maximum amount of time a connection may be reused. |
-| `DB_MAX_CONN_IDLE_TIME` | Duration | `5m` | Maximum amount of time a connection may be idle. |
+| `DB_MAX_CONN_LIFETIME` | Duration | `1h` | Maximum amount of time a connection may be reused. |
+| `DB_MAX_CONN_IDLE_TIME` | Duration | `30m` | Maximum amount of time a connection may be idle. |
 | `DB_PGBOUNCER_MODE` | Boolean | `false` | Enable PgBouncer-compatible connection handling. Disables features incompatible with connection poolers. |
 
 ## Rate Limiting
@@ -91,6 +92,28 @@ This page documents all environment variables available for configuring Strait.
 | `CORS_ALLOWED_ORIGINS` | String List | `*` | Comma-separated list of allowed origins. |
 | `CORS_ALLOW_CREDENTIALS` | Boolean | `false` | Whether to allow credentials in CORS requests. |
 
+## OIDC Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `OIDC_ENABLED` | Boolean | `false` | Enable OpenID Connect authentication. |
+| `OIDC_ISSUER` | String | - | OIDC token issuer URL. |
+| `OIDC_AUDIENCE` | String | - | Expected OIDC audience claim. |
+| `OIDC_PUBLIC_KEY_PEM` | String | - | PEM-encoded public key for OIDC token verification. |
+
+## RBAC Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `PERMISSION_CACHE_TTL` | Duration | `5m` | TTL for the RBAC permission cache. |
+
+## CDC Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `CDC_BATCH_SIZE` | Integer | `10` | Number of change events to process in a single batch. |
+| `CDC_WAIT_TIME_MS` | Integer | `5000` | Wait time in milliseconds for CDC long polling. |
+
 ## Retention Configuration
 
 | Variable | Type | Default | Description |
@@ -99,7 +122,7 @@ This page documents all environment variables available for configuring Strait.
 | `RUN_RETENTION_LONG` | Duration | `90d` | Long-term retention period for job runs. |
 | `WORKFLOW_RUN_RETENTION_DAYS` | Integer | `30` | Number of days to retain workflow run data. |
 | `WORKFLOW_RETENTION` | Duration | `30d` | Retention period for workflow definitions. |
-| `EVENT_TRIGGER_RETENTION` | Duration | `720h` (30d) | Retention period for terminal event triggers. Terminal triggers older than this are purged by the reaper. Set to `0` to disable automatic cleanup. |
+| `EVENT_TRIGGER_RETENTION` | Duration | `168h` (7d) | Retention period for terminal event triggers. Terminal triggers older than this are purged by the reaper. Set to `0` to disable automatic cleanup. |
 | `EVENT_TRIGGER_RETENTION_DAYS` | Integer | - | Legacy alternative: retention in days (e.g., `90`). Only used when `EVENT_TRIGGER_RETENTION` is not set. |
 
 ## Redis Sentinel
@@ -114,6 +137,8 @@ This page documents all environment variables available for configuring Strait.
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `MAX_WORKFLOW_NESTING_DEPTH` | Integer | `10` | Maximum allowed depth for nested workflows. |
+| `WF_STALL_THRESHOLD` | Duration | `15m` | Max time without workflow progression before run is considered stalled by reaper. |
+| `WF_STALL_ACTION` | String | `log_only` | Action when stalled run is detected: `log_only`, `reconcile`, or `fail_workflow`. |
 
 ## SSE Configuration
 
@@ -176,5 +201,4 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `ADAPTIVE_CONCURRENCY_MIN` | Integer | `5` | Minimum concurrency level for adaptive scaling. |
 | `ADAPTIVE_CONCURRENCY_MAX` | Integer | `100` | Maximum concurrency level for adaptive scaling. |
-
 

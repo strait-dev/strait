@@ -19,7 +19,8 @@ type CreateJobDependencyRequest struct {
 func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 
-	if _, err := s.store.GetJob(r.Context(), jobID); err != nil {
+	job, err := s.store.GetJob(r.Context(), jobID)
+	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, r, http.StatusNotFound, "job not found")
 			return
@@ -43,12 +44,17 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if _, err := s.store.GetJob(r.Context(), req.DependsOnJobID); err != nil {
+	depJob, err := s.store.GetJob(r.Context(), req.DependsOnJobID)
+	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, r, http.StatusBadRequest, "depends_on_job_id does not exist")
 			return
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to get dependency job")
+		return
+	}
+	if depJob.ProjectID != job.ProjectID {
+		respondError(w, r, http.StatusBadRequest, "dependency jobs must belong to the same project")
 		return
 	}
 
