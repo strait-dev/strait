@@ -138,6 +138,9 @@ type mockAPIStore struct {
 	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
 	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	cancelJobRunsByWorkflowRunFn        func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	getRunsByIDsFn                      func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	bulkCancelRunsFn                    func(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
+	cancelChildRunsByParentIDsFn        func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -1142,6 +1145,27 @@ func (m *mockAPIStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRu
 func (m *mockAPIStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 	if m.cancelJobRunsByWorkflowRunFn != nil {
 		return m.cancelJobRunsByWorkflowRunFn(ctx, workflowRunID, finishedAt, reason)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	if m.getRunsByIDsFn != nil {
+		return m.getRunsByIDsFn(ctx, ids)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error) {
+	if m.bulkCancelRunsFn != nil {
+		return m.bulkCancelRunsFn(ctx, ids, finishedAt, reason)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelChildRunsByParentIDsFn != nil {
+		return m.cancelChildRunsByParentIDsFn(ctx, parentIDs, finishedAt, reason)
 	}
 	return 0, nil
 }

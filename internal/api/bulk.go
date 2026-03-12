@@ -105,6 +105,28 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pre-compute project quotas once (all items target the same job/project).
+	var queuedRuns, activeRuns int
+	if s.config.FFProjectQuotas && projectQuota != nil {
+		if projectQuota.MaxQueuedRuns > 0 {
+			var countErr error
+			queuedRuns, countErr = s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
+			if countErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to count project queued runs")
+				return
+			}
+		}
+		if projectQuota.MaxExecutingRuns > 0 {
+			var countErr error
+			activeRuns, countErr = s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
+			if countErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to count project active runs")
+				return
+			}
+		}
+	}
+
+	enqueuedInBatch := 0
 	for _, item := range req.Items {
 		itemIdx := len(results)
 
@@ -158,28 +180,13 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if s.config.FFProjectQuotas && projectQuota != nil {
-			if projectQuota.MaxQueuedRuns > 0 {
-				queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
-				if countErr != nil {
-					respondError(w, r, http.StatusInternalServerError, "failed to evaluate project queued quota")
-					return
-				}
-				if queuedRuns >= projectQuota.MaxQueuedRuns {
-					respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
-					return
-				}
+			if projectQuota.MaxQueuedRuns > 0 && (queuedRuns+enqueuedInBatch) >= projectQuota.MaxQueuedRuns {
+				respondError(w, r, http.StatusTooManyRequests, "project queued quota exceeded")
+				return
 			}
-
-			if projectQuota.MaxExecutingRuns > 0 {
-				activeRuns, countErr := s.store.CountProjectActiveRuns(r.Context(), job.ProjectID)
-				if countErr != nil {
-					respondError(w, r, http.StatusInternalServerError, "failed to evaluate project active quota")
-					return
-				}
-				if activeRuns >= projectQuota.MaxExecutingRuns {
-					respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
-					return
-				}
+			if projectQuota.MaxExecutingRuns > 0 && activeRuns >= projectQuota.MaxExecutingRuns {
+				respondError(w, r, http.StatusTooManyRequests, "project executing quota exceeded")
+				return
 			}
 		}
 
@@ -319,6 +326,7 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			IdempotencyHit: false,
 		})
 		created++
+		enqueuedInBatch++
 	}
 
 	respondJSON(w, http.StatusCreated, BulkTriggerResponse{
@@ -344,64 +352,61 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Step 1: Batch fetch all runs.
+	runsMap, err := s.store.GetRunsByIDs(r.Context(), req.RunIDs)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch runs")
+		return
+	}
+
+	// Step 2: Partition into cancelable and not.
 	results := make([]BulkCancelResult, 0, len(req.RunIDs))
 	canceled := 0
 	failed := 0
-
+	var cancelableIDs []string
 	for _, runID := range req.RunIDs {
-		run, err := s.store.GetRun(r.Context(), runID)
-		if err != nil {
-			results = append(results, BulkCancelResult{
-				ID:     runID,
-				Status: "failed",
-				Error:  "run not found",
-			})
+		run, ok := runsMap[runID]
+		if !ok {
+			results = append(results, BulkCancelResult{ID: runID, Status: "failed", Error: "run not found"})
 			failed++
 			continue
 		}
-
 		if run.Status.IsTerminal() {
-			results = append(results, BulkCancelResult{
-				ID:     runID,
-				Status: string(run.Status),
-				Error:  "run already in terminal state",
-			})
+			results = append(results, BulkCancelResult{ID: runID, Status: string(run.Status), Error: "run already in terminal state"})
 			failed++
 			continue
 		}
+		cancelableIDs = append(cancelableIDs, runID)
+	}
 
-		if err := s.store.UpdateRunStatus(r.Context(), run.ID, run.Status, domain.StatusCanceled, map[string]any{
-			"finished_at": time.Now(),
-			"error":       "canceled by user (bulk)",
-		}); err != nil {
-			results = append(results, BulkCancelResult{
-				ID:     runID,
-				Status: string(run.Status),
-				Error:  "failed to cancel",
-			})
-			failed++
-			continue
+	// Step 3: Batch cancel.
+	if len(cancelableIDs) > 0 {
+		now := time.Now()
+		cancelResults, cancelErr := s.store.BulkCancelRuns(r.Context(), cancelableIDs, now, "canceled by user (bulk)")
+		if cancelErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to cancel runs")
+			return
 		}
 
-		children, err := s.store.ListChildRuns(r.Context(), run.ID, 10000, nil)
-		if err == nil {
-			for _, child := range children {
-				if !child.Status.IsTerminal() {
-					if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
-						"finished_at": time.Now(),
-						"error":       "parent run canceled (bulk)",
-					}); err != nil {
-						slog.Error("failed to cancel child run in bulk", "child_run_id", child.ID, "error", err)
-					}
-				}
+		canceledSet := make(map[string]struct{}, len(cancelResults))
+		for _, cr := range cancelResults {
+			canceledSet[cr.ID] = struct{}{}
+			results = append(results, BulkCancelResult{ID: cr.ID, Status: string(domain.StatusCanceled)})
+			canceled++
+		}
+
+		// Handle IDs that were not canceled (race: status changed between fetch and update).
+		for _, id := range cancelableIDs {
+			if _, ok := canceledSet[id]; !ok {
+				results = append(results, BulkCancelResult{ID: id, Status: string(runsMap[id].Status), Error: "failed to cancel (status may have changed)"})
+				failed++
 			}
 		}
 
-		results = append(results, BulkCancelResult{
-			ID:     runID,
-			Status: string(domain.StatusCanceled),
-		})
-		canceled++
+		// Step 4: Batch cancel children.
+		if _, err := s.store.CancelChildRunsByParentIDs(r.Context(), cancelableIDs, now, "parent run canceled (bulk)"); err != nil {
+			slog.Error("failed to cancel child runs in bulk", "error", err)
+		}
 	}
 
 	respondJSON(w, http.StatusOK, BulkCancelResponse{

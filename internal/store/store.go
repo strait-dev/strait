@@ -111,6 +111,9 @@ type RunStore interface {
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]BulkCancelResult, error)
+	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
 type ProjectQuota struct {

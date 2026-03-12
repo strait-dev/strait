@@ -118,6 +118,9 @@ type RunStore interface {
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
+	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
+	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
 // WorkflowStore handles workflows, steps, runs, and approvals.

@@ -1500,3 +1500,91 @@ func (q *Queries) ActivateDueRuns(ctx context.Context, limit int) (int64, error)
 	}
 	return tag.RowsAffected(), nil
 }
+
+// BulkCancelResult holds the per-run outcome of a bulk cancel.
+type BulkCancelResult struct {
+	ID             string
+	PreviousStatus domain.RunStatus
+	Canceled       bool
+	Error          string
+}
+
+func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunsByIDs")
+	defer span.End()
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx,
+		`SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
+		 FROM job_runs WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get runs by ids: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]*domain.JobRun, len(ids))
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan run: %w", err)
+		}
+		result[run.ID] = run
+	}
+	return result, rows.Err()
+}
+
+func (q *Queries) BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]BulkCancelResult, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCancelRuns")
+	defer span.End()
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx,
+		`UPDATE job_runs
+		 SET status = 'canceled', finished_at = $2, error = $3
+		 WHERE id = ANY($1)
+		   AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
+		 RETURNING id`, ids, finishedAt, reason)
+	if err != nil {
+		return nil, fmt.Errorf("bulk cancel runs: %w", err)
+	}
+	defer rows.Close()
+	canceledSet := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan canceled id: %w", err)
+		}
+		canceledSet[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("bulk cancel rows: %w", err)
+	}
+	results := make([]BulkCancelResult, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := canceledSet[id]; ok {
+			results = append(results, BulkCancelResult{ID: id, Canceled: true})
+		}
+	}
+	return results, nil
+}
+
+func (q *Queries) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelChildRunsByParentIDs")
+	defer span.End()
+	if len(parentIDs) == 0 {
+		return 0, nil
+	}
+	tag, err := q.db.Exec(ctx,
+		`UPDATE job_runs
+		 SET status = 'canceled', finished_at = $2, error = $3
+		 WHERE parent_run_id = ANY($1)
+		   AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')`,
+		parentIDs, finishedAt, reason)
+	if err != nil {
+		return 0, fmt.Errorf("cancel child runs: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
