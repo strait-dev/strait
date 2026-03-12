@@ -1482,3 +1482,21 @@ func (q *Queries) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID 
 	}
 	return tag.RowsAffected(), nil
 }
+
+func (q *Queries) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
+	tag, err := q.db.Exec(ctx,
+		`UPDATE job_runs SET status = 'queued'
+		 WHERE id IN (
+		     SELECT id FROM job_runs
+		     WHERE status = 'delayed'
+		     AND scheduled_at <= NOW()
+		     ORDER BY scheduled_at ASC
+		     LIMIT $1
+		     FOR UPDATE SKIP LOCKED
+		 ) AND status = 'delayed'`,
+		limit)
+	if err != nil {
+		return 0, fmt.Errorf("activate due runs: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

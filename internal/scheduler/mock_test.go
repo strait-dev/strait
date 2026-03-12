@@ -13,22 +13,14 @@ var _ queue.Queue = (*mockQueue)(nil)
 
 // mockPollerStore implements PollerStore for testing.
 type mockPollerStore struct {
-	listDueRunsFn     func(ctx context.Context) ([]domain.JobRun, error)
-	updateRunStatusFn func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	activateDueRunsFn func(ctx context.Context, limit int) (int64, error)
 }
 
-func (m *mockPollerStore) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
-	if m.listDueRunsFn != nil {
-		return m.listDueRunsFn(ctx)
+func (m *mockPollerStore) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
+	if m.activateDueRunsFn != nil {
+		return m.activateDueRunsFn(ctx, limit)
 	}
-	return nil, nil
-}
-
-func (m *mockPollerStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
-	if m.updateRunStatusFn != nil {
-		return m.updateRunStatusFn(ctx, id, from, to, fields)
-	}
-	return nil
+	return 0, nil
 }
 
 // mockReaperStore implements ReaperStore for testing.

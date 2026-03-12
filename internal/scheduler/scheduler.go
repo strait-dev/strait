@@ -30,7 +30,7 @@ type Scheduler struct {
 func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger, opts ...SchedulerOption) *Scheduler {
 	sched := &Scheduler{
 		cron:   NewCronScheduler(ctx, s, q, wfTrigger),
-		poller: NewDelayedPoller(s, cfg.PollerInterval),
+		poller: NewDelayedPoller(s, slog.Default(), cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).

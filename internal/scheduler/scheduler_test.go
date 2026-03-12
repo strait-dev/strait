@@ -34,8 +34,8 @@ func (m *mockSchedulerStore) DeleteWorkflowRunsFinishedBefore(ctx context.Contex
 	return m.reaper.DeleteWorkflowRunsFinishedBefore(ctx, before, limit)
 }
 
-func (m *mockSchedulerStore) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
-	return m.poller.ListDueRuns(ctx)
+func (m *mockSchedulerStore) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
+	return m.poller.ActivateDueRuns(ctx, limit)
 }
 
 func (m *mockSchedulerStore) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
@@ -83,7 +83,7 @@ func (m *mockSchedulerStore) UpdateWorkflowStepApproval(ctx context.Context, id 
 }
 
 func (m *mockSchedulerStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
-	return m.poller.UpdateRunStatus(ctx, id, from, to, fields)
+	return m.reaper.UpdateRunStatus(ctx, id, from, to, fields)
 }
 
 func (m *mockSchedulerStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {

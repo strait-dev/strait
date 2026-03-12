@@ -166,15 +166,16 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateWorkflow(r.Context(), wf); err != nil {
+		slog.Error("failed to create workflow", "error", err)
 		respondError(w, r, http.StatusInternalServerError, "failed to create workflow")
 		return
 	}
 
-	steps := make([]domain.WorkflowStep, 0, len(candidateSteps))
+	var steps []domain.WorkflowStep
 	for i := range candidateSteps {
 		candidateSteps[i].WorkflowID = wf.ID
 		if err := s.store.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
-			slog.Error("failed to create workflow step", "error", err, "step_ref", candidateSteps[i].StepRef, "workflow_id", wf.ID)
+			slog.Error("failed to create workflow step", "step_ref", candidateSteps[i].StepRef, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
 			return
 		}
@@ -182,7 +183,8 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to snapshot workflow version")
+		slog.Error("failed to create workflow version snapshot", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "failed to create workflow version snapshot")
 		return
 	}
 
@@ -358,18 +360,21 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusNotFound, "workflow not found")
 			return
 		}
+		slog.Error("failed to update workflow", "error", err)
 		respondError(w, r, http.StatusInternalServerError, "failed to update workflow")
 		return
 	}
 
 	if req.Steps != nil {
 		if err := s.store.DeleteStepsByWorkflow(r.Context(), wf.ID); err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to replace workflow steps")
+			slog.Error("failed to delete workflow steps", "error", err)
+			respondError(w, r, http.StatusInternalServerError, "failed to delete workflow steps")
 			return
 		}
 		for i := range candidateSteps {
 			candidateSteps[i].WorkflowID = wf.ID
 			if err := s.store.CreateWorkflowStep(r.Context(), &candidateSteps[i]); err != nil {
+				slog.Error("failed to create workflow step", "step_ref", candidateSteps[i].StepRef, "error", err)
 				respondError(w, r, http.StatusInternalServerError, "failed to create workflow step")
 				return
 			}
@@ -377,7 +382,8 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateWorkflowVersionSnapshot(r.Context(), wf.ID, wf.Version); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to snapshot workflow version")
+		slog.Error("failed to create workflow version snapshot", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "failed to create workflow version snapshot")
 		return
 	}
 
