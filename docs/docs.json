@@ -52,6 +52,7 @@
               "guides/api-key-rotation",
               "guides/security",
               "guides/deployment",
+              "guides/performance-tuning",
               "guides/job-dependencies",
               "guides/debug-bundles",
               "guides/job-groups",
