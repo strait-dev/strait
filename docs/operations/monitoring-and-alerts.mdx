@@ -57,6 +57,11 @@ Metrics exposed at `GET /metrics`:
 | `strait_dequeue_duration_seconds` | Histogram | Queue polling latency |
 | `strait_worker_pool_active` | Gauge | Active worker goroutines |
 | `strait_worker_pool_queued` | Gauge | Tasks waiting in pool buffer |
+| `strait_analytics_query_duration_seconds` | Histogram | Analytics query latency (by period_hours) |
+| `strait_bulk_operations_total` | Counter | Bulk trigger/cancel operations |
+| `strait_bulk_items_processed_total` | Counter | Items processed in bulk operations |
+| `strait_bulk_child_cancellations_total` | Counter | Cascading child run cancellations |
+| `strait_webhook_retry_attempts_total` | Counter | Webhook delivery retry attempts |
 
 ## Monitoring Assets
 
@@ -74,6 +79,8 @@ Use the monitoring assets in `ops/monitoring/` as a baseline:
 - Webhook delivery failures
 - Worker pool utilization
 - Database connection pool saturation
+- Analytics query latency spikes
+- Bulk operation failure rate
 
 ## Recommended SLO Checks
 
@@ -83,6 +90,8 @@ Use the monitoring assets in `ops/monitoring/` as a baseline:
 - Webhook terminal failure rate stays within agreed threshold
 - Health endpoint responds within 1s
 - Worker pool active/capacity ratio < 0.9
+- Analytics query p95 < 2s
+- Bulk cancel success rate >= 99%
 
 ## Related Runbooks
 

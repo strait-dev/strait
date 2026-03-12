@@ -97,3 +97,21 @@ Use the `GET /v1/analytics/performance` endpoint to retrieve aggregate health sc
 1. **N+1 Queries**: When fetching jobs with many tags or related runs, ensure you are using the bulk fetch endpoints to avoid multiple round-trips to the database.
 2. **Unbounded Result Sets**: Always use pagination when querying runs or audit logs to prevent memory spikes and slow responses.
 3. **Serialization Overhead**: For jobs with very large input/output payloads, the JSON serialization/deserialization can become a CPU bottleneck. Consider using smaller payloads or storing large data in external object storage and passing references.
+
+### Analytics Query Optimization
+
+The `GET /v1/analytics/performance` endpoint aggregates data from the `job_runs` table using window functions and percentile calculations. For large datasets:
+
+- Limit the `period_hours` parameter to the minimum necessary window (default: 24h, max: 720h).
+- The query scans `job_runs` with `created_at >= now() - interval`, so the `idx_job_runs_created_at` index is critical.
+- The `HAVING COUNT(*) >= 5` filter ensures only statistically meaningful jobs appear in slowest-jobs results.
+- Monitor the `strait_analytics_query_duration_seconds` histogram to detect degradation.
+
+### Bulk Operation Tuning
+
+Bulk trigger and bulk cancel endpoints process up to 100 items per request. For high-volume workloads:
+
+- Keep batch sizes at or below 100 items to avoid long-running transactions.
+- Bulk cancel propagates to child runs automatically. Monitor `strait_bulk_child_cancellations_total` for cascading cancellation volume.
+- For sustained bulk ingestion, prefer multiple sequential requests with smaller batches over fewer requests with maximum batch sizes.
+- Monitor `strait_bulk_operations_total` and `strait_bulk_items_processed_total` for throughput visibility.

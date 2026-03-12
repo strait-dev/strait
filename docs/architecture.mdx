@@ -763,3 +763,17 @@ For detailed resilience patterns, see [Resilience](/docs/concepts/resilience).
 - [CDC](/docs/concepts/cdc) — Real-time change data capture
 - [Resilience](/docs/concepts/resilience) — Circuit breaker, rate limiting, and graceful degradation
 - [Security](/docs/guides/security) — SSRF protection, HMAC signing, and access control
+
+## Performance Characteristics
+
+### Queue Throughput
+
+Strait's queue is backed by PostgreSQL `SELECT FOR UPDATE SKIP LOCKED`, which provides lock-free concurrent dequeue. Under typical workloads, a single instance can sustain 1000+ dequeue operations per second with 32 concurrent workers.
+
+### Analytics Query Cost
+
+The analytics endpoint scans the `job_runs` table for a configurable time window (1-720 hours). Query cost scales linearly with the number of runs in the window. For datasets exceeding 1M runs in the analysis period, consider reducing `period_hours` or implementing materialized view pre-aggregation.
+
+### Bulk Operation Limits
+
+Bulk trigger and cancel endpoints accept up to 100 items per request. Each item is processed within a single database transaction for atomicity. Bulk cancel additionally propagates to child runs, which can amplify the number of affected rows.

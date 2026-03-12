@@ -29,3 +29,18 @@ description: "Recent platform and API updates in Strait."
 - Added pre-commit OpenAPI parity enforcement via lefthook:
   - `go run ./scripts/check_openapi_parity.go`
 - Added operations docs for monitoring, rollouts, and authz incident response.
+
+### Performance & Observability
+
+- Added `GET /v1/analytics/performance` endpoint with slowest jobs, throughput, and health summary aggregations.
+- Added 5 new Prometheus metrics for analytics, bulk operations, and webhook retries.
+- Added OpenTelemetry trace spans to analytics, bulk trigger, bulk cancel, and webhook retry handlers.
+- Completed 7-phase performance optimization: pool shutdown fixes, N+1 query elimination, slice pre-allocation, hot-path optimizations, benchmarks, and analytics endpoint.
+- Removed all 44 feature flags - all features unconditionally active.
+
+### Test Coverage
+
+- Added 40 store integration tests covering event triggers, advisory locks, audit events, RBAC tag policies, API key rotation, job/workflow versions, webhook retries, analytics, and health stats.
+- Added 8 queue integration tests for concurrent dequeue (SKIP LOCKED), idempotency conflict handling, context cancellation, and edge cases.
+- Increased CLI client test coverage from 40% to 84% and CLI auth from 44% to 94%.
+- Added 7 E2E tests for analytics endpoint, bulk cancel with children, SDK heartbeat/log/progress, and debug mode.
