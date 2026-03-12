@@ -352,7 +352,7 @@ func TestE2E_RunContinuation_Lineage(t *testing.T) {
 
 func TestE2E_AdaptiveTimeout_FeatureFlagEnabled(t *testing.T) {
 	// Adaptive timeout is a worker-side feature. The E2E test verifies
-	// that the feature flag is enabled and the health stats endpoint works.
+	// that the health stats endpoint works.
 	mustClean(t)
 
 	projectID := "proj-adaptive-" + newID()

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/alitto/pond/v2"
 )
@@ -131,6 +132,15 @@ func (p *Pool) Shutdown(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		p.inner.Stop()
+
+		timer := time.NewTimer(500 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.C:
+			slog.Warn("pool: timed out waiting for StopAndWait goroutine after Stop")
+		}
+
 		return ctx.Err()
 	}
 }

@@ -1487,7 +1487,6 @@ func TestHandleSDKUsage_CostBudgetDisabled(t *testing.T) {
 		createRunUsageFn: func(_ context.Context, _ *domain.RunUsage) error { return nil },
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	// FFCostBudgets is false by default
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50}`)

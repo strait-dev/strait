@@ -10,6 +10,7 @@ func TestPermissionCache_GetSet(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 
 	// Miss on empty cache.
 	_, ok := c.Get("proj", "user")
@@ -32,6 +33,7 @@ func TestPermissionCache_Expiry(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(1 * time.Millisecond)
+	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
 	time.Sleep(5 * time.Millisecond)
@@ -46,6 +48,7 @@ func TestPermissionCache_Invalidate(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
 	c.Invalidate("proj", "user")
@@ -60,6 +63,7 @@ func TestPermissionCache_IsolatesProjects(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 	c.Set("proj-a", "user", []string{"jobs:read"})
 	c.Set("proj-b", "user", []string{"*"})
 
@@ -84,6 +88,7 @@ func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(1 * time.Millisecond)
+	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
 	time.Sleep(5 * time.Millisecond)
@@ -107,6 +112,7 @@ func TestPermissionCache_SetOverwritesExisting(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 	c.Set("proj", "user", []string{"jobs:read"})
 	c.Set("proj", "user", []string{"*", "runs:write"})
 
@@ -123,6 +129,7 @@ func TestPermissionCache_InvalidateNonexistent(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 	// Should not panic.
 	c.Invalidate("proj", "nonexistent")
 	c.Invalidate("", "")
@@ -132,6 +139,7 @@ func TestPermissionCache_EmptyPermissionsSlice(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 
 	// Set empty (non-nil) permissions — should be distinguishable from cache miss.
 	c.Set("proj", "user", []string{})
@@ -151,6 +159,7 @@ func TestPermissionCache_ConcurrentReadWrite(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(50 * time.Millisecond)
+	defer c.Stop()
 
 	var wg sync.WaitGroup
 	const goroutines = 50
@@ -200,6 +209,7 @@ func TestPermissionCache_ManyEntries(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 	const n = 10000
 
 	for i := range n {
@@ -219,6 +229,7 @@ func TestPermissionCache_ZeroTTL(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(0)
+	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
 	// With zero TTL, everything should expire immediately.
@@ -233,6 +244,7 @@ func TestPermissionCache_KeySeparatorCollision(t *testing.T) {
 	t.Parallel()
 
 	c := newPermissionCache(5 * time.Second)
+	defer c.Stop()
 
 	// These should NOT collide because we use \x00 as separator.
 	c.Set("a", "b", []string{"perm-ab"})

@@ -963,38 +963,52 @@ func (q *Queries) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string,
 	}
 
 	replayed := make([]domain.JobRun, 0, len(idsToReplay))
-	for _, runID := range idsToReplay {
-		run, err := q.GetRun(ctx, runID)
-		if err != nil {
-			if errors.Is(err, ErrRunNotFound) {
+	replayRuns := func(runQ *Queries) error {
+		for _, runID := range idsToReplay {
+			run, err := runQ.GetRun(ctx, runID)
+			if err != nil {
+				if errors.Is(err, ErrRunNotFound) {
+					continue
+				}
+				return fmt.Errorf("get run %s for bulk replay: %w", runID, err)
+			}
+			if run.Status != domain.StatusDeadLetter {
 				continue
 			}
-			return nil, fmt.Errorf("get run %s for bulk replay: %w", runID, err)
-		}
-		if run.Status != domain.StatusDeadLetter {
-			continue
+
+			if err := runQ.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusReplayStaged, nil); err != nil {
+				return fmt.Errorf("stage run %s for replay: %w", runID, err)
+			}
+
+			if err := runQ.UpdateRunStatus(ctx, runID, domain.StatusReplayStaged, domain.StatusQueued, map[string]any{
+				"attempt":       1,
+				"error":         "",
+				"started_at":    nil,
+				"finished_at":   nil,
+				"heartbeat_at":  nil,
+				"next_retry_at": nil,
+			}); err != nil {
+				return fmt.Errorf("enqueue staged run %s: %w", runID, err)
+			}
+
+			updatedRun, err := runQ.GetRun(ctx, runID)
+			if err != nil {
+				return fmt.Errorf("get replayed run %s: %w", runID, err)
+			}
+			replayed = append(replayed, *updatedRun)
 		}
 
-		if err := q.UpdateRunStatus(ctx, runID, domain.StatusDeadLetter, domain.StatusReplayStaged, nil); err != nil {
-			return nil, fmt.Errorf("stage run %s for replay: %w", runID, err)
-		}
+		return nil
+	}
 
-		if err := q.UpdateRunStatus(ctx, runID, domain.StatusReplayStaged, domain.StatusQueued, map[string]any{
-			"attempt":       1,
-			"error":         "",
-			"started_at":    nil,
-			"finished_at":   nil,
-			"heartbeat_at":  nil,
-			"next_retry_at": nil,
-		}); err != nil {
-			return nil, fmt.Errorf("enqueue staged run %s: %w", runID, err)
+	if beginner, ok := q.db.(TxBeginner); ok {
+		if err := WithTx(ctx, beginner, replayRuns); err != nil {
+			return nil, fmt.Errorf("bulk replay dead letter runs transaction: %w", err)
 		}
-
-		updatedRun, err := q.GetRun(ctx, runID)
-		if err != nil {
-			return nil, fmt.Errorf("get replayed run %s: %w", runID, err)
+	} else {
+		if err := replayRuns(q); err != nil {
+			return nil, err
 		}
-		replayed = append(replayed, *updatedRun)
 	}
 
 	if len(replayed) == 0 {
@@ -1176,7 +1190,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND heartbeat_at < NOW() - $1::interval
-		ORDER BY heartbeat_at ASC`, domain.StatusExecuting)
+		ORDER BY heartbeat_at ASC LIMIT 1000`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {
@@ -1210,7 +1224,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND scheduled_at <= NOW()
-		ORDER BY scheduled_at ASC`, domain.StatusDelayed)
+		ORDER BY scheduled_at ASC LIMIT 1000`, domain.StatusDelayed)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -1246,7 +1260,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 		WHERE status IN ('%s', '%s')
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= NOW()
-		ORDER BY expires_at ASC`, domain.StatusDelayed, domain.StatusQueued)
+		ORDER BY expires_at ASC LIMIT 1000`, domain.StatusDelayed, domain.StatusQueued)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -1325,7 +1339,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND started_at < NOW() - $1::interval
-		ORDER BY started_at ASC`, domain.StatusDequeued)
+		ORDER BY started_at ASC LIMIT 1000`, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {

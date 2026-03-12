@@ -161,7 +161,7 @@ func runServe(modeOverride string) error {
 			)
 			metrics.EventTriggersCreated.Add(context.Background(), 1, attrs)
 		}
-		eventNotifier.NotifyAsync(trigger)
+		eventNotifier.NotifyAsyncWithContext(ctx, trigger)
 	}
 
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).

@@ -129,6 +129,10 @@ func NewEventNotifier(store DeliveryStore, logger *slog.Logger, opts ...Delivery
 // via the onTriggerCreate callback. The actual HTTP delivery happens
 // asynchronously via RunWorker.
 func (n *DeliveryWorker) NotifyAsync(trigger *domain.EventTrigger) {
+	n.NotifyAsyncWithContext(context.Background(), trigger)
+}
+
+func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *domain.EventTrigger) {
 	if trigger.NotifyURL == "" {
 		return
 	}
@@ -164,7 +168,7 @@ func (n *DeliveryWorker) NotifyAsync(trigger *domain.EventTrigger) {
 	// For now, store a marker so the worker can look up the trigger.
 	d.LastError = string(payload) // stash payload in last_error temporarily on creation
 
-	if err := n.store.CreateWebhookDelivery(context.Background(), d); err != nil {
+	if err := n.store.CreateWebhookDelivery(ctx, d); err != nil {
 		n.logger.Error("failed to enqueue webhook delivery", "trigger_id", trigger.ID, "error", err)
 		return
 	}
