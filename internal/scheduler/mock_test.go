@@ -44,6 +44,8 @@ type mockReaperStore struct {
 	updateEventTriggerStatusFn                func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	listReceivedEventTriggersWithStaleStepsFn func(ctx context.Context) ([]domain.EventTrigger, error)
 	deleteEventTriggersFinishedBeforeFn       func(ctx context.Context, before time.Time, limit int) (int64, error)
+	cancelNonTerminalStepRunsFn               func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	cancelJobRunsByWorkflowRunFn              func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 }
 
 type mockCronStore struct {
@@ -241,6 +243,20 @@ func (m *mockReaperStore) ListReceivedEventTriggersWithStaleSteps(ctx context.Co
 func (m *mockReaperStore) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
 	if m.deleteEventTriggersFinishedBeforeFn != nil {
 		return m.deleteEventTriggersFinishedBeforeFn(ctx, before, limit)
+	}
+	return 0, nil
+}
+
+func (m *mockReaperStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelNonTerminalStepRunsFn != nil {
+		return m.cancelNonTerminalStepRunsFn(ctx, workflowRunID, finishedAt, reason)
+	}
+	return 0, nil
+}
+
+func (m *mockReaperStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelJobRunsByWorkflowRunFn != nil {
+		return m.cancelJobRunsByWorkflowRunFn(ctx, workflowRunID, finishedAt, reason)
 	}
 	return 0, nil
 }

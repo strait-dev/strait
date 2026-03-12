@@ -110,6 +110,14 @@ func (m *mockSchedulerStore) DeleteEventTriggersFinishedBefore(ctx context.Conte
 	return m.reaper.DeleteEventTriggersFinishedBefore(ctx, before, limit)
 }
 
+func (m *mockSchedulerStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	return m.reaper.CancelNonTerminalStepRuns(ctx, workflowRunID, finishedAt, reason)
+}
+
+func (m *mockSchedulerStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	return m.reaper.CancelJobRunsByWorkflowRun(ctx, workflowRunID, finishedAt, reason)
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval: 100 * time.Millisecond,

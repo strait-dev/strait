@@ -40,6 +40,8 @@ type ReaperStore interface {
 	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
+	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
@@ -299,53 +301,23 @@ func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
 	}
 
 	for _, wfRun := range runs {
+		now := time.Now()
 		if err := r.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusTimedOut, map[string]any{
-			"finished_at": time.Now(),
+			"finished_at": now,
 			"error":       "workflow timed out",
 		}); err != nil {
 			slog.Error("failed to fail timed out workflow run", "workflow_run_id", wfRun.ID, "error", err)
 			continue
 		}
 
-		stepRuns, listErr := r.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 10000, nil)
-		if listErr != nil {
-			slog.Error("failed to list workflow step runs for timed out workflow", "workflow_run_id", wfRun.ID, "error", listErr)
-			continue
+		if _, err := r.store.CancelNonTerminalStepRuns(ctx, wfRun.ID, now, "workflow timed out"); err != nil {
+			slog.Error("failed to cancel step runs for timed out workflow", "workflow_run_id", wfRun.ID, "error", err)
 		}
 
-		now := time.Now()
-		for _, stepRun := range stepRuns {
-			if !stepRun.Status.IsTerminal() {
-				if err := r.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCanceled, map[string]any{
-					"finished_at": now,
-					"error":       "workflow timed out",
-				}); err != nil {
-					slog.Error("failed to cancel timed out workflow step run", "step_run_id", stepRun.ID, "error", err)
-				}
-			}
-
-			if stepRun.JobRunID == "" {
-				continue
-			}
-
-			jobRun, getErr := r.store.GetRun(ctx, stepRun.JobRunID)
-			if getErr != nil {
-				slog.Error("failed to get job run for timed out workflow", "job_run_id", stepRun.JobRunID, "error", getErr)
-				continue
-			}
-			if jobRun == nil || jobRun.Status.IsTerminal() {
-				continue
-			}
-
-			if err := r.store.UpdateRunStatus(ctx, jobRun.ID, jobRun.Status, domain.StatusCanceled, map[string]any{
-				"finished_at": now,
-				"error":       "workflow timed out",
-			}); err != nil {
-				slog.Error("failed to cancel job run for timed out workflow", "job_run_id", jobRun.ID, "error", err)
-			}
+		if _, err := r.store.CancelJobRunsByWorkflowRun(ctx, wfRun.ID, now, "workflow timed out"); err != nil {
+			slog.Error("failed to cancel job runs for timed out workflow", "workflow_run_id", wfRun.ID, "error", err)
 		}
 
-		// Cancel any pending event triggers for this workflow.
 		if _, cancelErr := r.store.CancelEventTriggersByWorkflowRun(ctx, wfRun.ID); cancelErr != nil {
 			slog.Error("failed to cancel event triggers for timed out workflow", "workflow_run_id", wfRun.ID, "error", cancelErr)
 		}
