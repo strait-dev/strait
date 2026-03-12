@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,6 +45,47 @@ func TestReaper_ReapStale(t *testing.T) {
 
 	if transitioned.Load() != 2 {
 		t.Fatalf("expected 2 status transitions, got %d", transitioned.Load())
+	}
+}
+
+func TestReaper_ReapStale_RespectsLimit(t *testing.T) {
+	t.Parallel()
+	runs := make([]domain.JobRun, 1000)
+	for i := range runs {
+		runs[i] = domain.JobRun{
+			ID:     fmt.Sprintf("run-%03d", i),
+			Status: domain.StatusExecuting,
+		}
+	}
+
+	var transitioned atomic.Int32
+	ms := &mockReaperStore{
+		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return runs, nil
+		},
+		listExpiredRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		listStaleDequeuedFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+			if from != domain.StatusExecuting {
+				t.Fatalf("expected from=executing, got %s", from)
+			}
+			if to != domain.StatusCrashed {
+				t.Fatalf("expected to=crashed, got %s", to)
+			}
+			transitioned.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapStale(context.Background())
+
+	if transitioned.Load() != int32(len(runs)) {
+		t.Fatalf("expected %d status transitions, got %d", len(runs), transitioned.Load())
 	}
 }
 

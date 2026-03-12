@@ -345,6 +345,65 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 	}
 }
 
+func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
+	t.Parallel()
+	getRunCalls := 0
+	updates := make(map[string]domain.RunStatus)
+	listCalls := 0
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			getRunCalls++
+			if getRunCalls == 1 {
+				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusCanceled}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
+			updates[id] = to
+			return nil
+		},
+		listChildRunsFn: func(_ context.Context, _ string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
+			listCalls++
+			switch listCalls {
+			case 1:
+				if cursor != nil {
+					t.Fatalf("expected nil cursor on first page")
+				}
+				return []domain.JobRun{
+					{ID: "child-1", Status: domain.StatusQueued, CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+					{ID: "child-2", Status: domain.StatusExecuting, CreatedAt: time.Date(2024, 1, 1, 0, 0, 1, 0, time.UTC)},
+				}, nil
+			case 2:
+				if cursor == nil {
+					t.Fatalf("expected non-nil cursor on second page")
+				}
+				return []domain.JobRun{
+					{ID: "child-3", Status: domain.StatusQueued, CreatedAt: time.Date(2024, 1, 1, 0, 0, 2, 0, time.UTC)},
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-parent", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	for _, childID := range []string{"child-1", "child-2", "child-3"} {
+		if updates[childID] != domain.StatusCanceled {
+			t.Fatalf("expected %s to be canceled, got %q", childID, updates[childID])
+		}
+	}
+	if listCalls != 3 {
+		t.Fatalf("expected 3 listChildRuns calls for pagination, got %d", listCalls)
+	}
+}
+
 func TestHandleTriggerJob_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{

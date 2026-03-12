@@ -203,6 +203,28 @@ func TestEvaluateCondition(t *testing.T) {
 	}
 }
 
+func BenchmarkEvaluateCondition(b *testing.B) {
+	statuses := map[string]domain.StepRunStatus{
+		"step-1": domain.StepCompleted,
+		"step-2": domain.StepCompleted,
+		"step-3": domain.StepFailed,
+	}
+
+	simple := json.RawMessage(`{"type":"step_status","step_ref":"step-1","status":"completed"}`)
+	composite := json.RawMessage(`{"type":"all_of","conditions":[{"type":"step_status","step_ref":"step-1","status":"completed"},{"type":"step_status","step_ref":"step-2","status":"completed"},{"type":"step_status","step_ref":"step-3","status":"failed"}]}`)
+
+	b.Run("simple", func(b *testing.B) {
+		for range b.N {
+			_, _ = EvaluateCondition(simple, statuses)
+		}
+	})
+	b.Run("composite", func(b *testing.B) {
+		for range b.N {
+			_, _ = EvaluateCondition(composite, statuses)
+		}
+	})
+}
+
 func mustJSON(s string) json.RawMessage {
 	return json.RawMessage(s)
 }

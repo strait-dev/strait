@@ -554,6 +554,29 @@ func TestPayloadsMatch(t *testing.T) {
 	}
 }
 
+func BenchmarkPayloadsMatch(b *testing.B) {
+	identical := json.RawMessage(`{"key":"value","count":42}`)
+	semanticA := json.RawMessage(`{"key":"value","count":42}`)
+	semanticB := json.RawMessage(`{"count":42,"key":"value"}`)
+	different := json.RawMessage(`{"key":"other"}`)
+
+	b.Run("identical", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(identical, identical)
+		}
+	})
+	b.Run("semantic_equal", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(semanticA, semanticB)
+		}
+	})
+	b.Run("different", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(identical, different)
+		}
+	})
+}
+
 func TestHandleCancelEventTrigger(t *testing.T) {
 	t.Parallel()
 
