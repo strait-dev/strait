@@ -148,24 +148,12 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 
 	if wf.MaxConcurrentRuns > 0 {
-		const maxConcurrencyRetries = 120
-		for i := range maxConcurrencyRetries {
-			running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
-			if countErr != nil {
-				return nil, fmt.Errorf("count running workflow runs: %w", countErr)
-			}
-			if running < wf.MaxConcurrentRuns {
-				break
-			}
-			if i == maxConcurrencyRetries-1 {
-				return nil, fmt.Errorf("workflow %s: max concurrent runs (%d) reached, timed out waiting for slot", workflowID, wf.MaxConcurrentRuns)
-			}
-
-			select {
-			case <-ctx.Done():
-				return nil, fmt.Errorf("wait for workflow concurrency slot: %w", ctx.Err())
-			case <-time.After(250 * time.Millisecond):
-			}
+		running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
+		if countErr != nil {
+			return nil, fmt.Errorf("count running workflow runs: %w", countErr)
+		}
+		if running >= wf.MaxConcurrentRuns {
+			return nil, fmt.Errorf("workflow %s: max concurrent runs (%d) reached", workflowID, wf.MaxConcurrentRuns)
 		}
 	}
 

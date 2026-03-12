@@ -368,7 +368,7 @@ func (s *StepCallback) recordDecision(ctx context.Context, stepRun *domain.Workf
 	if stepRun == nil || stepRun.WorkflowRunID == "" {
 		return
 	}
-	_ = s.store.CreateWorkflowStepDecision(ctx, &domain.WorkflowStepDecision{
+	if err := s.store.CreateWorkflowStepDecision(ctx, &domain.WorkflowStepDecision{
 		WorkflowRunID: stepRun.WorkflowRunID,
 		StepRunID:     stepRun.ID,
 		StepRef:       stepRun.StepRef,
@@ -376,7 +376,9 @@ func (s *StepCallback) recordDecision(ctx context.Context, stepRun *domain.Workf
 		Decision:      decision,
 		Explanation:   explanation,
 		Details:       details,
-	})
+	}); err != nil {
+		slog.Warn("failed to record step decision", "step_run_id", stepRun.ID, "error", err)
+	}
 }
 
 func (s *StepCallback) tryReleaseDependencyRuns(ctx context.Context, run *domain.JobRun) {

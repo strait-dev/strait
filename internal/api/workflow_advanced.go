@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 
 	"strait/internal/domain"
 
@@ -39,7 +40,11 @@ func (s *Server) handleUpsertWorkflowPolicy(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleGetWorkflowPolicy(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	policy, err := s.store.GetWorkflowPolicyByProject(r.Context(), projectID)
-	if err != nil || policy == nil {
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow policy")
+		return
+	}
+	if policy == nil {
 		respondError(w, r, http.StatusNotFound, "workflow policy not found")
 		return
 	}
@@ -58,9 +63,49 @@ func (s *Server) handleSimulateWorkflow(w http.ResponseWriter, r *http.Request) 
 		respondError(w, r, http.StatusInternalServerError, "failed to load workflow steps")
 		return
 	}
-	order := make([]string, 0, len(steps))
+	// Topological sort via Kahn's algorithm for deterministic predicted order.
+	indegree := make(map[string]int, len(steps))
+	adj := make(map[string][]string, len(steps))
 	for _, st := range steps {
-		order = append(order, st.StepRef)
+		indegree[st.StepRef] = 0
+		adj[st.StepRef] = []string{}
 	}
+	for _, st := range steps {
+		for _, dep := range st.DependsOn {
+			adj[dep] = append(adj[dep], st.StepRef)
+			indegree[st.StepRef]++
+		}
+	}
+
+	queue := make([]string, 0, len(steps))
+	for ref, deg := range indegree {
+		if deg == 0 {
+			queue = append(queue, ref)
+		}
+	}
+	sort.Strings(queue)
+
+	order := make([]string, 0, len(steps))
+	for len(queue) > 0 {
+		ref := queue[0]
+		queue = queue[1:]
+		order = append(order, ref)
+		for _, dep := range adj[ref] {
+			indegree[dep]--
+			if indegree[dep] == 0 {
+				queue = append(queue, dep)
+			}
+		}
+		sort.Strings(queue)
+	}
+
+	// Fallback: if cycle detected (should not happen post-validation), use insertion order.
+	if len(order) != len(steps) {
+		order = order[:0]
+		for _, st := range steps {
+			order = append(order, st.StepRef)
+		}
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{"workflow_id": workflowID, "version": wf.Version, "predicted_order": order, "step_count": len(order)})
 }
