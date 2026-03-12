@@ -26,7 +26,6 @@ func TestHandleCreateWebhookSubscription_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFWebhookSubscriptions = true
 
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
 	w := httptest.NewRecorder()
@@ -53,7 +52,6 @@ func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFWebhookSubscriptions = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/webhooks/subscriptions?project_id=proj-1", ""))
@@ -81,7 +79,6 @@ func TestHandleDeleteWebhookSubscription_NotFound(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFWebhookSubscriptions = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/webhooks/subscriptions/sub-missing", ""))

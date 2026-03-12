@@ -1162,7 +1162,7 @@ paths:
       tags:
         - Runs
       summary: Get debug bundle
-      description: Requires FF_DEBUG_BUNDLE feature flag.
+      description: Returns a debug bundle with diagnostic information for the run.
       security:
         - bearerAuth: []
       parameters:
@@ -2795,7 +2795,7 @@ paths:
         Transitions the run from executing to waiting and creates an event trigger.
         When the event is received via POST /v1/events/{eventKey}/send, the run
         transitions back to queued with checkpoint data and is re-dispatched.
-        Requires the FF_EVENT_TRIGGERS feature flag.
+
       security:
         - runToken: []
       parameters:
@@ -3144,7 +3144,7 @@ paths:
       tags:
         - SDK
       summary: Create a continuation run
-      description: Requires FF_RUN_CONTINUATION feature flag.
+      description: Creates a continuation run that inherits context from the parent run.
       security:
         - runToken: []
       parameters:

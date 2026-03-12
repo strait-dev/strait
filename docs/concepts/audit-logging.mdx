@@ -5,7 +5,7 @@ description: "Tracking mutations and administrative actions across the system."
 
 ## Overview
 
-Audit logging records every mutation (create, update, delete) and administrative action performed in Strait. This feature provides a comprehensive trail of activity for security, compliance, and troubleshooting. Audit logging is enabled by default via the `FF_AUDIT_LOG` feature flag.
+Audit logging records every mutation (create, update, delete) and administrative action performed in Strait. This feature provides a comprehensive trail of activity for security, compliance, and troubleshooting. Audit logging is enabled by default.
 
 ## What Gets Logged
 
@@ -42,7 +42,7 @@ Audit events are structured to provide consistent information across different t
 
 ## Configuration
 
-Audit logging is controlled by the `FF_AUDIT_LOG` feature flag, which defaults to `true`. No additional configuration is required to start capturing events.
+No additional configuration is required to start capturing events.
 
 Events are stored in the primary database for persistence and are also emitted to the internal event system, allowing for real-time monitoring or integration with external logging providers.
 

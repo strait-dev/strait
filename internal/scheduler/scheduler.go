@@ -34,7 +34,7 @@ func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback Workflo
 	sched := &Scheduler{
 		cron:   NewCronScheduler(s, q, wfTrigger),
 		poller: NewDelayedPoller(s, cfg.PollerInterval),
-		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
+		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, true, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize),

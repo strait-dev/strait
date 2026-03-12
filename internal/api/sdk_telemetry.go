@@ -43,7 +43,7 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Cost budget check BEFORE recording usage to prevent overspend.
-	if s.config.FFCostBudgets && req.CostMicrousd > 0 {
+	if req.CostMicrousd > 0 {
 		run, runErr := s.store.GetRun(r.Context(), runID)
 		if runErr == nil && run != nil {
 			quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)

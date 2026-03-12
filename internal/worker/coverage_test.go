@@ -892,12 +892,12 @@ func TestExecutor_HandleFailure_PublishesAndCallsBack(t *testing.T) {
 	updates := ms.statusUpdates()
 	found := false
 	for _, u := range updates {
-		if u.to == domain.StatusFailed {
+		if u.to == domain.StatusDeadLetter {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("expected status transition to failed")
+		t.Fatal("expected status transition to dead_letter")
 	}
 }
 

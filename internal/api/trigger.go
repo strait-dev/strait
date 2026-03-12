@@ -71,10 +71,6 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	// Handle dry-run mode
 	if req.DryRun {
-		if !s.config.FFDryRun {
-			respondError(w, r, http.StatusNotFound, "dry-run mode is not enabled")
-			return
-		}
 		result, err := s.validateTriggerRequest(r.Context(), jobID, req)
 		if err != nil {
 			respondError(w, r, http.StatusBadRequest, err.Error())
@@ -83,11 +79,9 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, result)
 		return
 	}
-	if s.config.FFPayloadValidation {
-		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
-			respondError(w, r, http.StatusBadRequest, "payload validation failed: "+err.Error())
-			return
-		}
+	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
+		respondError(w, r, http.StatusBadRequest, "payload validation failed: "+err.Error())
+		return
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
@@ -131,15 +125,13 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var projectQuota *store.ProjectQuota
-	if s.config.FFProjectQuotas || s.config.FFExecutionWindows || s.config.FFCostBudgets {
-		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
-			return
-		}
+	projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
+		return
 	}
 
-	if s.config.FFProjectQuotas && projectQuota != nil {
+	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
 			if countErr != nil {
@@ -165,7 +157,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if s.config.FFCostBudgets && projectQuota != nil && projectQuota.MaxDailyCostMicrousd > 0 {
+	if projectQuota != nil && projectQuota.MaxDailyCostMicrousd > 0 {
 		tz := projectQuota.Timezone
 		if tz == "" {
 			tz = "UTC"
@@ -215,7 +207,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	runID := uuid.Must(uuid.NewV7()).String()
 	now := time.Now()
 	scheduledAt := req.ScheduledAt
-	if s.config.FFExecutionWindows && job.ExecutionWindowCron != "" {
+	if job.ExecutionWindowCron != "" {
 		timezone := job.Timezone
 		if timezone == "" && projectQuota != nil {
 			timezone = projectQuota.Timezone
@@ -405,10 +397,8 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		return nil, errors.New("job is disabled")
 	}
 
-	if s.config.FFPayloadValidation {
-		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
-			return nil, fmt.Errorf("payload validation failed: %w", err)
-		}
+	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
+		return nil, fmt.Errorf("payload validation failed: %w", err)
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
@@ -418,14 +408,12 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	var projectQuota *store.ProjectQuota
 	var warnings []string
-	if s.config.FFProjectQuotas || s.config.FFExecutionWindows {
-		projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load project quota: %w", err)
-		}
+	projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project quota: %w", err)
 	}
 
-	if s.config.FFProjectQuotas && projectQuota != nil {
+	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 			if countErr != nil {
@@ -471,7 +459,7 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	now := time.Now()
 	scheduledAt := req.ScheduledAt
-	if s.config.FFExecutionWindows && job.ExecutionWindowCron != "" {
+	if job.ExecutionWindowCron != "" {
 		timezone := job.Timezone
 		if timezone == "" && projectQuota != nil {
 			timezone = projectQuota.Timezone

@@ -458,7 +458,6 @@ func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFPayloadValidation = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"name":"leo"}}`))
@@ -492,7 +491,6 @@ func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFPayloadValidation = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"age":12}}`))
@@ -1051,7 +1049,6 @@ func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFProjectQuotas = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -1140,7 +1137,6 @@ func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFExecutionWindows = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -1897,7 +1893,6 @@ func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -1931,7 +1926,6 @@ func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -2072,7 +2066,6 @@ func TestHandleSDKUsage_CostBudgetCheckBeforeRecord(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)

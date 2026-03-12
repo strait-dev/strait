@@ -90,7 +90,7 @@ Strait supports four retry strategies configurable per job:
 
 All strategies apply +/-20% jitter to prevent thundering herd when many runs retry simultaneously.
 
-When `attempt >= max_attempts` and the DLQ feature flag is enabled (`FF_RUN_DLQ=true`), the run transitions to `dead_letter` instead of `failed`. Dead-lettered runs can be replayed via the DLQ management API.
+When `attempt >= max_attempts`, the run transitions to `dead_letter` instead of `failed`. Dead-lettered runs can be replayed via the DLQ management API.
 
 For detailed retry configuration, see [Retry Strategies](/docs/concepts/retry-strategies).
 

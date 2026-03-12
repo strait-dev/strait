@@ -324,35 +324,27 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		poolOpts = append(poolOpts, worker.WithQueueSize(cfg.WorkerQueueSize))
 	}
 
-	poolConcurrency := cfg.WorkerConcurrency
-	var adaptive *worker.AdaptiveConcurrency
-	if cfg.FFAdaptiveConcurrency {
-		adaptive = worker.NewAdaptiveConcurrency(cfg.AdaptiveConcurrencyMin, cfg.AdaptiveConcurrencyMax, cfg.WorkerConcurrency)
-		poolConcurrency = adaptive.CurrentLimit()
-		poolConcurrency = max(poolConcurrency, cfg.AdaptiveConcurrencyMax)
-		slog.Info(
-			"adaptive worker concurrency enabled",
-			"min", cfg.AdaptiveConcurrencyMin,
-			"max", cfg.AdaptiveConcurrencyMax,
-			"initial", adaptive.CurrentLimit(),
-		)
-	}
+	adaptive := worker.NewAdaptiveConcurrency(cfg.AdaptiveConcurrencyMin, cfg.AdaptiveConcurrencyMax, cfg.WorkerConcurrency)
+	poolConcurrency := max(adaptive.CurrentLimit(), cfg.AdaptiveConcurrencyMax)
+	slog.Info(
+		"adaptive worker concurrency enabled",
+		"min", cfg.AdaptiveConcurrencyMin,
+		"max", cfg.AdaptiveConcurrencyMax,
+		"initial", adaptive.CurrentLimit(),
+	)
 
 	p := worker.NewPool(poolConcurrency, poolOpts...)
-	var wake <-chan struct{}
-	if cfg.FFListenNotify {
-		notifier := queue.NewQueueNotifier(cfg.DatabaseURL, slog.Default())
-		wake = notifier.Wake()
-		g.Go(func(ctx context.Context) error {
-			notifier.Run(ctx)
-			return nil
-		})
-		slog.Info("worker queue listen/notify enabled", "channel", queue.QueueWakeChannel)
-	}
+	notifier := queue.NewQueueNotifier(cfg.DatabaseURL, slog.Default())
+	wake := notifier.Wake()
+	g.Go(func(ctx context.Context) error {
+		notifier.Run(ctx)
+		return nil
+	})
+	slog.Info("worker queue listen/notify enabled", "channel", queue.QueueWakeChannel)
 
 	partitions := []string(nil)
 	partitionWeights := ""
-	if cfg.FFQueuePartitioning && len(cfg.WorkerPartitions) > 0 {
+	if len(cfg.WorkerPartitions) > 0 {
 		partitions = cfg.WorkerPartitions
 		partitionWeights = cfg.WorkerPartitionWeights
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
@@ -370,13 +362,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WorkflowCallback:        stepCallback,
 		Partitions:              partitions,
 		PartitionWeights:        partitionWeights,
-		CircuitBreaker:          cfg.FFCircuitBreaker,
-		SmartRetry:              cfg.FFSmartRetry,
-		Bulkheads:               cfg.FFBulkheads,
-		SecretInjection:         cfg.FFSecretInjection,
-		ExecutionTracing:        cfg.FFExecutionTracing,
-		AdaptiveTimeout:         cfg.FFAdaptiveTimeout,
-		DLQEnabled:              cfg.FFRunDLQ,
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
 		WebhookTimeout:          cfg.WebhookTimeout,

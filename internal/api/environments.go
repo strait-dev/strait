@@ -32,11 +32,6 @@ type EnvironmentResponse struct {
 }
 
 func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFEnvironments {
-		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
-		return
-	}
-
 	var req CreateEnvironmentRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -64,11 +59,6 @@ func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFEnvironments {
-		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
-		return
-	}
-
 	envID := chi.URLParam(r, "envID")
 	env, err := s.store.GetEnvironment(r.Context(), envID)
 	if err != nil {
@@ -97,11 +87,6 @@ func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFEnvironments {
-		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
-		return
-	}
-
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
@@ -125,11 +110,6 @@ func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) 
 	}))
 }
 func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFEnvironments {
-		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
-		return
-	}
-
 	envID := chi.URLParam(r, "envID")
 	env, err := s.store.GetEnvironment(r.Context(), envID)
 	if err != nil {
@@ -173,11 +153,6 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFEnvironments {
-		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
-		return
-	}
-
 	envID := chi.URLParam(r, "envID")
 	if err := s.store.DeleteEnvironment(r.Context(), envID); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
@@ -192,11 +167,6 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleGetResolvedVariables(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFEnvironments {
-		respondError(w, r, http.StatusNotFound, "environments feature is not enabled")
-		return
-	}
-
 	envID := chi.URLParam(r, "envID")
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(r.Context(), envID)
 	if err != nil {

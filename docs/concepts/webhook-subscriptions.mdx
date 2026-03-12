@@ -26,9 +26,9 @@ Deliveries use the durable delivery model, meaning they are persisted to the dat
 
 ## Configuration
 
-The feature is controlled by the `FF_WEBHOOK_SUBSCRIPTIONS` feature flag (default: true). When disabled, no new subscriptions can be created and existing ones will not be dispatched.
+Webhook subscriptions are always available for project-level webhook delivery.
 
-Additionally, the `FF_WEBHOOK_CIRCUIT_BREAKER` flag protects subscription endpoints from cascading failures. If a target URL consistently returns errors, the circuit breaker will temporarily disable delivery to that endpoint to prevent system resource exhaustion.
+The circuit breaker protects subscription endpoints from cascading failures. If a target URL consistently returns errors, the circuit breaker will temporarily disable delivery to that endpoint to prevent system resource exhaustion.
 
 ## Security
 

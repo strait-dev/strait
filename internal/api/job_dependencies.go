@@ -17,11 +17,6 @@ type CreateJobDependencyRequest struct {
 }
 
 func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobDependencies {
-		respondError(w, r, http.StatusNotFound, "job dependencies feature is not enabled")
-		return
-	}
-
 	jobID := chi.URLParam(r, "jobID")
 
 	if _, err := s.store.GetJob(r.Context(), jobID); err != nil {
@@ -81,11 +76,6 @@ func (s *Server) handleCreateJobDependency(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobDependencies {
-		respondError(w, r, http.StatusNotFound, "job dependencies feature is not enabled")
-		return
-	}
-
 	jobID := chi.URLParam(r, "jobID")
 
 	limit, cursor, err := parsePaginationParams(r)
@@ -106,11 +96,6 @@ func (s *Server) handleListJobDependencies(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleDeleteJobDependency(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobDependencies {
-		respondError(w, r, http.StatusNotFound, "job dependencies feature is not enabled")
-		return
-	}
-
 	jobID := chi.URLParam(r, "jobID")
 	if _, err := s.store.GetJob(r.Context(), jobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {

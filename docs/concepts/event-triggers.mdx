@@ -334,7 +334,7 @@ Supports filtering by `status`, `workflow_run_id`, and `source_type`.
 
 ## Per-Project Quotas
 
-When `FF_PROJECT_QUOTAS` is enabled and a project has a `MaxActiveEventTriggers` quota configured, the SDK `wait-for-event` endpoint enforces the limit:
+When a project has a `MaxActiveEventTriggers` quota configured, the SDK `wait-for-event` endpoint enforces the limit:
 
 ```bash
 # Response when quota is exceeded:
@@ -417,16 +417,6 @@ resolved = client.send_event(SendEventOptions(
 ```
 
 Both SDKs support `waitForEvent`, `sendEvent`, `getEventTrigger`, and `cancelEventTrigger`.
-
-## Feature Flag
-
-Event trigger endpoints are gated by the `FF_EVENT_TRIGGERS` feature flag:
-
-```bash
-export FF_EVENT_TRIGGERS=true
-```
-
-When disabled, all event trigger API endpoints return `404`.
 
 ## Reconciliation
 

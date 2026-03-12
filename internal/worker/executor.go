@@ -66,13 +66,6 @@ type Executor struct {
 	workflowCallback       WorkflowCallback
 	partitionCycle         []string
 	nextPartition          int
-	circuitBreaker         bool
-	secretInjection        bool
-	smartRetry             bool
-	bulkheads              bool
-	executionTracing       bool
-	adaptiveTimeout        bool
-	dlqEnabled             bool
 	jobActiveRuns          map[string]int
 	jobActiveRunsMu        sync.Mutex
 	circuitThreshold       int
@@ -108,13 +101,6 @@ type ExecutorConfig struct {
 	WorkflowCallback        WorkflowCallback
 	Partitions              []string
 	PartitionWeights        string
-	CircuitBreaker          bool
-	SecretInjection         bool
-	SmartRetry              bool
-	Bulkheads               bool
-	ExecutionTracing        bool
-	AdaptiveTimeout         bool
-	DLQEnabled              bool
 	ExecutorHTTPTimeout     time.Duration
 	ExecutorIdleConnTimeout time.Duration
 	WebhookTimeout          time.Duration
@@ -188,13 +174,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		metrics:                cfg.Metrics,
 		workflowCallback:       cfg.WorkflowCallback,
 		partitionCycle:         buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
-		circuitBreaker:         cfg.CircuitBreaker,
-		secretInjection:        cfg.SecretInjection,
-		smartRetry:             cfg.SmartRetry,
-		bulkheads:              cfg.Bulkheads,
-		executionTracing:       cfg.ExecutionTracing,
-		adaptiveTimeout:        cfg.AdaptiveTimeout,
-		dlqEnabled:             cfg.DLQEnabled,
 		jobActiveRuns:          make(map[string]int),
 		circuitThreshold:       defaultCircuitFailureThreshold,
 		circuitOpenFor:         defaultCircuitOpenDuration,
@@ -208,7 +187,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 }
 
 func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {
-	if !e.bulkheads || maxConcurrency <= 0 {
+	if maxConcurrency <= 0 {
 		return true
 	}
 
@@ -224,7 +203,7 @@ func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool
 }
 
 func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
-	if !e.bulkheads || maxConcurrency <= 0 {
+	if maxConcurrency <= 0 {
 		return
 	}
 

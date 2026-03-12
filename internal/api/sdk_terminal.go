@@ -253,11 +253,6 @@ func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
 	applySDKResponseHeaders(r.Context(), w)
 	parentRunID := chi.URLParam(r, "runID")
 
-	if !s.config.FFRunContinuation {
-		respondError(w, r, http.StatusNotFound, "run continuation is not enabled")
-		return
-	}
-
 	var req struct {
 		Payload json.RawMessage `json:"payload,omitempty"`
 	}

@@ -74,7 +74,7 @@ The lifecycle of a run is strictly managed by a 13-state FSM.
    │  │ completed failed timed_out system_failed    │
    │  │                │                             │
    │  │                v (max attempts reached       │
-   │  │          ┌─────────────┐  + FF_RUN_DLQ)     │
+    │  │          ┌─────────────┐                     │
    │  │          │ dead_letter │                     │
    │  │          └─────────────┘                     │
    │  │                                              │
@@ -121,7 +121,7 @@ Terminal states: `completed`, `failed`, `timed_out`, `crashed`, `system_failed`,
 
 ## Execution Trace
 
-When `FF_EXECUTION_TRACING` is enabled, the `execution_trace` field captures granular timing:
+The `execution_trace` field captures granular timing:
 - `queue_wait_ms`: Time spent in `queued` state.
 - `dequeue_ms`: Time taken to claim the run.
 - `connect_ms`: TCP/TLS connection time to the endpoint.

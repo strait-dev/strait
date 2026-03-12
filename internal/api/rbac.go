@@ -24,7 +24,7 @@ type createRoleRequest struct {
 }
 
 func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
-	if s.config == nil || !s.config.FFAuditLog {
+	if s.config == nil {
 		return
 	}
 

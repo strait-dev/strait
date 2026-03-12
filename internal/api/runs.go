@@ -163,10 +163,6 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunReplay {
-		respondError(w, r, http.StatusNotFound, "run replay is not enabled")
-		return
-	}
 	runID := chi.URLParam(r, "runID")
 	originalRun, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
@@ -270,11 +266,6 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunDLQ {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	query := r.URL.Query()
 	projectID := query.Get("project_id")
 	if projectID == "" {
@@ -300,11 +291,6 @@ func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunDLQ {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 	run, err := s.store.ReplayDeadLetterRun(r.Context(), runID)
 	if err != nil {
@@ -324,11 +310,6 @@ func (s *Server) handleReplayDeadLetterRun(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleBulkReplayDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunDLQ {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	var req struct {
 		RunIDs    []string `json:"run_ids"`
 		ProjectID string   `json:"project_id"`
@@ -417,11 +398,6 @@ func (s *Server) handleListChildRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetDebugBundle(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFDebugBundle {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 	bundle, err := s.store.GetDebugBundle(r.Context(), runID)
 	if err != nil {
@@ -437,11 +413,6 @@ func (s *Server) handleGetDebugBundle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFDebugBundle {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 
 	var req struct {
@@ -465,11 +436,6 @@ func (s *Server) handleSetDebugMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListRunLineage(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFRunContinuation {
-		respondError(w, r, http.StatusNotFound, "not found")
-		return
-	}
-
 	runID := chi.URLParam(r, "runID")
 
 	limit, cursor, err := parsePaginationParams(r)

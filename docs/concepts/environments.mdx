@@ -44,6 +44,4 @@ Environments allow you to maintain a single job definition (e.g., `process-order
 - **Staging Environment**: `ENDPOINT_URL=https://staging.api.myapp.com/jobs`
 - **Production Environment**: `ENDPOINT_URL=https://api.myapp.com/jobs`
 
-## Feature Flag
-
-The environment system is gated behind the `FF_ENVIRONMENTS` feature flag. When disabled, environment links on jobs are ignored, and no variable resolution or URL overrides occur.
+The environment system resolves variables and URL overrides for jobs with an assigned environment.

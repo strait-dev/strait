@@ -11,30 +11,6 @@ import (
 	"strait/internal/domain"
 )
 
-func TestRBACMutations_AuditDisabled_DoesNotEmitEvents(t *testing.T) {
-	t.Parallel()
-
-	ms := &mockAPIStore{}
-	ms.createProjectRoleFn = func(_ context.Context, role *domain.ProjectRole) error {
-		role.ID = "role-1"
-		return nil
-	}
-	ms.createAuditEventFn = func(_ context.Context, _ *domain.AuditEvent) error {
-		t.Fatal("CreateAuditEvent should not be called when FF_AUDIT_LOG is disabled")
-		return nil
-	}
-
-	srv := newTestServer(t, ms, nil, nil)
-
-	req := authedRequest(http.MethodPost, "/v1/roles", `{"name":"deployer","permissions":["jobs:write"]}`)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
-}
-
 func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 
@@ -57,7 +33,6 @@ func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, nil, nil)
-	srv.config.FFAuditLog = true
 
 	req := authedRequest(http.MethodPost, "/v1/roles", `{"name":"deployer","permissions":["jobs:write"]}`)
 	req.Header.Set("X-Project-Id", "proj-1")
@@ -111,7 +86,6 @@ func TestRBACMutations_AssignMember_EmitsPermissionGrantedAuditEvent(t *testing.
 	}
 
 	srv := newTestServer(t, ms, nil, nil)
-	srv.config.FFAuditLog = true
 
 	req := authedRequest(http.MethodPost, "/v1/members", `{"user_id":"user-2","role_id":"role-2"}`)
 	req.Header.Set("X-Project-Id", "proj-2")

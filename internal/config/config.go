@@ -64,69 +64,11 @@ type Config struct {
 	CORSAllowedOrigins   []string `mapstructure:"CORS_ALLOWED_ORIGINS"`
 	CORSAllowCredentials bool     `mapstructure:"CORS_ALLOW_CREDENTIALS"`
 
-	FFConcurrencyLimits bool `mapstructure:"FF_CONCURRENCY_LIMITS"`
-	FFProjectQuotas     bool `mapstructure:"FF_PROJECT_QUOTAS"`
-	FFExecutionWindows  bool `mapstructure:"FF_EXECUTION_WINDOWS"`
-	FFQueuePartitioning bool `mapstructure:"FF_QUEUE_PARTITIONING"`
-
 	WorkerPartitions       []string `mapstructure:"WORKER_PARTITIONS"`
 	WorkerPartitionWeights string   `mapstructure:"WORKER_PARTITION_WEIGHTS"`
-
-	FFProgressStreaming bool `mapstructure:"FF_PROGRESS_STREAMING"`
-	FFCheckpoints       bool `mapstructure:"FF_CHECKPOINTS"`
-	FFRunContinuation   bool `mapstructure:"FF_RUN_CONTINUATION"`
-	FFUsageTracking     bool `mapstructure:"FF_USAGE_TRACKING"`
-	FFCostBudgets       bool `mapstructure:"FF_COST_BUDGETS"`
-
-	FFErrorClassification bool `mapstructure:"FF_ERROR_CLASSIFICATION"`
-	FFSmartRetry          bool `mapstructure:"FF_SMART_RETRY"`
-	FFCircuitBreaker      bool `mapstructure:"FF_CIRCUIT_BREAKER"`
-	FFBulkheads           bool `mapstructure:"FF_BULKHEADS"`
-	FFRunDLQ              bool `mapstructure:"FF_RUN_DLQ"`
-
-	FFPayloadValidation bool `mapstructure:"FF_PAYLOAD_VALIDATION"`
-	FFJobTags           bool `mapstructure:"FF_JOB_TAGS"`
-	FFRunAnnotations    bool `mapstructure:"FF_RUN_ANNOTATIONS"`
-	FFSecretInjection   bool `mapstructure:"FF_SECRET_INJECTION"`
-	FFRunReplay         bool `mapstructure:"FF_RUN_REPLAY"`
-	FFDryRun            bool `mapstructure:"FF_DRY_RUN"`
-
-	FFRunRetention         bool `mapstructure:"FF_RUN_RETENTION"`
-	FFExecutionTracing     bool `mapstructure:"FF_EXECUTION_TRACING"`
-	FFDebugBundle          bool `mapstructure:"FF_DEBUG_BUNDLE"`
-	FFBatchJobOps          bool `mapstructure:"FF_BATCH_JOB_OPS"`
-	FFEnvironments         bool `mapstructure:"FF_ENVIRONMENTS"`
-	FFJobGroups            bool `mapstructure:"FF_JOB_GROUPS"`
-	FFJobDependencies      bool `mapstructure:"FF_JOB_DEPENDENCIES"`
-	FFJobHealthScoring     bool `mapstructure:"FF_JOB_HEALTH_SCORING"`
-	FFAdaptiveTimeout      bool `mapstructure:"FF_ADAPTIVE_TIMEOUT"`
-	FFAdaptiveConcurrency  bool `mapstructure:"FF_ADAPTIVE_CONCURRENCY"`
-	AdaptiveConcurrencyMin int  `mapstructure:"ADAPTIVE_CONCURRENCY_MIN"`
-	AdaptiveConcurrencyMax int  `mapstructure:"ADAPTIVE_CONCURRENCY_MAX"`
-	FFEventTriggers        bool `mapstructure:"FF_EVENT_TRIGGERS"`
-
-	// Track 1: Performance & Reliability
-	FFListenNotify           bool `mapstructure:"FF_LISTEN_NOTIFY"`
-	FFRateLimitEnforcement   bool `mapstructure:"FF_RATE_LIMIT_ENFORCEMENT"`
-	FFConcurrencyEnforcement bool `mapstructure:"FF_CONCURRENCY_ENFORCEMENT"`
-	FFPriorityAging          bool `mapstructure:"FF_PRIORITY_AGING"`
-	FFProjectFairQueue       bool `mapstructure:"FF_PROJECT_FAIR_QUEUE"`
-
-	// Track 2: Webhook Overhaul
-	FFWebhookDeliveryWorker      bool `mapstructure:"FF_WEBHOOK_DELIVERY_WORKER"`
-	FFWebhookTimestampSignatures bool `mapstructure:"FF_WEBHOOK_TIMESTAMP_SIGNATURES"`
-	FFWebhookCircuitBreaker      bool `mapstructure:"FF_WEBHOOK_CIRCUIT_BREAKER"`
-	FFWebhookSubscriptions       bool `mapstructure:"FF_WEBHOOK_SUBSCRIPTIONS"`
-	FFFallbackEndpoint           bool `mapstructure:"FF_FALLBACK_ENDPOINT"`
-	FFRunEventsBuffered          bool `mapstructure:"FF_RUN_EVENTS_BUFFERED"`
-
-	// Track 3: Database Optimization
-	DBPgBouncerMode     bool `mapstructure:"DB_PGBOUNCER_MODE"`
-	FFQueryCacheWarming bool `mapstructure:"FF_QUERY_CACHE_WARMING"`
-
-	// Track 4: Security & Observability
-	FFRedisRequired bool `mapstructure:"FF_REDIS_REQUIRED"`
-	FFAuditLog      bool `mapstructure:"FF_AUDIT_LOG"`
+	AdaptiveConcurrencyMin int      `mapstructure:"ADAPTIVE_CONCURRENCY_MIN"`
+	AdaptiveConcurrencyMax int      `mapstructure:"ADAPTIVE_CONCURRENCY_MAX"`
+	DBPgBouncerMode        bool     `mapstructure:"DB_PGBOUNCER_MODE"`
 
 	WorkerDrainTimeout time.Duration `mapstructure:"WORKER_DRAIN_TIMEOUT"`
 
@@ -193,59 +135,11 @@ func setDefaults() {
 	viper.SetDefault("SEQUIN_WAIT_TIME_MS", 5000)
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", []string{"*"})
 	viper.SetDefault("CORS_ALLOW_CREDENTIALS", false)
-	// Feature flags: opt-in (experimental or require explicit configuration)
-	viper.SetDefault("FF_CONCURRENCY_LIMITS", false)
-	viper.SetDefault("FF_PROJECT_QUOTAS", false)
-	viper.SetDefault("FF_EXECUTION_WINDOWS", false)
-	viper.SetDefault("FF_QUEUE_PARTITIONING", false)
 	viper.SetDefault("WORKER_PARTITIONS", []string{})
 	viper.SetDefault("WORKER_PARTITION_WEIGHTS", "")
-	viper.SetDefault("FF_PROGRESS_STREAMING", false)
-	viper.SetDefault("FF_CHECKPOINTS", false)
-	viper.SetDefault("FF_RUN_CONTINUATION", false)
-	viper.SetDefault("FF_USAGE_TRACKING", false)
-	viper.SetDefault("FF_ERROR_CLASSIFICATION", false)
-	viper.SetDefault("FF_SECRET_INJECTION", false)
-	viper.SetDefault("FF_RUN_REPLAY", false)
-	viper.SetDefault("FF_DRY_RUN", false)
-	viper.SetDefault("FF_RUN_RETENTION", false)
-	viper.SetDefault("FF_DEBUG_BUNDLE", false)
-	viper.SetDefault("FF_BATCH_JOB_OPS", false)
-	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
-	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
-	viper.SetDefault("FF_CONCURRENCY_ENFORCEMENT", false)
-	viper.SetDefault("FF_PROJECT_FAIR_QUEUE", false)
-	viper.SetDefault("FF_WEBHOOK_DELIVERY_WORKER", false)
-	viper.SetDefault("FF_WEBHOOK_TIMESTAMP_SIGNATURES", false)
-	viper.SetDefault("FF_FALLBACK_ENDPOINT", false)
-	viper.SetDefault("FF_RUN_EVENTS_BUFFERED", false)
-	viper.SetDefault("FF_REDIS_REQUIRED", false)
-	viper.SetDefault("DB_PGBOUNCER_MODE", false)
-
-	// Feature flags: production defaults (enabled for optimal out-of-the-box performance)
-	viper.SetDefault("FF_SMART_RETRY", true)
-	viper.SetDefault("FF_CIRCUIT_BREAKER", true)
-	viper.SetDefault("FF_BULKHEADS", true)
-	viper.SetDefault("FF_RUN_DLQ", true)
-	viper.SetDefault("FF_PAYLOAD_VALIDATION", true)
-	viper.SetDefault("FF_JOB_TAGS", true)
-	viper.SetDefault("FF_RUN_ANNOTATIONS", true)
-	viper.SetDefault("FF_EXECUTION_TRACING", true)
-	viper.SetDefault("FF_ENVIRONMENTS", true)
-	viper.SetDefault("FF_JOB_GROUPS", true)
-	viper.SetDefault("FF_JOB_DEPENDENCIES", true)
-	viper.SetDefault("FF_ADAPTIVE_CONCURRENCY", true)
 	viper.SetDefault("ADAPTIVE_CONCURRENCY_MIN", 5)
 	viper.SetDefault("ADAPTIVE_CONCURRENCY_MAX", 100)
-	viper.SetDefault("FF_EVENT_TRIGGERS", true)
-	viper.SetDefault("FF_LISTEN_NOTIFY", true)
-	viper.SetDefault("FF_RATE_LIMIT_ENFORCEMENT", true)
-	viper.SetDefault("FF_PRIORITY_AGING", true)
-	viper.SetDefault("FF_COST_BUDGETS", true)
-	viper.SetDefault("FF_WEBHOOK_CIRCUIT_BREAKER", true)
-	viper.SetDefault("FF_WEBHOOK_SUBSCRIPTIONS", true)
-	viper.SetDefault("FF_QUERY_CACHE_WARMING", true)
-	viper.SetDefault("FF_AUDIT_LOG", true)
+	viper.SetDefault("DB_PGBOUNCER_MODE", false)
 	viper.SetDefault("WORKER_DRAIN_TIMEOUT", 30*time.Second)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 	viper.SetDefault("ENCRYPTION_KEY", "")
@@ -280,22 +174,8 @@ func BindEnv() error {
 		"RATE_LIMIT_WINDOW", "TRIGGER_RATE_LIMIT_REQUESTS", "TRIGGER_RATE_LIMIT_WINDOW",
 		"REQUEST_TIMEOUT", "MAX_REQUEST_BODY_SIZE", "SEQUIN_BASE_URL", "SEQUIN_CONSUMER_NAME",
 		"SEQUIN_API_TOKEN", "SEQUIN_BATCH_SIZE", "SEQUIN_WAIT_TIME_MS", "CORS_ALLOWED_ORIGINS",
-		"CORS_ALLOW_CREDENTIALS", "FF_CONCURRENCY_LIMITS", "FF_PROJECT_QUOTAS",
-		"FF_EXECUTION_WINDOWS", "FF_QUEUE_PARTITIONING", "WORKER_PARTITIONS",
-		"WORKER_PARTITION_WEIGHTS", "FF_PROGRESS_STREAMING", "FF_CHECKPOINTS",
-		"FF_RUN_CONTINUATION", "FF_USAGE_TRACKING", "FF_COST_BUDGETS",
-		"FF_ERROR_CLASSIFICATION", "FF_SMART_RETRY", "FF_CIRCUIT_BREAKER", "FF_BULKHEADS",
-		"FF_RUN_DLQ", "FF_PAYLOAD_VALIDATION", "FF_JOB_TAGS", "FF_RUN_ANNOTATIONS",
-		"FF_SECRET_INJECTION", "FF_RUN_REPLAY", "FF_DRY_RUN", "FF_RUN_RETENTION",
-		"FF_EXECUTION_TRACING", "FF_DEBUG_BUNDLE", "FF_BATCH_JOB_OPS", "FF_ENVIRONMENTS",
-		"FF_JOB_GROUPS", "FF_JOB_DEPENDENCIES", "FF_JOB_HEALTH_SCORING", "FF_ADAPTIVE_TIMEOUT",
-		"FF_ADAPTIVE_CONCURRENCY", "ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX",
-		"FF_LISTEN_NOTIFY", "FF_RATE_LIMIT_ENFORCEMENT", "FF_CONCURRENCY_ENFORCEMENT",
-		"FF_PRIORITY_AGING", "FF_PROJECT_FAIR_QUEUE",
-		"FF_WEBHOOK_DELIVERY_WORKER", "FF_WEBHOOK_TIMESTAMP_SIGNATURES",
-		"FF_WEBHOOK_CIRCUIT_BREAKER", "FF_WEBHOOK_SUBSCRIPTIONS",
-		"FF_FALLBACK_ENDPOINT", "FF_RUN_EVENTS_BUFFERED",
-		"DB_PGBOUNCER_MODE", "FF_QUERY_CACHE_WARMING", "FF_REDIS_REQUIRED", "FF_AUDIT_LOG",
+		"CORS_ALLOW_CREDENTIALS", "WORKER_PARTITIONS", "WORKER_PARTITION_WEIGHTS",
+		"ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX", "DB_PGBOUNCER_MODE",
 		"WORKER_DRAIN_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_MAX_ATTEMPTS",
@@ -393,9 +273,6 @@ func Load() (*Config, error) {
 	}
 	if len(cfg.JWTSigningKey) < 32 {
 		return nil, &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
-	}
-	if cfg.FFSecretInjection && cfg.SecretEncryptionKey == "" {
-		return nil, &domain.ConfigError{Field: "SECRET_ENCRYPTION_KEY", Message: "is required when FF_SECRET_INJECTION is enabled"}
 	}
 	if cfg.OIDCEnabled {
 		if cfg.OIDCIssuer == "" {

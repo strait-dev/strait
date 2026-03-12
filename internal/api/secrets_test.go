@@ -24,7 +24,6 @@ func TestHandleCreateSecret_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFSecretInjection = true
 
 	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"API_KEY","value":"super-secret"}`
 	w := httptest.NewRecorder()
@@ -49,21 +48,9 @@ func TestHandleCreateSecret_Success(t *testing.T) {
 	}
 }
 
-func TestHandleCreateSecret_FFDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", `{"project_id":"proj-1","secret_key":"K","value":"V"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
-}
-
 func TestHandleCreateSecret_MissingFields(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFSecretInjection = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", `{"project_id":"proj-1"}`))
@@ -85,7 +72,6 @@ func TestHandleListSecrets_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFSecretInjection = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/secrets/?project_id=proj-1&job_id=job-1&environment=production", ""))
@@ -107,7 +93,6 @@ func TestHandleDeleteSecret_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFSecretInjection = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/secrets/sec-1", ""))

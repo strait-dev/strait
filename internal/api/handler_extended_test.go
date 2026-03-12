@@ -34,7 +34,6 @@ func TestHandleUpdateEnvironment_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-1", `{"name":"production"}`))
@@ -55,25 +54,12 @@ func TestHandleUpdateEnvironment_NotFound(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/missing", `{"name":"x"}`))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
-	}
-}
-
-func TestHandleUpdateEnvironment_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-1", `{"name":"x"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -96,7 +82,6 @@ func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-1", `{"variables":{"NEW":"val2"}}`))
@@ -117,7 +102,6 @@ func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-1", `{invalid`))
@@ -139,7 +123,6 @@ func TestHandleDeleteEnvironment_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/environments/env-1", ""))
@@ -160,25 +143,12 @@ func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFEnvironments = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/environments/missing", ""))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
-	}
-}
-
-func TestHandleDeleteEnvironment_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/environments/env-1", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -197,7 +167,6 @@ func TestHandleUpdateJobGroup_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/group-1", `{"name":"Updated"}`))
@@ -218,25 +187,12 @@ func TestHandleUpdateJobGroup_NotFound(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/missing", `{"name":"x"}`))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
-	}
-}
-
-func TestHandleUpdateJobGroup_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/group-1", `{"name":"x"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -253,7 +209,6 @@ func TestHandleUpdateJobGroup_UpdateDescription(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/group-1", `{"description":"A group of core jobs"}`))
@@ -274,7 +229,6 @@ func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/group-1", `{not valid json`))

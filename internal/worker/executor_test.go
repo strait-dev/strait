@@ -331,7 +331,6 @@ func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.secretInjection = true
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)
@@ -362,7 +361,6 @@ func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
 		PollInterval:      time.Millisecond,
 		HeartbeatInterval: time.Hour,
 		HTTPClient:        server.Client(),
-		CircuitBreaker:    true,
 	})
 	t.Cleanup(func() { _ = exec.pool.Shutdown(context.Background()) })
 
@@ -408,7 +406,6 @@ func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.circuitBreaker = true
 	run := testRun(1)
 	exec.execute(context.Background(), run)
 
@@ -436,7 +433,6 @@ func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.circuitBreaker = true
 	run := testRun(1)
 	exec.execute(context.Background(), run)
 
@@ -463,7 +459,6 @@ func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.bulkheads = true
 	exec.jobActiveRunsMu.Lock()
 	exec.jobActiveRuns["job-1"] = 1
 	exec.jobActiveRunsMu.Unlock()
@@ -503,7 +498,6 @@ func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.bulkheads = true
 
 	run := testRun(1)
 	exec.execute(context.Background(), run)
@@ -523,38 +517,6 @@ func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
 	}
 }
 
-func TestExecutor_Bulkheads_DisabledBypassesLimit(t *testing.T) {
-	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer server.Close()
-
-	store := &mockExecutorStore{}
-	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		job := testJob(server.URL, 1, 5)
-		job.MaxConcurrency = 1
-		return job, nil
-	}
-
-	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.jobActiveRunsMu.Lock()
-	exec.jobActiveRuns["job-1"] = 1
-	exec.jobActiveRunsMu.Unlock()
-
-	run := testRun(1)
-	exec.execute(context.Background(), run)
-
-	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
-}
-
 func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -568,7 +530,7 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	job := testJob(server.URL, 1, 5)
 	run := testRun(1)
 
-	_, err := exec.dispatch(context.Background(), job, run)
+	err := exec.dispatch(context.Background(), job, run)
 	if err == nil {
 		t.Fatal("dispatch error = nil, want EndpointError")
 	}
@@ -593,8 +555,8 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("status update calls = %d, want 2", len(calls))
 	}
-	if calls[1].to != domain.StatusFailed {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	if calls[1].to != domain.StatusDeadLetter {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
 	}
 }
 
@@ -687,7 +649,6 @@ func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.smartRetry = true
 	run := testRun(1)
 	exec.execute(context.Background(), run)
 
@@ -695,8 +656,8 @@ func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("status update calls = %d, want 2", len(calls))
 	}
-	if calls[1].to != domain.StatusFailed {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	if calls[1].to != domain.StatusDeadLetter {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
 	}
 }
 
@@ -705,33 +666,6 @@ func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("temporary"))
-	}))
-	defer server.Close()
-
-	store := &mockExecutorStore{}
-	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		return testJob(server.URL, 3, 5), nil
-	}
-
-	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.smartRetry = true
-	run := testRun(1)
-	exec.execute(context.Background(), run)
-
-	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusQueued {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusQueued)
-	}
-}
-
-func TestExecutor_SmartRetryDisabled_ClientErrorStillRetries(t *testing.T) {
-	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("invalid payload"))
 	}))
 	defer server.Close()
 
@@ -828,8 +762,8 @@ func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("status update calls = %d, want 2", len(calls))
 	}
-	if calls[1].to != domain.StatusFailed {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	if calls[1].to != domain.StatusDeadLetter {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
 	}
 }
 
@@ -854,11 +788,11 @@ func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("status update calls = %d, want 2", len(calls))
 	}
-	if calls[1].to != domain.StatusFailed {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	if calls[1].to != domain.StatusDeadLetter {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
 	}
-	if run.Status != domain.StatusFailed {
-		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusFailed)
+	if run.Status != domain.StatusDeadLetter {
+		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusDeadLetter)
 	}
 }
 
@@ -876,7 +810,6 @@ func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.dlqEnabled = true
 
 	run := testRun(1)
 	exec.execute(context.Background(), run)
@@ -890,37 +823,6 @@ func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
 	}
 	if run.Status != domain.StatusDeadLetter {
 		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusDeadLetter)
-	}
-}
-
-func TestExecutor_DLQ_Disabled_TransitionsToFailed(t *testing.T) {
-	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("hard failure"))
-	}))
-	defer server.Close()
-
-	store := &mockExecutorStore{}
-	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		return testJob(server.URL, 1, 5), nil
-	}
-
-	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.dlqEnabled = false
-
-	run := testRun(1)
-	exec.execute(context.Background(), run)
-
-	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusFailed {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
-	}
-	if run.Status != domain.StatusFailed {
-		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusFailed)
 	}
 }
 
@@ -1493,7 +1395,7 @@ func TestExecutor_NilMetrics(t *testing.T) {
 		}
 	}()
 
-	if _, err := exec.dispatch(context.Background(), job, run); err == nil {
+	if err := exec.dispatch(context.Background(), job, run); err == nil {
 		t.Fatal("dispatch error = nil, want non-nil")
 	}
 }
@@ -1974,7 +1876,6 @@ func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.executionTracing = true
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -2003,35 +1904,6 @@ func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
 	}
 }
 
-func TestExecutor_ExecutionTracing_Disabled_NoTrace(t *testing.T) {
-	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer server.Close()
-
-	store := &mockExecutorStore{}
-	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		return testJob(server.URL, 1, 5), nil
-	}
-
-	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.executionTracing = false
-	run := testRun(1)
-	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
-
-	exec.execute(context.Background(), run)
-
-	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if _, ok := calls[1].fields["execution_trace"]; ok {
-		t.Fatal("execution_trace present with tracing disabled")
-	}
-}
-
 func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -2047,7 +1919,6 @@ func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.executionTracing = true
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -2057,8 +1928,8 @@ func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("status update calls = %d, want 2", len(calls))
 	}
-	if calls[1].to != domain.StatusFailed {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusFailed)
+	if calls[1].to != domain.StatusDeadLetter {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
 	}
 	traceValue, ok := calls[1].fields["execution_trace"]
 	if !ok {
@@ -2094,7 +1965,6 @@ func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.executionTracing = true
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -2141,7 +2011,6 @@ func TestExecutor_AdaptiveTimeout_UsesP95WhenHigherThanStatic(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.adaptiveTimeout = true
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)
@@ -2176,7 +2045,6 @@ func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.adaptiveTimeout = true
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)
@@ -2208,7 +2076,6 @@ func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.adaptiveTimeout = true
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)
@@ -2219,42 +2086,6 @@ func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
 	}
 	if calls[1].to != domain.StatusCompleted {
 		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
-}
-
-func TestExecutor_AdaptiveTimeout_DisabledByDefault(t *testing.T) {
-	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(500 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer server.Close()
-
-	var healthStatsCalls atomic.Int32
-	store := &mockExecutorStore{}
-	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		return testJob(server.URL, 1, 1), nil
-	}
-	store.getJobHealthStatsFn = func(context.Context, string, time.Time) (*orcstore.JobHealthStats, error) {
-		healthStatsCalls.Add(1)
-		return &orcstore.JobHealthStats{P95DurationSecs: 10.0}, nil
-	}
-
-	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	run := testRun(1)
-
-	exec.execute(context.Background(), run)
-
-	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
-	if healthStatsCalls.Load() != 0 {
-		t.Fatalf("GetJobHealthStats call count = %d, want 0", healthStatsCalls.Load())
 	}
 }
 

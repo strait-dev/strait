@@ -19,11 +19,6 @@ type CreateWebhookSubscriptionRequest struct {
 }
 
 func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFWebhookSubscriptions {
-		respondError(w, r, http.StatusNotFound, "webhook subscriptions feature is not enabled")
-		return
-	}
-
 	var req CreateWebhookSubscriptionRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -59,11 +54,6 @@ func (s *Server) handleCreateWebhookSubscription(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleListWebhookSubscriptions(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFWebhookSubscriptions {
-		respondError(w, r, http.StatusNotFound, "webhook subscriptions feature is not enabled")
-		return
-	}
-
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
@@ -80,11 +70,6 @@ func (s *Server) handleListWebhookSubscriptions(w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) handleDeleteWebhookSubscription(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFWebhookSubscriptions {
-		respondError(w, r, http.StatusNotFound, "webhook subscriptions feature is not enabled")
-		return
-	}
-
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		respondError(w, r, http.StatusBadRequest, "subscription id is required")

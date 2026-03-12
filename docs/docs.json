@@ -65,7 +65,6 @@
             "group": "Configuration",
             "pages": [
               "configuration/environment-variables",
-              "configuration/feature-flags",
               "configuration/database"
             ]
           },

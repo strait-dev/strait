@@ -41,10 +41,8 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		return
 	}
 	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusCompleted)
-	if e.circuitBreaker {
-		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
-			e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
-		}
+	if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
+		e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
 	}
 
 	e.logger.Info(
@@ -114,10 +112,8 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
-	if e.circuitBreaker {
-		if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
-			e.logger.Warn("failed to record circuit breaker failure", "endpoint", job.EndpointURL, "error", recordErr)
-		}
+	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
+		e.logger.Warn("failed to record circuit breaker failure", "endpoint", job.EndpointURL, "error", recordErr)
 	}
 
 	e.logger.Warn(
@@ -131,7 +127,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	)
 
 	shouldRetry := run.Attempt < policy.maxAttempts
-	if shouldRetry && e.smartRetry && !shouldRetryForClass(errClass) {
+	if shouldRetry && !shouldRetryForClass(errClass) {
 		shouldRetry = false
 	}
 
@@ -175,10 +171,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
 	}
-	targetStatus := domain.StatusFailed
-	if e.dlqEnabled {
-		targetStatus = domain.StatusDeadLetter
-	}
+	targetStatus := domain.StatusDeadLetter
 
 	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, targetStatus, fields)
 	if updateErr != nil {
@@ -201,10 +194,8 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
 
-	if e.circuitBreaker {
-		if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
-			e.logger.Warn("failed to record circuit breaker timeout", "endpoint", job.EndpointURL, "error", err)
-		}
+	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
+		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", job.EndpointURL, "error", err)
 	}
 
 	e.logger.Warn(

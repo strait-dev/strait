@@ -25,7 +25,6 @@ func TestHandlePauseAllJobsByGroup_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/group-1/pause-all", ""))
@@ -53,7 +52,6 @@ func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/group-1/resume-all", ""))
@@ -76,7 +74,6 @@ func TestHandleGetJobGroupStats_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFJobGroups = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1/stats", ""))

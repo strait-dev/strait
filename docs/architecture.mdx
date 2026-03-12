@@ -187,7 +187,7 @@ The lifecycle of a job run is managed by an FSM with 13 possible states.
     │  │ completed failed timed_out system_failed    │
     │  │                │                             │
     │  │                v (max attempts reached       │
-    │  │          ┌─────────────┐  + FF_RUN_DLQ)     │
+    │  │          ┌─────────────┐                     │
     │  │          │ dead_letter │                     │
     │  │          └─────────────┘                     │
     │  │                                              │
@@ -241,7 +241,7 @@ The system implements two distinct authentication schemes:
 
 <Steps>
   <Step title="Trigger">
-    API receives POST to `/v1/jobs/{id}/trigger`. Cost budget check if FF_COST_BUDGETS enabled. Create job_run with status=queued or delayed. Generate JWT run token.
+    API receives POST to `/v1/jobs/{id}/trigger`. Cost budget check is performed. Create job_run with status=queued or delayed. Generate JWT run token.
   </Step>
   <Step title="Dequeue">
     Worker calls `DequeueN`, claiming runs via `SKIP LOCKED` and updating status to `dequeued`. Optimistic lock ensures only one worker claims each run.
@@ -250,19 +250,19 @@ The system implements two distinct authentication schemes:
     Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if strait process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
   </Step>
   <Step title="Resolve Environment">
-    If FF_ENVIRONMENTS enabled and job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
+    If job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
   </Step>
   <Step title="Dispatch">
     Executor sends HTTP POST to resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
   </Step>
   <Step title="Execution Tracing">
-    If FF_EXECUTION_TRACING enabled, capture timing breakdown: queue_wait_ms, dequeue_ms, connect_ms, ttfb_ms, transfer_ms, total_ms. Stored as JSONB in `execution_trace` column.
+    Capture timing breakdown: queue_wait_ms, dequeue_ms, connect_ms, ttfb_ms, transfer_ms, total_ms. Stored as JSONB in `execution_trace` column.
   </Step>
   <Step title="Result Handling">
-    2xx response → status=completed, store result. Non-2xx → schedule retry using job's retry_strategy or mark failed. Timeout → retry or timed_out. Adaptive timeout adjustment if FF_ADAPTIVE_TIMEOUT enabled.
+    2xx response → status=completed, store result. Non-2xx → schedule retry using job's retry_strategy or mark failed. Timeout → retry or timed_out. Adaptive timeout adjustment applied.
   </Step>
   <Step title="DLQ">
-    If FF_RUN_DLQ enabled and attempt >= max_attempts, transition to `dead_letter` instead of `failed`. Dead-lettered runs excluded from normal listings.
+    If attempt >= max_attempts, transition to `dead_letter` instead of `failed`. Dead-lettered runs excluded from normal listings.
   </Step>
   <Step title="Webhook">
     Upon reaching terminal state, send signed POST to job's `webhook_url`. Job-run webhooks are retried up to 3 times with exponential backoff (1s, 5s delays). Event-trigger webhooks use persistent delivery via the `webhook_deliveries` table with up to 5 retries and exponential backoff, surviving process restarts. See [Webhooks](/docs/concepts/webhooks) for the full delivery lifecycle.
@@ -572,15 +572,9 @@ This flexibility enables horizontal scaling without multiple deployment artifact
 
 When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (strait shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
 
-### Feature Flags for Progressive Rollout
+### Engine Capabilities
 
-All new engine capabilities are gated behind boolean environment variables (defaulting to `false`). This enables:
-
-- **Progressive rollout**: Enable features individually in production environments
-- **Safe testing**: Test new behaviors without affecting existing workloads
-- **Independent lifecycle**: Each feature can be enabled/disabled without code changes
-
-Feature flags are validated at startup—if a flag requires additional configuration (e.g., `FF_SECRET_INJECTION` requires `SECRET_ENCRYPTION_KEY`), validation fails with a clear error message.
+Engine capabilities described in this document are built in and available by default.
 
 ### Micro-USD Cost Tracking
 

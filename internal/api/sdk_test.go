@@ -225,7 +225,6 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
-	srv.config.FFRunAnnotations = true
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod","region":"eu"}}`)
 
@@ -248,7 +247,6 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
-	srv.config.FFRunAnnotations = true
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod"}}`)
 
@@ -262,7 +260,6 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, &mockPublisher{})
-	srv.config.FFRunAnnotations = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{}}`)
@@ -271,29 +268,6 @@ func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestHandleSDKAnnotate_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{
-		updateRunMetadataFn: func(_ context.Context, _ string, _ map[string]string) error {
-			t.Fatal("UpdateRunMetadata should not be called when annotations feature is disabled")
-			return nil
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
-	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod"}}`)
-
-	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "run annotations feature is not enabled") {
-		t.Fatalf("expected annotations-disabled error, got %s", w.Body.String())
 	}
 }
 
@@ -317,7 +291,6 @@ func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
-	srv.config.FFRunAnnotations = true
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
 
@@ -350,7 +323,6 @@ func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
-	srv.config.FFRunAnnotations = true
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
 
@@ -383,7 +355,6 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
-	srv.config.FFRunAnnotations = true
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
 
@@ -1297,7 +1268,6 @@ func TestHandleSDKContinue_Success(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{"payload":{"step":2}}`)
@@ -1348,7 +1318,6 @@ func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
@@ -1360,21 +1329,6 @@ func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 	}
 	if string(enqueuedRun.Payload) != `{"inherited":true}` {
 		t.Fatalf("expected inherited payload, got %s", string(enqueuedRun.Payload))
-	}
-}
-
-func TestHandleSDKContinue_FeatureDisabled(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-	srv.config.FFRunContinuation = false
-
-	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
-
-	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1392,7 +1346,6 @@ func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
@@ -1416,7 +1369,6 @@ func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
@@ -1436,7 +1388,6 @@ func TestHandleSDKContinue_RunNotFound(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
@@ -1469,7 +1420,6 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunContinuation = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
@@ -1496,7 +1446,6 @@ func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)
@@ -1522,7 +1471,6 @@ func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":100}`)

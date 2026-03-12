@@ -116,20 +116,18 @@ func runServe(modeOverride string) error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	if cfg.FFQueryCacheWarming {
-		cacheWarmer, err := store.NewCacheWarmer(dbPool, slog.Default())
-		if err != nil {
-			return fmt.Errorf("init cache warmer: %w", err)
-		}
-		if err := cacheWarmer.Warm(ctx); err != nil {
-			return fmt.Errorf("warm query cache: %w", err)
-		}
+	cacheWarmer, err := store.NewCacheWarmer(dbPool, slog.Default())
+	if err != nil {
+		return fmt.Errorf("init cache warmer: %w", err)
+	}
+	if err := cacheWarmer.Warm(ctx); err != nil {
+		return fmt.Errorf("warm query cache: %w", err)
 	}
 
 	// Create dependencies
 	queries := store.New(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
-	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(cfg.FFPriorityAging))
+	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(true))
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -145,7 +143,7 @@ func runServe(modeOverride string) error {
 	})
 
 	webhookOptions := []webhook.DeliveryWorkerOption{}
-	if cfg.FFWebhookCircuitBreaker && rdb != nil {
+	if rdb != nil {
 		webhookOptions = append(webhookOptions, webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)))
 	}
 	webhookOptions = append(webhookOptions,

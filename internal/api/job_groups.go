@@ -25,11 +25,6 @@ type UpdateJobGroupRequest struct {
 }
 
 func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	var req CreateJobGroupRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -56,11 +51,6 @@ func (s *Server) handleCreateJobGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	groupID := chi.URLParam(r, "groupID")
 	group, err := s.store.GetJobGroup(r.Context(), groupID)
 	if err != nil {
@@ -76,11 +66,6 @@ func (s *Server) handleGetJobGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
@@ -104,11 +89,6 @@ func (s *Server) handleListJobGroups(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	groupID := chi.URLParam(r, "groupID")
 	group, err := s.store.GetJobGroup(r.Context(), groupID)
 	if err != nil {
@@ -149,11 +129,6 @@ func (s *Server) handleUpdateJobGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteJobGroup(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	groupID := chi.URLParam(r, "groupID")
 	if err := s.store.DeleteJobGroup(r.Context(), groupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -168,11 +143,6 @@ func (s *Server) handleDeleteJobGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJobsByGroup(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	groupID := chi.URLParam(r, "groupID")
 
 	limit, cursor, err := parsePaginationParams(r)
@@ -193,11 +163,6 @@ func (s *Server) handleListJobsByGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePauseAllJobsByGroup(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	groupID := chi.URLParam(r, "groupID")
 	if err := s.store.PauseJobsByGroup(r.Context(), groupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -212,11 +177,6 @@ func (s *Server) handlePauseAllJobsByGroup(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleResumeAllJobsByGroup(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	groupID := chi.URLParam(r, "groupID")
 	if err := s.store.ResumeJobsByGroup(r.Context(), groupID); err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -231,11 +191,6 @@ func (s *Server) handleResumeAllJobsByGroup(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleGetJobGroupStats(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobGroups {
-		respondError(w, r, http.StatusNotFound, "job groups feature is not enabled")
-		return
-	}
-
 	groupID := chi.URLParam(r, "groupID")
 	stats, err := s.store.GetJobGroupStats(r.Context(), groupID)
 	if err != nil {

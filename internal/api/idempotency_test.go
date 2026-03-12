@@ -613,7 +613,6 @@ func TestIdempotency_HitBypassesProjectQuotaCheck(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFProjectQuotas = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
@@ -1026,7 +1025,6 @@ func TestIdempotency_ReplayDoesNotCopyIdempotencyKey(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunReplay = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-original/replay", ""))
@@ -1064,7 +1062,6 @@ func TestIdempotency_PayloadValidationFailsBeforeIdempotencyCheck(t *testing.T) 
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFPayloadValidation = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"age":12}}`)
@@ -1173,7 +1170,6 @@ func TestIdempotency_ExecutionWindowDoesNotApplyOnHit(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFExecutionWindows = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
@@ -1207,7 +1203,6 @@ func TestIdempotency_DryRunDoesNotCheckIdempotency(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFDryRun = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"dry_run": true}`)
@@ -1249,7 +1244,6 @@ func TestIdempotency_HitBypassesCostBudgetCheck(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
@@ -1605,7 +1599,6 @@ func TestIdempotency_ReplayGeneratesNewRunID(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunReplay = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-active/replay", ""))

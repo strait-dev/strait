@@ -92,11 +92,8 @@ Strait implements an exponential backoff strategy for database connection failur
 
 By default, Strait operates in fail-open mode for Redis: if Redis becomes unavailable, real-time pub/sub features degrade gracefully while core job execution continues unaffected.
 
-Set `FF_REDIS_REQUIRED=true` to enforce strict Redis availability. When enabled, Redis failures will propagate as errors instead of being silently absorbed.
-
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `FF_REDIS_REQUIRED` | `false` | When `true`, Redis failures are not absorbed. |
 
 ## Redis
 
