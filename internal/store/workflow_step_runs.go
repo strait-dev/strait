@@ -370,8 +370,8 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 		FROM workflow_runs wr
 		JOIN workflow_version_steps wvs
 		  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
-		  AND wvs.step_ref = wsr.step_ref
 		WHERE wr.id = wsr.workflow_run_id
+		  AND wvs.step_ref = wsr.step_ref
 		  AND wsr.workflow_run_id = $1
 		  AND wsr.status = 'waiting'
 		  AND $2 = ANY(wvs.depends_on)
