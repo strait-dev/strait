@@ -2622,3 +2622,346 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleRetryWorkflowStep_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("step_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("step_not_terminal", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", StepRef: "review", Status: domain.StepRunning}, nil
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("run_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, store.ErrWorkflowRunNotFound
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("reset_error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", StepRef: "review", Status: domain.StepFailed}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return errors.New("db write failed")
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleReplayWorkflowSubtree_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("run_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, store.ErrWorkflowRunNotFound
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/a/replay-subtree", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("step_not_in_version", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "x"}, {StepRef: "y"}}, nil
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/missing/replay-subtree", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("callback_unavailable", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/a/replay-subtree", ""))
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("callback_unavailable", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("callback_error", func(t *testing.T) {
+		t.Parallel()
+		cb := &mockWorkflowTrigger{
+			approveStepFn: func(_ context.Context, _, _, _ string) error {
+				return errors.New("approval rejected")
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+			},
+		}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleWorkflowPlan_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid_body", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/plan", `{invalid`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("workflow_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return nil, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/plan", `{}`))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleUpsertWorkflowPolicy_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid_body", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPut, "/v1/workflow-policies/proj-1", `{invalid`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("store_error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			upsertWorkflowPolicyFn: func(_ context.Context, _ *domain.WorkflowPolicy) error {
+				return errors.New("db write failed")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPut, "/v1/workflow-policies/proj-1", `{}`))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("from_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
+				return nil, errors.New("not found")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v-missing/diff/v2", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("to_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _ string, versionID string) (*domain.WorkflowVersion, error) {
+				if versionID == "v1" {
+					return &domain.WorkflowVersion{ID: "v1", Version: 1}, nil
+				}
+				return nil, errors.New("not found")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1/diff/v-missing", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleWorkflowVersionImpact_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("version_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
+				return nil, errors.New("not found")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v-missing/impact", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleListWorkflows_TagFilter(t *testing.T) {
+	t.Parallel()
+	called := false
+	ms := &mockAPIStore{
+		listWorkflowsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.Workflow, error) {
+			called = true
+			if projectID != "proj-1" || tagKey != "env" || tagValue != "prod" {
+				t.Fatalf("unexpected args: %s %s %s", projectID, tagKey, tagValue)
+			}
+			return []domain.Workflow{{ID: "wf-1", ProjectID: projectID}}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows?project_id=proj-1&tag_key=env&tag_value=prod", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected ListWorkflowsByTag to be called")
+	}
+}
+
+func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
+	t.Parallel()
+	called := false
+	ms := &mockAPIStore{
+		listWorkflowRunsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+			called = true
+			if projectID != "proj-1" || tagKey != "env" || tagValue != "staging" {
+				t.Fatalf("unexpected args: %s %s %s", projectID, tagKey, tagValue)
+			}
+			return []domain.WorkflowRun{{ID: "wr-1", ProjectID: projectID}}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&tag_key=env&tag_value=staging", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected ListWorkflowRunsByTag to be called")
+	}
+}

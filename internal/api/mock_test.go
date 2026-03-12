@@ -87,6 +87,8 @@ type mockAPIStore struct {
 	getWorkflowRunFn                    func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listWorkflowRunsFn                  func(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	listWorkflowRunsByProjFn            func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
+	listWorkflowsByTagFn                func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
+	listWorkflowRunsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	createWorkflowRunLabelsFn           func(ctx context.Context, workflowRunID string, labels map[string]string) error
 	listWorkflowRunLabelsFn             func(ctx context.Context, workflowRunID string) (map[string]string, error)
 	listStepRunsByRunFn                 func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
@@ -594,7 +596,10 @@ func (m *mockAPIStore) ListWorkflows(ctx context.Context, projectID string, limi
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWorkflowsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.Workflow, error) {
+func (m *mockAPIStore) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
+	if m.listWorkflowsByTagFn != nil {
+		return m.listWorkflowsByTagFn(ctx, projectID, tagKey, tagValue, limit, cursor)
+	}
 	return nil, nil
 }
 
@@ -668,7 +673,10 @@ func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID 
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWorkflowRunsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+func (m *mockAPIStore) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
+	if m.listWorkflowRunsByTagFn != nil {
+		return m.listWorkflowRunsByTagFn(ctx, projectID, tagKey, tagValue, limit, cursor)
+	}
 	return nil, nil
 }
 

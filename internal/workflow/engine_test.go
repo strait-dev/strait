@@ -5550,3 +5550,61 @@ func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
 		t.Fatalf("expected at most 1 running step with max_parallel_steps=1, got %d", runningCount)
 	}
 }
+
+func TestLookupOutputTransform(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockCallbackStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{StepRef: "a", OutputTransform: ""},
+					{StepRef: "b", OutputTransform: "$.result"},
+				}, nil
+			},
+		}
+		cb := &StepCallback{store: ms, logger: slog.Default()}
+		stepRun := &domain.WorkflowStepRun{StepRef: "b", WorkflowRunID: "wr-1"}
+		wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}
+
+		got := cb.lookupOutputTransform(context.Background(), stepRun, wfRun)
+		if got != "$.result" {
+			t.Fatalf("expected '$.result', got %q", got)
+		}
+	})
+
+	t.Run("step_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockCallbackStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{}, nil
+			},
+		}
+		cb := &StepCallback{store: ms, logger: slog.Default()}
+		stepRun := &domain.WorkflowStepRun{StepRef: "missing", WorkflowRunID: "wr-1"}
+		wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}
+
+		got := cb.lookupOutputTransform(context.Background(), stepRun, wfRun)
+		if got != "" {
+			t.Fatalf("expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("store_error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockCallbackStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return nil, errors.New("db down")
+			},
+		}
+		cb := &StepCallback{store: ms, logger: slog.Default()}
+		stepRun := &domain.WorkflowStepRun{StepRef: "a", WorkflowRunID: "wr-1"}
+		wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}
+
+		got := cb.lookupOutputTransform(context.Background(), stepRun, wfRun)
+		if got != "" {
+			t.Fatalf("expected empty string, got %q", got)
+		}
+	})
+}
