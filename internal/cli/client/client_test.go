@@ -474,6 +474,843 @@ func TestDoJSON_RetryExhausted(t *testing.T) {
 	}
 }
 
+func TestUpdateJob(t *testing.T) {
+	t.Parallel()
+
+	name := "Updated Job"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPatch)
+		assertPath(t, r, "/v1/jobs/job-1")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req UpdateJobRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.Name == nil || *req.Name != name {
+			t.Fatalf("expected name=%q", name)
+		}
+
+		respondJSON(t, w, http.StatusOK, domain.Job{ID: "job-1", Name: name})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.UpdateJob(context.Background(), "job-1", UpdateJobRequest{Name: &name})
+	if err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
+	if got.Name != name {
+		t.Fatalf("expected %q, got %q", name, got.Name)
+	}
+}
+
+func TestBulkTriggerJob(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/jobs/job-1/trigger/bulk")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req BulkTriggerRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if len(req.Items) != 1 {
+			t.Fatalf("expected 1 item, got %d", len(req.Items))
+		}
+
+		respondJSON(t, w, http.StatusOK, BulkTriggerResponse{
+			Results: []BulkTriggerResult{{ID: "run-1", Status: "queued"}},
+			Total:   1,
+			Created: 1,
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.BulkTriggerJob(context.Background(), "job-1", BulkTriggerRequest{Items: []BulkTriggerItem{{Priority: 3}}})
+	if err != nil {
+		t.Fatalf("BulkTriggerJob: %v", err)
+	}
+	if got.Created != 1 || len(got.Results) != 1 {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestListJobVersions(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/jobs/job-1/versions")
+		assertAuth(t, r, "test-key")
+		respondPaginated(t, w, http.StatusOK, []domain.JobVersion{{
+			ID:          "jv-1",
+			JobID:       "job-1",
+			Version:     1,
+			Name:        "Job",
+			Slug:        "job",
+			EndpointURL: "https://example.com/hook",
+			MaxAttempts: 3,
+			TimeoutSecs: 30,
+			CreatedAt:   now,
+		}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListJobVersions(context.Background(), "job-1")
+	if err != nil {
+		t.Fatalf("ListJobVersions: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "jv-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestGetRun(t *testing.T) {
+	t.Parallel()
+
+	run := domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusExecuting}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/runs/run-1")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, run)
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.GetRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.ID != "run-1" {
+		t.Fatalf("expected run-1, got %s", got.ID)
+	}
+}
+
+func TestCancelRun(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodDelete)
+		assertPath(t, r, "/v1/runs/run-1")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, domain.JobRun{ID: "run-1", Status: domain.StatusCanceled})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.CancelRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	if got.Status != domain.StatusCanceled {
+		t.Fatalf("expected status canceled, got %s", got.Status)
+	}
+}
+
+func TestListRunEvents(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/runs/run-1/events")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("level") != "info" {
+			t.Fatalf("expected level=info, got %q", r.URL.Query().Get("level"))
+		}
+		if r.URL.Query().Get("type") != "progress" {
+			t.Fatalf("expected type=progress, got %q", r.URL.Query().Get("type"))
+		}
+		respondPaginated(t, w, http.StatusOK, []domain.RunEvent{{
+			ID:        "evt-1",
+			RunID:     "run-1",
+			Type:      domain.EventType("progress"),
+			Level:     "info",
+			Message:   "step done",
+			CreatedAt: now,
+		}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListRunEvents(context.Background(), "run-1", "info", "progress")
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "evt-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestListWorkflows(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/workflows")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		respondPaginated(t, w, http.StatusOK, []domain.Workflow{{ID: "wf-1", ProjectID: "proj-1", Name: "Flow", Slug: "flow", Enabled: true}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListWorkflows(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatalf("ListWorkflows: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "wf-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestGetWorkflow(t *testing.T) {
+	t.Parallel()
+
+	resp := WorkflowResponse{
+		Workflow: domain.Workflow{ID: "wf-1", ProjectID: "proj-1", Name: "Flow", Slug: "flow", Enabled: true},
+		Steps:    []domain.WorkflowStep{{ID: "step-1", WorkflowID: "wf-1", StepRef: "step_1", DependsOn: []string{}, OnFailure: domain.FailWorkflow}},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/workflows/wf-1")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, resp)
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.GetWorkflow(context.Background(), "wf-1")
+	if err != nil {
+		t.Fatalf("GetWorkflow: %v", err)
+	}
+	if got.ID != "wf-1" || len(got.Steps) != 1 {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestCreateWorkflow(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/workflows")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req CreateWorkflowRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" || req.Name != "Flow" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+
+		respondJSON(t, w, http.StatusOK, WorkflowResponse{Workflow: domain.Workflow{ID: "wf-1", ProjectID: req.ProjectID, Name: req.Name, Slug: req.Slug, Enabled: true}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.CreateWorkflow(context.Background(), CreateWorkflowRequest{ProjectID: "proj-1", Name: "Flow", Slug: "flow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	if got.ID != "wf-1" {
+		t.Fatalf("expected wf-1, got %s", got.ID)
+	}
+}
+
+func TestUpdateWorkflow(t *testing.T) {
+	t.Parallel()
+
+	name := "Renamed Flow"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPatch)
+		assertPath(t, r, "/v1/workflows/wf-1")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req UpdateWorkflowRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.Name == nil || *req.Name != name {
+			t.Fatalf("expected name=%q", name)
+		}
+
+		respondJSON(t, w, http.StatusOK, WorkflowResponse{Workflow: domain.Workflow{ID: "wf-1", Name: name}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.UpdateWorkflow(context.Background(), "wf-1", UpdateWorkflowRequest{Name: &name})
+	if err != nil {
+		t.Fatalf("UpdateWorkflow: %v", err)
+	}
+	if got.Name != name {
+		t.Fatalf("expected %q, got %q", name, got.Name)
+	}
+}
+
+func TestDeleteWorkflow(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodDelete)
+		assertPath(t, r, "/v1/workflows/wf-1")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, map[string]string{})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	if err := c.DeleteWorkflow(context.Background(), "wf-1"); err != nil {
+		t.Fatalf("DeleteWorkflow: %v", err)
+	}
+}
+
+func TestTriggerWorkflow(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/workflows/wf-1/trigger")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req TriggerWorkflowRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", req.ProjectID)
+		}
+
+		respondJSON(t, w, http.StatusOK, domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPending})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.TriggerWorkflow(context.Background(), "wf-1", TriggerWorkflowRequest{ProjectID: "proj-1"})
+	if err != nil {
+		t.Fatalf("TriggerWorkflow: %v", err)
+	}
+	if got.ID != "wr-1" {
+		t.Fatalf("expected wr-1, got %s", got.ID)
+	}
+}
+
+func TestListWorkflowRuns(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/workflows/wf-1/runs")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("limit") != "20" {
+			t.Fatalf("expected limit=20, got %q", r.URL.Query().Get("limit"))
+		}
+		if r.URL.Query().Get("offset") != "40" {
+			t.Fatalf("expected offset=40, got %q", r.URL.Query().Get("offset"))
+		}
+		respondPaginated(t, w, http.StatusOK, []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListWorkflowRuns(context.Background(), "wf-1", 20, 40)
+	if err != nil {
+		t.Fatalf("ListWorkflowRuns: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "wr-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestGetWorkflowRun(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/workflow-runs/wr-1")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.GetWorkflowRun(context.Background(), "wr-1")
+	if err != nil {
+		t.Fatalf("GetWorkflowRun: %v", err)
+	}
+	if got.ID != "wr-1" {
+		t.Fatalf("expected wr-1, got %s", got.ID)
+	}
+}
+
+func TestCancelWorkflowRun(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodDelete)
+		assertPath(t, r, "/v1/workflow-runs/wr-1")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusCanceled})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.CancelWorkflowRun(context.Background(), "wr-1")
+	if err != nil {
+		t.Fatalf("CancelWorkflowRun: %v", err)
+	}
+	if got.Status != domain.WfStatusCanceled {
+		t.Fatalf("expected status canceled, got %s", got.Status)
+	}
+}
+
+func TestListWorkflowStepRuns(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/workflow-runs/wr-1/steps")
+		assertAuth(t, r, "test-key")
+		respondPaginated(t, w, http.StatusOK, []domain.WorkflowStepRun{{
+			ID:             "wsr-1",
+			WorkflowRunID:  "wr-1",
+			WorkflowStepID: "step-1",
+			StepRef:        "step_1",
+			Attempt:        1,
+			Status:         domain.StepRunning,
+		}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListWorkflowStepRuns(context.Background(), "wr-1")
+	if err != nil {
+		t.Fatalf("ListWorkflowStepRuns: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "wsr-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestCreateAPIKey(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/api-keys")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req CreateAPIKeyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.ProjectID != "proj-1" || req.Name != "cli" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+
+		respondJSON(t, w, http.StatusOK, APIKeyCreateResponse{
+			ID:        "key-1",
+			ProjectID: req.ProjectID,
+			Name:      req.Name,
+			Key:       "strait_live_123",
+			KeyPrefix: "strait_",
+			Scopes:    req.Scopes,
+			CreatedAt: now,
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.CreateAPIKey(context.Background(), CreateAPIKeyRequest{ProjectID: "proj-1", Name: "cli", Scopes: []string{"jobs:read"}})
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+	if got.ID != "key-1" || got.Key == "" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestListAPIKeys(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/api-keys")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		respondPaginated(t, w, http.StatusOK, []domain.APIKey{{ID: "key-1", ProjectID: "proj-1", Name: "cli", KeyPrefix: "strait_", Scopes: []string{"jobs:read"}}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListAPIKeys(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatalf("ListAPIKeys: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "key-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestRevokeAPIKey(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodDelete)
+		assertPath(t, r, "/v1/api-keys/key-1")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, map[string]string{})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	if err := c.RevokeAPIKey(context.Background(), "key-1"); err != nil {
+		t.Fatalf("RevokeAPIKey: %v", err)
+	}
+}
+
+func TestRotateAPIKey(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/api-keys/key-1/rotate")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var req RotateAPIKeyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if req.GracePeriodMinutes != 30 {
+			t.Fatalf("expected grace_period_minutes=30, got %d", req.GracePeriodMinutes)
+		}
+
+		respondJSON(t, w, http.StatusOK, RotateAPIKeyResponse{
+			OldKeyID:       "key-1",
+			NewKeyID:       "key-2",
+			ProjectID:      "proj-1",
+			Name:           "cli",
+			Key:            "strait_live_456",
+			KeyPrefix:      "strait_",
+			Scopes:         []string{"jobs:read"},
+			CreatedAt:      now,
+			GraceExpiresAt: now.Add(30 * time.Minute),
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.RotateAPIKey(context.Background(), "key-1", RotateAPIKeyRequest{GracePeriodMinutes: 30})
+	if err != nil {
+		t.Fatalf("RotateAPIKey: %v", err)
+	}
+	if got.NewKeyID != "key-2" {
+		t.Fatalf("expected key-2, got %s", got.NewKeyID)
+	}
+}
+
+func TestListEventTriggers(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/events")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		if r.URL.Query().Get("status") != "waiting" {
+			t.Fatalf("expected status=waiting, got %q", r.URL.Query().Get("status"))
+		}
+		respondPaginated(t, w, http.StatusOK, []domain.EventTrigger{{
+			ID:          "et-1",
+			EventKey:    "payment.received",
+			ProjectID:   "proj-1",
+			SourceType:  domain.EventSourceWorkflowStep,
+			Status:      domain.EventTriggerStatusWaiting,
+			TimeoutSecs: 120,
+			RequestedAt: now,
+			ExpiresAt:   now.Add(time.Hour),
+		}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListEventTriggers(context.Background(), "proj-1", "waiting")
+	if err != nil {
+		t.Fatalf("ListEventTriggers: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "et-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestGetEventTrigger(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/events/payment.received")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, domain.EventTrigger{
+			ID:          "et-1",
+			EventKey:    "payment.received",
+			ProjectID:   "proj-1",
+			SourceType:  domain.EventSourceWorkflowStep,
+			Status:      domain.EventTriggerStatusWaiting,
+			TimeoutSecs: 120,
+			RequestedAt: now,
+			ExpiresAt:   now.Add(time.Hour),
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.GetEventTrigger(context.Background(), "payment.received")
+	if err != nil {
+		t.Fatalf("GetEventTrigger: %v", err)
+	}
+	if got.EventKey != "payment.received" {
+		t.Fatalf("expected payment.received, got %s", got.EventKey)
+	}
+}
+
+func TestSendEvent(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Truncate(time.Second)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/events/payment.received/send")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var body map[string]map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if body["payload"]["order_id"] != "ord-123" {
+			t.Fatalf("unexpected payload: %+v", body)
+		}
+
+		respondJSON(t, w, http.StatusOK, domain.EventTrigger{
+			ID:              "et-1",
+			EventKey:        "payment.received",
+			ProjectID:       "proj-1",
+			SourceType:      domain.EventSourceWorkflowStep,
+			Status:          domain.EventTriggerStatusReceived,
+			TimeoutSecs:     120,
+			RequestedAt:     now,
+			ReceivedAt:      &now,
+			ExpiresAt:       now.Add(time.Hour),
+			ResponsePayload: mustMarshal(t, map[string]any{"ok": true}),
+		})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.SendEvent(context.Background(), "payment.received", map[string]any{"order_id": "ord-123"})
+	if err != nil {
+		t.Fatalf("SendEvent: %v", err)
+	}
+	if got.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("expected received, got %s", got.Status)
+	}
+}
+
+func TestPurgeEventTriggers(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/events/purge")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if body["older_than_days"] != float64(30) {
+			t.Fatalf("expected older_than_days=30, got %+v", body["older_than_days"])
+		}
+		if body["dry_run"] != false {
+			t.Fatalf("expected dry_run=false, got %+v", body["dry_run"])
+		}
+
+		respondJSON(t, w, http.StatusOK, map[string]any{"deleted": 3})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.PurgeEventTriggers(context.Background(), 30, false)
+	if err != nil {
+		t.Fatalf("PurgeEventTriggers: %v", err)
+	}
+	if got != 3 {
+		t.Fatalf("expected 3, got %d", got)
+	}
+}
+
+func TestStats(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/stats")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, QueueStats{Queued: 10, Executing: 2, Delayed: 1})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if got.Queued != 10 || got.Executing != 2 || got.Delayed != 1 {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestHealth(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/health")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, HealthStatus{Status: "ok"})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.Health(context.Background())
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if got.Status != "ok" {
+		t.Fatalf("expected ok, got %s", got.Status)
+	}
+}
+
+func TestHealthReady(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/health/ready")
+		assertAuth(t, r, "test-key")
+		respondJSON(t, w, http.StatusOK, HealthStatus{Status: "ok"})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.HealthReady(context.Background())
+	if err != nil {
+		t.Fatalf("HealthReady: %v", err)
+	}
+	if got.Status != "ok" {
+		t.Fatalf("expected ok, got %s", got.Status)
+	}
+}
+
+func TestListWorkflowRunsByProject(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodGet)
+		assertPath(t, r, "/v1/workflow-runs")
+		assertAuth(t, r, "test-key")
+		if r.URL.Query().Get("project_id") != "proj-1" {
+			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
+		}
+		if r.URL.Query().Get("status") != "running" {
+			t.Fatalf("expected status=running, got %q", r.URL.Query().Get("status"))
+		}
+		if r.URL.Query().Get("limit") != "15" {
+			t.Fatalf("expected limit=15, got %q", r.URL.Query().Get("limit"))
+		}
+		respondPaginated(t, w, http.StatusOK, []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.ListWorkflowRunsByProject(context.Background(), "proj-1", "running", 15)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunsByProject: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "wr-1" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestPurgeEventTriggers_DryRun(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertMethod(t, r, http.MethodPost)
+		assertPath(t, r, "/v1/events/purge")
+		assertAuth(t, r, "test-key")
+		assertContentType(t, r)
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if body["dry_run"] != true {
+			t.Fatalf("expected dry_run=true, got %+v", body["dry_run"])
+		}
+
+		respondJSON(t, w, http.StatusOK, map[string]any{"would_delete": 7})
+	}))
+	defer srv.Close()
+
+	c := mustClient(t, srv.URL)
+	got, err := c.PurgeEventTriggers(context.Background(), 14, true)
+	if err != nil {
+		t.Fatalf("PurgeEventTriggers dry-run: %v", err)
+	}
+	if got != 7 {
+		t.Fatalf("expected 7, got %d", got)
+	}
+}
+
 // Test helpers.
 
 func mustClient(t *testing.T, baseURL string) *Client {
