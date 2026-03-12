@@ -3342,6 +3342,10 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 		t.Fatalf("CreateWorkflowStep(child) error = %v", err)
 	}
 
+	if err := q.CreateWorkflowVersionSnapshot(ctx, workflow.ID, 1); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot() error = %v", err)
+	}
+
 	run := &domain.WorkflowRun{
 		WorkflowID: workflow.ID,
 		ProjectID:  workflow.ProjectID,

@@ -210,25 +210,31 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	if err != nil {
 		return fmt.Errorf("get step run for event trigger: %w", err)
 	}
-	if targetStepRun == nil || targetStepRun.Status.IsTerminal() {
+	if targetStepRun == nil {
 		return nil
 	}
 
-	// Mark step as completed with the event payload as output.
-	now := time.Now()
-	fields := map[string]any{
-		"finished_at": now,
-	}
-	if len(trigger.ResponsePayload) > 0 {
-		fields["output"] = trigger.ResponsePayload
-	}
-	if err := s.store.UpdateStepRunStatusFrom(ctx, targetStepRun.ID, targetStepRun.Status, domain.StepCompleted, fields); err != nil {
-		return fmt.Errorf("update step run status for event trigger: %w", err)
-	}
-
-	targetStepRun.Status = domain.StepCompleted
-	if len(trigger.ResponsePayload) > 0 {
-		targetStepRun.Output = trigger.ResponsePayload
+	// When handleSendEvent wraps the trigger + step update in runInTx,
+	// the step is already completed before this callback runs. Skip the
+	// status update but still drive fan-in and workflow completion.
+	if !targetStepRun.Status.IsTerminal() {
+		now := time.Now()
+		fields := map[string]any{
+			"finished_at": now,
+		}
+		if len(trigger.ResponsePayload) > 0 {
+			fields["output"] = trigger.ResponsePayload
+		}
+		if err := s.store.UpdateStepRunStatusFrom(ctx, targetStepRun.ID, targetStepRun.Status, domain.StepCompleted, fields); err != nil {
+			return fmt.Errorf("update step run status for event trigger: %w", err)
+		}
+		targetStepRun.Status = domain.StepCompleted
+		if len(trigger.ResponsePayload) > 0 {
+			targetStepRun.Output = trigger.ResponsePayload
+		}
+	} else if targetStepRun.Status != domain.StepCompleted {
+		// Step is terminal but not completed (e.g., failed, canceled). No progression.
+		return nil
 	}
 
 	wc, wcErr := s.loadWfCtx(ctx, targetStepRun.WorkflowRunID)
