@@ -401,6 +401,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		  AND et.source_type = 'job_run'
 		  AND r.status = 'waiting'
 		  AND et.received_at < NOW() - INTERVAL '30 seconds'
+		LIMIT 1000
 	`
 
 	rows, err := q.db.Query(ctx, query)

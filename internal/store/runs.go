@@ -1067,7 +1067,8 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND heartbeat_at < NOW() - $1::interval
-		ORDER BY heartbeat_at ASC`, domain.StatusExecuting)
+		ORDER BY heartbeat_at ASC
+		LIMIT 1000`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {
@@ -1101,7 +1102,8 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND scheduled_at <= NOW()
-		ORDER BY scheduled_at ASC`, domain.StatusDelayed)
+		ORDER BY scheduled_at ASC
+		LIMIT 1000`, domain.StatusDelayed)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -1137,7 +1139,8 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 		WHERE status IN ('%s', '%s')
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= NOW()
-		ORDER BY expires_at ASC`, domain.StatusDelayed, domain.StatusQueued)
+		ORDER BY expires_at ASC
+		LIMIT 1000`, domain.StatusDelayed, domain.StatusQueued)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -1216,7 +1219,8 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND started_at < NOW() - $1::interval
-		ORDER BY started_at ASC`, domain.StatusDequeued)
+		ORDER BY started_at ASC
+		LIMIT 1000`, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {
@@ -1248,13 +1252,18 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 	longCutoff := time.Now().Add(-longRetention)
 
 	query := `
-		DELETE FROM job_runs
-		WHERE finished_at IS NOT NULL
-		  AND (
-			(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
-			OR
-			(status IN ('timed_out', 'crashed', 'system_failed') AND finished_at <= $2)
-		  )`
+		WITH to_delete AS (
+			SELECT id FROM job_runs
+			WHERE finished_at IS NOT NULL
+			  AND (
+				(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
+				OR
+				(status IN ('timed_out', 'crashed', 'system_failed') AND finished_at <= $2)
+			  )
+			LIMIT 5000
+			FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM job_runs WHERE id IN (SELECT id FROM to_delete)`
 
 	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff)
 	if err != nil {

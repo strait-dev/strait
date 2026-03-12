@@ -265,7 +265,8 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= NOW()
-		ORDER BY expires_at ASC`
+		ORDER BY expires_at ASC
+		LIMIT 1000`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
