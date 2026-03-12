@@ -3,12 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"go.opentelemetry.io/otel/attribute"
@@ -90,50 +90,46 @@ func (s *Server) handleSendEvent(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusInternalServerError, "failed to receive event")
 			return
 		}
-	} else {
-		// For workflow steps with TxPool, wrap trigger+step update in a transaction.
-		// Fan-in/progression callback runs outside the tx (involves queues/multiple tables).
-		if s.txPool != nil && trigger.SourceType == domain.EventSourceWorkflowStep && trigger.WorkflowStepRunID != "" {
-			if err := store.WithTx(r.Context(), s.txPool, func(txQ *store.Queries) error {
-				if err := txQ.UpdateEventTriggerStatus(r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
-					return err
-				}
-				return txQ.UpdateStepRunStatus(r.Context(), trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
-					"output":      req.Payload,
-					"finished_at": now,
-				})
-			}); err != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to receive event")
-				return
+	} else if trigger.SourceType == domain.EventSourceWorkflowStep && trigger.WorkflowStepRunID != "" {
+		if err := s.runInTx(r.Context(), func(txStore APIStore) error {
+			if err := txStore.UpdateEventTriggerStatus(r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+				return fmt.Errorf("update event trigger status: %w", err)
 			}
+			return txStore.UpdateStepRunStatus(r.Context(), trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
+				"output":      req.Payload,
+				"finished_at": now,
+			})
+		}); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to receive event")
+			return
+		}
 
-			// Drive workflow progression outside the transaction.
-			trigger.Status = domain.EventTriggerStatusReceived
-			trigger.ResponsePayload = req.Payload
-			trigger.ReceivedAt = &now
-			if trigger.WorkflowRunID != "" && s.workflowCallback != nil {
-				if err := s.workflowCallback.OnEventReceived(r.Context(), trigger); err != nil {
-					slog.Error("event received but failed to resume workflow",
-						"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
-				}
-			}
-		} else {
-			// Fallback: sequential update (no TxPool or non-workflow-step source).
-			if err := s.store.UpdateEventTriggerStatus(
-				r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, "",
-			); err != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to update event trigger")
-				return
-			}
-
-			trigger.Status = domain.EventTriggerStatusReceived
-			trigger.ResponsePayload = req.Payload
-			trigger.ReceivedAt = &now
-
-			if err := s.resumeEventSource(r.Context(), trigger); err != nil {
-				slog.Error("event received but failed to resume execution",
+		// Drive workflow progression outside the transaction.
+		trigger.Status = domain.EventTriggerStatusReceived
+		trigger.ResponsePayload = req.Payload
+		trigger.ReceivedAt = &now
+		if trigger.WorkflowRunID != "" && s.workflowCallback != nil {
+			if err := s.workflowCallback.OnEventReceived(r.Context(), trigger); err != nil {
+				slog.Error("event received but failed to resume workflow",
 					"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
 			}
+		}
+	} else {
+		// Non-workflow-step source: update trigger status directly.
+		if err := s.store.UpdateEventTriggerStatus(
+			r.Context(), trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, "",
+		); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to update event trigger")
+			return
+		}
+
+		trigger.Status = domain.EventTriggerStatusReceived
+		trigger.ResponsePayload = req.Payload
+		trigger.ReceivedAt = &now
+
+		if err := s.resumeEventSource(r.Context(), trigger); err != nil {
+			slog.Error("event received but failed to resume execution",
+				"event_key", eventKey, "trigger_id", trigger.ID, "error", err)
 		}
 	}
 

@@ -3,8 +3,6 @@ package domain
 import (
 	"fmt"
 	"testing"
-
-	"strait/internal/testutil"
 )
 
 func TestValidateTransition_AllValidTransitions(t *testing.T) {
@@ -57,7 +55,9 @@ func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 			if !ok {
 				t.Errorf("terminal status %s not found in validTransitions", status)
 			}
-			testutil.AssertEqual(t, transitions, []RunStatus{})
+			if len(transitions) != 0 {
+				t.Errorf("terminal status %s transitions = %v, want []", status, transitions)
+			}
 		})
 	}
 }

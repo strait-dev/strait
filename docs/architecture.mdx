@@ -13,13 +13,14 @@ Strait is designed as a distributed job orchestration service that uses PostgreS
                     │  (Chi router + middleware)         │
                     │                                    │
                     │  /v1/jobs/* ── Job CRUD + Health   │
-                    │  /v1/workflows/* ── DAG CRUD       │
-                    │  /v1/workflow-runs/* ── Run mgmt   │
-                    │  /v1/jobs/{id}/trigger ── Enqueue  │
-                    │  /v1/runs/* ── Run mgmt + DLQ     │
-                    │  /v1/events/* ── Event triggers    │
-                    │  /sdk/v1/* ── SDK (JWT auth)      │
-                    │  /metrics ── Prometheus            │
+                    │  /v1/workflows/* ── DAG CRUD + plan │
+                    │  /v1/workflow-runs/* ── graph/explain│
+                    │  /v1/workflow-policies/* ── governance│
+                    │  /v1/jobs/{id}/trigger ── Enqueue   │
+                    │  /v1/runs/* ── Run mgmt + DLQ       │
+                    │  /v1/events/* ── Event triggers     │
+                    │  /sdk/v1/* ── SDK (JWT auth)        │
+                    │  /metrics ── Prometheus              │
                     └──────────┬───────────────────────┘
                                │ Enqueue (budget check)
                                v
@@ -401,6 +402,8 @@ If a cycle is detected, the workflow is rejected before any runs are created. Th
 
 When multiple parent steps complete concurrently, their child step must start only when all dependencies are satisfied. The engine uses a `deps_completed` counter on each `workflow_step_run`. As each parent completes, an `UPDATE ... RETURNING` query atomically increments the counter and identifies runs where `deps_completed == deps_required`. This ensures exactly one parent triggers the child, even with concurrent completions.
 
+Step-level concurrency groups (`concurrency_key`) are enforced during scheduling. Steps that share the same key are serialized even when dependency fan-in says they are ready.
+
 ### Payload Merging
 
 Step payloads are constructed by merging three layers:
@@ -449,9 +452,57 @@ The workflow engine manages two FSMs—one for workflow runs, one for step runs.
 
 Callback handler `OnJobRunTerminal` drives workflow progression when any job run completes. This single entry point handles all terminal states (completed, failed, timed_out, crashed, canceled, system_failed, dead_letter) and determines next workflow actions—start ready children, apply failure policies, propagate sub-workflow outputs. Event-driven callbacks `OnEventReceived`, `OnStepCompleted`, and `OnStepFailed` handle event trigger resolution, sleep completion, and timeout/cancellation failures respectively. Event chaining is handled by `tryEmitEvent`, which auto-resolves waiting triggers when steps with `event_emit_key` complete.
 
+### Policy Enforcement and Governance
+
+Workflow governance is managed with per-project policies stored in `workflow_policies` and exposed via `GET|PUT /v1/workflow-policies/{projectID}`.
+
+Policy checks run at workflow lifecycle boundaries:
+- **Create** (`POST /v1/workflows`)
+- **Update** (`PATCH /v1/workflows/{workflowID}`)
+- **Trigger** (`POST /v1/workflows/{workflowID}/trigger`)
+
+Current policy controls:
+- `max_fan_out`: maximum number of direct dependents per step
+- `max_depth`: maximum DAG depth (computed from dependency chains)
+- `forbidden_step_types`: denylisted step types for the project
+- `require_approval_for_deploy`: requires at least one approval step for deploy/release-like DAGs
+
+Violations fail fast at the API boundary, preventing invalid DAGs from entering runtime scheduling.
+
+### Scheduling Decisions and Explainability
+
+The progression scheduler records key routing decisions in `workflow_step_decisions` for post-mortem and operator visibility. Decisions include:
+- `scheduler`: blocked by workflow `max_parallel_steps`
+- `concurrency`: blocked by `concurrency_key` serialization
+- `resource`: blocked by `resource_class` quota
+- `condition`: skipped because condition evaluated to false
+
+These records are exposed via `GET /v1/workflow-runs/{workflowRunID}/explain` with optional `step_ref` and `decision_type` filters.
+
+### Runtime Graph and Critical Path Estimation
+
+`GET /v1/workflow-runs/{workflowRunID}/graph` exposes the live DAG execution graph for a run, including:
+- node execution state (`pending|waiting|running|completed|failed|...`)
+- dependency edges and roots
+- runnable set (deps satisfied but not running)
+- critical-path estimate fields:
+  - `critical_path`
+  - `critical_path_estimate_ms`
+  - `critical_path_remaining_ms`
+
+Critical-path timing uses observed terminal durations when available, active elapsed time for running steps, and timeout overrides as a fallback estimate.
+
+### Runtime Recovery Controls
+
+Operators can recover or replay portions of a DAG without retriggering the entire workflow:
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` resets a terminal step to `pending` and resumes progression.
+- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` resets the selected step and all descendants to `pending`, then resumes progression.
+
+These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation. See [DAG Runtime](/docs/concepts/dag-runtime) for endpoint behavior details and [DAG Operations Playbook](/docs/guides/dag-operations-playbook) for production runbooks.
+
 ## Data Model
 
-The system uses PostgreSQL with the following primary tables (61 migrations):
+The system uses PostgreSQL with the following primary tables (66 migrations):
 
 ### jobs
 
@@ -551,6 +602,7 @@ payload             JSONB
 error               TEXT
 retry_of_run_id     TEXT                          -- FK to workflow_runs
 parent_workflow_run_id TEXT                       -- FK for sub-workflows
+parent_step_run_id  TEXT                          -- FK to workflow_step_runs
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 started_at          TIMESTAMPTZ
 finished_at         TIMESTAMPTZ
@@ -566,7 +618,7 @@ workflow_id         TEXT NOT NULL REFERENCES workflows(id)
 job_id              TEXT                          -- FK to jobs
 step_ref            TEXT NOT NULL                 -- Unique within workflow
 depends_on          TEXT[] NOT NULL DEFAULT '{}'  -- Array of step_refs
-condition           JSONB                         -- step_status|all_of|any_of
+condition           JSONB                         -- step_status|step_status_in|not|all_of|any_of
 on_failure          TEXT NOT NULL DEFAULT 'fail_workflow'
 payload             JSONB                         -- Static payload + templates
 step_type           TEXT NOT NULL DEFAULT 'job'   -- job|approval|sub_workflow|wait_for_event|sleep
@@ -582,7 +634,9 @@ sub_workflow_id     TEXT                          -- FK to workflows
 max_nesting_depth   INT NOT NULL DEFAULT 10
 event_key           TEXT                          -- Event trigger key (wait_for_event)
 event_emit_key      TEXT                          -- Auto-emit event on completion
-sleep_duration      TEXT                          -- Go duration string (sleep)
+sleep_duration_secs INT                           -- Sleep duration in seconds
+concurrency_key     TEXT                          -- Step-level concurrency group key
+resource_class      TEXT NOT NULL DEFAULT 'small' -- Scheduler capacity bucket
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 -- workflow_step_runs table
@@ -601,6 +655,32 @@ started_at          TIMESTAMPTZ
 finished_at         TIMESTAMPTZ
 created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 ```
+
+### workflow governance and explainability
+
+```sql
+-- workflow_policies table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+project_id          TEXT NOT NULL UNIQUE
+max_fan_out         INT NOT NULL DEFAULT 0
+max_depth           INT NOT NULL DEFAULT 0
+forbidden_step_types TEXT[] NOT NULL DEFAULT '{}'
+require_approval_for_deploy BOOLEAN NOT NULL DEFAULT FALSE
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+-- workflow_step_decisions table
+id                  TEXT PRIMARY KEY              -- UUIDv7
+workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE
+step_run_id         TEXT NOT NULL REFERENCES workflow_step_runs(id) ON DELETE CASCADE
+step_ref            TEXT NOT NULL
+decision_type       TEXT NOT NULL                 -- scheduler|concurrency|resource|condition
+decision            TEXT NOT NULL                 -- blocked|skip|allow
+explanation         TEXT NOT NULL
+details             JSONB
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
 
 ### event_triggers
 
@@ -644,6 +724,11 @@ Partial and composite indexes ensure query performance at scale:
 - `idx_event_triggers_status_expires`: `(status, expires_at) WHERE status = 'waiting'` — Reaper timeout lookup
 - `idx_event_triggers_project_status`: `(project_id, status)` — Project-scoped list queries
 - `idx_event_triggers_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
+- `idx_workflow_runs_status_expires`: `(status, expires_at) WHERE expires_at IS NOT NULL` -- Reaper timeout lookup for workflow runs
+- `idx_workflow_runs_status_finished`: `(status, finished_at) WHERE finished_at IS NOT NULL` -- Retention deletion queries
+- `idx_step_runs_workflow_run_status`: `(workflow_run_id, status)` -- Step run queries filtered by run and status
+- `idx_step_decisions_step_run_id`: `(step_run_id)` -- CASCADE deletes on workflow step decisions
+- `idx_job_runs_active_by_job`: `(job_id) WHERE status IN ('queued', 'dequeued', 'executing')` -- Dequeue active run counting
 
 ## Design Decisions
 
@@ -707,7 +792,7 @@ The DLQ is modeled as a first-class FSM state (`dead_letter`) rather than a sepa
 
 ### Transactional Event Sends
 
-When an event resolves a workflow step trigger, the trigger status update and step completion are wrapped in a single database transaction (`store.WithTx`). If either operation fails, both roll back atomically. This prevents the inconsistency where a trigger is marked `received` but the step remains `waiting`.
+When an event resolves a workflow step trigger, the trigger status update and step completion are wrapped in a single database transaction via `runInTx`. If either operation fails, both roll back atomically. This prevents the inconsistency where a trigger is marked `received` but the step remains `waiting`. The same pattern wraps workflow create/update/clone, SDK wait-for-event, and workflow run retry operations.
 
 Fan-in progression (starting downstream steps) runs outside the transaction because it involves queue operations and multiple tables. The reconciliation reaper acts as a safety net for edge cases where progression fails.
 
@@ -738,6 +823,36 @@ Endpoint URL validation happens in both the API server (job creation/update) and
 - Private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 - Loopback addresses (127.0.0.0/8, ::1/128)
 - Link-local addresses (169.254.0.0/16)
+
+## Performance Optimizations
+
+### Workflow Context Caching
+
+During step callback processing, the workflow engine loads the workflow run, step definitions, and step-by-ref index. These are immutable for the lifetime of a single callback. The `wfCtx` struct caches this data after the first load, eliminating 10-15 redundant database queries per step completion in multi-step workflows.
+
+### Transaction Safety via runInTx
+
+Multi-step write operations (workflow creation, event trigger registration, retry runs) use a `runInTx` abstraction that wraps store calls in a database transaction. In production, this delegates to `store.WithTx`; in tests, it passes through to the mock store directly. This provides atomicity without requiring mock implementations of `pgx.Tx`.
+
+Key operations wrapped in transactions:
+- Workflow create/update/clone (version snapshot + steps)
+- SDK wait-for-event (run status + event trigger creation)
+- Workflow run retry (new run + step runs)
+- Event send (trigger resolution + step completion)
+
+### Bounded Reaper Queries
+
+All reaper and poller queries include a `LIMIT` clause (default 1000) to prevent unbounded result sets during incident recovery or backlog processing. The retention worker uses CTE-based batch deletes with `FOR UPDATE SKIP LOCKED` (batch size 5000) instead of unbounded `DELETE` statements.
+
+### Reaper N+1 Elimination
+
+The workflow timeout reaper previously issued 2+2N database calls per timed-out workflow run (fetching step runs individually, then canceling each). This was replaced with 4 bulk calls per run using existing `CancelNonTerminalStepRuns` and `CancelJobRunsByWorkflowRun` methods.
+
+### Bulk Operation Batching
+
+Bulk cancel (`POST /v1/runs/bulk-cancel`) was rewritten from 4N queries to 3 queries: batch fetch via `GetRunsByIDs`, batch cancel via `BulkCancelRuns` (single UPDATE with status filter), and batch child cancel via `CancelChildRunsByParentIDs`.
+
+Bulk trigger (`POST /v1/jobs/{jobID}/trigger/bulk`) pre-computes project quota counts once before the loop instead of per-item, eliminating 2 redundant queries per item.
 
 ## Graceful Shutdown
 
@@ -825,10 +940,11 @@ The scheduler package runs several background goroutines:
     Polls every 5 seconds for job_runs with `status = 'delayed'` where `scheduled_at <= NOW()`. Transitions them to `queued` for dequeue. Enables delayed job execution without cron.
   </Tab>
   <Tab title="Stale Reaper">
-    Polls every minute for:
-    - Runs stuck in `dequeued` state with `heartbeat_at < NOW() - 5 minutes`
-    - Runs stuck in `waiting` state with `heartbeat_at < NOW() - 1 hour`
-    Transitions stale runs to `system_failed` with appropriate error message.
+    Polls on the configured reaper interval and performs multiple stale-recovery passes:
+    - **Stale dequeued runs**: re-queues runs stuck in `dequeued`
+    - **Stale executing runs**: marks runs as `crashed` on heartbeat loss
+    - **Stalled workflow runs**: detects workflow runs with no progression for `WF_STALL_THRESHOLD` and applies `WF_STALL_ACTION` (`log_only`, `reconcile`, or `fail_workflow`)
+    - **Timed out workflow runs**: marks workflow run `timed_out`, cancels non-terminal steps/job runs, and cancels pending event triggers
   </Tab>
   <Tab title="Event Trigger Reaper">
     Polls every 30 seconds for expired event triggers (`status = 'waiting'` and `expires_at <= NOW()`). Transitions them to `timed_out` and drives step/run failure via `OnStepFailed`. Also handles:
@@ -854,5 +970,7 @@ The scheduler package runs several background goroutines:
 - [Jobs](/docs/concepts/jobs) — Job definitions and configuration
 - [Runs](/docs/concepts/runs) — Run lifecycle and FSM
 - [Workflows](/docs/concepts/workflows) — DAG orchestration details
+- [DAG Runtime](/docs/concepts/dag-runtime) — Detailed DAG scheduler behavior, explainability, policy enforcement, and recovery controls
+- [DAG Operations Playbook](/docs/guides/dag-operations-playbook) — On-call triage, recovery, and hardening runbook for DAG incidents
 - [Event Triggers](/docs/concepts/event-triggers) — Durable external event waits
 - [CDC](/docs/concepts/cdc) — Real-time change data capture

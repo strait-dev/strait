@@ -36,7 +36,7 @@ This page documents all environment variables available for configuring Strait.
 | `DEFAULT_JOB_MAX_ATTEMPTS` | Integer | `3` | Default maximum retry attempts for jobs. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | Integer | `300` | Default timeout for jobs in seconds. |
 | `WORKER_QUEUE_SIZE` | Integer | `0` | Bounded task queue size for the worker pool. When the queue is full, task submission blocks until a slot opens, providing backpressure. `0` means unbounded. |
-| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `30s` | Timeout for webhook dispatch requests. |
+| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
 
 ## Scheduler Configuration
 
@@ -65,8 +65,6 @@ This page documents all environment variables available for configuring Strait.
 | `RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for rate limiting. |
 | `TRIGGER_RATE_LIMIT_REQUESTS` | Integer | `10` | Number of trigger requests allowed per window. |
 | `TRIGGER_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for trigger rate limiting. |
-| `EVENT_SEND_RATE_LIMIT_REQUESTS` | Integer | `50` | Number of event send requests allowed per window. |
-| `EVENT_SEND_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for event send rate limiting. |
 
 ## Request Configuration
 
@@ -92,6 +90,28 @@ This page documents all environment variables available for configuring Strait.
 | `CORS_ALLOWED_ORIGINS` | String List | `*` | Comma-separated list of allowed origins. |
 | `CORS_ALLOW_CREDENTIALS` | Boolean | `false` | Whether to allow credentials in CORS requests. |
 
+## OIDC Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `OIDC_ENABLED` | Boolean | `false` | Enable OpenID Connect authentication. |
+| `OIDC_ISSUER` | String | - | OIDC token issuer URL. |
+| `OIDC_AUDIENCE` | String | - | Expected OIDC audience claim. |
+| `OIDC_PUBLIC_KEY_PEM` | String | - | PEM-encoded public key for OIDC token verification. |
+
+## RBAC Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `PERMISSION_CACHE_TTL` | Duration | `5m` | TTL for the RBAC permission cache. |
+
+## CDC Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `CDC_BATCH_SIZE` | Integer | `10` | Number of change events to process in a single batch. |
+| `CDC_WAIT_TIME_MS` | Integer | `5000` | Wait time in milliseconds for CDC long polling. |
+
 ## Retention Configuration
 
 | Variable | Type | Default | Description |
@@ -115,6 +135,8 @@ This page documents all environment variables available for configuring Strait.
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `MAX_WORKFLOW_NESTING_DEPTH` | Integer | `10` | Maximum allowed depth for nested workflows. |
+| `WF_STALL_THRESHOLD` | Duration | `15m` | Max time without workflow progression before run is considered stalled by reaper. |
+| `WF_STALL_ACTION` | String | `log_only` | Action when stalled run is detected: `log_only`, `reconcile`, or `fail_workflow`. |
 
 ## SSE Configuration
 

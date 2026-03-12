@@ -10,6 +10,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 )
 
@@ -26,6 +27,7 @@ type WorkflowEngine struct {
 	logger          *slog.Logger
 	maxNestingDepth int
 	onTriggerCreate EventTriggerNotifyFunc
+	runInTx         func(ctx context.Context, fn func(s EngineStore) error) error
 }
 
 type EngineStore interface {
@@ -54,17 +56,28 @@ func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger
 		logger = slog.Default()
 	}
 
-	return &WorkflowEngine{
+	e := &WorkflowEngine{
 		store:           store,
 		queue:           queue,
 		logger:          logger,
 		maxNestingDepth: DefaultMaxNestingDepth,
 	}
+	e.runInTx = func(_ context.Context, fn func(s EngineStore) error) error {
+		return fn(e.store)
+	}
+	return e
 }
 
 // WithOnTriggerCreate sets a callback invoked after each event trigger is created.
 func (e *WorkflowEngine) WithOnTriggerCreate(fn EventTriggerNotifyFunc) *WorkflowEngine {
 	e.onTriggerCreate = fn
+	return e
+}
+
+// WithRunInTx overrides the default pass-through transaction runner.
+// The provided function must call fn with a transactional EngineStore.
+func (e *WorkflowEngine) WithRunInTx(fn func(ctx context.Context, fn func(s EngineStore) error) error) *WorkflowEngine {
+	e.runInTx = fn
 	return e
 }
 
@@ -84,7 +97,7 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", stepOverrides, extraTags)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags)
 }
 
 // TriggerSubWorkflow triggers a workflow as a child of another workflow run.
@@ -94,8 +107,9 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	payload json.RawMessage,
 	triggeredBy string,
 	parentWorkflowRunID string,
+	parentStepRunID string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, nil, nil)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil)
 }
 
 func (e *WorkflowEngine) triggerWorkflowInternal(
@@ -104,6 +118,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	payload json.RawMessage,
 	triggeredBy string,
 	parentWorkflowRunID string,
+	parentStepRunID string,
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
@@ -145,24 +160,12 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 
 	if wf.MaxConcurrentRuns > 0 {
-		const maxConcurrencyRetries = 120
-		for i := range maxConcurrencyRetries {
-			running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
-			if countErr != nil {
-				return nil, fmt.Errorf("count running workflow runs: %w", countErr)
-			}
-			if running < wf.MaxConcurrentRuns {
-				break
-			}
-			if i == maxConcurrencyRetries-1 {
-				return nil, fmt.Errorf("workflow %s: max concurrent runs (%d) reached, timed out waiting for slot", workflowID, wf.MaxConcurrentRuns)
-			}
-
-			select {
-			case <-ctx.Done():
-				return nil, fmt.Errorf("wait for workflow concurrency slot: %w", ctx.Err())
-			case <-time.After(250 * time.Millisecond):
-			}
+		running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
+		if countErr != nil {
+			return nil, fmt.Errorf("count running workflow runs: %w", countErr)
+		}
+		if running >= wf.MaxConcurrentRuns {
+			return nil, fmt.Errorf("workflow %s: max concurrent runs (%d) reached", workflowID, wf.MaxConcurrentRuns)
 		}
 	}
 
@@ -189,56 +192,86 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		MaxParallelSteps:    wf.MaxParallelSteps,
 		Payload:             payload,
 		ParentWorkflowRunID: parentWorkflowRunID,
+		ParentStepRunID:     parentStepRunID,
+	}
+	if wfRun.ID == "" {
+		wfRun.ID = uuid.Must(uuid.NewV7()).String()
 	}
 	if wf.TimeoutSecs > 0 {
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
 		wfRun.ExpiresAt = &expiresAt
 	}
-	if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
-		return nil, fmt.Errorf("create workflow run: %w", err)
-	}
-
 	now := time.Now()
-	if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
-		return nil, fmt.Errorf("start workflow run: %w", err)
-	}
-	wfRun.Status = domain.WfStatusRunning
-	wfRun.StartedAt = &now
 
 	type rootToStart struct {
 		stepRun *domain.WorkflowStepRun
 		step    *domain.WorkflowStep
 	}
 	roots := make([]rootToStart, 0)
-
+	stepRuns := make([]domain.WorkflowStepRun, 0, len(steps))
 	for i := range steps {
 		step := &steps[i]
-		stepRun := &domain.WorkflowStepRun{
+		sr := domain.WorkflowStepRun{
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			WorkflowRunID:  wfRun.ID,
 			WorkflowStepID: step.ID,
 			StepRef:        step.StepRef,
 			DepsCompleted:  0,
 			DepsRequired:   len(step.DependsOn),
 		}
-
 		if len(step.DependsOn) == 0 {
-			stepRun.Status = domain.StepPending
-			stepRun.DepsRequired = 0
-			roots = append(roots, rootToStart{stepRun: stepRun, step: step})
+			sr.Status = domain.StepPending
+			sr.DepsRequired = 0
 		} else {
-			stepRun.Status = domain.StepWaiting
+			sr.Status = domain.StepWaiting
 		}
+		stepRuns = append(stepRuns, sr)
+	}
 
-		if err := e.store.CreateWorkflowStepRun(ctx, stepRun); err != nil {
-			return nil, fmt.Errorf("create step run %s: %w", step.StepRef, err)
+	type bootstrapStore interface {
+		CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	}
+	if bs, ok := e.store.(bootstrapStore); ok {
+		if err := bs.CreateWorkflowRunBootstrap(ctx, wfRun, stepRuns, now); err != nil {
+			return nil, fmt.Errorf("create workflow bootstrap: %w", err)
+		}
+	} else {
+		if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
+			return nil, fmt.Errorf("create workflow run: %w", err)
+		}
+		if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+			return nil, fmt.Errorf("start workflow run: %w", err)
+		}
+		for i := range stepRuns {
+			if err := e.store.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
+				return nil, fmt.Errorf("create step run %s: %w", stepRuns[i].StepRef, err)
+			}
+		}
+	}
+	wfRun.Status = domain.WfStatusRunning
+	wfRun.StartedAt = &now
+
+	for i := range steps {
+		step := &steps[i]
+		sr := &stepRuns[i]
+		if len(step.DependsOn) == 0 {
+			roots = append(roots, rootToStart{stepRun: sr, step: step})
 		}
 	}
 
 	runningStarts := 0
+	runningByConcurrencyKey := make(map[string]int)
 	for _, root := range roots {
 		if wfRun.MaxParallelSteps > 0 && runningStarts >= wfRun.MaxParallelSteps {
 			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
 				return nil, fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
+			}
+			root.stepRun.Status = domain.StepWaiting
+			continue
+		}
+		if root.step.ConcurrencyKey != "" && runningByConcurrencyKey[root.step.ConcurrencyKey] > 0 {
+			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
+				return nil, fmt.Errorf("set root step waiting by concurrency key %s: %w", root.step.StepRef, err)
 			}
 			root.stepRun.Status = domain.StepWaiting
 			continue
@@ -248,6 +281,9 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		}
 		if root.stepRun.Status == domain.StepRunning {
 			runningStarts++
+			if root.step.ConcurrencyKey != "" {
+				runningByConcurrencyKey[root.step.ConcurrencyKey]++
+			}
 		}
 	}
 

@@ -116,9 +116,11 @@ type Config struct {
 	WorkerQueueSize       int `mapstructure:"WORKER_QUEUE_SIZE"`
 
 	// Scheduler settings
-	WorkflowRetention     time.Duration `mapstructure:"WORKFLOW_RETENTION"`
-	EventTriggerRetention time.Duration `mapstructure:"EVENT_TRIGGER_RETENTION"`
-	ReaperDeleteBatchSize int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
+	WorkflowRetention        time.Duration `mapstructure:"WORKFLOW_RETENTION"`
+	EventTriggerRetention    time.Duration `mapstructure:"EVENT_TRIGGER_RETENTION"`
+	ReaperDeleteBatchSize    int           `mapstructure:"REAPER_DELETE_BATCH_SIZE"`
+	StalledWorkflowThreshold time.Duration `mapstructure:"WF_STALL_THRESHOLD"`
+	StalledWorkflowAction    string        `mapstructure:"WF_STALL_ACTION"`
 
 	// Workflow settings
 	MaxWorkflowNestingDepth int `mapstructure:"MAX_WORKFLOW_NESTING_DEPTH"`
@@ -191,6 +193,8 @@ func setDefaults() {
 	viper.SetDefault("FF_JOB_DEPENDENCIES", false)
 	viper.SetDefault("FF_JOB_HEALTH_SCORING", false)
 	viper.SetDefault("FF_ADAPTIVE_TIMEOUT", false)
+	viper.SetDefault("FF_EVENT_TRIGGERS", false)
+	viper.SetDefault("PERMISSION_CACHE_TTL", 5*time.Minute)
 	viper.SetDefault("SECRET_ENCRYPTION_KEY", "")
 	viper.SetDefault("WEBHOOK_TIMEOUT", 10*time.Second)
 	viper.SetDefault("WEBHOOK_IDLE_CONN_TIMEOUT", 60*time.Second)
@@ -203,6 +207,8 @@ func setDefaults() {
 	viper.SetDefault("WORKER_QUEUE_SIZE", 0)
 	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
 	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
+	viper.SetDefault("WF_STALL_THRESHOLD", 15*time.Minute)
+	viper.SetDefault("WF_STALL_ACTION", "log_only")
 	viper.SetDefault("MAX_WORKFLOW_NESTING_DEPTH", 10)
 	viper.SetDefault("CDC_BATCH_SIZE", 10)
 	viper.SetDefault("CDC_WAIT_TIME_MS", 5000)
@@ -233,8 +239,10 @@ func BindEnv() error {
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_ATTEMPTS",
 		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
 		"WORKFLOW_RETENTION",
-		"REAPER_DELETE_BATCH_SIZE", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
+		"REAPER_DELETE_BATCH_SIZE", "WF_STALL_THRESHOLD", "WF_STALL_ACTION", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
 		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
+		"FF_EVENT_TRIGGERS", "PERMISSION_CACHE_TTL",
+		"EVENT_TRIGGER_RETENTION", "EVENT_TRIGGER_RETENTION_DAYS",
 	}
 
 	for _, key := range keys {
@@ -291,6 +299,8 @@ func Load() (*Config, error) {
 	cfg.WebhookDispatchTimeout = viper.GetDuration("WEBHOOK_DISPATCH_TIMEOUT")
 	cfg.WorkflowRetention = viper.GetDuration("WORKFLOW_RETENTION")
 	cfg.EventTriggerRetention = viper.GetDuration("EVENT_TRIGGER_RETENTION")
+	cfg.StalledWorkflowThreshold = viper.GetDuration("WF_STALL_THRESHOLD")
+	cfg.StalledWorkflowAction = viper.GetString("WF_STALL_ACTION")
 	// Legacy: support EVENT_TRIGGER_RETENTION_DAYS as days → duration.
 	if cfg.EventTriggerRetention == 0 && cfg.EventTriggerRetentionDays > 0 {
 		cfg.EventTriggerRetention = time.Duration(cfg.EventTriggerRetentionDays) * 24 * time.Hour

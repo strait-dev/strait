@@ -156,6 +156,42 @@ func TestEvaluateCondition(t *testing.T) {
 			want: true,
 		},
 		{
+			name:         "step_status_in: one allowed status -> true",
+			cond:         mustJSON(`{"type":"step_status_in","step_ref":"validate-data","statuses":["failed","completed"]}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         true,
+		},
+		{
+			name:         "not: inverts nested result",
+			cond:         mustJSON(`{"type":"not","condition":{"type":"step_status","step_ref":"validate-data","status":"failed"}}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         true,
+		},
+		{
+			name:         "eq operator",
+			cond:         mustJSON(`{"type":"eq","left":"a","right":"a"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name:         "gt operator",
+			cond:         mustJSON(`{"type":"gt","left":3,"right":2}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name:         "regex operator",
+			cond:         mustJSON(`{"type":"regex","left":"abc-123","right":"^[a-z]+-[0-9]+$"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name:         "exists operator with missing step_ref",
+			cond:         mustJSON(`{"type":"exists","operand":{"step_ref":"missing"}}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         false,
+		},
+		{
 			name:         "unknown type -> error",
 			cond:         mustJSON(`{"type":"foobar"}`),
 			stepStatuses: map[string]domain.StepRunStatus{},

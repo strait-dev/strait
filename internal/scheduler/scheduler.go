@@ -27,14 +27,16 @@ type Scheduler struct {
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
-func New(cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger, opts ...SchedulerOption) *Scheduler {
+func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger, opts ...SchedulerOption) *Scheduler {
 	sched := &Scheduler{
-		cron:   NewCronScheduler(s, q, wfTrigger),
-		poller: NewDelayedPoller(s, cfg.PollerInterval),
+		cron:   NewCronScheduler(ctx, s, q, wfTrigger),
+		poller: NewDelayedPoller(s, slog.Default(), cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, cfg.FFRunRetention, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
-			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize),
+			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
+			WithStalledThreshold(cfg.StalledWorkflowThreshold).
+			WithStalledAction(cfg.StalledWorkflowAction),
 	}
 	for _, opt := range opts {
 		opt(sched)

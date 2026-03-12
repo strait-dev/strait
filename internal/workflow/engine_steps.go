@@ -89,12 +89,8 @@ func (e *WorkflowEngine) startStep(
 		return e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
 	}
 
-	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
-		return fmt.Errorf("set step run running: %w", err)
-	}
-	stepRun.Status = domain.StepRunning
-	stepRun.StartedAt = &now
-
+	// For regular job steps: enqueue first, then mark running.
+	// This avoids orphan running steps if enqueue fails.
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
 	jobRun := &domain.JobRun{
@@ -111,9 +107,14 @@ func (e *WorkflowEngine) startStep(
 		return fmt.Errorf("enqueue step job run: %w", err)
 	}
 
-	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"job_run_id": jobRun.ID}); err != nil {
-		return fmt.Errorf("attach job run to step run: %w", err)
+	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{
+		"started_at": now,
+		"job_run_id": jobRun.ID,
+	}); err != nil {
+		return fmt.Errorf("set step run running: %w", err)
 	}
+	stepRun.Status = domain.StepRunning
+	stepRun.StartedAt = &now
 	stepRun.JobRunID = jobRun.ID
 
 	return nil
@@ -149,7 +150,7 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
 
-	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID)
+	childRun, err := e.TriggerSubWorkflow(ctx, step.SubWorkflowID, wfRun.ProjectID, payload, domain.TriggerWorkflow, wfRun.ID, stepRun.ID)
 	if err != nil {
 		return fmt.Errorf("trigger sub-workflow for step %s: %w", step.StepRef, err)
 	}

@@ -36,6 +36,7 @@ type mockAPIStore struct {
 	createJobDependencyFn               func(ctx context.Context, dep *domain.JobDependency) error
 	listJobDependenciesFn               func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	deleteJobDependencyFn               func(ctx context.Context, id string) error
+	areJobDependenciesSatisfiedFn       func(ctx context.Context, run *domain.JobRun) (bool, error)
 	updateJobFn                         func(ctx context.Context, job *domain.Job) error
 	getRunFn                            func(ctx context.Context, id string) (*domain.JobRun, error)
 	getRunByIdempotencyKeyFn            func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
@@ -86,9 +87,16 @@ type mockAPIStore struct {
 	getWorkflowRunFn                    func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listWorkflowRunsFn                  func(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	listWorkflowRunsByProjFn            func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
+	listWorkflowsByTagFn                func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
+	listWorkflowRunsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	createWorkflowRunLabelsFn           func(ctx context.Context, workflowRunID string, labels map[string]string) error
 	listWorkflowRunLabelsFn             func(ctx context.Context, workflowRunID string) (map[string]string, error)
 	listStepRunsByRunFn                 func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	listWorkflowStepDecisionsFn         func(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error)
+	upsertWorkflowPolicyFn              func(ctx context.Context, p *domain.WorkflowPolicy) error
+	getWorkflowPolicyByProjectFn        func(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
+	listWorkflowVersionsFn              func(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
+	getWorkflowVersionByVersionIDFn     func(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
 	updateWorkflowRunStatusFn           func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn               func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getStepRunByRunAndRefFn             func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
@@ -128,6 +136,11 @@ type mockAPIStore struct {
 	countActiveEventTriggersByProjectFn func(ctx context.Context, projectID string) (int, error)
 	getWebhookDeliveryFn                func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
+	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	cancelJobRunsByWorkflowRunFn        func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	getRunsByIDsFn                      func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	bulkCancelRunsFn                    func(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
+	cancelChildRunsByParentIDsFn        func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -289,6 +302,13 @@ func (m *mockAPIStore) DeleteJobDependency(ctx context.Context, id string) error
 		return m.deleteJobDependencyFn(ctx, id)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error) {
+	if m.areJobDependenciesSatisfiedFn != nil {
+		return m.areJobDependenciesSatisfiedFn(ctx, run)
+	}
+	return true, nil
 }
 
 func (m *mockAPIStore) UpdateJob(ctx context.Context, job *domain.Job) error {
@@ -579,7 +599,10 @@ func (m *mockAPIStore) ListWorkflows(ctx context.Context, projectID string, limi
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWorkflowsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.Workflow, error) {
+func (m *mockAPIStore) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
+	if m.listWorkflowsByTagFn != nil {
+		return m.listWorkflowsByTagFn(ctx, projectID, tagKey, tagValue, limit, cursor)
+	}
 	return nil, nil
 }
 
@@ -653,7 +676,10 @@ func (m *mockAPIStore) ListWorkflowRunsByProject(ctx context.Context, projectID 
 	return nil, nil
 }
 
-func (m *mockAPIStore) ListWorkflowRunsByTag(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+func (m *mockAPIStore) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
+	if m.listWorkflowRunsByTagFn != nil {
+		return m.listWorkflowRunsByTagFn(ctx, projectID, tagKey, tagValue, limit, cursor)
+	}
 	return nil, nil
 }
 
@@ -699,6 +725,13 @@ func (m *mockAPIStore) GetStepRunByWorkflowRunAndRef(ctx context.Context, workfl
 	return nil, nil
 }
 
+func (m *mockAPIStore) ListWorkflowStepDecisions(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error) {
+	if m.listWorkflowStepDecisionsFn != nil {
+		return m.listWorkflowStepDecisionsFn(ctx, workflowRunID, stepRef, decisionType, limit, cursor)
+	}
+	return nil, nil
+}
+
 func (m *mockAPIStore) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
 	if m.getStepApprovalByStepRunFn != nil {
 		return m.getStepApprovalByStepRunFn(ctx, stepRunID)
@@ -714,11 +747,31 @@ func (m *mockAPIStore) UpdateWorkflowStepApproval(ctx context.Context, id string
 }
 
 func (m *mockAPIStore) ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
+	if m.listWorkflowVersionsFn != nil {
+		return m.listWorkflowVersionsFn(ctx, workflowID, limit)
+	}
 	return nil, nil
 }
 
 func (m *mockAPIStore) GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error) {
+	if m.getWorkflowVersionByVersionIDFn != nil {
+		return m.getWorkflowVersionByVersionIDFn(ctx, workflowID, versionID)
+	}
 	return nil, store.ErrWorkflowVersionNotFound
+}
+
+func (m *mockAPIStore) UpsertWorkflowPolicy(ctx context.Context, p *domain.WorkflowPolicy) error {
+	if m.upsertWorkflowPolicyFn != nil {
+		return m.upsertWorkflowPolicyFn(ctx, p)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error) {
+	if m.getWorkflowPolicyByProjectFn != nil {
+		return m.getWorkflowPolicyByProjectFn(ctx, projectID)
+	}
+	return nil, nil
 }
 
 func (m *mockAPIStore) DeleteJobSecret(ctx context.Context, id string) error {
@@ -1080,4 +1133,39 @@ func (m *mockAPIStore) UpdateWebhookDelivery(ctx context.Context, d *domain.Webh
 		return m.updateWebhookDeliveryFn(ctx, d)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelNonTerminalStepRunsFn != nil {
+		return m.cancelNonTerminalStepRunsFn(ctx, workflowRunID, finishedAt, reason)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelJobRunsByWorkflowRunFn != nil {
+		return m.cancelJobRunsByWorkflowRunFn(ctx, workflowRunID, finishedAt, reason)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	if m.getRunsByIDsFn != nil {
+		return m.getRunsByIDsFn(ctx, ids)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error) {
+	if m.bulkCancelRunsFn != nil {
+		return m.bulkCancelRunsFn(ctx, ids, finishedAt, reason)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
+	if m.cancelChildRunsByParentIDsFn != nil {
+		return m.cancelChildRunsByParentIDsFn(ctx, parentIDs, finishedAt, reason)
+	}
+	return 0, nil
 }

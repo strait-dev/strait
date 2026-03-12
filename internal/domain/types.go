@@ -410,6 +410,17 @@ type WorkflowVersion struct {
 	CreatedAt         time.Time `json:"created_at"`
 }
 
+type WorkflowPolicy struct {
+	ID                       string    `json:"id"`
+	ProjectID                string    `json:"project_id"`
+	MaxFanOut                int       `json:"max_fan_out"`
+	MaxDepth                 int       `json:"max_depth"`
+	ForbiddenStepTypes       []string  `json:"forbidden_step_types,omitempty"`
+	RequireApprovalForDeploy bool      `json:"require_approval_for_deploy"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
+}
+
 func (s RunStatus) IsTerminal() bool {
 	switch s {
 	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:
@@ -633,6 +644,8 @@ type WorkflowStep struct {
 	EventNotifyURL        string             `json:"event_notify_url,omitempty"`
 	SleepDurationSecs     int                `json:"sleep_duration_secs,omitempty"`
 	EventEmitKey          string             `json:"event_emit_key,omitempty"` // auto-send event on step completion
+	ConcurrencyKey        string             `json:"concurrency_key,omitempty"`
+	ResourceClass         string             `json:"resource_class,omitempty"`
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
@@ -653,6 +666,7 @@ type WorkflowRun struct {
 	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`
 	RetryOfRunID        string            `json:"retry_of_run_id,omitempty"`
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
+	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
 	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
@@ -687,6 +701,18 @@ type WorkflowStepApproval struct {
 	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	Error             string     `json:"error,omitempty"`
+}
+
+type WorkflowStepDecision struct {
+	ID            string          `json:"id"`
+	WorkflowRunID string          `json:"workflow_run_id"`
+	StepRunID     string          `json:"step_run_id"`
+	StepRef       string          `json:"step_ref"`
+	DecisionType  string          `json:"decision_type"`
+	Decision      string          `json:"decision"`
+	Explanation   string          `json:"explanation"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
 }
 
 // EventTrigger represents a durable wait for an external event signal.

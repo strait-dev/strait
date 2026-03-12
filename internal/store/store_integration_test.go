@@ -19,6 +19,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 var testDB *testutil.TestDB
@@ -2889,12 +2890,13 @@ func TestWorkflowStep_CRUD(t *testing.T) {
 	}
 
 	step := &domain.WorkflowStep{
-		WorkflowID: workflow.ID,
-		JobID:      job.ID,
-		StepRef:    "extract",
-		DependsOn:  []string{},
-		Condition:  json.RawMessage(`{"type":"step_status","step_ref":"extract","status":"completed"}`),
-		Payload:    json.RawMessage(`{"batch":1}`),
+		WorkflowID:    workflow.ID,
+		JobID:         job.ID,
+		StepRef:       "extract",
+		DependsOn:     []string{},
+		Condition:     json.RawMessage(`{"type":"step_status","step_ref":"extract","status":"completed"}`),
+		Payload:       json.RawMessage(`{"batch":1}`),
+		ResourceClass: "medium",
 	}
 	if err := q.CreateWorkflowStep(ctx, step); err != nil {
 		t.Fatalf("CreateWorkflowStep() error = %v", err)
@@ -2908,6 +2910,9 @@ func TestWorkflowStep_CRUD(t *testing.T) {
 	if step.OnFailure != domain.FailWorkflow {
 		t.Fatalf("CreateWorkflowStep() on_failure = %q, want %q", step.OnFailure, domain.FailWorkflow)
 	}
+	if step.ResourceClass != "medium" {
+		t.Fatalf("CreateWorkflowStep() resource_class = %q, want medium", step.ResourceClass)
+	}
 
 	got, err := q.GetWorkflowStep(ctx, step.ID)
 	if err != nil {
@@ -2915,6 +2920,9 @@ func TestWorkflowStep_CRUD(t *testing.T) {
 	}
 	if got.ID != step.ID || got.WorkflowID != step.WorkflowID || got.JobID != step.JobID || got.StepRef != step.StepRef || got.OnFailure != step.OnFailure {
 		t.Fatalf("GetWorkflowStep() mismatch: got %+v want %+v", *got, *step)
+	}
+	if got.ResourceClass != "medium" {
+		t.Fatalf("GetWorkflowStep() resource_class = %q, want medium", got.ResourceClass)
 	}
 	if !jsonEqual(got.Condition, step.Condition) {
 		t.Fatalf("GetWorkflowStep() condition = %s, want %s", string(got.Condition), string(step.Condition))
@@ -3334,6 +3342,10 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 		t.Fatalf("CreateWorkflowStep(child) error = %v", err)
 	}
 
+	if err := q.CreateWorkflowVersionSnapshot(ctx, workflow.ID, 1); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot() error = %v", err)
+	}
+
 	run := &domain.WorkflowRun{
 		WorkflowID: workflow.ID,
 		ProjectID:  workflow.ProjectID,
@@ -3396,6 +3408,82 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 	}
 	if len(none) != 0 {
 		t.Fatalf("IncrementStepDeps() missing ref len = %d, want 0", len(none))
+	}
+}
+
+func TestWorkflowStepRun_TargetedListings(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-workflow-step-run-targeted-listings"
+	job := mustCreateJob(t, ctx, q, projectID)
+	workflow := &domain.Workflow{ProjectID: projectID, Name: "Targeted Workflow", Slug: "targeted-workflow", Enabled: true}
+	if err := q.CreateWorkflow(ctx, workflow); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	steps := []*domain.WorkflowStep{
+		{WorkflowID: workflow.ID, JobID: job.ID, StepRef: "a"},
+		{WorkflowID: workflow.ID, JobID: job.ID, StepRef: "b", DependsOn: []string{"a"}},
+		{WorkflowID: workflow.ID, JobID: job.ID, StepRef: "c"},
+		{WorkflowID: workflow.ID, JobID: job.ID, StepRef: "d", DependsOn: []string{"a"}},
+	}
+	for _, step := range steps {
+		if err := q.CreateWorkflowStep(ctx, step); err != nil {
+			t.Fatalf("CreateWorkflowStep(%s) error = %v", step.StepRef, err)
+		}
+	}
+
+	run := &domain.WorkflowRun{WorkflowID: workflow.ID, ProjectID: workflow.ProjectID}
+	if err := q.CreateWorkflowRun(ctx, run); err != nil {
+		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+
+	stepByRef := map[string]*domain.WorkflowStep{}
+	for _, step := range steps {
+		stepByRef[step.StepRef] = step
+	}
+	seed := []domain.WorkflowStepRun{
+		{WorkflowRunID: run.ID, WorkflowStepID: stepByRef["a"].ID, StepRef: "a", Status: domain.StepRunning, DepsCompleted: 0, DepsRequired: 0},
+		{WorkflowRunID: run.ID, WorkflowStepID: stepByRef["b"].ID, StepRef: "b", Status: domain.StepWaiting, DepsCompleted: 1, DepsRequired: 1},
+		{WorkflowRunID: run.ID, WorkflowStepID: stepByRef["c"].ID, StepRef: "c", Status: domain.StepPending, DepsCompleted: 0, DepsRequired: 0},
+		{WorkflowRunID: run.ID, WorkflowStepID: stepByRef["d"].ID, StepRef: "d", Status: domain.StepWaiting, DepsCompleted: 0, DepsRequired: 1},
+	}
+	for i := range seed {
+		if err := q.CreateWorkflowStepRun(ctx, &seed[i]); err != nil {
+			t.Fatalf("CreateWorkflowStepRun(%s) error = %v", seed[i].StepRef, err)
+		}
+	}
+
+	running, err := q.ListRunningStepRunsByWorkflowRun(ctx, run.ID, 100)
+	if err != nil {
+		t.Fatalf("ListRunningStepRunsByWorkflowRun() error = %v", err)
+	}
+	if len(running) != 1 || running[0].StepRef != "a" {
+		t.Fatalf("running step refs = %+v, want [a]", lo.Map(running, func(sr domain.WorkflowStepRun, _ int) string { return sr.StepRef }))
+	}
+
+	runnable, err := q.ListRunnableStepRunsByWorkflowRun(ctx, run.ID, 100)
+	if err != nil {
+		t.Fatalf("ListRunnableStepRunsByWorkflowRun() error = %v", err)
+	}
+	if len(runnable) != 2 {
+		t.Fatalf("ListRunnableStepRunsByWorkflowRun() len = %d, want 2", len(runnable))
+	}
+	if runnable[0].StepRef != "b" || runnable[1].StepRef != "c" {
+		t.Fatalf("runnable order = [%s,%s], want [b,c]", runnable[0].StepRef, runnable[1].StepRef)
+	}
+
+	statuses, err := q.ListStepRunStatusesByWorkflowRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ListStepRunStatusesByWorkflowRun() error = %v", err)
+	}
+	if len(statuses) != 4 {
+		t.Fatalf("status map len = %d, want 4", len(statuses))
+	}
+	if statuses["a"] != domain.StepRunning || statuses["b"] != domain.StepWaiting || statuses["c"] != domain.StepPending || statuses["d"] != domain.StepWaiting {
+		t.Fatalf("unexpected statuses map: %+v", statuses)
 	}
 }
 
@@ -5014,13 +5102,18 @@ func TestCreateWorkflowVersionSnapshot(t *testing.T) {
 		t.Fatalf("ListStepsByWorkflowVersion(v1) len = %d, want 2", len(steps))
 	}
 
-	// Verify step refs
+	// Verify step refs and that returned IDs map to canonical workflow_steps IDs.
 	refs := make(map[string]bool)
+	idByRef := make(map[string]string, len(steps))
 	for _, s := range steps {
 		refs[s.StepRef] = true
+		idByRef[s.StepRef] = s.ID
 	}
 	if !refs["step-a"] || !refs["step-b"] {
 		t.Fatalf("expected step-a and step-b, got refs: %v", refs)
+	}
+	if idByRef["step-a"] != step1.ID || idByRef["step-b"] != step2.ID {
+		t.Fatalf("unexpected step IDs by ref: got %+v, want step-a=%s step-b=%s", idByRef, step1.ID, step2.ID)
 	}
 
 	// Snapshot nonexistent workflow

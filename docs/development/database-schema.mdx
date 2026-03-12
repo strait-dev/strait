@@ -3,7 +3,7 @@ title: "Database Schema"
 description: "Detailed reference of the PostgreSQL database schema and migration system."
 ---
 
-Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000061_*` series) that run automatically on startup.
+Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000068_*` series) that run automatically on startup.
 
 ## Core Tables
 
@@ -27,10 +27,13 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | Table | Description |
 | :--- | :--- |
 | `workflows` | Workflow DAG definitions (name, slug, project, version) |
-| `workflow_steps` | Step definitions (job reference, dependencies, conditions, failure policy) |
-| `workflow_runs` | Workflow execution instances (status, payload, timestamps) |
-| `workflow_step_runs` | Step execution tracking (status, deps counter, output, error) |
-| `workflow_versions` | Workflow step definition snapshots per version |
+| `workflow_versions` | Immutable workflow snapshots by version number |
+| `workflow_version_steps` | Version-pinned step snapshots used by running workflow runs |
+| `workflow_steps` | Current mutable step definitions (dependencies, conditions, retries, concurrency/resource hints) |
+| `workflow_runs` | Workflow execution instances (status, payload, parent lineage, version pin) |
+| `workflow_step_runs` | Per-step runtime state (status, deps counters, output/error, timing) |
+| `workflow_step_decisions` | Explainability log for scheduler/condition decisions during progression |
+| `workflow_policies` | Project-level DAG governance controls (`max_fan_out`, `max_depth`, forbidden types, approval requirement) |
 | `workflow_run_labels` | Key-value labels on workflow runs |
 | `workflow_step_approvals` | Step approval tracking (approvers, status, timestamps) |
 
@@ -61,13 +64,22 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `job_runs.debug_mode` | `BOOLEAN` | Whether debug diagnostics are enabled for this run |
 | `job_runs.continuation_of` | `TEXT` | FK to parent run for continuation lineage |
 | `job_runs.lineage_depth` | `INT` | Depth in continuation chain |
+| `workflow_steps.concurrency_key` | `TEXT` | Step-level serialization key across runnable steps |
+| `workflow_steps.resource_class` | `TEXT` | Scheduler capacity bucket (`small`, `medium`, `large`) |
+| `workflow_runs.parent_step_run_id` | `TEXT` | FK linking sub-workflow runs back to parent step run |
+| `workflow_step_decisions.decision_type` | `TEXT` | Decision class (`scheduler`, `concurrency`, `resource`, `condition`) |
+| `workflow_step_decisions.details` | `JSONB` | Machine-readable context used by explain endpoint |
+| `workflow_policies.max_fan_out` | `INT` | Per-step direct dependent cap enforced on create/update/trigger |
+| `workflow_policies.max_depth` | `INT` | Maximum DAG depth enforced by policy checks |
 | `project_quotas.max_cost_per_run_microusd` | `BIGINT` | Per-run cost limit in micro-USD |
 | `project_quotas.max_daily_cost_microusd` | `BIGINT` | Daily project cost limit in micro-USD |
 
 ## Relationships
 
 - **Jobs & Runs**: A `job` has many `job_runs`. Each run is linked to a specific `job_version`.
-- **Workflows**: A `workflow` consists of multiple `workflow_steps`. A `workflow_run` spawns multiple `workflow_step_runs`.
+- **Workflows**: A `workflow` has many `workflow_versions`, and each version has many `workflow_version_steps` used to materialize `workflow_step_runs` at trigger time.
+- **Workflow Governance**: `workflow_policies` is one row per project and is enforced at workflow create/update/trigger boundaries.
+- **Workflow Explainability**: `workflow_step_decisions` stores progression decisions per run and powers `/v1/workflow-runs/{id}/explain`.
 - **Environments**: `jobs` and `job_secrets` are linked to `environments` for configuration isolation.
 
 ## Event Trigger Tables
@@ -106,6 +118,14 @@ updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 - `idx_event_triggers_event_key_prefix`: `(event_key text_pattern_ops)` — Prefix matching for batch resolution
 - `idx_event_triggers_step_run`: `(workflow_step_run_id) WHERE workflow_step_run_id IS NOT NULL` — Step-to-trigger lookup
 
+### Performance Indexes
+
+- `idx_workflow_runs_status_expires`: `(status, expires_at) WHERE expires_at IS NOT NULL` -- Reaper timeout lookup
+- `idx_workflow_runs_status_finished`: `(status, finished_at) WHERE finished_at IS NOT NULL` -- Retention deletion
+- `idx_step_runs_workflow_run_status`: `(workflow_run_id, status)` -- Step run queries by run and status
+- `idx_step_decisions_step_run_id`: `(step_run_id)` -- CASCADE deletes on decisions
+- `idx_job_runs_active_by_job`: `(job_id) WHERE status IN ('queued', 'dequeued', 'executing')` -- Active run counting
+
 ### webhook_deliveries Extensions
 
 The `webhook_deliveries` table is shared between job run webhooks and event trigger webhooks:
@@ -123,21 +143,28 @@ We use `golang-migrate` for schema evolution.
 Migrations follow a sequential 6-digit numbering scheme:
 `000001_*.up.sql` through the latest migration in the repository.
 
-### Event Trigger Migration
+### Recent Workflow/DAG Migrations
 
 | Migration | Description |
 | :--- | :--- |
-| `000061_event_trigger_support` | Complete event triggers schema — table, all columns, indexes, webhook delivery extensions. Squashed from 7 development migrations into one production-ready migration. |
+| `000061_event_trigger_support` | Event trigger schema + webhook delivery extensions. |
+| `000062_workflow_parent_step_run_id` | Adds `workflow_runs.parent_step_run_id` + index for sub-workflow lineage. |
+| `000063_workflow_step_concurrency_key` | Adds `concurrency_key` to `workflow_steps` and `workflow_version_steps`. |
+| `000064_workflow_step_decisions` | Adds explainability decision log table + run/step indexes. |
+| `000065_workflow_step_resource_class` | Adds `resource_class` scheduling bucket to workflow step tables. |
+| `000066_workflow_policies` | Adds per-project DAG governance policy table. |
+| `000067_add_performance_indexes` | Adds reaper/poller/step-run indexes for `workflow_runs`, `workflow_step_runs`, and `workflow_step_decisions`. |
+| `000068_dequeue_active_runs_index` | Adds partial index on `job_runs` for active run counting during dequeue. |
 
 <Note>
-The event trigger schema was developed across 7 incremental migrations during development. These were squashed into a single `000061_event_trigger_support` migration before merge to reduce startup time and rollback complexity.
+The event trigger schema was developed across 7 incremental migrations during development. These were squashed into `000061_event_trigger_support` before merge to reduce startup time and rollback complexity.
 </Note>
 
 ### Adding New Migrations
 
 1. Create a new pair of SQL files in the `migrations/` directory using the next sequence number:
-   - `000062_your_feature.up.sql`
-   - `000062_your_feature.down.sql`
+   - `000069_your_feature.up.sql`
+   - `000069_your_feature.down.sql`
 2. Ensure the migration is idempotent.
 3. The application will automatically detect and apply the new migration on the next startup.
 

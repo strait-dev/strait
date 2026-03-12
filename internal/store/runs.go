@@ -1067,7 +1067,8 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND heartbeat_at < NOW() - $1::interval
-		ORDER BY heartbeat_at ASC`, domain.StatusExecuting)
+		ORDER BY heartbeat_at ASC
+		LIMIT 1000`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {
@@ -1101,7 +1102,8 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND scheduled_at <= NOW()
-		ORDER BY scheduled_at ASC`, domain.StatusDelayed)
+		ORDER BY scheduled_at ASC
+		LIMIT 1000`, domain.StatusDelayed)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -1137,7 +1139,8 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 		WHERE status IN ('%s', '%s')
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= NOW()
-		ORDER BY expires_at ASC`, domain.StatusDelayed, domain.StatusQueued)
+		ORDER BY expires_at ASC
+		LIMIT 1000`, domain.StatusDelayed, domain.StatusQueued)
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {
@@ -1216,7 +1219,8 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
 		FROM job_runs
 		WHERE status = '%s' AND started_at < NOW() - $1::interval
-		ORDER BY started_at ASC`, domain.StatusDequeued)
+		ORDER BY started_at ASC
+		LIMIT 1000`, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
 	if err != nil {
@@ -1248,13 +1252,18 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 	longCutoff := time.Now().Add(-longRetention)
 
 	query := `
-		DELETE FROM job_runs
-		WHERE finished_at IS NOT NULL
-		  AND (
-			(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
-			OR
-			(status IN ('timed_out', 'crashed', 'system_failed') AND finished_at <= $2)
-		  )`
+		WITH to_delete AS (
+			SELECT id FROM job_runs
+			WHERE finished_at IS NOT NULL
+			  AND (
+				(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
+				OR
+				(status IN ('timed_out', 'crashed', 'system_failed') AND finished_at <= $2)
+			  )
+			LIMIT 5000
+			FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM job_runs WHERE id IN (SELECT id FROM to_delete)`
 
 	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff)
 	if err != nil {
@@ -1449,4 +1458,133 @@ func marshalTagsForRun(tags map[string]string) []byte {
 	}
 	b, _ := json.Marshal(tags)
 	return b
+}
+
+// CancelJobRunsByWorkflowRun bulk-cancels all non-terminal job runs linked
+// to step runs of the given workflow run.
+func (q *Queries) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelJobRunsByWorkflowRun")
+	defer span.End()
+
+	query := `
+		UPDATE job_runs r
+		SET status = 'canceled',
+		    finished_at = $2,
+		    error = NULLIF($3, '')
+		FROM workflow_step_runs wsr
+		WHERE wsr.job_run_id = r.id
+		  AND wsr.workflow_run_id = $1
+		  AND r.status NOT IN ('completed', 'failed', 'canceled')`
+
+	tag, err := q.db.Exec(ctx, query, workflowRunID, finishedAt, reason)
+	if err != nil {
+		return 0, fmt.Errorf("cancel job runs by workflow run: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (q *Queries) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
+	tag, err := q.db.Exec(ctx,
+		`UPDATE job_runs SET status = 'queued'
+		 WHERE id IN (
+		     SELECT id FROM job_runs
+		     WHERE status = 'delayed'
+		     AND scheduled_at <= NOW()
+		     ORDER BY scheduled_at ASC
+		     LIMIT $1
+		     FOR UPDATE SKIP LOCKED
+		 ) AND status = 'delayed'`,
+		limit)
+	if err != nil {
+		return 0, fmt.Errorf("activate due runs: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// BulkCancelResult holds the per-run outcome of a bulk cancel.
+type BulkCancelResult struct {
+	ID             string
+	PreviousStatus domain.RunStatus
+	Canceled       bool
+	Error          string
+}
+
+func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunsByIDs")
+	defer span.End()
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx,
+		`SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by
+		 FROM job_runs WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get runs by ids: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]*domain.JobRun, len(ids))
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan run: %w", err)
+		}
+		result[run.ID] = run
+	}
+	return result, rows.Err()
+}
+
+func (q *Queries) BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]BulkCancelResult, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCancelRuns")
+	defer span.End()
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx,
+		`UPDATE job_runs
+		 SET status = 'canceled', finished_at = $2, error = $3
+		 WHERE id = ANY($1)
+		   AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
+		 RETURNING id`, ids, finishedAt, reason)
+	if err != nil {
+		return nil, fmt.Errorf("bulk cancel runs: %w", err)
+	}
+	defer rows.Close()
+	canceledSet := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan canceled id: %w", err)
+		}
+		canceledSet[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("bulk cancel rows: %w", err)
+	}
+	results := make([]BulkCancelResult, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := canceledSet[id]; ok {
+			results = append(results, BulkCancelResult{ID: id, Canceled: true})
+		}
+	}
+	return results, nil
+}
+
+func (q *Queries) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelChildRunsByParentIDs")
+	defer span.End()
+	if len(parentIDs) == 0 {
+		return 0, nil
+	}
+	tag, err := q.db.Exec(ctx,
+		`UPDATE job_runs
+		 SET status = 'canceled', finished_at = $2, error = $3
+		 WHERE parent_run_id = ANY($1)
+		   AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')`,
+		parentIDs, finishedAt, reason)
+	if err != nil {
+		return 0, fmt.Errorf("cancel child runs: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

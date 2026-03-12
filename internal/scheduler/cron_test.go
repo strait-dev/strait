@@ -24,7 +24,7 @@ func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, p
 
 func TestNewCronScheduler(t *testing.T) {
 	t.Parallel()
-	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{}, nil)
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, nil)
 	if cs == nil {
 		t.Fatal("expected scheduler to be non-nil")
 	}
@@ -41,7 +41,7 @@ func TestCronScheduler_LoadJobs_Success(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{}, nil)
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -56,7 +56,7 @@ func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{}, nil)
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -72,7 +72,7 @@ func TestCronScheduler_LoadJobs_StoreError(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{}, nil)
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -90,7 +90,7 @@ func TestCronScheduler_LoadJobs_InvalidCron(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{}, nil)
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -108,7 +108,7 @@ func TestCronScheduler_StartStop(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(store, &mockQueue{}, nil)
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
 	if err := cs.LoadJobs(context.Background()); err != nil {
 		t.Fatalf("load jobs failed: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestCronScheduler_TriggerJob(t *testing.T) {
 		},
 	}
 
-	cs := NewCronScheduler(&mockCronStore{}, q, nil)
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, q, nil)
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1"}
 	cs.triggerJob(context.Background(), job)
 
@@ -152,7 +152,7 @@ func TestCronScheduler_TriggerJob_WithTTL(t *testing.T) {
 			return nil
 		},
 	}
-	cs := NewCronScheduler(&mockCronStore{}, mq, nil)
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, mq, nil)
 
 	job := domain.Job{
 		ID:         "job-ttl",
@@ -183,7 +183,7 @@ func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
 			return nil
 		},
 	}
-	cs := NewCronScheduler(&mockCronStore{}, mq, nil)
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, mq, nil)
 
 	job := domain.Job{
 		ID:         "job-no-ttl",
@@ -203,7 +203,7 @@ func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
 func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
 	t.Parallel()
 	triggered := false
-	cs := NewCronScheduler(&mockCronStore{
+	cs := NewCronScheduler(context.Background(), &mockCronStore{
 		countRunningWfRunsFn: func(_ context.Context, workflowID string) (int, error) {
 			if workflowID != "wf-1" {
 				t.Fatalf("workflowID = %q, want wf-1", workflowID)
@@ -227,7 +227,7 @@ func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
 func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
 	t.Parallel()
 	triggered := false
-	cs := NewCronScheduler(&mockCronStore{}, &mockQueue{}, &mockWorkflowTrigger{
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, &mockWorkflowTrigger{
 		triggerWorkflowFn: func(_ context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
 			if workflowID != "wf-1" || projectID != "proj-1" {
 				t.Fatalf("unexpected trigger args: %s %s", workflowID, projectID)
@@ -259,13 +259,13 @@ func FuzzCronExpression(f *testing.F) {
 	f.Add("* * * * * *")
 
 	f.Fuzz(func(t *testing.T, expr string) {
-		cs := NewCronScheduler(nil, nil, nil)
+		cs := NewCronScheduler(context.Background(), nil, nil, nil)
 		_, _ = cs.cron.AddFunc(expr, func() {})
 	})
 }
 
 func BenchmarkCronParse(b *testing.B) {
-	cs := NewCronScheduler(nil, nil, nil)
+	cs := NewCronScheduler(context.Background(), nil, nil, nil)
 	for b.Loop() {
 		_, _ = cs.cron.AddFunc("*/5 * * * *", func() {})
 	}

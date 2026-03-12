@@ -1140,6 +1140,27 @@ paths:
                 items:
                   $ref: '#/components/schemas/JobRun'
 
+  /v1/runs/{runID}/dependency-status:
+    get:
+      tags:
+        - Runs
+      summary: Get dependency status for a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dependency status details
+          content:
+            application/json:
+              schema:
+                type: object
+
   /v1/workflows:
     get:
       tags:
@@ -1486,7 +1507,7 @@ paths:
           schema:
             type: string
       responses:
-        '202':
+        '201':
           description: Workflow run retried
           content:
             application/json:
@@ -2042,6 +2063,24 @@ paths:
               schema:
                 type: object
 
+  /v1/workflows/{workflowID}/plan:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Build topological workflow plan preview
+      responses:
+        '200':
+          description: Plan preview
+          content:
+            application/json:
+              schema:
+                type: object
+
   /v1/workflows/{workflowID}/versions:
     parameters:
       - name: workflowID
@@ -2126,7 +2165,190 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/WorkflowRunLabelsResponse'
+
+  /v1/workflow-runs/{workflowRunID}/graph:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run graph
+      responses:
+        '200':
+          description: Workflow run graph
+          content:
+            application/json:
+              schema:
                 type: object
+
+  /v1/workflow-runs/{workflowRunID}/explain:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: step_ref
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: decision_type
+        in: query
+        required: false
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow step decisions
+      responses:
+        '200':
+          description: Workflow decisions
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stepRef
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [WorkflowRuns]
+      summary: Retry a single workflow step
+      responses:
+        '200':
+          description: Step retried
+
+  /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stepRef
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [WorkflowRuns]
+      summary: Replay a step subtree
+      responses:
+        '200':
+          description: Subtree replayed
+
+  /v1/workflows/{workflowID}/simulate:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Simulate workflow execution
+      responses:
+        '200':
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: fromVersionID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: toVersionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Diff workflow versions
+      responses:
+        '200':
+          description: Workflow version diff
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflows/{workflowID}/versions/{versionID}/impact:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Workflow version impact
+      responses:
+        '200':
+          description: Workflow version impact
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/workflow-policies/{projectID}:
+    parameters:
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow policy
+      responses:
+        '200':
+          description: Workflow policy
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      tags: [Workflows]
+      summary: Upsert workflow policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Workflow policy updated
 
   /v1/stats:
     get:
@@ -2247,7 +2469,6 @@ paths:
       tags:
         - EventTriggers
       summary: List event triggers for a project
-      description: Returns a paginated list of event triggers, optionally filtered by status, workflow run, or source type.
       parameters:
         - name: project_id
           in: query
@@ -2288,45 +2509,16 @@ paths:
       responses:
         '200':
           description: Paginated list of event triggers
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/EventTrigger'
-                  has_more:
-                    type: boolean
 
   /v1/events/stats:
     get:
       tags:
         - EventTriggers
       summary: Get event trigger statistics
-      description: Returns aggregate counts by status and average wait duration for the project.
+      description: Returns aggregate counts by status and average wait duration.
       responses:
         '200':
           description: Event trigger statistics
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  total_count:
-                    type: integer
-                  waiting_count:
-                    type: integer
-                  received_count:
-                    type: integer
-                  timed_out_count:
-                    type: integer
-                  canceled_count:
-                    type: integer
-                  avg_wait_duration_secs:
-                    type: number
-                    format: double
         '400':
           description: No project context
 
@@ -2335,7 +2527,6 @@ paths:
       tags:
         - EventTriggers
       summary: Get event trigger by key
-      description: Returns a single event trigger by its globally unique event key.
       parameters:
         - name: eventKey
           in: path
@@ -2345,10 +2536,6 @@ paths:
       responses:
         '200':
           description: Event trigger details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventTrigger'
         '404':
           description: Event trigger not found
     delete:
@@ -2367,10 +2554,6 @@ paths:
       responses:
         '200':
           description: Event trigger canceled
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventTrigger'
         '403':
           description: Trigger does not belong to project
         '404':
@@ -2383,10 +2566,6 @@ paths:
       tags:
         - EventTriggers
       summary: Stream event trigger status updates via SSE
-      description: |
-        Opens a Server-Sent Events stream for a specific event trigger.
-        Sends the current state immediately, then streams status changes
-        until the trigger reaches a terminal state.
       parameters:
         - name: eventKey
           in: path
@@ -2396,10 +2575,6 @@ paths:
       responses:
         '200':
           description: SSE stream of trigger status updates
-          content:
-            text/event-stream:
-              schema:
-                type: string
         '404':
           description: Event trigger not found
 
@@ -2408,14 +2583,6 @@ paths:
       tags:
         - EventTriggers
       summary: Send an event to a waiting trigger
-      description: |
-        Delivers an event payload to a waiting trigger. The trigger transitions to 'received'
-        and the associated workflow step is completed or job run is re-queued.
-
-        Event keys are globally unique. Recommended patterns:
-        - Workflow steps: `{domain}:{entity_id}` — e.g., `aml-check:app-456`
-        - SDK runs: `{service}:{correlation_id}` — e.g., `payment:order-789`
-        - Per-execution uniqueness: include `{{workflow_run_id}}` in the template
       parameters:
         - name: eventKey
           in: path
@@ -2427,16 +2594,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SendEventRequest'
+              type: object
+              properties:
+                payload:
+                  type: object
+                  nullable: true
       responses:
         '200':
-          description: Event received and trigger updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventTrigger'
+          description: Event received
         '404':
-          description: No waiting trigger found for this key
+          description: No waiting trigger found
         '409':
           description: Trigger already received or timed out
 
@@ -2445,11 +2612,6 @@ paths:
       tags:
         - EventTriggers
       summary: Send an event to all waiting triggers matching a prefix
-      description: |
-        Delivers an event payload to all waiting triggers whose event_key starts
-        with the given prefix. Each matched trigger is resolved individually.
-        Results are scoped to the authenticated project when using API key auth.
-        Returns up to 1000 matching triggers per request.
       parameters:
         - name: prefix
           in: path
@@ -2462,7 +2624,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SendEventRequest'
+              type: object
+              properties:
+                payload:
+                  type: object
+                  nullable: true
       responses:
         '200':
           description: Events resolved
@@ -2473,7 +2639,6 @@ paths:
                 properties:
                   resolved:
                     type: integer
-                    description: Number of triggers resolved
                   triggers:
                     type: array
                     items:
@@ -2552,11 +2717,6 @@ paths:
       tags:
         - SDK
       summary: Pause a run to wait for an external event
-      description: |
-        Transitions the run from executing to waiting and creates an event trigger.
-        When the event is received via POST /v1/events/{eventKey}/send, the run
-        transitions back to queued with checkpoint data and is re-dispatched.
-        Requires the FF_EVENT_TRIGGERS feature flag.
       security:
         - runToken: []
       parameters:
@@ -2570,31 +2730,25 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SDKWaitForEventRequest'
+              type: object
+              required: [event_key]
+              properties:
+                event_key:
+                  type: string
+                timeout_secs:
+                  type: integer
+                  default: 3600
+                notify_url:
+                  type: string
+                  format: uri
+                  description: Optional webhook URL to notify when the event trigger is created.
       responses:
         '200':
           description: Run paused, waiting for event
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: waiting
-                  event_key:
-                    type: string
-                  expires_at:
-                    type: string
-                    format: date-time
-                  trigger_id:
-                    type: string
-        '400':
-          description: Invalid request
         '404':
           description: Feature not enabled or run not found
         '409':
-          description: Run not in executing state or event key conflict
+          description: Run not executing or key conflict
 
   /sdk/v1/runs/{runID}/log:
     post:
@@ -2942,78 +3096,6 @@ components:
       description: JWT run token issued by the trigger response.
 
   schemas:
-    EventTrigger:
-      type: object
-      properties:
-        id:
-          type: string
-        event_key:
-          type: string
-          description: Globally unique event key. Supports template variables from workflow payload.
-        project_id:
-          type: string
-        source_type:
-          type: string
-          enum: [workflow_step, job_run]
-        workflow_run_id:
-          type: string
-          nullable: true
-        workflow_step_run_id:
-          type: string
-          nullable: true
-        job_run_id:
-          type: string
-          nullable: true
-        status:
-          type: string
-          enum: [waiting, received, timed_out, canceled]
-        request_payload:
-          type: object
-          nullable: true
-        response_payload:
-          type: object
-          nullable: true
-        timeout_secs:
-          type: integer
-        requested_at:
-          type: string
-          format: date-time
-        received_at:
-          type: string
-          format: date-time
-          nullable: true
-        expires_at:
-          type: string
-          format: date-time
-        error:
-          type: string
-          nullable: true
-
-    SendEventRequest:
-      type: object
-      properties:
-        payload:
-          type: object
-          nullable: true
-          description: Optional payload to deliver to the waiting trigger.
-
-    SDKWaitForEventRequest:
-      type: object
-      required:
-        - event_key
-      properties:
-        event_key:
-          type: string
-          description: Globally unique key for the event trigger.
-        timeout_secs:
-          type: integer
-          default: 3600
-          description: Timeout in seconds before the trigger expires.
-        notify_url:
-          type: string
-          format: uri
-          description: Optional webhook URL to notify when the event trigger is created.
-
     Job:
       type: object
       properties:
@@ -3338,6 +3420,8 @@ components:
           type: string
         parent_workflow_run_id:
           type: string
+        parent_step_run_id:
+          type: string
         tags:
           type: object
           additionalProperties:
@@ -3360,6 +3444,19 @@ components:
         - failed
         - timed_out
         - canceled
+
+    WorkflowRunLabels:
+      type: object
+      additionalProperties:
+        type: string
+
+    WorkflowRunLabelsResponse:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          $ref: '#/components/schemas/WorkflowRunLabels'
+
 
     WorkflowStepRun:
       type: object
@@ -4283,6 +4380,8 @@ components:
             - job
             - approval
             - sub_workflow
+            - wait_for_event
+            - sleep
         approval_timeout_secs:
           type: integer
         approval_approvers:
@@ -4308,7 +4407,21 @@ components:
           type: string
         max_nesting_depth:
           type: integer
-
+        event_key:
+          type: string
+        event_timeout_secs:
+          type: integer
+        event_notify_url:
+          type: string
+        sleep_duration_secs:
+          type: integer
+        event_emit_key:
+          type: string
+        concurrency_key:
+          type: string
+        resource_class:
+          type: string
+          enum: [small, medium, large]
     TriggerWorkflowRequest:
       type: object
       properties:
@@ -4414,3 +4527,284 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RunOutput'
+
+
+    EventTrigger:
+      type: object
+      properties:
+        id:
+          type: string
+        event_key:
+          type: string
+        project_id:
+          type: string
+        source_type:
+          type: string
+          enum: [workflow_step, job_run]
+        workflow_run_id:
+          type: string
+        workflow_step_run_id:
+          type: string
+        job_run_id:
+          type: string
+        status:
+          type: string
+          enum: [waiting, received, timed_out, canceled]
+        request_payload:
+          type: object
+        response_payload:
+          type: object
+        timeout_secs:
+          type: integer
+        requested_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+        notify_url:
+          type: string
+        notify_status:
+          type: string
+          enum: [pending, sent, failed]
+        trigger_type:
+          type: string
+          enum: [event, sleep]
+        sent_by:
+          type: string
+
+    JobDependency:
+      type: object
+      properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        depends_on_job_id:
+          type: string
+        condition:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    WorkflowRunGraphEdge:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+
+    WorkflowRunGraphNode:
+      type: object
+      properties:
+        step_ref:
+          type: string
+        type:
+          type: string
+          enum: [job, approval, sub_workflow, wait_for_event, sleep]
+        status:
+          $ref: '#/components/schemas/StepRunStatus'
+        depends_on:
+          type: array
+          items:
+            type: string
+        attempt:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+
+    WorkflowRunGraphResponse:
+      type: object
+      properties:
+        workflow_run_id:
+          type: string
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunGraphNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunGraphEdge'
+        roots:
+          type: array
+          items:
+            type: string
+        runnable:
+          type: array
+          items:
+            type: string
+        critical_path:
+          type: array
+          items:
+            type: string
+        critical_path_estimate_ms:
+          type: integer
+          format: int64
+        critical_path_remaining_ms:
+          type: integer
+          format: int64
+
+    WorkflowStepDecision:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_run_id:
+          type: string
+        step_run_id:
+          type: string
+        step_ref:
+          type: string
+        decision_type:
+          type: string
+          enum: [scheduler, concurrency, resource, condition]
+        decision:
+          type: string
+        explanation:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+    WorkflowStepDecisionListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowStepDecision'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    RetryWorkflowStepResponse:
+      type: object
+      properties:
+        step_run:
+          allOf:
+            - $ref: '#/components/schemas/WorkflowStepRun'
+          nullable: true
+
+    ReplayWorkflowSubtreeResponse:
+      type: object
+      properties:
+        reset_steps:
+          type: integer
+
+    WorkflowSimulationResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        predicted_order:
+          type: array
+          items:
+            type: string
+        step_count:
+          type: integer
+
+    WorkflowVersionDiffResponse:
+      type: object
+      properties:
+        from_version_id:
+          type: string
+        to_version_id:
+          type: string
+        added_steps:
+          type: array
+          items:
+            type: string
+        removed_steps:
+          type: array
+          items:
+            type: string
+
+    WorkflowVersionImpactResponse:
+      type: object
+      properties:
+        version_id:
+          type: string
+        matching_runs:
+          type: integer
+        sampled_runs:
+          type: integer
+
+    WorkflowPolicyUpsertRequest:
+      type: object
+      properties:
+        max_fan_out:
+          type: integer
+        max_depth:
+          type: integer
+        forbidden_step_types:
+          type: array
+          items:
+            type: string
+        require_approval_for_deploy:
+          type: boolean
+
+    WorkflowPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        max_fan_out:
+          type: integer
+        max_depth:
+          type: integer
+        forbidden_step_types:
+          type: array
+          items:
+            type: string
+        require_approval_for_deploy:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RunDependencyStatusResponse:
+      type: object
+      properties:
+        run_id:
+          type: string
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/RunStatus'
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobDependency'
+        dependencies_satisfied:
+          type: boolean

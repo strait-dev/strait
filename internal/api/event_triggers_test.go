@@ -361,10 +361,10 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	if !callbackCalled {
 		t.Fatal("expected workflow callback to be called for workflow_step source")
 	}
-	// Step status should NOT be updated directly by the handler —
-	// that's the callback's responsibility (avoids double-update).
-	if stepRunStatusUpdatedDirectly {
-		t.Fatal("step run status should not be updated directly by handler; callback handles it")
+	// With runInTx, both trigger and step status are updated atomically
+	// by the handler (even in pass-through mode without a real TxPool).
+	if !stepRunStatusUpdatedDirectly {
+		t.Fatal("step run status should be updated by handler inside runInTx")
 	}
 }
 
@@ -1575,4 +1575,151 @@ func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "event: status") {
 		t.Fatalf("expected SSE event, got: %s", rr.Body.String())
 	}
+}
+
+func TestHandlePurgeEventTriggers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid request body", func(t *testing.T) {
+		t.Parallel()
+		srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader("{"))
+		req.Header.Set("X-Internal-Secret", "test-secret")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+	})
+
+	t.Run("older_than_days must be >= 1", func(t *testing.T) {
+		t.Parallel()
+		srv := newEventTriggersTestServer(t, &mockAPIStore{}, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":0}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Secret", "test-secret")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+	})
+
+	t.Run("dry run success", func(t *testing.T) {
+		t.Parallel()
+		countCalled := false
+		deleteCalled := false
+		ms := &mockAPIStore{
+			countEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time) (int64, error) {
+				countCalled = true
+				return 7, nil
+			},
+			deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+				deleteCalled = true
+				return 0, nil
+			},
+		}
+		srv := newEventTriggersTestServer(t, ms, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Secret", "test-secret")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+		if !countCalled {
+			t.Fatal("expected count method to be called")
+		}
+		if deleteCalled {
+			t.Fatal("did not expect delete method on dry run")
+		}
+
+		var resp map[string]any
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp["dry_run"] != true {
+			t.Fatalf("dry_run = %v, want true", resp["dry_run"])
+		}
+		if resp["would_delete"] != float64(7) {
+			t.Fatalf("would_delete = %v, want 7", resp["would_delete"])
+		}
+	})
+
+	t.Run("dry run count error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			countEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time) (int64, error) {
+				return 0, errors.New("count failed")
+			},
+		}
+		srv := newEventTriggersTestServer(t, ms, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Secret", "test-secret")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("delete success", func(t *testing.T) {
+		t.Parallel()
+		deleteCalled := false
+		ms := &mockAPIStore{
+			deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, limit int) (int64, error) {
+				deleteCalled = true
+				if limit != 10000 {
+					t.Fatalf("limit = %d, want 10000", limit)
+				}
+				return 11, nil
+			},
+		}
+		srv := newEventTriggersTestServer(t, ms, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Secret", "test-secret")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+		if !deleteCalled {
+			t.Fatal("expected delete method to be called")
+		}
+
+		var resp map[string]any
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp["deleted"] != float64(11) {
+			t.Fatalf("deleted = %v, want 11", resp["deleted"])
+		}
+	})
+
+	t.Run("delete error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+				return 0, errors.New("delete failed")
+			},
+		}
+		srv := newEventTriggersTestServer(t, ms, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Secret", "test-secret")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", w.Code)
+		}
+	})
 }

@@ -40,6 +40,8 @@ type ReaperStore interface {
 	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
+	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
@@ -49,6 +51,7 @@ type WorkflowCallback interface {
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
 	OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string)
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
+	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
 }
 
 // AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
@@ -68,6 +71,7 @@ type Reaper struct {
 	staleThreshold        time.Duration
 	workflowRetention     time.Duration
 	eventTriggerRetention time.Duration
+	stalledThreshold      time.Duration
 	deleteBatchLimit      int
 	advisoryLocker        AdvisoryLocker
 	shortRetention        time.Duration
@@ -76,6 +80,7 @@ type Reaper struct {
 	workflowCallback      WorkflowCallback
 	metrics               *telemetry.Metrics
 	logger                *slog.Logger
+	stalledAction         string
 }
 
 // NewReaper creates a new stale and expired run reaper.
@@ -92,12 +97,14 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		staleThreshold:        staleThreshold,
 		workflowRetention:     defaultWorkflowRetention,
 		eventTriggerRetention: defaultEventTriggerRetention,
+		stalledThreshold:      15 * time.Minute,
 		deleteBatchLimit:      defaultDeleteBatchLimit,
 		shortRetention:        shortRetention,
 		longRetention:         longRetention,
 		retentionEnabled:      retentionEnabled,
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
+		stalledAction:         "log_only",
 	}
 }
 
@@ -132,6 +139,28 @@ func (r *Reaper) WithDeleteBatchSize(n int) *Reaper {
 	return r
 }
 
+func (r *Reaper) WithStalledThreshold(d time.Duration) *Reaper {
+	if d > 0 {
+		r.stalledThreshold = d
+	}
+	return r
+}
+
+func (r *Reaper) WithStalledAction(action string) *Reaper {
+	switch action {
+	case "", "log_only", "reconcile", "fail_workflow":
+		if action == "" {
+			r.stalledAction = "log_only"
+		} else {
+			r.stalledAction = action
+		}
+	default:
+		r.logger.Warn("invalid stalled action, using log_only", "action", action)
+		r.stalledAction = "log_only"
+	}
+	return r
+}
+
 // WithAdvisoryLocker enables distributed single-leader reaping using pg_try_advisory_lock.
 func (r *Reaper) WithAdvisoryLocker(locker AdvisoryLocker) *Reaper {
 	r.advisoryLocker = locker
@@ -157,6 +186,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapExpiredApprovals(ctx)
 	r.reapExpiredEventTriggers(ctx)
 	r.reapInconsistentEventTriggers(ctx)
+	r.reapStalledWorkflows(ctx)
 	r.reapOldWorkflowRuns(ctx)
 	r.reapOldEventTriggers(ctx)
 }
@@ -188,6 +218,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapExpiredApprovals(loopCtx)
 		r.reapExpiredEventTriggers(loopCtx)
 		r.reapInconsistentEventTriggers(loopCtx)
+		r.reapStalledWorkflows(loopCtx)
 		r.reapOldWorkflowRuns(loopCtx)
 		r.reapOldEventTriggers(loopCtx)
 		if r.retentionEnabled {
@@ -270,53 +301,23 @@ func (r *Reaper) reapTimedOutWorkflows(ctx context.Context) {
 	}
 
 	for _, wfRun := range runs {
+		now := time.Now()
 		if err := r.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusTimedOut, map[string]any{
-			"finished_at": time.Now(),
+			"finished_at": now,
 			"error":       "workflow timed out",
 		}); err != nil {
 			slog.Error("failed to fail timed out workflow run", "workflow_run_id", wfRun.ID, "error", err)
 			continue
 		}
 
-		stepRuns, listErr := r.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 10000, nil)
-		if listErr != nil {
-			slog.Error("failed to list workflow step runs for timed out workflow", "workflow_run_id", wfRun.ID, "error", listErr)
-			continue
+		if _, err := r.store.CancelNonTerminalStepRuns(ctx, wfRun.ID, now, "workflow timed out"); err != nil {
+			slog.Error("failed to cancel step runs for timed out workflow", "workflow_run_id", wfRun.ID, "error", err)
 		}
 
-		now := time.Now()
-		for _, stepRun := range stepRuns {
-			if !stepRun.Status.IsTerminal() {
-				if err := r.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCanceled, map[string]any{
-					"finished_at": now,
-					"error":       "workflow timed out",
-				}); err != nil {
-					slog.Error("failed to cancel timed out workflow step run", "step_run_id", stepRun.ID, "error", err)
-				}
-			}
-
-			if stepRun.JobRunID == "" {
-				continue
-			}
-
-			jobRun, getErr := r.store.GetRun(ctx, stepRun.JobRunID)
-			if getErr != nil {
-				slog.Error("failed to get job run for timed out workflow", "job_run_id", stepRun.JobRunID, "error", getErr)
-				continue
-			}
-			if jobRun == nil || jobRun.Status.IsTerminal() {
-				continue
-			}
-
-			if err := r.store.UpdateRunStatus(ctx, jobRun.ID, jobRun.Status, domain.StatusCanceled, map[string]any{
-				"finished_at": now,
-				"error":       "workflow timed out",
-			}); err != nil {
-				slog.Error("failed to cancel job run for timed out workflow", "job_run_id", jobRun.ID, "error", err)
-			}
+		if _, err := r.store.CancelJobRunsByWorkflowRun(ctx, wfRun.ID, now, "workflow timed out"); err != nil {
+			slog.Error("failed to cancel job runs for timed out workflow", "workflow_run_id", wfRun.ID, "error", err)
 		}
 
-		// Cancel any pending event triggers for this workflow.
 		if _, cancelErr := r.store.CancelEventTriggersByWorkflowRun(ctx, wfRun.ID); cancelErr != nil {
 			slog.Error("failed to cancel event triggers for timed out workflow", "workflow_run_id", wfRun.ID, "error", cancelErr)
 		}
@@ -494,6 +495,48 @@ func (r *Reaper) reapInconsistentEventTriggers(ctx context.Context) {
 				slog.Error("failed to reconcile event trigger job run", "trigger_id", trigger.ID, "job_run_id", trigger.JobRunID, "error", err)
 			} else {
 				slog.Info("reconciled inconsistent event trigger", "trigger_id", trigger.ID, "source_type", trigger.SourceType)
+			}
+		}
+	}
+}
+
+func (r *Reaper) reapStalledWorkflows(ctx context.Context) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapStalledWorkflows")
+	defer span.End()
+
+	type stalledLister interface {
+		ListStalledWorkflowRuns(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error)
+	}
+	lister, ok := r.store.(stalledLister)
+	if !ok {
+		return
+	}
+
+	runs, err := lister.ListStalledWorkflowRuns(ctx, r.stalledThreshold)
+	if err != nil {
+		slog.Error("failed to list stalled workflow runs", "error", err)
+		return
+	}
+	for _, run := range runs {
+		slog.Warn("detected stalled workflow run", "workflow_run_id", run.ID, "workflow_id", run.WorkflowID, "started_at", run.StartedAt, "action", r.stalledAction)
+		if r.metrics != nil {
+			r.metrics.WorkflowStalledRuns.Add(ctx, 1)
+		}
+		switch r.stalledAction {
+		case "fail_workflow":
+			now := time.Now()
+			if err := r.store.UpdateWorkflowRunStatus(ctx, run.ID, run.Status, domain.WfStatusFailed, map[string]any{"finished_at": now, "error": "failed by stalled workflow recovery policy"}); err != nil {
+				slog.Error("failed to fail stalled workflow run", "workflow_run_id", run.ID, "error", err)
+			}
+		case "reconcile":
+			if r.workflowCallback == nil {
+				slog.Warn("stalled workflow reconcile requested without callback", "workflow_run_id", run.ID)
+				continue
+			}
+			if err := r.workflowCallback.ResumeWorkflowRun(ctx, run.ID); err != nil {
+				slog.Error("failed to reconcile stalled workflow run", "workflow_run_id", run.ID, "error", err)
+			} else {
+				slog.Info("reconciled stalled workflow run", "workflow_run_id", run.ID)
 			}
 		}
 	}
