@@ -180,6 +180,10 @@ func (s *Server) routes() chi.Router {
 
 		r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/stats", s.handleStats)
 
+		r.Route("/analytics", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/performance", s.handleGetPerformanceAnalytics)
+		})
+
 		r.Route("/roles", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(20, time.Minute)).Post("/", s.handleCreateRole)
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListRoles)

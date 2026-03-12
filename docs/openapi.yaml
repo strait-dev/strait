@@ -26,6 +26,8 @@ tags:
     description: Project-level API key management
   - name: Stats
     description: Queue and system statistics
+  - name: Analytics
+    description: Performance analytics insights
   - name: Secrets
     description: Job and environment secret management
   - name: EventTriggers
@@ -2231,6 +2233,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/QueueStats'
 
+  /v1/analytics/performance:
+    get:
+      tags:
+        - Analytics
+      summary: Performance analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period_hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+          description: Time window in hours (1-720)
+      responses:
+        '200':
+          description: Performance analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PerformanceAnalytics'
+
   /v1/webhook-deliveries:
     get:
       tags:
@@ -4267,6 +4291,53 @@ components:
           type: integer
         delayed:
           type: integer
+
+    PerformanceAnalytics:
+      type: object
+      properties:
+        slowest_jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              job_id:
+                type: string
+              job_slug:
+                type: string
+              avg_duration_secs:
+                type: number
+              p95_duration_secs:
+                type: number
+              total_runs:
+                type: integer
+              failed_runs:
+                type: integer
+        throughput:
+          type: object
+          properties:
+            completed:
+              type: integer
+            failed:
+              type: integer
+            timed_out:
+              type: integer
+            canceled:
+              type: integer
+            period_hours:
+              type: integer
+        health_summary:
+          type: object
+          properties:
+            total_jobs:
+              type: integer
+            active_jobs:
+              type: integer
+            success_rate:
+              type: number
+            avg_duration_secs:
+              type: number
+            queue_depth:
+              type: integer
 
     ErrorResponse:
       type: object

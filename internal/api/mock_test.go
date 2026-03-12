@@ -80,6 +80,7 @@ type mockAPIStore struct {
 	updateHeartbeatFn                   func(ctx context.Context, id string) error
 	batchUpdateHeartbeatFn              func(ctx context.Context, ids []string) error
 	queueStatsFn                        func(ctx context.Context) (*store.QueueStats, error)
+	getPerformanceAnalyticsFn           func(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	createWorkflowFn                    func(ctx context.Context, w *domain.Workflow) error
 	getWorkflowFn                       func(ctx context.Context, id string) (*domain.Workflow, error)
 	getWorkflowBySlugFn                 func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
@@ -620,6 +621,13 @@ func (m *mockAPIStore) QueueStats(ctx context.Context) (*store.QueueStats, error
 		return m.queueStatsFn(ctx)
 	}
 	return &store.QueueStats{}, nil
+}
+
+func (m *mockAPIStore) GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error) {
+	if m.getPerformanceAnalyticsFn != nil {
+		return m.getPerformanceAnalyticsFn(ctx, projectID, periodHours)
+	}
+	return &store.PerformanceAnalytics{}, nil
 }
 
 func (m *mockAPIStore) CreateWorkflow(ctx context.Context, w *domain.Workflow) error {
