@@ -27,6 +27,7 @@ type WorkflowEngine struct {
 	logger          *slog.Logger
 	maxNestingDepth int
 	onTriggerCreate EventTriggerNotifyFunc
+	runInTx         func(ctx context.Context, fn func(s EngineStore) error) error
 }
 
 type EngineStore interface {
@@ -55,17 +56,28 @@ func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger
 		logger = slog.Default()
 	}
 
-	return &WorkflowEngine{
+	e := &WorkflowEngine{
 		store:           store,
 		queue:           queue,
 		logger:          logger,
 		maxNestingDepth: DefaultMaxNestingDepth,
 	}
+	e.runInTx = func(_ context.Context, fn func(s EngineStore) error) error {
+		return fn(e.store)
+	}
+	return e
 }
 
 // WithOnTriggerCreate sets a callback invoked after each event trigger is created.
 func (e *WorkflowEngine) WithOnTriggerCreate(fn EventTriggerNotifyFunc) *WorkflowEngine {
 	e.onTriggerCreate = fn
+	return e
+}
+
+// WithRunInTx overrides the default pass-through transaction runner.
+// The provided function must call fn with a transactional EngineStore.
+func (e *WorkflowEngine) WithRunInTx(fn func(ctx context.Context, fn func(s EngineStore) error) error) *WorkflowEngine {
+	e.runInTx = fn
 	return e
 }
 
