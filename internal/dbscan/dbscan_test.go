@@ -162,6 +162,11 @@ func TestScanRun_AllFields(t *testing.T) {
 	parentRunID := "parent-001"
 	idempotencyKey := "idem-abc"
 	workflowStepRunID := "step-run-001"
+	continuationOf := "cont-001"
+	jobVersionID := "jv-001"
+	createdBy := "user-1"
+	batchID := "batch-001"
+	concurrencyKey := "key-001"
 	metadata := []byte(`{"env":"prod","region":"eu"}`)
 
 	s := &mockScanner{
@@ -188,6 +193,15 @@ func TestScanRun_AllFields(t *testing.T) {
 			3,                  // JobVersion
 			now,                // CreatedAt
 			&workflowStepRunID, // WorkflowStepRunID
+			[]byte(`{"queue_wait_ms":10,"total_ms":500}`), // ExecutionTrace
+			true,                     // DebugMode
+			&continuationOf,          // ContinuationOf
+			2,                        // LineageDepth
+			[]byte(`{"env":"prod"}`), // Tags
+			&jobVersionID,            // JobVersionID
+			&createdBy,               // CreatedBy
+			&batchID,                 // BatchID
+			&concurrencyKey,          // ConcurrencyKey
 		},
 	}
 
@@ -250,6 +264,33 @@ func TestScanRun_AllFields(t *testing.T) {
 	if run.FinishedAt != nil {
 		t.Errorf("FinishedAt = %v, want nil", run.FinishedAt)
 	}
+	if run.DebugMode != true {
+		t.Errorf("DebugMode = %v, want true", run.DebugMode)
+	}
+	if run.ContinuationOf != "cont-001" {
+		t.Errorf("ContinuationOf = %q, want %q", run.ContinuationOf, "cont-001")
+	}
+	if run.LineageDepth != 2 {
+		t.Errorf("LineageDepth = %d, want %d", run.LineageDepth, 2)
+	}
+	if run.Tags["env"] != "prod" {
+		t.Errorf("Tags = %v, want env=prod", run.Tags)
+	}
+	if run.JobVersionID != "jv-001" {
+		t.Errorf("JobVersionID = %q, want %q", run.JobVersionID, "jv-001")
+	}
+	if run.CreatedBy != "user-1" {
+		t.Errorf("CreatedBy = %q, want %q", run.CreatedBy, "user-1")
+	}
+	if run.BatchID != "batch-001" {
+		t.Errorf("BatchID = %q, want %q", run.BatchID, "batch-001")
+	}
+	if run.ConcurrencyKey != "key-001" {
+		t.Errorf("ConcurrencyKey = %q, want %q", run.ConcurrencyKey, "key-001")
+	}
+	if run.ExecutionTrace == nil {
+		t.Error("ExecutionTrace is nil, want non-nil")
+	}
 }
 
 func TestScanRun_NilOptionals(t *testing.T) {
@@ -280,6 +321,15 @@ func TestScanRun_NilOptionals(t *testing.T) {
 			0,                 // JobVersion
 			now,               // CreatedAt
 			(*string)(nil),    // WorkflowStepRunID
+			nil,               // ExecutionTrace
+			false,             // DebugMode
+			(*string)(nil),    // ContinuationOf
+			0,                 // LineageDepth
+			nil,               // Tags
+			(*string)(nil),    // JobVersionID
+			(*string)(nil),    // CreatedBy
+			(*string)(nil),    // BatchID
+			(*string)(nil),    // ConcurrencyKey
 		},
 	}
 
@@ -314,5 +364,32 @@ func TestScanRun_NilOptionals(t *testing.T) {
 	}
 	if run.FinishedAt != nil {
 		t.Errorf("FinishedAt = %v, want nil", run.FinishedAt)
+	}
+	if run.DebugMode != false {
+		t.Errorf("DebugMode = %v, want false", run.DebugMode)
+	}
+	if run.ContinuationOf != "" {
+		t.Errorf("ContinuationOf = %q, want empty", run.ContinuationOf)
+	}
+	if run.LineageDepth != 0 {
+		t.Errorf("LineageDepth = %d, want 0", run.LineageDepth)
+	}
+	if len(run.Tags) != 0 {
+		t.Errorf("Tags = %v, want empty", run.Tags)
+	}
+	if run.JobVersionID != "" {
+		t.Errorf("JobVersionID = %q, want empty", run.JobVersionID)
+	}
+	if run.CreatedBy != "" {
+		t.Errorf("CreatedBy = %q, want empty", run.CreatedBy)
+	}
+	if run.BatchID != "" {
+		t.Errorf("BatchID = %q, want empty", run.BatchID)
+	}
+	if run.ConcurrencyKey != "" {
+		t.Errorf("ConcurrencyKey = %q, want empty", run.ConcurrencyKey)
+	}
+	if run.ExecutionTrace != nil {
+		t.Errorf("ExecutionTrace = %v, want nil", run.ExecutionTrace)
 	}
 }
