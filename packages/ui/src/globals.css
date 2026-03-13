@@ -119,7 +119,6 @@
 
 @theme inline {
   --font-sans: var(--font-sans);
-  --font-display: "Clash Grotesk", system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -183,6 +182,10 @@
   h2 {
     font-family: "Clash Grotesk", system-ui, sans-serif;
   }
+}
+
+@utility font-heading {
+  font-family: "Clash Grotesk", system-ui, sans-serif;
 }
 
 .scrollbar-hide::-webkit-scrollbar {

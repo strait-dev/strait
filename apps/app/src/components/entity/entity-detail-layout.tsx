@@ -169,7 +169,7 @@ export const EntityDetailLayout = ({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <h1 className="font-display text-2xl text-secondary-foreground tracking-tight">
+            <h1 className="font-heading text-2xl text-secondary-foreground tracking-tight">
               {title}
             </h1>
             {status ? (
@@ -328,7 +328,7 @@ const EntityDetailError = ({ error, backHref }: EntityDetailErrorProps) => {
     <div className="w-full">
       <div className="flex flex-col items-center justify-center py-12">
         <div className="space-y-4 text-center">
-          <h2 className="font-display font-semibold text-lg text-secondary-foreground">
+          <h2 className="font-heading font-semibold text-lg text-secondary-foreground">
             Error loading data
           </h2>
           <p className="max-w-md text-muted-foreground text-sm">
