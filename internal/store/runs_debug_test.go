@@ -59,7 +59,7 @@ func TestGetDebugBundle(t *testing.T) {
 			t.Fatalf("unexpected queryRow SQL: %s", sql)
 		}
 		return &mockRow{scanFn: func(dest ...any) error {
-			if len(dest) != 29 {
+			if len(dest) != 31 {
 				t.Fatalf("unexpected scan dest count: %d", len(dest))
 			}
 			*dest[0].(*string) = "run-1"
@@ -76,7 +76,7 @@ func TestGetDebugBundle(t *testing.T) {
 			*dest[20].(*time.Time) = now
 			*dest[23].(*bool) = true
 			*dest[25].(*int) = 0
-			// dest[26] = tags ([]byte), dest[27] = job_version_id (*string), dest[28] = created_by (*string)
+			// dest[26] = tags ([]byte), dest[27] = job_version_id (*string), dest[28] = created_by (*string), dest[29] = batch_id (*string), dest[30] = concurrency_key (*string)
 			return nil
 		}}
 	}
