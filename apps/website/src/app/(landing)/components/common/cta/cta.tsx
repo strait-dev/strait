@@ -3,6 +3,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
+import Shell from "@/components/layout/shell.tsx";
+
 import { dashboardHref } from "@/lib/urls.ts";
 
 const CTA = () => {
@@ -19,45 +21,36 @@ const CTA = () => {
   return (
     <section
       aria-labelledby={headingId}
-      className="relative border-border/40 border-y bg-muted py-20 sm:py-28"
+      className="relative border-border/40 border-y bg-primary py-20 sm:py-28"
     >
       <div className="orchestration-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
       <div className="showcase-dots pointer-events-none absolute inset-0 opacity-15" />
-      <div
-        className="pointer-events-none absolute inset-0 opacity-10"
-        style={{
-          background:
-            "radial-gradient(circle at 50% 40%, oklch(1 0 0 / 0.08), transparent 60%)",
-        }}
-      />
 
-      <div className="relative z-10 mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <Shell className="relative z-10" variant="wide">
         <div className="flex flex-col items-center text-center">
           <h2
-            className="max-w-3xl font-bold text-3xl text-foreground leading-[1.1] tracking-tighter sm:text-4xl lg:text-5xl"
+            className="max-w-3xl font-bold text-2xl text-primary-foreground leading-[1.1] tracking-tighter sm:text-3xl lg:text-4xl"
             id={headingId}
           >
             {title}
           </h2>
 
-          <p className="mt-6 max-w-2xl text-base text-muted-foreground leading-relaxed sm:text-lg">
+          <p className="mt-6 max-w-2xl text-base text-primary-foreground/70 leading-relaxed sm:text-lg">
             {description}
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-4">
             <Button
-              className="border border-foreground/10 bg-muted text-foreground transition-colors duration-300 hover:bg-muted/80"
               render={<Link href={dashboardHref(buttonHref)} />}
-              size="lg"
               variant="outline"
             >
               {buttonText}
               <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
             </Button>
-            <p className="text-muted-foreground text-sm">{subtext}</p>
+            <p className="text-primary-foreground/50 text-sm">{subtext}</p>
           </div>
         </div>
-      </div>
+      </Shell>
     </section>
   );
 };

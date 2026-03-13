@@ -22,7 +22,7 @@ const PricingHero = () => {
         <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
           <span className="kicker">{badge}</span>
 
-          <h1 className="mt-4 text-balance font-semibold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
+          <h1 className="mt-4 text-balance font-bold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
             {title}
           </h1>
 
@@ -34,7 +34,6 @@ const PricingHero = () => {
             <Button
               className="w-full sm:w-auto"
               render={<Link href={dashboardHref(ctaHref)} />}
-              size="lg"
             >
               {ctaText}
               <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
@@ -42,7 +41,6 @@ const PricingHero = () => {
             <Button
               className="w-full sm:w-auto"
               render={<Link href={secondaryCtaHref} />}
-              size="lg"
               variant="outline"
             >
               {secondaryCtaText}

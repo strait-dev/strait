@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import Shell from "@/components/layout/shell.tsx";
 
 const ChatVisual = () => (
   <div className="flex h-full flex-col justify-center gap-3 px-6 py-8">
@@ -220,7 +221,7 @@ const WhyStrait = () => {
 
   return (
     <section className="py-20 sm:py-28" ref={sectionRef}>
-      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
             <span className="font-bold text-foreground">
@@ -260,7 +261,7 @@ const WhyStrait = () => {
             </div>
           ))}
         </div>
-      </div>
+      </Shell>
     </section>
   );
 };

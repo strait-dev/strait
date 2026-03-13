@@ -39,7 +39,7 @@ export default function PricingPage() {
   const faqSchema = getFAQPageSchema(PRICING_FAQ_ITEMS);
 
   return (
-    <main className="pt-32">
+    <main className="pt-32 sm:pt-40">
       <JsonLd data={softwareAppSchema} />
       <JsonLdMultiple data={pricingProductsSchema} />
       {faqSchema ? <JsonLd data={faqSchema} /> : null}

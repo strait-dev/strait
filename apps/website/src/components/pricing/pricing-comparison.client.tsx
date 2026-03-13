@@ -65,7 +65,7 @@ const PricingComparisonClient = ({
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
           <span className="kicker">{header.badge}</span>
           <h2
-            className="text-balance font-semibold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl"
+            className="text-balance font-semibold text-2xl text-foreground tracking-tight sm:text-3xl lg:text-4xl"
             id={headingId}
           >
             {header.title}
@@ -181,7 +181,6 @@ const PricingComparisonClient = ({
                         render={
                           <Link aria-describedby={plan.key} href={href} />
                         }
-                        size="lg"
                         variant={plan.highlight ? "default" : "outline"}
                       >
                         Get started
@@ -290,7 +289,6 @@ const PricingComparisonClient = ({
                                   )}
                                 />
                               }
-                              size="default"
                               variant={plan.highlight ? "default" : "outline"}
                             >
                               Get started

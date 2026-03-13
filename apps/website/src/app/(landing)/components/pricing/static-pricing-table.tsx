@@ -169,7 +169,6 @@ export function StaticPricingTable() {
                 <Button
                   className={cn("w-full", "transition-all duration-300")}
                   render={<Link href={dashboardHref("/login")} />}
-                  size="lg"
                   variant={plan.popular ? "default" : "outline"}
                 >
                   {plan.cta}

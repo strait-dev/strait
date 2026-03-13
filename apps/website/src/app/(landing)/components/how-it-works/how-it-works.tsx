@@ -7,6 +7,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
+import Shell from "@/components/layout/shell.tsx";
 
 import { dashboardHref } from "@/lib/urls.ts";
 
@@ -198,7 +199,7 @@ const HowItWorks = () => {
       className="py-20 sm:py-28"
       id="how-it-works"
     >
-      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2
             className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl"
@@ -266,17 +267,13 @@ const HowItWorks = () => {
           })}
         </div>
 
-        <div className="mt-12 flex justify-start">
-          <Button
-            className="bg-primary text-primary-foreground transition-all duration-300 hover:bg-primary/90"
-            render={<Link href={dashboardHref(ctaHref)} />}
-            size="lg"
-          >
+        <div className="mt-10 flex justify-center">
+          <Button render={<Link href={dashboardHref(ctaHref)} />}>
             {ctaText}
             <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
           </Button>
         </div>
-      </div>
+      </Shell>
     </section>
   );
 };

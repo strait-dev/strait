@@ -40,7 +40,7 @@ const PageHero = ({
 
       <Shell variant="wide">
         <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
-          <h1 className="mt-6 text-balance font-semibold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
+          <h1 className="mt-6 text-balance font-bold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
             {title}{" "}
             {highlightedTitle ? (
               <span className="mt-2 block text-foreground sm:mt-0 sm:inline sm:whitespace-nowrap">
@@ -58,17 +58,15 @@ const PageHero = ({
               <Button
                 className="w-full shadow-sm transition-shadow duration-300 hover:shadow-md sm:w-auto"
                 render={<Link href={primaryCTA.href} />}
-                size="lg"
               >
                 {primaryCTA.text}
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               {secondaryCTA ? (
                 <Button
-                  className="w-full border border-border/60 bg-background/70 backdrop-blur-sm sm:w-auto"
+                  className="w-full backdrop-blur-sm sm:w-auto"
                   render={<Link href={secondaryCTA.href} />}
-                  size="lg"
-                  variant="ghost"
+                  variant="outline"
                 >
                   {secondaryCTA.text}
                   <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />

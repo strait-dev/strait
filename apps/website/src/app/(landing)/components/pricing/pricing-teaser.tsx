@@ -3,41 +3,24 @@ import {
   CheckmarkCircle02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { PLANS as BILLING_PLANS, formatPrice } from "@strait/billing/products";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
 import Shell from "@/components/layout/shell.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
-const PLANS = [
+const TEASER_PLANS = [
   {
-    name: "Starter",
-    price: "$24",
-    period: "/mo billed yearly",
-    description: "For teams getting their first production workflows live",
-    features: [
-      "Postgres-backed queue",
-      "Job retries and timeout policies",
-      "Basic workflow orchestration",
-      "API + CLI access",
-      "Email support",
-    ],
-    cta: { label: "Start with Starter", href: "/login" },
+    key: "personal" as const,
+    ...BILLING_PLANS.personal,
+    cta: { label: `Start ${BILLING_PLANS.personal.name}`, href: "/login" },
     highlighted: false,
   },
   {
-    name: "Pro",
-    price: "$40",
-    period: "/mo billed yearly",
-    description: "For teams running mission-critical operations every day",
-    features: [
-      "Advanced DAG orchestration",
-      "Approval gates and sub-workflows",
-      "Run usage and cost budgets",
-      "Debug bundles and replay controls",
-      "Priority support",
-    ],
-    cta: { label: "Go Pro", href: "/login" },
+    key: "pro" as const,
+    ...BILLING_PLANS.pro,
+    cta: { label: `Go ${BILLING_PLANS.pro.name}`, href: "/login" },
     highlighted: true,
   },
 ];
@@ -69,7 +52,7 @@ const PricingTeaser = () => (
       </div>
 
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2 lg:gap-8">
-        {PLANS.map((plan) => (
+        {TEASER_PLANS.map((plan) => (
           <div
             className={`relative flex flex-col overflow-hidden rounded-2xl border ${
               plan.highlighted
@@ -79,7 +62,7 @@ const PricingTeaser = () => (
             key={plan.name}
           >
             {plan.highlighted ? (
-              <div className="relative bg-primary px-6 py-6 sm:px-8">
+              <div className="relative bg-primary px-6 py-8 sm:px-8">
                 <div className="showcase-dots pointer-events-none absolute inset-0" />
                 <div
                   className="pointer-events-none absolute inset-0 opacity-30"
@@ -111,17 +94,17 @@ const PricingTeaser = () => (
               </div>
             )}
 
-            <div className="flex flex-1 flex-col px-6 pb-6 sm:px-8 sm:pb-8">
-              <div className="mt-6 mb-6">
-                <span className="font-bold text-4xl text-foreground tabular-nums tracking-tight">
-                  {plan.price}
+            <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
+              <div className="mt-8 mb-8">
+                <span className="font-bold text-5xl text-foreground tabular-nums tracking-tight">
+                  {formatPrice(plan.prices.yearly)}
                 </span>
                 <span className="ml-1 text-muted-foreground text-sm">
-                  {plan.period}
+                  /mo billed yearly
                 </span>
               </div>
 
-              <ul className="mb-8 flex-1 space-y-2.5">
+              <ul className="mb-10 flex-1 space-y-3.5">
                 {plan.features.map((feature) => (
                   <li
                     className="flex items-start gap-2.5 text-sm"
@@ -139,13 +122,7 @@ const PricingTeaser = () => (
               </ul>
 
               <Button
-                className={
-                  plan.highlighted
-                    ? "bg-primary text-primary-foreground transition-all duration-300 hover:bg-primary/90"
-                    : ""
-                }
                 render={<Link href={dashboardHref(plan.cta.href)} />}
-                size="lg"
                 variant={plan.highlighted ? "default" : "outline"}
               >
                 {plan.cta.label}

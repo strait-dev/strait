@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
 import { GeistSans } from "geist/font/sans";
 
@@ -28,13 +29,9 @@ const GlobalError = ({
           We hit an unexpected issue. Please try again, and if the problem
           persists, reach out to our support team.
         </p>
-        <button
-          className="mt-8 inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 font-medium text-primary-foreground text-sm shadow-sm transition-colors hover:bg-primary/90"
-          onClick={() => reset()}
-          type="button"
-        >
+        <Button className="mt-8" onClick={() => reset()} type="button">
           Try again
-        </button>
+        </Button>
       </div>
     </body>
   </html>

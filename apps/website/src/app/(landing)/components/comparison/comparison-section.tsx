@@ -129,11 +129,7 @@ const ComparisonSection = () => {
         </div>
 
         <div className="mt-10 flex justify-center">
-          <Button
-            className="bg-primary text-primary-foreground transition-all duration-300 hover:bg-primary/90"
-            render={<Link href={dashboardHref("/login")} />}
-            size="lg"
-          >
+          <Button render={<Link href={dashboardHref("/login")} />}>
             See Strait in action
             <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
           </Button>

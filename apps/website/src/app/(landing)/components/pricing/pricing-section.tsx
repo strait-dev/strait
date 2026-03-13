@@ -7,12 +7,10 @@ export function PricingSection() {
       <Shell variant="default">
         <div className="mx-auto w-full max-w-2xl">
           <div className="flex flex-col gap-4">
-            <span className="font-semibold text-[0.7rem] text-primary/80 uppercase tracking-[0.35em] sm:text-xs">
-              PRICING
-            </span>
+            <span className="kicker">PRICING</span>
 
             <div className="space-y-3">
-              <h2 className="text-balance font-semibold text-3xl text-foreground tracking-tight sm:text-4xl lg:text-5xl">
+              <h2 className="text-balance font-semibold text-2xl text-foreground tracking-tight sm:text-3xl lg:text-4xl">
                 Choose the plan that fits your needs
               </h2>
               <p className="text-muted-foreground text-sm leading-relaxed sm:text-base">

@@ -4,17 +4,11 @@ import { Button } from "@strait/ui/components/button";
 import Image from "next/image";
 import Link from "next/link";
 import { memo } from "react";
-
+import Shell from "@/components/layout/shell.tsx";
 import { siteConfig } from "@/config/site.ts";
 import { dashboardHref } from "@/lib/urls.ts";
 import MobileNav from "./header-mobile-nav.tsx";
-
-const NAV_LINKS = [
-  { label: "Features", href: "/#features" },
-  { label: "How it works", href: "/#how-it-works" },
-  { label: "Pricing", href: "/pricing" },
-  { label: "Blog", href: "/blog" },
-] as const;
+import { NAV_LINKS } from "./nav-links.ts";
 
 const Logo = memo(() => (
   <Link className="flex items-center space-x-2" href="/">
@@ -33,7 +27,7 @@ Logo.displayName = "Logo";
 const Header = () => {
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-border/40 border-b bg-background/5 backdrop-blur-md">
-      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <Shell variant="wide">
         <nav className="py-3">
           <div className="flex h-12 items-center justify-between">
             <Logo />
@@ -41,7 +35,6 @@ const Header = () => {
             <div className="hidden items-center gap-6 md:flex">
               {NAV_LINKS.map((link) => (
                 <Button
-                  className="text-muted-foreground hover:text-foreground"
                   key={link.label}
                   render={<Link href={link.href} />}
                   size="default"
@@ -54,7 +47,6 @@ const Header = () => {
 
             <div className="hidden items-center gap-3 md:flex">
               <Button
-                className="text-muted-foreground hover:text-foreground"
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
                 variant="ghost"
@@ -62,9 +54,10 @@ const Header = () => {
                 Sign in
               </Button>
               <Button
-                className="gradient-warm text-primary-foreground shadow-sm transition-shadow duration-300 hover:shadow-md"
+                className="transition-shadow duration-300"
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
+                variant="gradient"
               >
                 Run your first job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
@@ -74,7 +67,7 @@ const Header = () => {
             <MobileNav />
           </div>
         </nav>
-      </div>
+      </Shell>
     </header>
   );
 };

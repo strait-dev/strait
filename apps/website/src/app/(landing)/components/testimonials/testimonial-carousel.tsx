@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
 import Image from "next/image";
 import { useCallback, useState } from "react";
@@ -140,12 +141,13 @@ const TestimonialCarousel = ({ testimonials }: TestimonialCarouselProps) => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
+          <Button
             aria-label="Previous testimonial"
-            className="flex size-11 items-center justify-center rounded-full border border-border/50 transition-colors hover:bg-muted disabled:opacity-30"
+            className="size-11 rounded-full"
             disabled={activeIndex === 0}
             onClick={prev}
-            type="button"
+            size="icon-xl"
+            variant="outline"
           >
             <svg
               fill="none"
@@ -160,13 +162,14 @@ const TestimonialCarousel = ({ testimonials }: TestimonialCarouselProps) => {
               <path d="M19 12H5" />
               <path d="M12 19l-7-7 7-7" />
             </svg>
-          </button>
-          <button
+          </Button>
+          <Button
             aria-label="Next testimonial"
-            className="flex size-11 items-center justify-center rounded-full border border-border/50 transition-colors hover:bg-muted disabled:opacity-30"
+            className="size-11 rounded-full"
             disabled={activeIndex === testimonials.length - 1}
             onClick={next}
-            type="button"
+            size="icon-xl"
+            variant="outline"
           >
             <svg
               fill="none"
@@ -181,7 +184,7 @@ const TestimonialCarousel = ({ testimonials }: TestimonialCarouselProps) => {
               <path d="M5 12h14" />
               <path d="M12 5l7 7-7 7" />
             </svg>
-          </button>
+          </Button>
         </div>
       </div>
     </div>

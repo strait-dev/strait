@@ -47,17 +47,12 @@ const PostShare = ({ title, slug }: PostShareProps) => {
 
   return (
     <div className="flex items-center gap-2">
-      <Button
-        className="gap-2"
-        onClick={handleShare}
-        size="sm"
-        variant="outline"
-      >
+      <Button onClick={handleShare} size="sm" variant="outline">
         <HugeiconsIcon className="size-4" icon={Share01Icon} />
         <span>Share</span>
       </Button>
 
-      <Button className="gap-2" onClick={handleCopy} size="sm" variant="ghost">
+      <Button onClick={handleCopy} size="sm" variant="ghost">
         <HugeiconsIcon
           className="size-4"
           icon={copied ? Tick01Icon : Copy01Icon}

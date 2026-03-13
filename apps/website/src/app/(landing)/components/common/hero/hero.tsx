@@ -36,19 +36,17 @@ const Hero = () => (
 
         <div className="mt-10 flex animate-delay-300 animate-fade-in-up flex-col items-center gap-4 sm:flex-row">
           <Button
-            className="gradient-warm text-primary-foreground shadow-sm transition-shadow duration-300 hover:shadow-md"
+            className="transition-shadow duration-300"
             render={<Link href={dashboardHref("/login")} />}
-            size="lg"
+            variant="gradient"
           >
             Start your first workflow
             <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
           </Button>
-          <a
-            className="text-muted-foreground text-sm transition-colors hover:text-foreground"
-            href="/docs/quickstart"
-          >
-            Read quickstart →
-          </a>
+          <Button render={<Link href="/docs/quickstart" />} variant="ghost">
+            Read quickstart
+            <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
+          </Button>
         </div>
 
         <div className="mt-6 flex animate-delay-400 animate-fade-in-up flex-wrap items-center justify-center gap-2.5">

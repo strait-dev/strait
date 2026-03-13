@@ -3,7 +3,7 @@ import {
   PencilEdit02Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
-
+import Shell from "@/components/layout/shell.tsx";
 import AudienceVisuals from "./audience-visuals.tsx";
 
 const ICON_MAP: Record<string, typeof PencilEdit02Icon> = {
@@ -74,7 +74,7 @@ const AudienceSection = () => {
 
   return (
     <section aria-labelledby={headingId} className="py-20 sm:py-28">
-      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <Shell variant="wide">
         <div className="mb-14 max-w-3xl animate-on-scroll">
           <h2
             className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl"
@@ -91,7 +91,7 @@ const AudienceSection = () => {
         </div>
 
         <AudienceVisuals audiences={AUDIENCES} iconMap={ICON_MAP} />
-      </div>
+      </Shell>
     </section>
   );
 };

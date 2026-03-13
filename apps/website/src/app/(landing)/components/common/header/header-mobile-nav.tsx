@@ -11,13 +11,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { dashboardHref } from "@/lib/urls.ts";
-
-const NAV_LINKS = [
-  { label: "Features", href: "/#features" },
-  { label: "How it works", href: "/#how-it-works" },
-  { label: "Pricing", href: "/pricing" },
-  { label: "Blog", href: "/blog" },
-] as const;
+import { NAV_LINKS } from "./nav-links.ts";
 
 const MobileNav = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -71,32 +65,32 @@ const MobileNav = () => {
 
   return (
     <div className="md:hidden">
-      <button
+      <Button
         aria-controls="mobile-nav-panel"
         aria-expanded={isOpen}
         aria-label={isOpen ? "Close menu" : "Open menu"}
-        className="flex size-10 items-center justify-center rounded-custom text-muted-foreground transition-colors hover:text-foreground"
         onClick={toggle}
         ref={toggleRef}
-        type="button"
+        size="icon-xl"
+        variant="ghost"
       >
         <HugeiconsIcon
           className="size-5"
           icon={isOpen ? Cancel01Icon : Menu01Icon}
         />
-      </button>
+      </Button>
 
       {isOpen && (
         <div className="absolute top-full right-0 left-0 mt-2 px-4">
           <div
-            className="rounded-custom border border-border/40 bg-background/95 p-4 shadow-lg backdrop-blur-md"
+            className="rounded-xl border border-border/40 bg-background/95 p-4 shadow-lg backdrop-blur-md"
             id="mobile-nav-panel"
             ref={dropdownRef}
           >
             <div className="flex flex-col gap-1">
               {NAV_LINKS.map((link) => (
                 <Button
-                  className="justify-start text-muted-foreground hover:text-foreground"
+                  className="justify-start"
                   key={link.label}
                   onClick={close}
                   render={<Link href={link.href} />}
@@ -109,7 +103,6 @@ const MobileNav = () => {
             </div>
             <div className="mt-3 flex flex-col gap-2 border-border/40 border-t pt-3">
               <Button
-                className="text-muted-foreground hover:text-foreground"
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
                 variant="ghost"
@@ -117,9 +110,9 @@ const MobileNav = () => {
                 Sign in
               </Button>
               <Button
-                className="gradient-warm text-primary-foreground shadow-sm"
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
+                variant="gradient"
               >
                 Run your first job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
