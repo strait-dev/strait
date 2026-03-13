@@ -658,12 +658,12 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	if maxConcurrencyPerKey != nil {
 		job.MaxConcurrencyPerKey = *maxConcurrencyPerKey
 	}
-	if len(rateLimitKeysJSON) > 0 {
+	if len(rateLimitKeysJSON) > 0 && string(rateLimitKeysJSON) != "[]" && string(rateLimitKeysJSON) != "null" {
 		if err := json.Unmarshal(rateLimitKeysJSON, &job.RateLimitKeys); err != nil {
 			return nil, fmt.Errorf("unmarshal rate_limit_keys: %w", err)
 		}
 	}
-	if len(defaultRunMetadataJSON) > 0 {
+	if len(defaultRunMetadataJSON) > 0 && string(defaultRunMetadataJSON) != "{}" && string(defaultRunMetadataJSON) != "null" {
 		if err := json.Unmarshal(defaultRunMetadataJSON, &job.DefaultRunMetadata); err != nil {
 			return nil, fmt.Errorf("unmarshal default_run_metadata: %w", err)
 		}
