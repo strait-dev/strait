@@ -137,6 +137,8 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dlq", s.handleListDeadLetterRuns)
 			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-dlq-replay", s.handleBulkReplayDeadLetterRuns)
 			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel", s.handleBulkCancelRuns)
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-cancel-all", s.handleBulkCancelAll)
+			r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/bulk-replay", s.handleBulkReplayRuns)
 			r.Route("/{runID}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleGetRun)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/", s.handleCancelRun)
@@ -153,7 +155,14 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/debug", s.handleSetDebugMode)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/lineage", s.handleListRunLineage)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dependency-status", s.handleGetRunDependencyStatus)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/idempotency-key", s.handleResetIdempotencyKey)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/reschedule", s.handleRescheduleRun)
 			})
+		})
+
+		r.Route("/batch-operations", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListBatchOperations)
+			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{batchID}", s.handleGetBatchOperation)
 		})
 
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/webhook-deliveries", s.handleListWebhookDeliveries)
@@ -169,6 +178,16 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/", s.handleCreateWebhookSubscription)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookSubscriptions)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/{id}", s.handleDeleteWebhookSubscription)
+			})
+		})
+
+		r.Route("/log-drains", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListLogDrains)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateLogDrain)
+			r.Route("/{drainID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetLogDrain)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateLogDrain)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteLogDrain)
 			})
 		})
 
@@ -242,6 +261,20 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 
+		r.Route("/event-sources", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListEventSources)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateEventSource)
+			r.Route("/{sourceID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetEventSource)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateEventSource)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteEventSource)
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/subscriptions", s.handleListEventSourceSubscriptions)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/subscribe", s.handleSubscribeToEventSource)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/subscriptions/{subID}", s.handleDeleteEventSubscription)
+			})
+		})
+		r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/events/dispatch", s.handleDispatchEvent)
+
 		r.Route("/events", func(r chi.Router) {
 			r.Get("/", s.handleListEventTriggers)
 			r.Get("/stats", s.handleGetEventTriggerStats)
@@ -258,6 +291,8 @@ func (s *Server) routes() chi.Router {
 
 		r.Route("/workflow-runs", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListWorkflowRunsByProject)
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/bulk-cancel", s.handleBulkCancelWorkflowRuns)
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/bulk-replay", s.handleBulkReplayWorkflowRuns)
 			r.Route("/{workflowRunID}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleGetWorkflowRun)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Delete("/", s.handleCancelWorkflowRun)

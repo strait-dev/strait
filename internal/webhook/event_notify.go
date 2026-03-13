@@ -549,3 +549,41 @@ func backoffForRetryPolicy(policy string, attempts int) time.Duration {
 
 	return backoff
 }
+
+// EnqueueSubscriptionWebhooks creates webhook delivery records for all
+// active subscriptions matching the given event type.
+func (n *DeliveryWorker) EnqueueSubscriptionWebhooks(ctx context.Context, subs []domain.WebhookSubscription, eventType string, payload json.RawMessage) {
+	for _, sub := range subs {
+		if !sub.Active {
+			continue
+		}
+		if !matchesEventType(sub.EventTypes, eventType) {
+			continue
+		}
+
+		now := time.Now()
+		delivery := &domain.WebhookDelivery{
+			WebhookURL:  sub.WebhookURL,
+			RetryPolicy: n.defaultRetryPolicy,
+			Status:      domain.WebhookStatusPending,
+			Attempts:    0,
+			MaxAttempts: 3,
+			NextRetryAt: &now,
+			LastError:   string(payload),
+		}
+
+		if err := n.store.CreateWebhookDelivery(ctx, delivery); err != nil {
+			n.logger.Error("failed to create subscription webhook delivery",
+				"subscription_id", sub.ID, "event_type", eventType, "error", err)
+		}
+	}
+}
+
+func matchesEventType(types []string, eventType string) bool {
+	for _, t := range types {
+		if t == eventType || t == "*" {
+			return true
+		}
+	}
+	return false
+}

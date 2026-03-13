@@ -1062,7 +1062,7 @@ func TestHandleListRuns_Success(t *testing.T) {
 	t.Parallel()
 	var listCalled atomic.Bool
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			listCalled.Store(true)
 			if projectID != "proj-1" {
 				t.Fatalf("expected project_id proj-1, got %s", projectID)
@@ -1102,7 +1102,7 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 	t.Parallel()
 	var listCalled atomic.Bool
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			listCalled.Store(true)
 			if projectID != "proj-1" {
 				t.Fatalf("expected project_id proj-1, got %s", projectID)
@@ -1200,7 +1200,7 @@ func TestHandleListRuns_InvalidStatus(t *testing.T) {
 	t.Parallel()
 	called := false
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			called = true
 			return nil, nil
 		},

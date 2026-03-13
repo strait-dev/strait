@@ -537,3 +537,29 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 
 	return runs, nil
 }
+
+func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCancelWorkflowRuns")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		UPDATE workflow_runs
+		SET status = 'failed', finished_at = $2, error = 'canceled by user (bulk)'
+		WHERE id = ANY($1) AND project_id = $3 AND status NOT IN ('completed', 'failed')
+		RETURNING id
+	`, ids, now, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("bulk cancel workflow runs: %w", err)
+	}
+	defer rows.Close()
+
+	var canceled []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("bulk cancel workflow runs scan: %w", err)
+		}
+		canceled = append(canceled, id)
+	}
+	return canceled, rows.Err()
+}

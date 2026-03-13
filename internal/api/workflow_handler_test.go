@@ -93,8 +93,9 @@ func (m *mockWorkflowTrigger) OnStepFailed(ctx context.Context, workflowRunID st
 func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,
@@ -110,8 +111,9 @@ func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPubl
 func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, wfCallback WorkflowCallback, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
 	}
 	srv := NewServer(ServerDeps{
 		Config:           cfg,

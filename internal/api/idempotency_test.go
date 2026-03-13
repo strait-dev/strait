@@ -2450,8 +2450,9 @@ func (m *mockWorkflowEngineForIdem) RetryWorkflowRun(_ context.Context, _ string
 func newTestServerWithWorkflowEngine(t *testing.T, s APIStore, q *mockQueue, wf WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "01234567890123456789012345678901",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
 	}
 	srv := NewServer(ServerDeps{
 		Config:         cfg,

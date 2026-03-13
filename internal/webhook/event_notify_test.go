@@ -662,3 +662,106 @@ func TestBackoffForRetryPolicy_Fixed(t *testing.T) {
 		t.Fatalf("fixed attempt 7 backoff = %s, want %s", got, 5*time.Second)
 	}
 }
+
+func TestEnqueueSubscriptionWebhooks_MatchingSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	subs := []domain.WebhookSubscription{{
+		ID: "sub-1", WebhookURL: "https://example.com/hook",
+		Active: true, EventTypes: []string{"run.completed"},
+	}}
+
+	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r1"}`))
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].WebhookURL != "https://example.com/hook" {
+		t.Fatalf("expected webhook URL https://example.com/hook, got %s", deliveries[0].WebhookURL)
+	}
+}
+
+func TestEnqueueSubscriptionWebhooks_WildcardMatch(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	subs := []domain.WebhookSubscription{{
+		ID: "sub-wc", WebhookURL: "https://example.com/wildcard",
+		Active: true, EventTypes: []string{"*"},
+	}}
+
+	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.failed", json.RawMessage(`{"run_id":"r2"}`))
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].WebhookURL != "https://example.com/wildcard" {
+		t.Fatalf("expected webhook URL https://example.com/wildcard, got %s", deliveries[0].WebhookURL)
+	}
+}
+
+func TestEnqueueSubscriptionWebhooks_InactiveSkipped(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	subs := []domain.WebhookSubscription{{
+		ID: "sub-inactive", WebhookURL: "https://example.com/hook",
+		Active: false, EventTypes: []string{"run.completed"},
+	}}
+
+	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r3"}`))
+
+	if len(ms.getDeliveries()) != 0 {
+		t.Fatalf("expected 0 deliveries for inactive sub, got %d", len(ms.getDeliveries()))
+	}
+}
+
+func TestEnqueueSubscriptionWebhooks_EventTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	subs := []domain.WebhookSubscription{{
+		ID: "sub-mismatch", WebhookURL: "https://example.com/hook",
+		Active: true, EventTypes: []string{"run.failed"},
+	}}
+
+	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r4"}`))
+
+	if len(ms.getDeliveries()) != 0 {
+		t.Fatalf("expected 0 deliveries for mismatched event type, got %d", len(ms.getDeliveries()))
+	}
+}
+
+func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	subs := []domain.WebhookSubscription{
+		{ID: "sub-match", WebhookURL: "https://example.com/match", Active: true, EventTypes: []string{"run.completed"}},
+		{ID: "sub-inactive", WebhookURL: "https://example.com/inactive", Active: false, EventTypes: []string{"run.completed"}},
+		{ID: "sub-wrong-type", WebhookURL: "https://example.com/wrong", Active: true, EventTypes: []string{"run.failed"}},
+	}
+
+	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r5"}`))
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].WebhookURL != "https://example.com/match" {
+		t.Fatalf("expected webhook URL https://example.com/match, got %s", deliveries[0].WebhookURL)
+	}
+}
