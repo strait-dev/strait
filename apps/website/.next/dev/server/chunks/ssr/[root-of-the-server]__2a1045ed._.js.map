@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 30, "column": 0}, "map": {"version":3,"sources":["file:///Users/leonardomaldonado/conductor/workspaces/orchestrator/san-antonio-v2/apps/website/src/app/%28landing%29/page.tsx"],"sourcesContent":["import { redirect } from \"next/navigation\";\n\nexport default function LandingRootPage() {\n  redirect(\"/home\");\n}\n"],"names":[],"mappings":";;;;AAAA;AAAA;;AAEe,SAAS;IACtB,IAAA,sQAAQ,EAAC;AACX"}}]
-}

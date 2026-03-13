@@ -1,4 +1,0 @@
-:HL["/_next/static/chunks/5e6d1a36f445e4e5.css","style"]
-:HL["/_next/static/chunks/6c7c2a909ef5deca.css","style"]
-:HL["/_next/static/media/Geist_Variable-s.p.92592eb2.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
-0:{"buildId":"QNIFtnrVXMrBqUXjQwpbe","tree":{"name":"","paramType":null,"paramKey":"","hasRuntimePrefetch":false,"slots":{"children":{"name":"(landing)","paramType":null,"paramKey":"(landing)","hasRuntimePrefetch":false,"slots":{"children":{"name":"blog","paramType":null,"paramKey":"blog","hasRuntimePrefetch":false,"slots":{"children":{"name":"slug","paramType":"d","paramKey":"same-day-delivery-for-small-retailers-how-to-compete-with-amazon-prime","hasRuntimePrefetch":false,"slots":{"children":{"name":"__PAGE__","paramType":null,"paramKey":"__PAGE__","hasRuntimePrefetch":false,"slots":null,"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":true},"staleTime":300}
