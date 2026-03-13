@@ -3,12 +3,11 @@ import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 
-import { cn } from "../utils";
-import { Separator } from "./separator";
+import { cn } from "../utils/index.ts";
+import { Separator } from "./separator.tsx";
 
 function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: shadcn item-group uses role="list" on div for flexible list rendering
     <div
       className={cn(
         "group/item-group flex w-full flex-col gap-4 has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2",

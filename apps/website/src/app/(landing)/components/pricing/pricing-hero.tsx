@@ -3,8 +3,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
-import Shell from "@/components/layout/shell";
-import { dashboardHref } from "@/lib/urls";
+import Shell from "@/components/layout/shell.tsx";
+import { dashboardHref } from "@/lib/urls.ts";
 
 const PricingHero = () => {
   const badge = "Pricing";

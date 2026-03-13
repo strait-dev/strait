@@ -4,7 +4,7 @@ import { ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { Button, Group, Input, NumberField } from "react-aria-components";
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 
 const MINIMUM_VALUE = 0;
 const MAX_VALUE = 100;

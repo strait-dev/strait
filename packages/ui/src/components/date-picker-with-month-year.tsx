@@ -7,17 +7,17 @@ import { ptBR } from "date-fns/locale";
 import { useCallback, useMemo, useState } from "react";
 import type { DropdownNavProps, DropdownProps } from "react-day-picker";
 
-import { cn } from "../utils";
-import { Button } from "./button";
-import { Calendar } from "./calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
+import { Calendar } from "./calendar.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./select";
+} from "./select.tsx";
 
 // Set date-fns to preserve the date values without timezone conversion
 setDefaultOptions({

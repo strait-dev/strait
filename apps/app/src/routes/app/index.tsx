@@ -1,12 +1,12 @@
-import { Shell } from "@strait/ui/components/shell";
+import { Shell } from "@strait/ui/components/shell.tsx";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
-import DashboardPage from "@/components/common/dashboard-page";
-import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
-import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription";
-import type { Session } from "@/routes/__root";
+import DashboardPage from "@/components/common/dashboard-page.tsx";
+import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog.tsx";
+import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import type { Session } from "@/routes/__root.tsx";
 
 const subscriptionSearchSchema = z.object({
   subscription: z.string().optional(),

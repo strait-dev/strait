@@ -4,10 +4,10 @@ import {
   Folder01Icon,
   TextBoldIcon,
 } from "@hugeicons/core-free-icons";
-import { dashboardHref } from "@/lib/urls";
-import FeatureShowcase from "./feature-showcase";
-import { ContentTypesVisual2 } from "./visuals/content-types-visual";
-import { EditorVisual1, EditorVisual2 } from "./visuals/editor-visual";
+import { dashboardHref } from "@/lib/urls.ts";
+import FeatureShowcase from "./feature-showcase.tsx";
+import { ContentTypesVisual2 } from "./visuals/content-types-visual.tsx";
+import { EditorVisual1, EditorVisual2 } from "./visuals/editor-visual.tsx";
 
 const ExportVisual = () => {
   const formats = [

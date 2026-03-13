@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/tanstackstart-react";
 import type { AnyRouter } from "@tanstack/react-router";
-import type { AuthUser } from "@/routes/__root";
+import type { AuthUser } from "@/routes/__root.tsx";
 
 /**
  * Re-exported Sentry APIs for use across the application.

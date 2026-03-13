@@ -4,8 +4,8 @@ import {
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
+import { Badge } from "@strait/ui/components/badge.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
 import {
   Credenza,
   CredenzaContent,
@@ -13,7 +13,7 @@ import {
   CredenzaFooter,
   CredenzaHeader,
   CredenzaTitle,
-} from "@strait/ui/components/credenza";
+} from "@strait/ui/components/credenza.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type SubscriptionSuccessDialogProps = {

@@ -4,14 +4,14 @@ import {
   Tag01Icon,
   TextBoldIcon,
 } from "@hugeicons/core-free-icons";
-import { dashboardHref } from "@/lib/urls";
-import FeatureShowcase from "./feature-showcase";
+import { dashboardHref } from "@/lib/urls.ts";
+import FeatureShowcase from "./feature-showcase.tsx";
 import {
   EditorVisual1,
   EditorVisual2,
   EditorVisual3,
   EditorVisual4,
-} from "./visuals/editor-visual";
+} from "./visuals/editor-visual.tsx";
 
 const EditorShowcase = () => (
   <FeatureShowcase

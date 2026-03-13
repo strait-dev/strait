@@ -1,20 +1,20 @@
 import { formatPriceWithCents, PLANS } from "@strait/billing/products";
 import { Suspense } from "react";
 
-import CTA from "@/app/(landing)/components/common/cta/cta";
-import { StaticPricingTable } from "@/app/(landing)/components/pricing/static-pricing-table";
-import Shell from "@/components/layout/shell";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import { StaticPricingTable } from "@/app/(landing)/components/pricing/static-pricing-table.tsx";
+import Shell from "@/components/layout/shell.tsx";
 import PricingFaq, {
   PRICING_FAQ_ITEMS,
-} from "@/components/pricing/pricing-faq";
-import { generateMetadata as generatePageMetadata } from "@/lib/metadata";
+} from "@/components/pricing/pricing-faq.tsx";
+import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getFAQPageSchema,
   getPricingProductsSchema,
   getSoftwareApplicationSchema,
   JsonLd,
   JsonLdMultiple,
-} from "@/lib/structured-data";
+} from "@/lib/structured-data.tsx";
 
 export const metadata = generatePageMetadata({
   title: "Pricing",

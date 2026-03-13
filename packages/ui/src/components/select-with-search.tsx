@@ -6,17 +6,17 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 
-import { cn } from "../utils";
-import { Button } from "./button";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
 import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
-} from "./command";
-import { Label } from "./label";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover";
+} from "./command.tsx";
+import { Label } from "./label.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
 
 const TIMEOUT = 50;
 

@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth";
-import { createOrganizationServerFn } from "@/lib/organization-server";
-import { type OnboardingFormData, onboardingSchema } from "@/lib/schema";
-import { authMiddleware } from "@/middlewares/auth";
-import { transformOnboardingToOrgData } from "@/utils/onboarding";
+import { auth } from "@/lib/auth.ts";
+import { createOrganizationServerFn } from "@/lib/organization-server.ts";
+import { type OnboardingFormData, onboardingSchema } from "@/lib/schema.ts";
+import { authMiddleware } from "@/middlewares/auth.ts";
+import { transformOnboardingToOrgData } from "@/utils/onboarding.ts";
 
 type CompleteOnboardingResult = Awaited<
   ReturnType<typeof completeOnboardingServerFn>

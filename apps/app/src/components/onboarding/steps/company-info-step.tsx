@@ -1,25 +1,25 @@
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
-import { Input } from "@strait/ui/components/input";
-import { PhoneInput } from "@strait/ui/components/phone-input";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
+import { Input } from "@strait/ui/components/input.tsx";
+import { PhoneInput } from "@strait/ui/components/phone-input.tsx";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@strait/ui/components/select";
-import { Textarea } from "@strait/ui/components/textarea";
+} from "@strait/ui/components/select.tsx";
+import { Textarea } from "@strait/ui/components/textarea.tsx";
 import { useCallback, useId, useRef } from "react";
-import { CountryDropdown } from "@/components/common/country-dropdown";
-import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
-import { countries } from "@/utils/data";
+import { CountryDropdown } from "@/components/common/country-dropdown.tsx";
+import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics.ts";
+import { countries } from "@/utils/data.ts";
 import {
   annualRevenues,
   businessTypes,
   companySizes,
-} from "../data/company-sizes";
-import { industries } from "../data/industries";
-import type { OnboardingStepProps } from "../types";
+} from "../data/company-sizes.ts";
+import { industries } from "../data/industries.ts";
+import type { OnboardingStepProps } from "../types.ts";
 
 export const CompanyInfoStep = ({ form, isLoading }: OnboardingStepProps) => {
   const { trackCompanyInfoFieldFilled } = useOnboardingAnalytics();

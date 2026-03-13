@@ -11,7 +11,7 @@ import { cn } from "@strait/ui/utils";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-import { dashboardHref } from "@/lib/urls";
+import { dashboardHref } from "@/lib/urls.ts";
 
 interface PricingPlan {
   cta: string;

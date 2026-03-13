@@ -4,26 +4,26 @@ import {
   Loading03Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
-import { Progress } from "@strait/ui/components/progress";
-import { toast } from "@strait/ui/toast";
+import { Button } from "@strait/ui/components/button.tsx";
+import { Progress } from "@strait/ui/components/progress.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { BusinessNeedsStep } from "@/components/onboarding/steps/business-needs-step";
-import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step";
-import type { OnboardingStepProps } from "@/components/onboarding/types";
-import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
-import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding";
-import { auth } from "@/lib/auth";
-import type { OnboardingFormData } from "@/lib/schema";
-import { captureException } from "@/lib/sentry";
-import type { AuthUser } from "@/routes/__root";
-import { useOnboardingStore } from "@/stores/onboarding";
-import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
+import { BusinessNeedsStep } from "@/components/onboarding/steps/business-needs-step.tsx";
+import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step.tsx";
+import type { OnboardingStepProps } from "@/components/onboarding/types.ts";
+import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics.ts";
+import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding.ts";
+import { auth } from "@/lib/auth.ts";
+import type { OnboardingFormData } from "@/lib/schema.ts";
+import { captureException } from "@/lib/sentry.ts";
+import type { AuthUser } from "@/routes/__root.tsx";
+import { useOnboardingStore } from "@/stores/onboarding.ts";
+import { PERCENTAGE_MULTIPLIER } from "@/utils/constants.ts";
 
 const getAuthUserFn = createServerFn({ method: "GET" }).handler(async () => {
   try {
@@ -225,7 +225,7 @@ function OnboardingFlow() {
     toast.promise(completeOnboarding.mutateAsync(formData), {
       loading: "Creating your store...",
       success: "Store created! Let's choose your plan.",
-      error: (error) => {
+      error: (error: unknown) => {
         captureException(error);
         analytics.trackOnboardingError(
           error instanceof Error ? error.message : "Unknown error",

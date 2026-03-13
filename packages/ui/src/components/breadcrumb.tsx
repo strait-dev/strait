@@ -6,7 +6,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 
 function Breadcrumb({ className, ...props }: React.ComponentProps<"nav">) {
   return (
@@ -64,8 +64,6 @@ function BreadcrumbLink({
 
 function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {
   return (
-    // biome-ignore lint/a11y/useFocusableInteractive: shadcn breadcrumb page intentionally uses disabled link role
-    // biome-ignore lint/a11y/useSemanticElements: shadcn breadcrumb page uses role="link" on span for aria-current pattern
     <span
       aria-current="page"
       aria-disabled="true"

@@ -1,4 +1,4 @@
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 
 function AspectRatio({
   ratio,

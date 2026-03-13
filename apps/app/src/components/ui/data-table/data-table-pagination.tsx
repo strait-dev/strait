@@ -5,14 +5,14 @@ import {
   ArrowRightDoubleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
+import { Button } from "@strait/ui/components/button.tsx";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@strait/ui/components/select";
+} from "@strait/ui/components/select.tsx";
 import type { Table } from "@tanstack/react-table";
 import { useEffect, useState } from "react";
 

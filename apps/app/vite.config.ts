@@ -20,11 +20,7 @@ export default defineConfig({
       srcDirectory: "src",
     }),
     nitroV2Plugin({ preset: "vercel", compatibilityDate: "2025-10-27" }),
-    viteReact({
-      babel: {
-        plugins: [["babel-plugin-react-compiler"]],
-      },
-    }),
+    viteReact(),
   ],
   optimizeDeps: {
     include: ["@hugeicons/react"],

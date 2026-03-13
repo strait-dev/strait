@@ -9,7 +9,7 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-} from "@strait/ui/components/avatar";
+} from "@strait/ui/components/avatar.tsx";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -19,21 +19,21 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
-import { Sheet, SheetTrigger } from "@strait/ui/components/sheet";
-import { SidebarMenuButton } from "@strait/ui/components/sidebar";
-import { toast } from "@strait/ui/toast";
+} from "@strait/ui/components/dropdown-menu.tsx";
+import { Sheet, SheetTrigger } from "@strait/ui/components/sheet.tsx";
+import { SidebarMenuButton } from "@strait/ui/components/sidebar.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import type { OrganizationData } from "@/hooks/auth/use-organization";
+import type { OrganizationData } from "@/hooks/auth/use-organization.ts";
 import {
   useOrganization,
   useOrganizations,
   useSetDefaultOrganization,
-} from "@/hooks/auth/use-organization";
-import type { AuthUser, Session } from "@/routes/__root";
-import { CreateOrganizationLimitGate } from "./create-organization-limit-gate";
-import CreateOrganizationSheet from "./create-organization-sheet";
+} from "@/hooks/auth/use-organization.ts";
+import type { AuthUser, Session } from "@/routes/__root.tsx";
+import { CreateOrganizationLimitGate } from "./create-organization-limit-gate.tsx";
+import CreateOrganizationSheet from "./create-organization-sheet.tsx";
 
 type Props = {
   user: AuthUser;

@@ -1,4 +1,4 @@
-import type { SiteConfig } from "@/types/";
+import type { SiteConfig } from "@/types/index.ts";
 
 const websiteUrl =
   process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";

@@ -4,19 +4,19 @@ import { RichText } from "basehub/react-rich-text";
 import Image from "next/image";
 import { Suspense } from "react";
 
-import Shell from "@/components/layout/shell";
-import PostAuthorCompact from "./post-author-compact";
-import PostCtaSidebar from "./post-cta-sidebar";
-import PostNavigation from "./post-navigation";
-import PostRelated from "./post-related";
-import PostShare from "./post-share";
-import PostTocClient from "./post-toc.client";
-import { richTextComponents } from "./rich-text";
+import Shell from "@/components/layout/shell.tsx";
+import PostAuthorCompact from "./post-author-compact.tsx";
+import PostCtaSidebar from "./post-cta-sidebar.tsx";
+import PostNavigation from "./post-navigation.tsx";
+import PostRelated from "./post-related.tsx";
+import PostShare from "./post-share.tsx";
+import PostTocClient from "./post-toc.client.tsx";
+import { richTextComponents } from "./rich-text.tsx";
 import {
   calculateReadingTime,
   extractHeadingsFromRichText,
   formatReadingTime,
-} from "./utils";
+} from "./utils.ts";
 
 export const PostFragment = fragmentOn("BlogPostComponent", {
   _id: true,

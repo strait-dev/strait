@@ -4,14 +4,14 @@ import {
   Mail01Icon,
   News01Icon,
 } from "@hugeicons/core-free-icons";
-import { dashboardHref } from "@/lib/urls";
-import FeatureShowcase from "./feature-showcase";
+import { dashboardHref } from "@/lib/urls.ts";
+import FeatureShowcase from "./feature-showcase.tsx";
 import {
   ContentTypesVisual1,
   ContentTypesVisual2,
   ContentTypesVisual3,
   ContentTypesVisual4,
-} from "./visuals/content-types-visual";
+} from "./visuals/content-types-visual.tsx";
 
 const MultiLanguageShowcase = () => (
   <FeatureShowcase

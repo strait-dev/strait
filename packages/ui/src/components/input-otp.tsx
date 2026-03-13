@@ -4,7 +4,7 @@ import { MinusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OTPInput, OTPInputContext } from "input-otp";
 import * as React from "react";
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 
 function InputOTP({
   className,
@@ -72,8 +72,6 @@ function InputOTPSlot({
 
 function InputOTPSeparator({ ...props }: React.ComponentProps<"div">) {
   return (
-    // biome-ignore lint/a11y/useFocusableInteractive: shadcn OTP separator is decorative, not interactive
-    // biome-ignore lint/a11y/useSemanticElements: shadcn OTP separator uses role on div for OTP pattern
     <div
       className="flex items-center [&_svg:not([class*='size-'])]:size-4"
       data-slot="input-otp-separator"

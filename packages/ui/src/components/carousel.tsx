@@ -6,8 +6,8 @@ import useEmblaCarousel, {
   type UseEmblaCarouselType,
 } from "embla-carousel-react";
 import * as React from "react";
-import { cn } from "../utils";
-import { Button } from "./button";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
 
 type CarouselApi = UseEmblaCarouselType[1];
 type UseCarouselParameters = Parameters<typeof useEmblaCarousel>;
@@ -124,7 +124,6 @@ function Carousel({
         canScrollNext,
       }}
     >
-      {/* biome-ignore lint/a11y/useSemanticElements: shadcn carousel uses role="region" with aria-roledescription */}
       <div
         aria-roledescription="carousel"
         className={cn("relative", className)}
@@ -164,7 +163,6 @@ function CarouselItem({ className, ...props }: React.ComponentProps<"div">) {
   const { orientation } = useCarousel();
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: shadcn carousel item uses role="group" with aria-roledescription="slide"
     <div
       aria-roledescription="slide"
       className={cn(

@@ -21,8 +21,8 @@ import {
 } from "react-aria-components";
 import type { DateRange } from "react-day-picker";
 
-import { cn } from "../utils";
-import { RangeCalendarWithPresets } from "./range-calendar-with-presets";
+import { cn } from "../utils/index.ts";
+import { RangeCalendarWithPresets } from "./range-calendar-with-presets.tsx";
 
 type DateRangePickerWithPresetsProps = {
   /**

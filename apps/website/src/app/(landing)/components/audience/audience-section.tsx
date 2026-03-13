@@ -4,7 +4,7 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 
-import AudienceVisuals from "./audience-visuals";
+import AudienceVisuals from "./audience-visuals.tsx";
 
 const ICON_MAP: Record<string, typeof PencilEdit02Icon> = {
   "pencil-edit-02": PencilEdit02Icon,

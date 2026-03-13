@@ -2,8 +2,8 @@
 
 import { createContext, useContext } from "react";
 
-import { useMediaQuery } from "../hooks/use-media-query";
-import { cn } from "../utils";
+import { useMediaQuery } from "../hooks/use-media-query.ts";
+import { cn } from "../utils/index.ts";
 import {
   Dialog,
   DialogClose,
@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "./dialog";
+} from "./dialog.tsx";
 import {
   Drawer,
   DrawerClose,
@@ -23,7 +23,7 @@ import {
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
-} from "./drawer";
+} from "./drawer.tsx";
 
 type BaseProps = {
   children: React.ReactNode;

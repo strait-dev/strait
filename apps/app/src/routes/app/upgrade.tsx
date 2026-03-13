@@ -1,29 +1,29 @@
 import { AlertCircleIcon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert, AlertDescription } from "@strait/ui/components/alert";
-import { Button } from "@strait/ui/components/button";
+import { Alert, AlertDescription } from "@strait/ui/components/alert.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card";
-import { Shell } from "@strait/ui/components/shell";
-import { toast } from "@strait/ui/toast";
+} from "@strait/ui/components/card.tsx";
+import { Shell } from "@strait/ui/components/shell.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import PageHeader from "@/components/common/page-header";
-import { PlanSelection } from "@/components/upgrade/plan-selection";
-import { useAnalytics } from "@/hooks/analytics/use-analytics";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
-import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
-import { authMiddleware } from "@/middlewares/auth";
-import { useUpgradeStore } from "@/stores/upgrade";
+import PageHeader from "@/components/common/page-header.tsx";
+import { PlanSelection } from "@/components/upgrade/plan-selection.tsx";
+import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import { getCustomerPortalUrlServerFn } from "@/lib/subscription.ts";
+import { authMiddleware } from "@/middlewares/auth.ts";
+import { useUpgradeStore } from "@/stores/upgrade.ts";
 
 const PLAN_SLUGS: Record<string, string> = {
   "starter-monthly": "starter-monthly",

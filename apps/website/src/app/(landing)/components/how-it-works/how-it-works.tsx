@@ -8,7 +8,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
-import { dashboardHref } from "@/lib/urls";
+import { dashboardHref } from "@/lib/urls.ts";
 
 const ICON_MAP: Record<string, typeof Chatting01Icon> = {
   "chatting-01": Chatting01Icon,

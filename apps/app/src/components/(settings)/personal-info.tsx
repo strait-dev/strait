@@ -1,6 +1,6 @@
 import { Loading03Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
+import { Button } from "@strait/ui/components/button.tsx";
 import {
   Card,
   CardContent,
@@ -8,16 +8,16 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
-import { Input } from "@strait/ui/components/input";
-import { toast } from "@strait/ui/toast";
+} from "@strait/ui/components/card.tsx";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
+import { Input } from "@strait/ui/components/input.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useForm } from "@tanstack/react-form";
 import { useTransition } from "react";
 import { z } from "zod";
-import { useUpdateUser } from "@/hooks/auth/use-user";
-import { captureException } from "@/lib/sentry";
-import type { AuthUser } from "@/routes/__root";
+import { useUpdateUser } from "@/hooks/auth/use-user.ts";
+import { captureException } from "@/lib/sentry.ts";
+import type { AuthUser } from "@/routes/__root.tsx";
 
 const userFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -46,7 +46,7 @@ const PersonalInfo = ({ user }: Props) => {
           toast.promise(updateCurrentUser.mutateAsync(values), {
             loading: "Updating data...",
             success: "Data updated successfully!",
-            error: (err) => {
+            error: (err: unknown) => {
               captureException(err);
               return "Something went wrong while updating your data";
             },

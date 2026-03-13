@@ -10,16 +10,16 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
-} from "@strait/ui/components/command";
+} from "@strait/ui/components/command.tsx";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@strait/ui/components/popover";
-import { cn } from "@strait/ui/utils";
+} from "@strait/ui/components/popover.tsx";
+import { cn } from "@strait/ui/utils/index.ts";
 import { useCallback, useState } from "react";
 import { CircleFlag } from "react-circle-flags";
-import { countries } from "@/utils/data";
+import { countries } from "@/utils/data.ts";
 
 export type Country = {
   value: string;

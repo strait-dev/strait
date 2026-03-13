@@ -34,7 +34,8 @@
         "noUnusedVariables": {
           "level": "error",
           "fix": "none"
-        }
+        },
+        "noUnresolvedImports": "off"
       },
       "style": {
         "useFilenamingConvention": "off",

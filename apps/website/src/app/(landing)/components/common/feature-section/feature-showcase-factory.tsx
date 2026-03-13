@@ -1,6 +1,6 @@
 import type { HugeiconsIconProps } from "@hugeicons/react";
 
-import FeatureShowcase from "./feature-showcase";
+import FeatureShowcase from "./feature-showcase.tsx";
 
 type FeatureOrientation = "visual-left" | "visual-right";
 

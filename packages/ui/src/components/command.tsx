@@ -4,15 +4,15 @@ import { SearchIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Command as CommandPrimitive } from "cmdk";
 import type * as React from "react";
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "./dialog";
-import { InputGroup, InputGroupAddon } from "./input-group";
+} from "./dialog.tsx";
+import { InputGroup, InputGroupAddon } from "./input-group.tsx";
 
 function Command({
   className,

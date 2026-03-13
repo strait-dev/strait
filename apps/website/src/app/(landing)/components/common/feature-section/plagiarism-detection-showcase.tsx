@@ -5,7 +5,7 @@ import {
   ShieldBlockchainIcon,
 } from "@hugeicons/core-free-icons";
 
-import FeatureShowcase from "./feature-showcase";
+import FeatureShowcase from "./feature-showcase.tsx";
 
 const PlagiarismDetectionShowcase = () => (
   <FeatureShowcase

@@ -13,8 +13,8 @@ import {
   getDefaultClassNames,
   type Locale,
 } from "react-day-picker";
-import { cn } from "../utils";
-import { Button, buttonVariants } from "./button";
+import { cn } from "../utils/index.ts";
+import { Button, buttonVariants } from "./button.tsx";
 
 function CalendarRoot({
   className,
@@ -201,7 +201,6 @@ function Calendar({
       components={{
         Root: CalendarRoot,
         Chevron: CalendarChevron,
-        // biome-ignore lint/correctness/noNestedComponentDefinitions: DayButton wrapper captures locale from Calendar props
         DayButton: (dayButtonProps) => (
           <CalendarDayButton locale={locale} {...dayButtonProps} />
         ),

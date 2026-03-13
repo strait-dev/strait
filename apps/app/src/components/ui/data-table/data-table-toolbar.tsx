@@ -4,8 +4,8 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
+import { Badge } from "@strait/ui/components/badge.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -15,13 +15,13 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
-import { Input } from "@strait/ui/components/input";
-import { Separator } from "@strait/ui/components/separator";
+} from "@strait/ui/components/dropdown-menu.tsx";
+import { Input } from "@strait/ui/components/input.tsx";
+import { Separator } from "@strait/ui/components/separator.tsx";
 import type { Table } from "@tanstack/react-table";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DataTableFilterField } from "@/types";
-import { DataTableViewOptions } from "./data-table-view-options";
+import type { DataTableFilterField } from "@/types/index.ts";
+import { DataTableViewOptions } from "./data-table-view-options.tsx";
 
 const SEARCH_DEBOUNCE_MS = 150;
 

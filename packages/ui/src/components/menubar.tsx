@@ -5,7 +5,7 @@ import { Menubar as MenubarPrimitive } from "@base-ui/react/menubar";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +20,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "./dropdown-menu";
+} from "./dropdown-menu.tsx";
 
 function Menubar({ className, ...props }: MenubarPrimitive.Props) {
   return (

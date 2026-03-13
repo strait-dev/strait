@@ -8,14 +8,14 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import * as React from "react";
-import { cn } from "../utils";
-import { Button } from "./button";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "./input-group";
+} from "./input-group.tsx";
 
 const Combobox = ComboboxPrimitive.Root;
 

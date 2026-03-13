@@ -7,23 +7,23 @@ import {
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { BadgeProps } from "@strait/ui/components/badge";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
+import type { BadgeProps } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card";
-import { toast } from "@strait/ui/toast";
+} from "@strait/ui/components/card.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
-import { captureException } from "@/lib/sentry";
-import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import { captureException } from "@/lib/sentry.ts";
+import { getCustomerPortalUrlServerFn } from "@/lib/subscription.ts";
 
 const ATTENTION_STATUSES = new Set(["incomplete", "past_due", "unpaid"]);
 

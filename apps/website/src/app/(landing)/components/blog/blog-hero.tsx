@@ -1,7 +1,7 @@
 import { basehub } from "basehub";
 import { draftMode } from "next/headers";
 
-import Shell from "@/components/layout/shell";
+import Shell from "@/components/layout/shell.tsx";
 
 type HeroData = {
   _title?: string;

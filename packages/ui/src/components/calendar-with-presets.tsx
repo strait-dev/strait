@@ -4,8 +4,8 @@ import { addDays, format, subDays, subMonths, subYears } from "date-fns";
 import { useCallback, useMemo } from "react";
 import type { DateRange } from "react-day-picker";
 
-import { Button } from "./button";
-import { Calendar } from "./calendar";
+import { Button } from "./button.tsx";
+import { Calendar } from "./calendar.tsx";
 
 const ONE_DAY = 1;
 const SEVEN_DAYS = 7;

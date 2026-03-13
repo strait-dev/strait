@@ -3,20 +3,20 @@ import { Pump } from "basehub/react-pump";
 import type { Metadata } from "next";
 import { draftMode } from "next/headers";
 import { Suspense } from "react";
-import BlogHero from "@/app/(landing)/components/blog/blog-hero";
-import Pagination from "@/app/(landing)/components/blog/pagination";
-import { PostFragment } from "@/app/(landing)/components/blog/post";
-import PostFeatured from "@/app/(landing)/components/blog/post-featured";
-import PostPreview from "@/app/(landing)/components/blog/post-preview";
-import CTA from "@/app/(landing)/components/common/cta/cta";
-import Shell from "@/components/layout/shell";
-import { fetchPageMetadata } from "@/lib/basehub-metadata";
-import { generateMetadata as generatePageMetadata } from "@/lib/metadata";
+import BlogHero from "@/app/(landing)/components/blog/blog-hero.tsx";
+import Pagination from "@/app/(landing)/components/blog/pagination.tsx";
+import { PostFragment } from "@/app/(landing)/components/blog/post.tsx";
+import PostFeatured from "@/app/(landing)/components/blog/post-featured.tsx";
+import PostPreview from "@/app/(landing)/components/blog/post-preview.tsx";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import { fetchPageMetadata } from "@/lib/basehub-metadata.ts";
+import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getBreadcrumbSchema,
   getCollectionPageSchema,
   JsonLd,
-} from "@/lib/structured-data";
+} from "@/lib/structured-data.tsx";
 
 const BASE_URL = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 

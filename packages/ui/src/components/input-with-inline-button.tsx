@@ -1,6 +1,6 @@
-import { cn } from "../utils";
-import { Button } from "./button";
-import { Input } from "./input";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
+import { Input } from "./input.tsx";
 
 type InputWithInlineButtonProps = React.ComponentProps<"input"> & {
   button?: React.ReactNode;

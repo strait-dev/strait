@@ -5,19 +5,19 @@ import { draftMode } from "next/headers";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import Pagination from "@/app/(landing)/components/blog/pagination";
-import type { PostFragment } from "@/app/(landing)/components/blog/post";
-import { PostFragment as PostFragmentQuery } from "@/app/(landing)/components/blog/post";
-import PostFeatured from "@/app/(landing)/components/blog/post-featured";
-import PostPreview from "@/app/(landing)/components/blog/post-preview";
-import Shell from "@/components/layout/shell";
-import { siteConfig } from "@/config/site";
-import { generateMetadata as generatePageMetadata } from "@/lib/metadata";
+import Pagination from "@/app/(landing)/components/blog/pagination.tsx";
+import type { PostFragment } from "@/app/(landing)/components/blog/post.tsx";
+import { PostFragment as PostFragmentQuery } from "@/app/(landing)/components/blog/post.tsx";
+import PostFeatured from "@/app/(landing)/components/blog/post-featured.tsx";
+import PostPreview from "@/app/(landing)/components/blog/post-preview.tsx";
+import Shell from "@/components/layout/shell.tsx";
+import { siteConfig } from "@/config/site.ts";
+import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getBreadcrumbSchema,
   getPersonSchema,
   JsonLd,
-} from "@/lib/structured-data";
+} from "@/lib/structured-data.tsx";
 
 const BASE_URL = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 

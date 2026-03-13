@@ -1,9 +1,9 @@
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { BubbleChatIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { resend } from "@strait/mail";
+import { resend } from "@strait/mail/index.ts";
 import { Feedback } from "@strait/transactional";
-import { Button } from "@strait/ui/components/button";
+import { Button } from "@strait/ui/components/button.tsx";
 import {
   Credenza,
   CredenzaContent,
@@ -11,7 +11,7 @@ import {
   CredenzaHeader,
   CredenzaTitle,
   CredenzaTrigger,
-} from "@strait/ui/components/credenza";
+} from "@strait/ui/components/credenza.tsx";
 import {
   Form,
   FormControl,
@@ -20,26 +20,29 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@strait/ui/components/form";
-import { Input } from "@strait/ui/components/input";
+} from "@strait/ui/components/form.tsx";
+import { Input } from "@strait/ui/components/input.tsx";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@strait/ui/components/select";
-import { Textarea } from "@strait/ui/components/textarea";
-import { toast } from "@strait/ui/toast";
+} from "@strait/ui/components/select.tsx";
+import { Textarea } from "@strait/ui/components/textarea.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
-import { FeedbackFormSchema } from "@/lib/schema";
-import { authMiddleware } from "@/middlewares/auth";
-import type { AuthUser } from "@/routes/__root";
-import { MILLISECONDS_PER_SECOND, TIMER_INTERVAL_MS } from "@/utils/constants";
+import { FeedbackFormSchema } from "@/lib/schema.ts";
+import { authMiddleware } from "@/middlewares/auth.ts";
+import type { AuthUser } from "@/routes/__root.tsx";
+import {
+  MILLISECONDS_PER_SECOND,
+  TIMER_INTERVAL_MS,
+} from "@/utils/constants.ts";
 
 const feedbackAction = createServerFn({ method: "POST" })
   .inputValidator(FeedbackFormSchema)

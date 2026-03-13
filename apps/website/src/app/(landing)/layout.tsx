@@ -1,5 +1,5 @@
-import Footer from "./components/common/footer/footer";
-import Header from "./components/common/header/header";
+import Footer from "./components/common/footer/footer.tsx";
+import Header from "./components/common/header/header.tsx";
 
 type Props = {
   children: React.ReactNode;

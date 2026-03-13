@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
-import Shell from "@/components/layout/shell";
+import Shell from "@/components/layout/shell.tsx";
 
 type PageHeroProps = {
   title?: string;

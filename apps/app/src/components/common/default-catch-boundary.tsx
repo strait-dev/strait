@@ -7,7 +7,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { captureException } from "@/lib/sentry";
+import { captureException } from "@/lib/sentry.ts";
 
 export const DefaultCatchBoundary = ({ error }: ErrorComponentProps) => {
   const router = useRouter();

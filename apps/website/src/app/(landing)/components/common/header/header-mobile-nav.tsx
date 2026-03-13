@@ -10,7 +10,7 @@ import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { dashboardHref } from "@/lib/urls";
+import { dashboardHref } from "@/lib/urls.ts";
 
 const NAV_LINKS = [
   { label: "Features", href: "/#features" },

@@ -5,8 +5,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Command as CommandPrimitive, useCommandState } from "cmdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { cn } from "../utils";
-import { Command, CommandGroup, CommandItem, CommandList } from "./command";
+import { cn } from "../utils/index.ts";
+import { Command, CommandGroup, CommandItem, CommandList } from "./command.tsx";
 
 const DEFAULT_DEBOUNCE_TIME = 500;
 

@@ -4,7 +4,7 @@ import { Add01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { Button, Group, Input, NumberField } from "react-aria-components";
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 
 export type NumberInputWithButtonsProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,

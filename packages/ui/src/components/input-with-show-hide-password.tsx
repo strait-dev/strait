@@ -4,9 +4,9 @@ import { ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 
-import { cn } from "../utils";
-import { FormControl, FormItem, FormLabel } from "./form";
-import { Input } from "./input";
+import { cn } from "../utils/index.ts";
+import { FormControl, FormItem, FormLabel } from "./form.tsx";
+import { Input } from "./input.tsx";
 
 type InputWithShowHidePasswordProps = Omit<
   React.ComponentProps<"input">,

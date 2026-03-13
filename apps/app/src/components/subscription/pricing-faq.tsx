@@ -3,7 +3,7 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@strait/ui/components/accordion";
+} from "@strait/ui/components/accordion.tsx";
 
 export type FaqItem = {
   id: string;

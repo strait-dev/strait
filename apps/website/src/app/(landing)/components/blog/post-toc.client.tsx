@@ -5,7 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { cn } from "@strait/ui/utils";
 import { useCallback, useEffect, useState } from "react";
-import type { TocHeading } from "./utils";
+import type { TocHeading } from "./utils.ts";
 
 type PostTocClientProps = {
   headings: TocHeading[];

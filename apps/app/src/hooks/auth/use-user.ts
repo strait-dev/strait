@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { authClient } from "@/lib/auth-client";
+import { authClient } from "@/lib/auth-client.ts";
 
 /** Parameters for updating user information. */
 type UpdateUserData = {

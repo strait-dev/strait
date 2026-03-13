@@ -6,8 +6,8 @@ import { Toaster } from "sonner";
 import "@strait/ui/globals.css";
 
 import { cn } from "@strait/ui/utils";
-import NextThemeProvider from "@/components/providers/NextThemeProvider/next-theme-provider";
-import { siteConfig } from "@/config/site";
+import NextThemeProvider from "@/components/providers/NextThemeProvider/next-theme-provider.tsx";
+import { siteConfig } from "@/config/site.ts";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url || "https://trystrait.ai"),

@@ -10,8 +10,8 @@ import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 
-import Shell from "@/components/layout/shell";
-import { dashboardHref } from "@/lib/urls";
+import Shell from "@/components/layout/shell.tsx";
+import { dashboardHref } from "@/lib/urls.ts";
 
 const OLD_WAY_STEPS = [
   "Run a separate message broker and keep it healthy",

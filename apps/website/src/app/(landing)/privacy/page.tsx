@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
-import Shell from "@/components/layout/shell";
-import { siteConfig } from "@/config/site";
-import { generateMetadata as generatePageMetadata } from "@/lib/metadata";
+import Shell from "@/components/layout/shell.tsx";
+import { siteConfig } from "@/config/site.ts";
+import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 
 export const generateMetadata = async (): Promise<Metadata> =>
   generatePageMetadata({

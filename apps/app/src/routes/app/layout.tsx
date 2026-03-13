@@ -3,7 +3,7 @@ import {
   SidebarMenuButton,
   SidebarProvider,
   SidebarTrigger,
-} from "@strait/ui/components/sidebar";
+} from "@strait/ui/components/sidebar.tsx";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
@@ -14,27 +14,27 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { Suspense, useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import ErrorComponent from "@/components/common/error-component";
-import { RequireOrganization } from "@/components/common/require-organization";
-import Sidebar from "@/components/common/sidebar";
-import { ThemeToggle } from "@/components/common/theme-toggle";
-import FeedbackDialog from "@/components/help/feedback-dialog";
-import SupportDialog from "@/components/help/support-dialog";
-import OrganizationDropdownMenu from "@/components/organization/organization-dropdown-menu";
-import { usePostHog } from "@/components/providers/posthog-provider";
-import UpgradeBanner from "@/components/subscription/trial-upgrade-banner";
-import { TrialStartedModal } from "@/components/upgrade/trial-started-modal";
+import ErrorComponent from "@/components/common/error-component.tsx";
+import { RequireOrganization } from "@/components/common/require-organization.tsx";
+import Sidebar from "@/components/common/sidebar.tsx";
+import { ThemeToggle } from "@/components/common/theme-toggle.tsx";
+import FeedbackDialog from "@/components/help/feedback-dialog.tsx";
+import SupportDialog from "@/components/help/support-dialog.tsx";
+import OrganizationDropdownMenu from "@/components/organization/organization-dropdown-menu.tsx";
+import { usePostHog } from "@/components/providers/posthog-provider.tsx";
+import UpgradeBanner from "@/components/subscription/trial-upgrade-banner.tsx";
+import { TrialStartedModal } from "@/components/upgrade/trial-started-modal.tsx";
 import {
   organizationQueryOptions,
   organizationsQueryOptions,
-} from "@/hooks/auth/use-organization";
+} from "@/hooks/auth/use-organization.ts";
 import {
   subscriptionQueryOptions,
   subscriptionStateQueryOptions,
-} from "@/hooks/subscription/use-subscription";
-import { ensureSession } from "@/lib/auth-server";
-import { setSentryUser } from "@/lib/sentry";
-import type { AuthUser, Session } from "@/routes/__root";
+} from "@/hooks/subscription/use-subscription.ts";
+import { ensureSession } from "@/lib/auth-server.ts";
+import { setSentryUser } from "@/lib/sentry.ts";
+import type { AuthUser, Session } from "@/routes/__root.tsx";
 
 const appSearchSchema = z.object({
   trial_started: z.coerce.boolean().optional(),

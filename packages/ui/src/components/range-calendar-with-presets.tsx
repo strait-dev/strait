@@ -13,9 +13,9 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import type { DateRange } from "react-day-picker";
 
-import { cn } from "../utils";
-import { Button } from "./button";
-import { Calendar } from "./calendar";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
+import { Calendar } from "./calendar.tsx";
 
 const ONE_DAY = 1;
 const SEVEN_DAYS = 7;

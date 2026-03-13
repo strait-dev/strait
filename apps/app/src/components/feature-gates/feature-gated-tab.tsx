@@ -9,15 +9,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@strait/ui/components/alert-dialog";
-import { Button } from "@strait/ui/components/button";
-import { TabsContent, TabsTrigger } from "@strait/ui/components/tabs";
-import { cn } from "@strait/ui/utils";
+} from "@strait/ui/components/alert-dialog.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
+import { TabsContent, TabsTrigger } from "@strait/ui/components/tabs.tsx";
+import { cn } from "@strait/ui/utils/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
-import type { FeatureFlagKey } from "@/hooks/posthog/flags";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
+import type { FeatureFlagKey } from "@/hooks/posthog/flags.ts";
+import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag.ts";
 
 type FeatureGatedTabTriggerProps = {
   value: string;

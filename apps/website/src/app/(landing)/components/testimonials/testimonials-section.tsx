@@ -1,5 +1,5 @@
-import type { TestimonialItem } from "./testimonial";
-import TestimonialCarousel from "./testimonial-carousel";
+import type { TestimonialItem } from "./testimonial.tsx";
+import TestimonialCarousel from "./testimonial-carousel.tsx";
 
 const TESTIMONIALS: TestimonialItem[] = [
   {

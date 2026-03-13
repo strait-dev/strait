@@ -3,8 +3,8 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type React from "react";
 
-import { cn } from "../utils";
-import { Checkbox } from "./checkbox";
+import { cn } from "../utils/index.ts";
+import { Checkbox } from "./checkbox.tsx";
 
 const cardCheckboxVariants = cva(
   "relative flex w-full items-start gap-2 rounded-md border border-input p-4 shadow-black/5 shadow-sm has-[[data-state=checked]]:border-ring",

@@ -1,15 +1,15 @@
 import { StarIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckIcon } from "@radix-ui/react-icons";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
-import { CardCheckboxItem } from "@strait/ui/components/card-checkbox";
-import { cn } from "@strait/ui/utils";
+import { Badge } from "@strait/ui/components/badge.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
+import { CardCheckboxItem } from "@strait/ui/components/card-checkbox.tsx";
+import { cn } from "@strait/ui/utils/index.ts";
 import { formatCurrency } from "@strait/utils/money";
 import { useCallback, useState } from "react";
-import { useAnalytics } from "@/hooks/analytics/use-analytics";
-import { useUpgradeStore } from "@/stores/upgrade";
-import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
+import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
+import { useUpgradeStore } from "@/stores/upgrade.ts";
+import { PERCENTAGE_MULTIPLIER } from "@/utils/constants.ts";
 
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;

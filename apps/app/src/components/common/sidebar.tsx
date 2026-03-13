@@ -12,12 +12,12 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge";
+import { Badge } from "@strait/ui/components/badge.tsx";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@strait/ui/components/collapsible";
+} from "@strait/ui/components/collapsible.tsx";
 import {
   Sidebar,
   SidebarContent,
@@ -32,17 +32,17 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
-} from "@strait/ui/components/sidebar";
+} from "@strait/ui/components/sidebar.tsx";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
-import { FEATURE_FLAGS } from "@/hooks/posthog/flags";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
-import type { Session } from "@/routes/__root";
-import PaymentPendingCard from "../subscription/payment-pending-card";
-import TrialUpgradeCard from "../subscription/trial-upgrade-card";
-import UserDropdownMenu from "./user-dropdown-menu";
+import { FEATURE_FLAGS } from "@/hooks/posthog/flags.ts";
+import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag.ts";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import type { Session } from "@/routes/__root.tsx";
+import PaymentPendingCard from "../subscription/payment-pending-card.tsx";
+import TrialUpgradeCard from "../subscription/trial-upgrade-card.tsx";
+import UserDropdownMenu from "./user-dropdown-menu.tsx";
 
 /**
  * Feature keys used for sidebar navigation gating

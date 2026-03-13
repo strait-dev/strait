@@ -4,14 +4,14 @@ import {
   RefreshIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
-import { dashboardHref } from "@/lib/urls";
-import FeatureShowcase from "./feature-showcase";
+import { dashboardHref } from "@/lib/urls.ts";
+import FeatureShowcase from "./feature-showcase.tsx";
 import {
   DocumentsVisual1,
   DocumentsVisual2,
   DocumentsVisual3,
   DocumentsVisual4,
-} from "./visuals/documents-visual";
+} from "./visuals/documents-visual.tsx";
 
 const DocumentManagementShowcase = () => (
   <FeatureShowcase

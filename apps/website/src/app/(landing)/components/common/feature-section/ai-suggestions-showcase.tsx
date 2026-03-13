@@ -4,14 +4,14 @@ import {
   PencilEdit02Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
-import { dashboardHref } from "@/lib/urls";
-import FeatureShowcase from "./feature-showcase";
+import { dashboardHref } from "@/lib/urls.ts";
+import FeatureShowcase from "./feature-showcase.tsx";
 import {
   ChatVisual1,
   ChatVisual2,
   ChatVisual3,
   ChatVisual4,
-} from "./visuals/chat-visual";
+} from "./visuals/chat-visual.tsx";
 
 const AISuggestionsShowcase = () => (
   <FeatureShowcase

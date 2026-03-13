@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 
 const shellVariants = cva("flex flex-col gap-4", {
   variants: {

@@ -1,10 +1,10 @@
-import { Button } from "@strait/ui/components/button";
+import { Button } from "@strait/ui/components/button.tsx";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import * as z from "zod";
-import ErrorComponent from "@/components/common/error-component";
-import NotFound from "@/components/common/not-found";
-import { authClient } from "@/lib/auth-client";
+import ErrorComponent from "@/components/common/error-component.tsx";
+import NotFound from "@/components/common/not-found.tsx";
+import { authClient } from "@/lib/auth-client.ts";
 
 const loginSearchSchema = z.object({
   redirect: z.string().optional().catch(undefined),

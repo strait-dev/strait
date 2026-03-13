@@ -1,4 +1,4 @@
-import Shell from "@/components/layout/shell";
+import Shell from "@/components/layout/shell.tsx";
 
 const LOGOS = [
   { name: "TechCrunch", width: 120 },

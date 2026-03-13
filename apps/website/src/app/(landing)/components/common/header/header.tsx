@@ -5,9 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { memo } from "react";
 
-import { siteConfig } from "@/config/site";
-import { dashboardHref } from "@/lib/urls";
-import MobileNav from "./header-mobile-nav";
+import { siteConfig } from "@/config/site.ts";
+import { dashboardHref } from "@/lib/urls.ts";
+import MobileNav from "./header-mobile-nav.tsx";
 
 const NAV_LINKS = [
   { label: "Features", href: "/#features" },

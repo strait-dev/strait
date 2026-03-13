@@ -1,7 +1,7 @@
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { BadgeProps } from "@strait/ui/components/badge";
-import { Badge } from "@strait/ui/components/badge";
+import type { BadgeProps } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge.tsx";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -9,14 +9,14 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb";
-import { Button } from "@strait/ui/components/button";
-import { Separator } from "@strait/ui/components/separator";
-import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
+} from "@strait/ui/components/breadcrumb.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
+import { Separator } from "@strait/ui/components/separator.tsx";
+import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs.tsx";
 import { Link } from "@tanstack/react-router";
 import type React from "react";
 import { Fragment } from "react";
-import type { TabConfig } from "@/hooks/use-entity-sheet";
+import type { TabConfig } from "@/hooks/use-entity-sheet.ts";
 
 export type BreadcrumbConfig = {
   label: string;

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
+import { Toaster } from "@strait/ui/components/toast/index.ts";
 import css from "@strait/ui/globals.css?url";
-import { Toaster } from "@strait/ui/toast";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
-import { getSession } from "@/lib/auth-server";
+import { getSession } from "@/lib/auth-server.ts";
 
 export type AuthUser = {
   id: string;

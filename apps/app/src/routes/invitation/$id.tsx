@@ -1,21 +1,21 @@
 import { Loading03Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
-import { toast } from "@strait/ui/toast";
+import { Button } from "@strait/ui/components/button.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useState } from "react";
 import z from "zod/v4";
-import { AuthLayout } from "@/components/(auth)/auth-layout";
+import { AuthLayout } from "@/components/(auth)/auth-layout.tsx";
 import {
   getPublicInvitationServerFn,
   type PublicInvitationData,
-} from "@/hooks/auth/use-invitation";
-import { auth } from "@/lib/auth";
-import { authClient } from "@/lib/auth-client";
-import { captureException, captureSentryAuthError } from "@/lib/sentry";
+} from "@/hooks/auth/use-invitation.ts";
+import { auth } from "@/lib/auth.ts";
+import { authClient } from "@/lib/auth-client.ts";
+import { captureException, captureSentryAuthError } from "@/lib/sentry.ts";
 
 const getSessionServerFn = createServerFn({ method: "GET" }).handler(
   async () => {

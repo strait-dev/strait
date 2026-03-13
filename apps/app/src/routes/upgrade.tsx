@@ -1,9 +1,9 @@
 import { Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Polar } from "@polar-sh/sdk";
-import { Button } from "@strait/ui/components/button";
-import { Progress } from "@strait/ui/components/progress";
-import { toast } from "@strait/ui/toast";
+import { Button } from "@strait/ui/components/button.tsx";
+import { Progress } from "@strait/ui/components/progress.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
@@ -15,11 +15,11 @@ import * as z from "zod";
 import {
   PlanSelection,
   type UpgradeMode,
-} from "@/components/upgrade/plan-selection";
-import { auth } from "@/lib/auth";
-import { authMiddleware } from "@/middlewares/auth";
-import type { AuthUser } from "@/routes/__root";
-import { useUpgradeStore } from "@/stores/upgrade";
+} from "@/components/upgrade/plan-selection.tsx";
+import { auth } from "@/lib/auth.ts";
+import { authMiddleware } from "@/middlewares/auth.ts";
+import type { AuthUser } from "@/routes/__root.tsx";
+import { useUpgradeStore } from "@/stores/upgrade.ts";
 
 const POLAR_ACTIVE_STATUSES = new Set([
   "active",

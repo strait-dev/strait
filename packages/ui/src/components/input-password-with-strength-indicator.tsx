@@ -9,9 +9,9 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
-import { cn } from "../utils";
-import { Input } from "./input";
-import { Label } from "./label";
+import { cn } from "../utils/index.ts";
+import { Input } from "./input.tsx";
+import { Label } from "./label.tsx";
 
 const MAX_STRENGTH = 4;
 const PERCENTAGE_TO_WIDTH = 100;

@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import Image from "next/image";
 import Link from "next/link";
-import type { PostFragment } from "./post";
+import type { PostFragment } from "./post.tsx";
 
 const PostPreview = ({
   _title,

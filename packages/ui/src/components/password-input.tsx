@@ -3,8 +3,8 @@
 import { ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
-import { Input } from "../components/input";
-import { cn } from "../utils";
+import { Input } from "../components/input.tsx";
+import { cn } from "../utils/index.ts";
 
 export type PasswordInputProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,

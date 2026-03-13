@@ -1,4 +1,4 @@
-import PricingFaqClient from "./pricing-faq.client";
+import PricingFaqClient from "./pricing-faq.client.tsx";
 
 type FaqItem = {
   _id: string;

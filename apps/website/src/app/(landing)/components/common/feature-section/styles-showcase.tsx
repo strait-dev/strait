@@ -4,14 +4,14 @@ import {
   PaintBrush01Icon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
-import { dashboardHref } from "@/lib/urls";
-import FeatureShowcase from "./feature-showcase";
+import { dashboardHref } from "@/lib/urls.ts";
+import FeatureShowcase from "./feature-showcase.tsx";
 import {
   StylesVisual1,
   StylesVisual2,
   StylesVisual3,
   StylesVisual4,
-} from "./visuals/styles-visual";
+} from "./visuals/styles-visual.tsx";
 
 const StylesShowcase = () => (
   <FeatureShowcase

@@ -1,5 +1,5 @@
 import { PLANS } from "@strait/billing/products";
-import { siteConfig } from "@/config/site";
+import { siteConfig } from "@/config/site.ts";
 
 const BASE_URL = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://trystrait.ai";
 const LOGO_URL = `${BASE_URL}/android-chrome-512x512.png`;

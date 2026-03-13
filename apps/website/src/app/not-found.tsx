@@ -2,9 +2,9 @@ import { Button } from "@strait/ui/components/button";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import Shell from "@/components/layout/shell";
-import Footer from "./(landing)/components/common/footer/footer";
-import Header from "./(landing)/components/common/header/header";
+import Shell from "@/components/layout/shell.tsx";
+import Footer from "./(landing)/components/common/footer/footer.tsx";
+import Header from "./(landing)/components/common/header/header.tsx";
 
 export const metadata: Metadata = {
   title: "Page Not Found — Strait",

@@ -1,12 +1,12 @@
-import type { BadgeProps } from "@strait/ui/components/badge";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
-import { Separator } from "@strait/ui/components/separator";
-import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
+import type { BadgeProps } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
+import { Separator } from "@strait/ui/components/separator.tsx";
+import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs.tsx";
 import { Link } from "@tanstack/react-router";
 import type * as React from "react";
-import type { TabConfig } from "@/hooks/use-entity-sheet";
-import PageHeaderWithBack from "../common/page-header-with-back";
+import type { TabConfig } from "@/hooks/use-entity-sheet.ts";
+import PageHeaderWithBack from "../common/page-header-with-back.tsx";
 
 export type EntityAction = {
   label: string;

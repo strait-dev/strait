@@ -1,5 +1,5 @@
-import Shell from "@/components/layout/shell";
-import { StaticPricingTable } from "./static-pricing-table";
+import Shell from "@/components/layout/shell.tsx";
+import { StaticPricingTable } from "./static-pricing-table.tsx";
 
 export function PricingSection() {
   return (

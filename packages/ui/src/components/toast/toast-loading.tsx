@@ -1,7 +1,7 @@
 import { Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ToastContent } from "./toast-content";
-import type { ToastContentProps } from "./types";
+import { ToastContent } from "./toast-content.tsx";
+import type { ToastContentProps } from "./types.ts";
 
 export function ToastLoading(
   props: Omit<ToastContentProps, "action" | "dismissible">

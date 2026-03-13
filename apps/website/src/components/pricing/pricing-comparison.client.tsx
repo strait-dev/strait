@@ -9,9 +9,9 @@ import { cn } from "@strait/ui/utils";
 import Link from "next/link";
 import { Fragment, useId, useState } from "react";
 
-import { dashboardHref } from "@/lib/urls";
+import { dashboardHref } from "@/lib/urls.ts";
 
-import type { PricingComparisonClientProps } from "./pricing-comparison.types";
+import type { PricingComparisonClientProps } from "./pricing-comparison.types.ts";
 
 // Diagonal stripe pattern for decorative elements
 const patternClasses =

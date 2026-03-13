@@ -4,7 +4,7 @@ import { cn } from "@strait/ui/utils";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
-import type { TestimonialItem } from "./testimonial";
+import type { TestimonialItem } from "./testimonial.tsx";
 
 type TestimonialCarouselProps = {
   testimonials: TestimonialItem[];

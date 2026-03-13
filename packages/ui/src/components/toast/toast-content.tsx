@@ -1,8 +1,8 @@
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ReactNode } from "react";
-import { cn } from "../../utils";
-import type { ToastContentProps } from "./types";
+import { cn } from "../../utils/index.ts";
+import type { ToastContentProps } from "./types.ts";
 
 interface ToastContentInternalProps extends ToastContentProps {
   icon: ReactNode;

@@ -8,8 +8,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import React from "react";
 
-import { cn } from "../utils";
-import { Button } from "./button";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
 import {
   Command,
   CommandEmpty,
@@ -18,9 +18,9 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "./command";
-import { Label } from "./label";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover";
+} from "./command.tsx";
+import { Label } from "./label.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
 
 export type SelectOptionWithSearchAndButton = {
   value: string;

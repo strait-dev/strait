@@ -1,8 +1,8 @@
 import { LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
-import { ScrollArea } from "@strait/ui/components/scroll-area";
-import { Separator } from "@strait/ui/components/separator";
+import { Button } from "@strait/ui/components/button.tsx";
+import { ScrollArea } from "@strait/ui/components/scroll-area.tsx";
+import { Separator } from "@strait/ui/components/separator.tsx";
 import {
   Sheet,
   SheetClose,
@@ -10,7 +10,7 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@strait/ui/components/sheet";
+} from "@strait/ui/components/sheet.tsx";
 import { Link } from "@tanstack/react-router";
 import { memo, type ReactNode, useMemo } from "react";
 

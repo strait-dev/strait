@@ -1,5 +1,5 @@
 import type { FormOptions, ReactFormExtendedApi } from "@tanstack/react-form";
-import type { OnboardingFormData } from "@/lib/schema";
+import type { OnboardingFormData } from "@/lib/schema.ts";
 
 type InferFormReturn<TOpts> =
   TOpts extends FormOptions<

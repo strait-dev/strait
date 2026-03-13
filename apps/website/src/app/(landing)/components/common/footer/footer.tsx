@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { siteConfig } from "@/config/site";
+import { siteConfig } from "@/config/site.ts";
 
 const FOOTER_LINKS: Record<string, Array<{ label: string; href: string }>> = {
   Product: [

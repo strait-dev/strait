@@ -5,7 +5,7 @@ import { basehub } from "basehub";
 import { draftMode } from "next/headers";
 import Link from "next/link";
 
-import { dashboardHref } from "@/lib/urls";
+import { dashboardHref } from "@/lib/urls.ts";
 
 type CtaData = {
   badge?: string;

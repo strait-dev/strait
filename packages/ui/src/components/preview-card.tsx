@@ -3,7 +3,7 @@
 import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 import type React from "react";
 
-import { cn } from "../utils";
+import { cn } from "../utils/index.ts";
 
 const PREVIEW_CARD_DELAY = 300;
 

@@ -4,14 +4,14 @@ import {
   MessageEdit01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
-import { dashboardHref } from "@/lib/urls";
-import FeatureShowcase from "./feature-showcase";
+import { dashboardHref } from "@/lib/urls.ts";
+import FeatureShowcase from "./feature-showcase.tsx";
 import {
   InterviewVisual1,
   InterviewVisual2,
   InterviewVisual3,
   InterviewVisual4,
-} from "./visuals/interview-visual";
+} from "./visuals/interview-visual.tsx";
 
 const InterviewShowcase = () => (
   <FeatureShowcase

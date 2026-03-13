@@ -1,5 +1,5 @@
-import { usePostHog } from "@/components/providers/posthog-provider";
-import type { FeatureFlagKey } from "./flags";
+import { usePostHog } from "@/components/providers/posthog-provider.tsx";
+import type { FeatureFlagKey } from "./flags.ts";
 
 type PlanKey = "starter" | "growth" | "professional" | "enterprise" | "trial";
 type LimitPayload = Record<PlanKey, number>;

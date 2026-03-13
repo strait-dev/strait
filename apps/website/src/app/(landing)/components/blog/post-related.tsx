@@ -1,7 +1,7 @@
 import { basehub } from "basehub";
 import { draftMode } from "next/headers";
-import type { PostFragment } from "./post";
-import PostPreview from "./post-preview";
+import type { PostFragment } from "./post.tsx";
+import PostPreview from "./post-preview.tsx";
 
 type PostRelatedProps = {
   currentPostId: string;

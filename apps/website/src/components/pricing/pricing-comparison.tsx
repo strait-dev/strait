@@ -1,13 +1,13 @@
 import { PLANS } from "@strait/billing/products";
 
-import PricingComparisonClient from "./pricing-comparison.client";
+import PricingComparisonClient from "./pricing-comparison.client.tsx";
 import type {
   PlanKey,
   PricingComparisonClientProps,
   PricingComparisonHeader,
   PricingSection,
   PricingSectionRow,
-} from "./pricing-comparison.types";
+} from "./pricing-comparison.types.ts";
 
 type FeatureRowDefinition =
   | {

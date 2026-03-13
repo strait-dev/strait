@@ -3,7 +3,7 @@
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
-import Shell from "@/components/layout/shell";
+import Shell from "@/components/layout/shell.tsx";
 
 const ErrorPage = ({
   reset,

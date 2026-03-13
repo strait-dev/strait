@@ -3,9 +3,9 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { useMemo } from "react";
 
-import { cn } from "../utils";
-import { Label } from "./label";
-import { Separator } from "./separator";
+import { cn } from "../utils/index.ts";
+import { Label } from "./label.tsx";
+import { Separator } from "./separator.tsx";
 
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
@@ -75,7 +75,6 @@ function Field({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: shadcn field uses role="group" on div for form field grouping
     <div
       className={cn(fieldVariants({ orientation }), className)}
       data-orientation={orientation}
@@ -203,7 +202,6 @@ function FieldError({
       <ul className="ml-4 flex list-disc flex-col gap-1">
         {uniqueErrors.map(
           (error, index) =>
-            // biome-ignore lint/suspicious/noArrayIndexKey: deduplicated error list has stable order
             error?.message && <li key={index}>{error.message}</li>
         )}
       </ul>

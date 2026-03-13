@@ -6,7 +6,10 @@ vi.mock("generate-password-ts", () => ({
 }));
 
 import { generate } from "generate-password-ts";
-import { DEFAULT_PINCODE_LENGTH, MAX_PINCODE_LENGTH } from "@/utils/constants";
+import {
+  DEFAULT_PINCODE_LENGTH,
+  MAX_PINCODE_LENGTH,
+} from "@/utils/constants.ts";
 
 // Type assertion for the mocked function
 const mockGenerate = generate as unknown as ReturnType<typeof vi.fn>;

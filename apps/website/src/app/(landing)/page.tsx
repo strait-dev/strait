@@ -1,28 +1,28 @@
 import { Suspense } from "react";
 
-import { generateMetadata as generatePageMetadata } from "@/lib/metadata";
+import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getHowToSchema,
   getOrganizationSchema,
   getSoftwareApplicationSchema,
   getWebSiteSchema,
   JsonLd,
-} from "@/lib/structured-data";
-import AudienceSection from "./components/audience/audience-section";
-import WhyStrait from "./components/benefits/why-polyglot";
-import CTA from "./components/common/cta/cta";
-import InterviewShowcase from "./components/common/feature-section/interview-showcase";
-import StylesShowcase from "./components/common/feature-section/styles-showcase";
-import WritingToolkitShowcase from "./components/common/feature-section/writing-toolkit-showcase";
-import Hero from "./components/common/hero/hero";
-import InteractiveDemo from "./components/common/hero/interactive-demo";
-import ProblemSection from "./components/common/hero/problem-section";
-import ProductShowcase from "./components/common/hero/product-showcase";
+} from "@/lib/structured-data.tsx";
+import AudienceSection from "./components/audience/audience-section.tsx";
+import WhyStrait from "./components/benefits/why-polyglot.tsx";
+import CTA from "./components/common/cta/cta.tsx";
+import InterviewShowcase from "./components/common/feature-section/interview-showcase.tsx";
+import StylesShowcase from "./components/common/feature-section/styles-showcase.tsx";
+import WritingToolkitShowcase from "./components/common/feature-section/writing-toolkit-showcase.tsx";
+import Hero from "./components/common/hero/hero.tsx";
+import InteractiveDemo from "./components/common/hero/interactive-demo.tsx";
+import ProblemSection from "./components/common/hero/problem-section.tsx";
+import ProductShowcase from "./components/common/hero/product-showcase.tsx";
 
-import ComparisonSection from "./components/comparison/comparison-section";
-import HowItWorks from "./components/how-it-works/how-it-works";
-import PricingTeaser from "./components/pricing/pricing-teaser";
-import TestimonialsSection from "./components/testimonials/testimonials-section";
+import ComparisonSection from "./components/comparison/comparison-section.tsx";
+import HowItWorks from "./components/how-it-works/how-it-works.tsx";
+import PricingTeaser from "./components/pricing/pricing-teaser.tsx";
+import TestimonialsSection from "./components/testimonials/testimonials-section.tsx";
 
 export const metadata = generatePageMetadata({
   path: "/",

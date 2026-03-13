@@ -5,17 +5,17 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@strait/ui/components/accordion";
+} from "@strait/ui/components/accordion.tsx";
 import {
   Alert,
   AlertDescription,
   AlertTitle,
-} from "@strait/ui/components/alert";
-import { Button } from "@strait/ui/components/button";
+} from "@strait/ui/components/alert.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
 import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { captureException } from "@/lib/sentry";
+import { captureException } from "@/lib/sentry.ts";
 
 const ErrorComponent = ({ error }: { error: Error }) => {
   const router = useRouter();

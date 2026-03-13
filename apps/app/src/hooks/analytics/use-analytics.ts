@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { usePostHog } from "@/components/providers/posthog-provider";
+import { usePostHog } from "@/components/providers/posthog-provider.tsx";
 import {
   AUTH_EVENTS,
   type AuthEventProperties,
@@ -7,8 +7,8 @@ import {
   type OnboardingEventProperties,
   SUBSCRIPTION_EVENTS,
   type SubscriptionEventProperties,
-} from "@/hooks/analytics/events";
-import type { Session } from "@/routes/__root";
+} from "@/hooks/analytics/events.ts";
+import type { Session } from "@/routes/__root.tsx";
 
 type IdentifyUserOptions = {
   userId: string;

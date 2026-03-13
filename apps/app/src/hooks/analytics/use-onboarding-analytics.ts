@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
-import { usePostHog } from "@/components/providers/posthog-provider";
-import { ONBOARDING_EVENTS } from "@/hooks/analytics/events";
+import { usePostHog } from "@/components/providers/posthog-provider.tsx";
+import { ONBOARDING_EVENTS } from "@/hooks/analytics/events.ts";
 
 /**
  * Hook for tracking onboarding analytics events.

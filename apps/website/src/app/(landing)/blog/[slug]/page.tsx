@@ -3,16 +3,16 @@ import { Pump } from "basehub/react-pump";
 import type { Metadata } from "next";
 import { draftMode } from "next/headers";
 import { notFound } from "next/navigation";
-import Post, { PostFragment } from "@/app/(landing)/components/blog/post";
-import { countWords } from "@/app/(landing)/components/blog/utils";
-import CTA from "@/app/(landing)/components/common/cta/cta";
-import { siteConfig } from "@/config/site";
-import { generateMetadata as generatePageMetadata } from "@/lib/metadata";
+import Post, { PostFragment } from "@/app/(landing)/components/blog/post.tsx";
+import { countWords } from "@/app/(landing)/components/blog/utils.ts";
+import CTA from "@/app/(landing)/components/common/cta/cta.tsx";
+import { siteConfig } from "@/config/site.ts";
+import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getBlogPostingSchema,
   getBreadcrumbSchema,
   JsonLd,
-} from "@/lib/structured-data";
+} from "@/lib/structured-data.tsx";
 
 export const dynamic = "force-static";
 

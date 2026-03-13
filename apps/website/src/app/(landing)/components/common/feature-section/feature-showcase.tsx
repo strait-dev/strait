@@ -5,7 +5,7 @@ import { cn } from "@strait/ui/utils";
 import Link from "next/link";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 
-import Shell from "@/components/layout/shell";
+import Shell from "@/components/layout/shell.tsx";
 
 type SupportingFeature = {
   title: string;

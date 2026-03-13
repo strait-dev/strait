@@ -1,5 +1,5 @@
-export { toast } from "./toast";
-export { Toaster } from "./toaster";
+export { toast } from "./toast.tsx";
+export { Toaster } from "./toaster.tsx";
 export type {
   BaseToastOptions,
   ConfirmToastOptions,
@@ -7,4 +7,4 @@ export type {
   Toast,
   ToastAction,
   ToastContentProps,
-} from "./types";
+} from "./types.ts";

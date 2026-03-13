@@ -3,14 +3,13 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 
-import { cn } from "../utils";
-import { Button } from "./button";
-import { Input } from "./input";
-import { Textarea } from "./textarea";
+import { cn } from "../utils/index.ts";
+import { Button } from "./button.tsx";
+import { Input } from "./input.tsx";
+import { Textarea } from "./textarea.tsx";
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: shadcn input-group uses role="group" on div for input grouping
     <div
       className={cn(
         "group/input-group relative flex h-7 w-full min-w-0 items-center rounded-md border border-input bg-input/20 outline-none transition-colors in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-start]]:h-auto has-[>textarea]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:flex-col has-[textarea]:rounded-md has-data-[align=block-end]:rounded-md has-data-[align=block-start]:rounded-md has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/50 has-[[data-slot][aria-invalid=true]]:ring-2 has-[[data-slot][aria-invalid=true]]:ring-destructive/20 dark:bg-input/30 dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-start]]:[&>input]:pl-1.5",
@@ -50,9 +49,6 @@ function InputGroupAddon({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: click handler focuses sibling input, keyboard users access input directly
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: shadcn input-group addon delegates click to input focus
-    // biome-ignore lint/a11y/useSemanticElements: shadcn input-group addon uses role="group" on div
     <div
       className={cn(inputGroupAddonVariants({ align }), className)}
       data-align={align}

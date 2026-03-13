@@ -5,9 +5,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { nanoid } from "nanoid";
 import { useId, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { Badge } from "./badge";
-import { Button } from "./button";
-import { Input } from "./input";
+import { Badge } from "./badge.tsx";
+import { Button } from "./button.tsx";
+import { Input } from "./input.tsx";
 
 export type Tag = {
   id: string;

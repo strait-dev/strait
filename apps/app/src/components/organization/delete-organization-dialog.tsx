@@ -1,21 +1,21 @@
 import { AlertCircleIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
-import { Checkbox } from "@strait/ui/components/checkbox";
+import { Button } from "@strait/ui/components/button.tsx";
+import { Checkbox } from "@strait/ui/components/checkbox.tsx";
 import {
   CredenzaContent,
   CredenzaDescription,
   CredenzaHeader,
   CredenzaTitle,
-} from "@strait/ui/components/credenza";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
-import { Input } from "@strait/ui/components/input";
+} from "@strait/ui/components/credenza.tsx";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
+import { Input } from "@strait/ui/components/input.tsx";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
-} from "@strait/ui/components/input-otp";
-import { toast } from "@strait/ui/toast";
+} from "@strait/ui/components/input-otp.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -27,7 +27,7 @@ import {
   useTransition,
 } from "react";
 import type * as z from "zod/v4";
-import type { OrganizationsApiResponse } from "@/hooks/auth/use-organization";
+import type { OrganizationsApiResponse } from "@/hooks/auth/use-organization.ts";
 import {
   useDeleteLastOrganizationWithToken,
   useDeleteOrganizationWithToken,
@@ -35,17 +35,17 @@ import {
   useRequestOrganizationDeletion,
   useResendOrganizationDeletionCode,
   useVerifyOrganizationDeletion,
-} from "@/hooks/auth/use-organization";
+} from "@/hooks/auth/use-organization.ts";
 
 import {
   DeleteOrganizationSchema,
   VerifyCodeDeletionSchema,
-} from "@/lib/schema";
+} from "@/lib/schema.ts";
 import {
   DEFAULT_COOLDOWN_SECONDS,
   DEFAULT_MAX_WAIT,
   DEFAULT_PINCODE_LENGTH,
-} from "@/utils/constants";
+} from "@/utils/constants.ts";
 
 // Pre-generated slot identifiers to avoid using array index as key
 const OTP_SLOT_IDS = Array.from(
@@ -197,7 +197,11 @@ const DeleteOrganizationDialog = ({
         }),
         {
           loading: "Sending verification code...",
-          success: (result) => {
+          success: (result: {
+            success: boolean;
+            message?: string;
+            cooldownRemaining?: number;
+          }) => {
             if (result?.success) {
               setCurrentStep("verification");
               startCooldown(result.cooldownRemaining || DEFAULT_MAX_WAIT);
@@ -213,7 +217,7 @@ const DeleteOrganizationDialog = ({
               "Could not send the code. Please try again later."
             );
           },
-          error: (err) =>
+          error: (err: unknown) =>
             (err as Error).message ||
             "Error sending verification code, please try again.",
         }

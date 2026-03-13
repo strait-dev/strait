@@ -1,5 +1,5 @@
-import { kv } from "@strait/kv";
-import { resend } from "@strait/mail";
+import { kv } from "@strait/kv/index.ts";
+import { resend } from "@strait/mail/index.ts";
 import {
   OrganizationDeleted,
   OrganizationPurged,
@@ -9,11 +9,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { nanoid } from "nanoid";
 import z from "zod/v4";
-import { auth } from "@/lib/auth";
+import { auth } from "@/lib/auth.ts";
 import type {
   ResendOrganizationDeletionCodeResponseSchema,
   VerifyOrganizationDeletionResponseSchema,
-} from "@/lib/schema";
+} from "@/lib/schema.ts";
 import {
   DeleteLastOrganizationWithTokenSchema,
   DeleteOrganizationWithTokenSchema,
@@ -21,8 +21,8 @@ import {
   RequestOrganizationDeletionSchema,
   ResendOrganizationDeletionCodeSchema,
   VerifyOrganizationDeletionSchema,
-} from "@/lib/schema";
-import { authMiddleware } from "@/middlewares/auth";
+} from "@/lib/schema.ts";
+import { authMiddleware } from "@/middlewares/auth.ts";
 
 /**
  * Server function to create a new organization.

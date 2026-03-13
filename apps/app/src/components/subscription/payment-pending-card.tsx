@@ -1,12 +1,12 @@
 import { CreditCardIcon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
-import { toast } from "@strait/ui/toast";
+import { Button } from "@strait/ui/components/button.tsx";
+import { toast } from "@strait/ui/components/toast/index.ts";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
-import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import { getCustomerPortalUrlServerFn } from "@/lib/subscription.ts";
 
 const PaymentPendingCard = () => {
   const [isLoading, setIsLoading] = useState(false);
