@@ -56,8 +56,8 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `DB_MAX_CONNS` | Integer | `25` | Maximum number of open connections to the database. |
 | `DB_MIN_CONNS` | Integer | `5` | Minimum number of idle connections in the pool. |
-| `DB_MAX_CONN_LIFETIME` | Duration | `1h` | Maximum amount of time a connection may be reused. |
-| `DB_MAX_CONN_IDLE_TIME` | Duration | `30m` | Maximum amount of time a connection may be idle. |
+| `DB_MAX_CONN_LIFETIME` | Duration | `30m` | Maximum amount of time a connection may be reused. |
+| `DB_MAX_CONN_IDLE_TIME` | Duration | `5m` | Maximum amount of time a connection may be idle. |
 | `DB_PGBOUNCER_MODE` | Boolean | `false` | Enable PgBouncer-compatible connection handling. Disables features incompatible with connection poolers. |
 
 ## Rate Limiting

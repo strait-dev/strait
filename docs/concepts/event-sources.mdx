@@ -92,6 +92,21 @@ A disabled event source rejects all dispatches. Subscriptions with `enabled: fal
 
 The optional `schema` field on an event source accepts a JSON Schema definition. When set, inbound event payloads can be validated against this schema before subscriptions are evaluated. This provides a contract between event producers and the source, catching malformed payloads early.
 
+## CRUD Lifecycle
+
+Event sources and their subscriptions are managed through the following API operations:
+
+| Operation | Method | Path |
+| :--- | :--- | :--- |
+| Create source | `POST` | `/v1/event-sources` |
+| List sources | `GET` | `/v1/event-sources` |
+| Get source | `GET` | `/v1/event-sources/{sourceID}` |
+| Update source | `PATCH` | `/v1/event-sources/{sourceID}` |
+| Delete source | `DELETE` | `/v1/event-sources/{sourceID}` |
+| Create subscription | `POST` | `/v1/event-sources/{sourceID}/subscriptions` |
+| List subscriptions | `GET` | `/v1/event-sources/{sourceID}/subscriptions` |
+| Delete subscription | `DELETE` | `/v1/event-sources/{sourceID}/subscriptions/{subscriptionID}` |
+
 ## Related Concepts
 
 - [Event Triggers](/docs/concepts/event-triggers) -- Durable waits for events within workflow steps and runs.

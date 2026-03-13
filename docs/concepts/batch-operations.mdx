@@ -18,7 +18,7 @@ The `BatchOperation` struct (defined in `internal/domain/types.go`) contains the
 | `created_count` | `int` | Number of runs actually created (may be less than `item_count`). |
 | `created_by` | `string` | Actor ID who initiated the bulk trigger (user ID or `apikey:<id>`). |
 | `created_at` | `time.Time` | Timestamp when the batch operation was created. |
-| `finished_at` | `time.Time` | Timestamp when all items in the batch have been processed. Null while processing is in progress. |
+| `finished_at` | `*time.Time` | Timestamp when all items in the batch have been processed. Null while processing is in progress. |
 
 ## How Batch Operations Work
 
