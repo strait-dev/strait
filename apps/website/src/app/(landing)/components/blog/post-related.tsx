@@ -64,7 +64,7 @@ const PostRelated = async ({ currentPostId, categories }: PostRelatedProps) => {
 
   return (
     <section className="mt-20 border-border border-t pt-12">
-      <h2 className="mb-8 font-bold text-2xl text-foreground tracking-tight">
+      <h2 className="mb-8 text-2xl text-foreground tracking-tight">
         Related Articles
       </h2>
       <div className="overflow-hidden rounded-2xl border border-border/50">

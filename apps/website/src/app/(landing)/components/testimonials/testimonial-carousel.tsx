@@ -53,7 +53,7 @@ const TestimonialCarousel = ({ testimonials }: TestimonialCarouselProps) => {
                 />
               ) : (
                 <div className="flex h-full items-center justify-center">
-                  <span className="font-bold text-4xl text-muted-foreground/30">
+                  <span className="text-4xl text-muted-foreground/30">
                     {t.authorName
                       ?.split(" ")
                       .map((n: string) => n[0])

@@ -42,7 +42,7 @@ const TestimonialsSection = () => {
             className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl"
             id={headingId}
           >
-            <span className="font-bold text-foreground">
+            <span className="text-foreground">
               Built to keep your team moving when it matters.
             </span>{" "}
             <span className="text-muted-foreground">

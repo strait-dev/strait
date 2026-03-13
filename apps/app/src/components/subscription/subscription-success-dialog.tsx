@@ -81,7 +81,7 @@ const SubscriptionSuccessDialog = ({
               />
             </div>
           </div>
-          <CredenzaTitle className="font-bold text-2xl">
+          <CredenzaTitle className="text-2xl">
             {isNewSubscription ? "Welcome to Strait!" : null}
             {isUpgrade ? "Subscription Updated!" : null}
           </CredenzaTitle>

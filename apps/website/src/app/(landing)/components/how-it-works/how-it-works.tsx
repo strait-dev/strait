@@ -205,7 +205,7 @@ const HowItWorks = () => {
             className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl"
             id={headingId}
           >
-            <span className="font-bold text-foreground">{sectionTitle}</span>
+            <span className="text-foreground">{sectionTitle}</span>
             {sectionDescription ? (
               <>
                 {" "}

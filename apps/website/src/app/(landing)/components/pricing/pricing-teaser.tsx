@@ -30,7 +30,7 @@ const PricingTeaser = () => (
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-          <span className="font-bold text-foreground">
+          <span className="text-foreground">
             Pricing that scales with your team.
           </span>{" "}
           <span className="text-muted-foreground">
@@ -96,7 +96,7 @@ const PricingTeaser = () => (
 
             <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
               <div className="mt-8 mb-8">
-                <span className="font-bold text-5xl text-foreground tabular-nums tracking-tight">
+                <span className="text-5xl text-foreground tabular-nums tracking-tight">
                   {formatPrice(plan.prices.yearly)}
                 </span>
                 <span className="ml-1 text-muted-foreground text-sm">

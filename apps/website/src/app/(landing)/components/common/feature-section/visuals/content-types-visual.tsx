@@ -179,7 +179,7 @@ export const ContentTypesVisual4 = () => (
         <p className="text-muted-foreground text-xs uppercase tracking-wider">
           FOR IMMEDIATE RELEASE
         </p>
-        <h4 className="mt-1 font-bold text-foreground text-sm">
+        <h4 className="mt-1 text-foreground text-sm">
           Strait Launches AI-Powered Writing Assistant for Content Teams
         </h4>
         <p className="mt-0.5 text-muted-foreground text-xs italic">

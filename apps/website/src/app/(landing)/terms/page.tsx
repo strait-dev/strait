@@ -15,7 +15,7 @@ const TermsPage = () => (
   <main className="pt-32 sm:pt-40">
     <Shell variant="default">
       <div className="mx-auto max-w-2xl text-center">
-        <h1 className="mb-6 font-bold text-4xl tracking-tight sm:text-5xl lg:text-6xl">
+        <h1 className="mb-6 text-4xl tracking-tight sm:text-5xl lg:text-6xl">
           Terms of Service
         </h1>
         <p className="text-lg text-muted-foreground">

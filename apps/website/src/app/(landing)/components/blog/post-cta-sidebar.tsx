@@ -61,9 +61,7 @@ const PostCtaSidebar = async () => {
           {badge}
         </span>
 
-        <h3 className="mt-4 font-bold text-foreground text-lg tracking-tight">
-          {title}
-        </h3>
+        <h3 className="mt-4 text-foreground text-lg tracking-tight">{title}</h3>
 
         <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
           {description}

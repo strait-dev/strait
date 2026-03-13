@@ -71,7 +71,7 @@ const FeatureShowcase = ({
           <div className="order-2 flex flex-col gap-6 lg:order-none">
             <div className="space-y-4">
               <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-                <span className="font-bold text-foreground">{title}.</span>{" "}
+                <span className="text-foreground">{title}.</span>{" "}
                 <span className="text-muted-foreground">{description}</span>
               </h2>
             </div>

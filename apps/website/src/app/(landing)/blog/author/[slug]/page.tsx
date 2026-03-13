@@ -80,7 +80,7 @@ const AuthorHeader = ({
           </div>
         )}
 
-        <h1 className="text-balance font-bold text-3xl text-foreground tracking-tight sm:text-4xl lg:text-5xl">
+        <h1 className="text-balance text-3xl text-foreground tracking-tight sm:text-4xl lg:text-5xl">
           {author._title}
         </h1>
 

@@ -117,7 +117,7 @@ const Post = (post: PostFragment) => {
               </span>
             </div>
 
-            <h1 className="mb-4 text-balance font-bold text-4xl tracking-tight sm:text-5xl lg:text-6xl">
+            <h1 className="mb-4 text-balance text-4xl tracking-tight sm:text-5xl lg:text-6xl">
               {title}
             </h1>
 

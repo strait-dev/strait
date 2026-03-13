@@ -26,7 +26,7 @@ const ProblemSection = () => (
       <div className="mx-auto max-w-3xl">
         <div className="mb-14">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-            <span className="font-bold text-foreground">
+            <span className="text-foreground">
               Too much firefighting, not enough shipping.
             </span>{" "}
             <span className="text-muted-foreground">

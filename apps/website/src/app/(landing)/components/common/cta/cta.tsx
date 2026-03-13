@@ -29,7 +29,7 @@ const CTA = () => {
       <Shell className="relative z-10" variant="wide">
         <div className="flex flex-col items-center text-center">
           <h2
-            className="max-w-3xl font-bold text-2xl text-primary-foreground leading-[1.1] tracking-tighter sm:text-3xl lg:text-4xl"
+            className="max-w-3xl text-2xl text-primary-foreground leading-[1.1] tracking-tighter sm:text-3xl lg:text-4xl"
             id={headingId}
           >
             {title}

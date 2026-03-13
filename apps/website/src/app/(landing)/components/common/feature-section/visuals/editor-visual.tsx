@@ -322,7 +322,7 @@ export const EditorVisual4 = () => {
             key={fmt.ext}
             type="button"
           >
-            <span className="flex size-8 items-center justify-center rounded-md bg-muted font-bold text-foreground text-xs">
+            <span className="flex size-8 items-center justify-center rounded-md bg-muted text-foreground text-xs">
               {fmt.abbr}
             </span>
             <div className="flex-1">

@@ -63,7 +63,7 @@ function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="mx-auto w-full max-w-md space-y-6 p-8">
         <div className="space-y-2 text-center">
-          <h1 className="font-bold text-3xl">Welcome to Strait</h1>
+          <h1 className="text-3xl">Welcome to Strait</h1>
           <p className="text-muted-foreground">
             Sign in to continue to your AI writing assistant
           </p>

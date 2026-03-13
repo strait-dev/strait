@@ -20,7 +20,7 @@ const Hero = () => (
         </span>
 
         <h1 className="mt-6 animate-delay-100 animate-fade-in-up text-balance text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl xl:text-7xl">
-          <span className="font-bold text-foreground">
+          <span className="text-foreground">
             Run every background workflow from one clean control center.
           </span>{" "}
           <span className="text-muted-foreground">

@@ -233,7 +233,7 @@ const DashboardPage = ({ session }: Props) => {
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary font-bold text-primary-foreground text-xs">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">
                     1
                   </div>
                   <div className="text-sm">
@@ -244,7 +244,7 @@ const DashboardPage = ({ session }: Props) => {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary font-bold text-primary-foreground text-xs">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">
                     2
                   </div>
                   <div className="text-sm">
@@ -255,7 +255,7 @@ const DashboardPage = ({ session }: Props) => {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent font-bold text-accent-foreground text-xs">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-accent-foreground text-xs">
                     3
                   </div>
                   <div className="text-sm">
@@ -266,7 +266,7 @@ const DashboardPage = ({ session }: Props) => {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary font-bold text-primary-foreground text-xs">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">
                     4
                   </div>
                   <div className="text-sm">

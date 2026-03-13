@@ -17,7 +17,7 @@ const ErrorPage = ({
         <p className="font-medium text-muted-foreground text-sm uppercase tracking-wider">
           Something went wrong
         </p>
-        <h1 className="mt-4 font-bold text-3xl text-foreground tracking-tight sm:text-4xl">
+        <h1 className="mt-4 text-3xl text-foreground tracking-tight sm:text-4xl">
           Unexpected Error
         </h1>
         <p className="mt-4 text-base text-muted-foreground leading-relaxed">

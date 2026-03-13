@@ -62,7 +62,7 @@ const ComparisonSection = () => {
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-            <span className="font-bold text-foreground">
+            <span className="text-foreground">
               Replace tool sprawl with one platform your team actually enjoys.
             </span>{" "}
             <span className="text-muted-foreground">

@@ -102,7 +102,7 @@ export const StylesVisual2 = () => (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="rounded-md bg-muted p-1.5">
-            <span className="font-bold text-foreground text-xs">PDF</span>
+            <span className="text-foreground text-xs">PDF</span>
           </div>
           <div>
             <p className="font-medium text-foreground text-sm">

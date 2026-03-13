@@ -118,7 +118,7 @@ export function StaticPricingTable() {
                     <span className="mb-4 inline-block rounded-md bg-primary-foreground/20 px-3 py-1.5 font-medium text-primary-foreground text-xs backdrop-blur-sm">
                       Most popular
                     </span>
-                    <h3 className="font-bold text-2xl text-primary-foreground tracking-tight">
+                    <h3 className="text-2xl text-primary-foreground tracking-tight">
                       {plan.name}
                     </h3>
                     <p className="mt-2 max-w-sm text-pretty text-primary-foreground/70 text-sm leading-relaxed">
@@ -128,7 +128,7 @@ export function StaticPricingTable() {
                 </div>
               ) : (
                 <div className="px-6 pt-8 sm:px-8">
-                  <h3 className="font-bold text-2xl text-foreground tracking-tight">
+                  <h3 className="text-2xl text-foreground tracking-tight">
                     {plan.name}
                   </h3>
                   <p className="mt-2 max-w-sm text-pretty text-muted-foreground text-sm leading-relaxed">
@@ -139,7 +139,7 @@ export function StaticPricingTable() {
 
               <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
                 <div className="mt-8 mb-8 flex items-baseline gap-1">
-                  <span className="font-bold text-5xl text-foreground tabular-nums tracking-tight">
+                  <span className="text-5xl text-foreground tabular-nums tracking-tight">
                     {formatPrice(price)}
                   </span>
                   <span className="text-muted-foreground text-sm">

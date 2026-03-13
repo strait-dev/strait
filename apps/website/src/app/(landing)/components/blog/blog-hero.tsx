@@ -50,7 +50,7 @@ const BlogHero = async () => {
           <span className="kicker">{badge}</span>
 
           <h1 className="mt-6 text-balance text-4xl leading-[1.15] tracking-tight sm:text-5xl lg:text-6xl">
-            <span className="font-bold text-foreground">{title}</span>{" "}
+            <span className="text-foreground">{title}</span>{" "}
             <span className="text-muted-foreground">{subtitle}</span>
           </h1>
         </div>

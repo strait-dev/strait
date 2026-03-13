@@ -69,7 +69,7 @@ const InteractiveDemo = () => {
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-            <span className="font-bold text-foreground">
+            <span className="text-foreground">
               See how runs move through your system in real time.
             </span>{" "}
             <span className="text-muted-foreground">
@@ -119,7 +119,7 @@ const InteractiveDemo = () => {
                             } as React.CSSProperties
                           }
                         >
-                          <h3 className="font-bold text-2xl text-foreground sm:text-3xl">
+                          <h3 className="text-2xl text-foreground sm:text-3xl">
                             {line.text}
                           </h3>
                         </div>
