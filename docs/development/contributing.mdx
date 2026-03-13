@@ -59,7 +59,7 @@ We follow idiomatic Go patterns and specific project conventions:
 - **Error Handling**: Wrap errors using `%w` to provide context while preserving the original error type.
 - **Collections**: Use `samber/lo` for collection operations (Map, Filter, KeyBy, Keys) instead of hand-written loops.
 - **Concurrency**: Use `sourcegraph/conc` for goroutines (WaitGroup, pool). Never use bare `go` statements or `sync.WaitGroup` directly.
-- **Worker Pool**: Use the `internal/worker` pond/v2 pool. Do not create custom goroutine pools.
+- **Worker Pool**: Use the `apps/strait/internal/worker` pond/v2 pool. Do not create custom goroutine pools.
 - **Test Assertions**: Use `testutil.AssertEqual` (powered by `google/go-cmp`) for structural comparisons with rich diffs. Avoid manual field-by-field assertions.
 - **No Emojis**: Avoid using emojis in code, comments, or documentation.
 
@@ -80,12 +80,12 @@ We use `lefthook` to run checks automatically before every commit. This ensures 
 
 Current pre-commit checks include:
 - `golangci-lint`
-- OpenAPI parity check (`scripts/check_openapi_parity.go`) to ensure `internal/api/routes.go`, `internal/api/openapi.yaml`, and `docs/openapi.yaml` stay in sync.
+- OpenAPI parity check (`apps/strait/scripts/check-openapi-parity/main.go`) to ensure `apps/strait/internal/api/routes.go`, `apps/strait/internal/api/openapi.yaml`, and `docs/openapi.yaml` stay in sync.
 
 Manual parity check command:
 
 ```bash
-go run ./scripts/check_openapi_parity.go
+cd apps/strait && go run ./scripts/check-openapi-parity
 ```
 
 If `lefthook` fails, you must fix the issues before you can commit your changes.

@@ -28,7 +28,7 @@ opened_at       TIMESTAMPTZ
 last_failure_at TIMESTAMPTZ
 ```
 
-The in-memory circuit breaker (`internal/worker/circuitbreaker.go`) provides fast lookups during dispatch. The PostgreSQL table provides durability.
+The in-memory circuit breaker (`apps/strait/internal/worker/circuitbreaker.go`) provides fast lookups during dispatch. The PostgreSQL table provides durability.
 
 ### Fallback Endpoint
 
@@ -109,7 +109,7 @@ The `context.WithoutCancel` pattern ensures job dispatch goroutines continue exe
 
 ## Stale Run Recovery
 
-The stale reaper (`internal/scheduler/reaper.go`) detects runs that have stopped heartbeating and transitions them to a recoverable state:
+The stale reaper (`apps/strait/internal/scheduler/reaper.go`) detects runs that have stopped heartbeating and transitions them to a recoverable state:
 
 - Runs in `dequeued` with `heartbeat_at` older than 5 minutes are transitioned to `system_failed`
 - Runs in `waiting` with `heartbeat_at` older than 1 hour are transitioned to `system_failed`

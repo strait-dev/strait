@@ -32,7 +32,7 @@ The system performs DNS resolution and checks if any of the resolved IP addresse
 ### Defense in Depth
 SSRF validation is applied in two layers:
 1. **API layer**: On job create/update for `endpoint_url`, `fallback_endpoint_url`, and `webhook_url`
-2. **Worker layer**: At dispatch time for environment-resolved endpoint overrides (`internal/worker/validate.go`)
+2. **Worker layer**: At dispatch time for environment-resolved endpoint overrides (`apps/strait/internal/worker/validate.go`)
 
 ### Allowed Ports
 To further restrict outbound traffic, only a specific set of standard and common development ports are allowed for webhooks:

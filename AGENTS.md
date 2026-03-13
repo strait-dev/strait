@@ -45,17 +45,17 @@ Start here for high-level context:
 
 Top-level directories you will use most:
 
-- `cmd/strait/` — CLI commands and app entrypoint wiring
-- `internal/api/` — HTTP routes, middleware, API auth paths
-- `internal/worker/` — execution worker pool and dispatch behavior
-- `internal/workflow/` — DAG orchestration engine and step progression
-- `internal/scheduler/` — cron/poller/reaper/retention background loops
-- `internal/queue/` — dequeue/queue logic and concurrency-safe claiming
-- `internal/store/` — raw SQL data access layer
-- `internal/domain/` — domain models, FSM types/errors
-- `internal/config/` — env var loading/defaults/validation
-- `internal/testutil/` — factories/assert helpers/cmp tools
-- `migrations/` — SQL migrations (embedded in binary)
+- `apps/strait/cmd/strait/` — CLI commands and app entrypoint wiring
+- `apps/strait/internal/api/` — HTTP routes, middleware, API auth paths
+- `apps/strait/internal/worker/` — execution worker pool and dispatch behavior
+- `apps/strait/internal/workflow/` — DAG orchestration engine and step progression
+- `apps/strait/internal/scheduler/` — cron/poller/reaper/retention background loops
+- `apps/strait/internal/queue/` — dequeue/queue logic and concurrency-safe claiming
+- `apps/strait/internal/store/` — raw SQL data access layer
+- `apps/strait/internal/domain/` — domain models, FSM types/errors
+- `apps/strait/internal/config/` — env var loading/defaults/validation
+- `apps/strait/internal/testutil/` — factories/assert helpers/cmp tools
+- `apps/strait/migrations/` — SQL migrations (embedded in binary)
 - `docs/` — product + dev + API + CLI docs
 
 Useful support files:
@@ -84,19 +84,19 @@ Before implementation, read docs intentionally instead of guessing.
   - `docs/concepts/scheduling.mdx`
 
 - **Configuration / env vars**:
-  - `internal/config/config.go`
+  - `apps/strait/internal/config/config.go`
   - `docs/configuration/environment-variables.mdx`
   - `.env.example`
 
 - **Database / queue / store / FSM**:
   - `docs/development/database-schema.mdx`
-  - relevant files in `migrations/`
-  - `internal/store/*`, `internal/queue/*`
+  - relevant files in `apps/strait/migrations/`
+  - `apps/strait/internal/store/*`, `apps/strait/internal/queue/*`
 
 - **CLI changes**:
   - `docs/cli/overview.mdx`
   - relevant `docs/cli/*.mdx`
-  - matching files in `cmd/strait/*`
+  - matching files in `apps/strait/cmd/strait/*`
 
 - **Auth / security changes**:
   - `docs/guides/authentication.mdx`
@@ -104,7 +104,7 @@ Before implementation, read docs intentionally instead of guessing.
 
 - **Testing strategy**:
   - `docs/development/testing.mdx`
-  - `internal/testutil/*`
+  - `apps/strait/internal/testutil/*`
 
 - **Public API contract**:
   - `docs/api-reference/overview.mdx`
@@ -123,14 +123,14 @@ Do not continue with assumptions that can change architecture, schema, API behav
 From project conventions (`docs/development/contributing.mdx`) + existing codebase practice:
 
 1. **No ORM**
-   - Use raw SQL with `pgx/v5` patterns in `internal/store`.
+   - Use raw SQL with `pgx/v5` patterns in `apps/strait/internal/store`.
 
 2. **Concurrency discipline**
    - Prefer structured concurrency (`sourcegraph/conc` and existing patterns).
    - Do not introduce unmanaged goroutine patterns casually.
 
 3. **Worker/pool consistency**
-   - Reuse existing worker execution/pool patterns in `internal/worker`.
+   - Reuse existing worker execution/pool patterns in `apps/strait/internal/worker`.
 
 4. **Error handling**
    - Wrap with `%w` and include contextual message.
@@ -139,7 +139,7 @@ From project conventions (`docs/development/contributing.mdx`) + existing codeba
    - Prefer `samber/lo` where it improves readability.
 
 6. **Testing style**
-   - Use `internal/testutil` helpers, especially structural comparisons.
+   - Use `apps/strait/internal/testutil` helpers, especially structural comparisons.
 
 7. **No emojis**
    - In code, comments, logs, docs, commits, PR text.
@@ -163,7 +163,7 @@ export JWT_SIGNING_KEY=<32+ chars>
 
 ### 5.3 Run app
 ```bash
-go run ./cmd/strait --mode all
+cd apps/strait && go run ./cmd/strait --mode all
 ```
 
 References:
@@ -179,17 +179,17 @@ References:
 Run relevant commands for your scope:
 
 ```bash
-go build ./...
-go test ./...
-go test -race ./...
-golangci-lint run --timeout=5m ./...
+cd apps/strait && go build ./...
+cd apps/strait && go test ./...
+cd apps/strait && go test -race ./...
+cd apps/strait && golangci-lint run --timeout=5m ./...
 ```
 
 When applicable:
 
 ```bash
-go test -tags integration ./...
-go test -bench . ./internal/...
+cd apps/strait && go test -tags integration ./...
+cd apps/strait && go test -bench . ./internal/...
 ```
 
 CI references:
@@ -212,17 +212,17 @@ lefthook install
    - `NNNNNN_name.down.sql`
 3. Create via helper command:
 ```bash
-go run ./cmd/strait migrate create <name>
+cd apps/strait && go run ./cmd/strait migrate create <name>
 ```
 4. Validate locally:
 ```bash
-go run ./cmd/strait migrate up
-go run ./cmd/strait migrate status
+cd apps/strait && go run ./cmd/strait migrate up
+cd apps/strait && go run ./cmd/strait migrate status
 ```
 
 References:
 - `docs/development/database-schema.mdx`
-- `cmd/strait/migrate.go`
+- `apps/strait/cmd/strait/migrate.go`
 
 ---
 
@@ -320,9 +320,9 @@ Every PR description should include:
 
 ## Validation
 - Commands run:
-  - `go test ./...`
-  - `go test -race ./...`
-  - `golangci-lint run --timeout=5m ./...`
+  - `cd apps/strait && go test ./...`
+  - `cd apps/strait && go test -race ./...`
+  - `cd apps/strait && golangci-lint run --timeout=5m ./...`
 - Result summary:
 
 ## Testing Impact
@@ -369,10 +369,10 @@ Files:
 - `path/to/test_file_2.go`
 
 ### Commands Run
-- `go test ./...`
-- `go test -race ./...`
-- `go test -tags integration ./...` (if applicable)
-- `golangci-lint run --timeout=5m ./...`
+- `cd apps/strait && go test ./...`
+- `cd apps/strait && go test -race ./...`
+- `cd apps/strait && go test -tags integration ./...` (if applicable)
+- `cd apps/strait && golangci-lint run --timeout=5m ./...`
 
 ### Results
 - Summary:
@@ -390,7 +390,7 @@ If you skip any relevant test category, explicitly justify it in the PR.
 
 - [ ] API request/response shapes match `docs/openapi.yaml`
 - [ ] CLI flags/output documented in `docs/cli/*.mdx`
-- [ ] New env vars wired in `internal/config/config.go`
+- [ ] New env vars wired in `apps/strait/internal/config/config.go`
 - [ ] Env docs + `.env.example` updated
 - [ ] Feature flag behavior documented where relevant
 
@@ -403,7 +403,7 @@ If you skip any relevant test category, explicitly justify it in the PR.
 - Bug fix -> regression test
 - New functionality -> at least one happy-path test + relevant failure/edge-case tests
 
-Use `internal/testutil/*` helpers whenever possible.
+Use `apps/strait/internal/testutil/*` helpers whenever possible.
 
 ### 11.3 Testing quality bar (mandatory)
 
@@ -422,14 +422,14 @@ We prioritize correctness and confidence over speed of merging.
 Minimum validation expectation before handoff:
 
 ```bash
-go test ./...
-go test -race ./...
+cd apps/strait && go test ./...
+cd apps/strait && go test -race ./...
 ```
 
 And when touching DB/queue/workflow/scheduler behavior:
 
 ```bash
-go test -tags integration ./...
+cd apps/strait && go test -tags integration ./...
 ```
 
 ---
@@ -455,7 +455,7 @@ References:
 
 A change is done only when all apply:
 
-1. Code compiles (`go build ./...`)
+1. Code compiles (`cd apps/strait && go build ./...`)
 2. Relevant tests pass (including race/integration when needed)
 3. Lint passes
 4. Docs/contracts/config updated for behavior changes

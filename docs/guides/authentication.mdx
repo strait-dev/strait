@@ -237,7 +237,7 @@ User permissions are cached for 30 seconds to avoid hitting the database on ever
 
 ## Middleware Chain
 
-Authentication flows through these middleware in `internal/api/middleware.go`:
+Authentication flows through these middleware in `apps/strait/internal/api/middleware.go`:
 
 1. **`apiKeyOrSecretAuth`** — Routes to API key auth (`strait_` bearer), OIDC bearer auth (optional), or internal secret auth
 2. **`apiKeyAuth`** — Validates key hash, checks revocation/expiration/rotation grace, sets scopes + `actorType=api_key` in context

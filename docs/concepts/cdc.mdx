@@ -15,7 +15,7 @@ Strait integrates with [Sequin Stream](https://sequinstream.com) to implement CD
 
 1. **WAL Streaming**: Sequin connects to the Postgres database and monitors the WAL via logical replication.
 2. **Buffering**: Sequin buffers these changes and exposes them via a high-performance HTTP API.
-3. **Polling**: Strait's CDC consumer (defined in `internal/cdc/`) polls Sequin for batches of change events.
+3. **Polling**: Strait's CDC consumer (defined in `apps/strait/internal/cdc/`) polls Sequin for batches of change events.
 
 ## Monitored Tables
 
@@ -38,7 +38,7 @@ The consumer is configured via environment variables:
 
 ### Message Structure
 
-Each CDC message (defined in `internal/cdc/types.go`) contains:
+Each CDC message (defined in `apps/strait/internal/cdc/types.go`) contains:
 - **Action**: The type of change (`insert`, `update`, `delete`).
 - **Record**: The full state of the row after the change.
 - **Changes**: (For updates) A map of only the fields that were modified.

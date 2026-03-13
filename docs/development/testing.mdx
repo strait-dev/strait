@@ -76,10 +76,10 @@ Strait has two load testing approaches that cover different concerns.
 
 #### Vegeta Load Tests (HTTP)
 
-Vegeta-based tests in `test/loadtest/` exercise every API route at scale using three attack modes: baseline (fixed-rate SLA validation), stress (high-rate ceiling discovery), and spike (linear ramp). Tests require the `loadtest` and `integration` build tags and spin up a full API server with testcontainers PostgreSQL.
+Vegeta-based tests in `apps/strait/test/loadtest/` exercise every API route at scale using three attack modes: baseline (fixed-rate SLA validation), stress (high-rate ceiling discovery), and spike (linear ramp). Tests require the `loadtest` and `integration` build tags and spin up a full API server with testcontainers PostgreSQL.
 
 ```bash
-go test -tags "loadtest,integration" -timeout=30m ./test/loadtest/...
+cd apps/strait && go test -tags "loadtest,integration" -timeout=30m ./test/loadtest/...
 ```
 
 Test files cover all API surface areas:
@@ -98,16 +98,16 @@ Test files cover all API surface areas:
 
 #### Integration Load Tests (Go)
 
-Go-native load tests in `internal/e2e/` test internal subsystem throughput using testcontainers. They exercise queue, worker, webhook, workflow, rate limiting, store, and full pipeline operations at configurable volumes.
+Go-native load tests in `apps/strait/internal/e2e/` test internal subsystem throughput using testcontainers. They exercise queue, worker, webhook, workflow, rate limiting, store, and full pipeline operations at configurable volumes.
 
 ```bash
-go test -tags integration -run "TestLoad" -timeout=30m ./internal/e2e/...
+cd apps/strait && go test -tags integration -run "TestLoad" -timeout=30m ./internal/e2e/...
 ```
 
 Control volume via `LOADTEST_VOLUME_TIER`:
 
 ```bash
-LOADTEST_VOLUME_TIER=large go test -tags integration -run "TestLoad" ./internal/e2e/...
+cd apps/strait && LOADTEST_VOLUME_TIER=large go test -tags integration -run "TestLoad" ./internal/e2e/...
 ```
 
 Available tiers: `default` (500 items), `large` (5,000 items), `extreme` (10,000 items).
@@ -126,7 +126,7 @@ Test files:
 Legacy integration-tagged load tests for event trigger throughput:
 
 ```bash
-go test -tags integration -run TestEventTriggerLoad ./internal/e2e/...
+cd apps/strait && go test -tags integration -run TestEventTriggerLoad ./internal/e2e/...
 ```
 
 Available load tests:
@@ -201,7 +201,7 @@ func TestCreateJob(t *testing.T) {
 }
 ```
 
-Available helpers in `internal/testutil/cmp.go`:
+Available helpers in `apps/strait/internal/testutil/cmp.go`:
 
 - `AssertEqual(t, got, want, ...cmp.Option)`: Structural comparison with rich diff output.
 - `AssertJSONEqual(t, a, b []byte)`: JSON-aware comparison that ignores key ordering.
@@ -214,7 +214,7 @@ We use `testcontainers-go` to manage the lifecycle of PostgreSQL and Redis durin
 
 ### Mock Patterns
 
-For packages like `internal/api` and `internal/scheduler`, we use mock stores with configurable function fields:
+For packages like `apps/strait/internal/api` and `apps/strait/internal/scheduler`, we use mock stores with configurable function fields:
 
 ```go
 type mockAPIStore struct {

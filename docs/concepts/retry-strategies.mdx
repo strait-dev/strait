@@ -7,7 +7,7 @@ When a job execution fails (non-2xx response or timeout), Strait uses a retry st
 
 ## Core Strategies
 
-The system supports four primary retry strategies, defined in `internal/worker/backoff.go`.
+The system supports four primary retry strategies, defined in `apps/strait/internal/worker/backoff.go`.
 
 ### 1. Exponential (Default)
 The delay increases exponentially with each attempt.
