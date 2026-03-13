@@ -259,7 +259,7 @@ export function getSoftwareApplicationSchema() {
     ],
     screenshot: {
       "@type": "ImageObject",
-      url: `${BASE_URL}/opengraph-image.jpg`,
+      url: `${BASE_URL}/og.png`,
       width: 1200,
       height: 630,
     },

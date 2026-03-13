@@ -11,7 +11,7 @@ export const siteConfig: SiteConfig = {
   url: websiteUrl,
   ogImage: "/og.png",
   logo: {
-    src: "/logo.svg",
+    src: "/strait.svg",
     alt: "Strait Logo",
     width: 32,
     height: 32,

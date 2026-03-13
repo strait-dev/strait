@@ -174,7 +174,7 @@ const Page = async ({
           const articleSchema = getBlogPostingSchema({
             headline: post._title ?? "Blog Post",
             description: post.description ?? "",
-            image: post.image?.light?.url ?? `${baseUrl}/opengraph-image.jpg`,
+            image: post.image?.light?.url ?? `${baseUrl}/og.png`,
             datePublished: new Date(post.publishedAt).toISOString(),
             ...(post.modifiedDate && {
               dateModified: new Date(post.modifiedDate).toISOString(),

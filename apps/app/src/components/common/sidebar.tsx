@@ -416,7 +416,7 @@ const AppSidebar = ({ session }: Props) => {
               alt="Strait logo"
               className="h-8 w-auto"
               height={20}
-              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9FHxThgYVE9uncAThKs1v37lk5QJHeDdzbPmr"
+              src="/strait.svg"
               width={20}
             />
           </Link>

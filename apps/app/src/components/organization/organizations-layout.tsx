@@ -61,7 +61,7 @@ export const OrganizationsLayout = ({
                 alt="Strait logo"
                 className="h-8 w-auto"
                 height={32}
-                src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9cRd42bnpvhTE8YVwNOZiI2CgkFjt0mlspKzB"
+                src="/strait.svg"
                 width={32}
               />
             </div>

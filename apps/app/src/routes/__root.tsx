@@ -72,6 +72,16 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         content:
           "Strait is a production-grade job orchestration platform for scheduling, executing, and monitoring distributed workloads.",
       },
+      { property: "og:title", content: "Strait" },
+      {
+        property: "og:description",
+        content:
+          "Strait is a production-grade job orchestration platform for scheduling, executing, and monitoring distributed workloads.",
+      },
+      { property: "og:image", content: "/og.png" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: "/og.png" },
     ],
     links: [
       { rel: "stylesheet", href: css },
@@ -81,6 +91,25 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Geist:wght@100;200;300;400;500;600;700;800;900&family=Geist+Mono:wght@100;200;300;400;500;600;700;800;900&display=swap",
       },
+      { rel: "icon", href: "/favicon.ico" },
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "32x32",
+        href: "/favicon-32x32.png",
+      },
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "16x16",
+        href: "/favicon-16x16.png",
+      },
+      {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/apple-touch-icon.png",
+      },
+      { rel: "manifest", href: "/site.webmanifest" },
     ],
   }),
   component: RootComponent,

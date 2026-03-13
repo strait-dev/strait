@@ -271,7 +271,7 @@ function RouteComponent() {
                   className="size-4 shrink-0"
                   height={16}
                   loading="lazy"
-                  src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9zVBIttb3n82RL9rTEikJBQjPqOMF6WlXI5Su"
+                  src="/strait.svg"
                   width={16}
                 />
                 <span>Continue with Google</span>

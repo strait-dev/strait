@@ -280,7 +280,7 @@ function UpgradePage() {
             className="h-8 w-auto"
             height={32}
             loading="eager"
-            src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9FHxThgYVE9uncAThKs1v37lk5QJHeDdzbPmr"
+            src="/strait.svg"
             width={120}
           />
         </div>

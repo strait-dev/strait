@@ -1,69 +1,83 @@
 # Strait
 
-> Strait is a business platform that helps you manage everything in one place—sales, customers, inventory, suppliers, and finances. We use smart technology to give you insights that help you make better decisions and grow your business.
+> AI writing assistant with conversation-first drafting and style analysis.
 
-Our north star is helping you sell more. Everything we build is designed to help you bring in more revenue.
+Strait is an AI-powered writing platform that replaces the blank page with a guided conversation. An AI interviewer gathers your brief — purpose, audience, key points, and tone — then a writing assistant generates multiple draft angles for you to refine. Built for writers who want to produce better content faster.
 
-Key things to know about Strait:
+Website: https://trystrait.ai
+App: https://app.trystrait.ai
 
-- All-in-one platform: sales, customers, inventory, suppliers, and finances in one place
-- Built around sales: we help you understand what's working so you can do more of what brings results
-- Works anywhere in the world: multiple currencies, tax rules, and payment methods supported
-- Easy to use: powerful doesn't mean complicated—your team can get started quickly
-- Access from anywhere: cloud-based and mobile-friendly
-- Scales with you: whether you're starting out or expanding globally
-- Unlimited data retention on all plans
+## Key Features
 
-What you can do with Strait:
-
-- **Sales & Checkout**: Fast checkout, promotions, multiple payment methods, real-time tracking
-- **Products & Catalog**: Organize with groups, brands, tags, and variants (sizes, colors)
-- **Customers**: Complete profiles, purchase history, build relationships that drive repeat business
-- **Suppliers**: Manage suppliers, track orders and communications in one place
-- **Inventory & Stock**: Stock counts, purchases, returns, transfers between stores
-- **Finance**: Track receipts, manage payments, know where your money is at all times
-- **Reports & Insights**: Custom reports, see the numbers that matter, make data-driven decisions
-
-Who it's for:
-
-- Small and medium businesses looking to compete with bigger players
-- Growing companies that need a platform that scales with them
-- Retail businesses wanting to optimize sales and inventory
-- Service companies that need to manage customer relationships well
-- Multi-location businesses that want everything in one place
-
-Pricing plans (all save 20% with annual billing):
-
-- **Starter** ($79/mo): 1 store, 1 register, 200 products, basic POS & inventory, email support
-- **Growth** ($149/mo): 2 stores, 1,000 products, AI Assistant, stock transfers, priority support
-- **Professional** ($349/mo): 3 stores, 5,000 products, 3 AI agents, quotes, loyalty program, dedicated manager
-- **Enterprise** ($599/mo): 5 stores, unlimited products, full AI suite (5 agents), gift cards, store credit, 24/7 support
-
-AI Agents (available by plan):
-
-- **AI Assistant**: Natural language help, task automation, smart search
-- **AI Sales Agent**: Upsell suggestions, customer pattern analysis, product recommendations
-- **AI Reports Agent**: Auto-generated insights, anomaly detection, plain-English summaries
-- **AI Inventory Agent**: Demand forecasting, reorder suggestions, seasonal predictions
-- **AI Marketing Agent**: Customer segmentation, campaign suggestions, win-back recommendations
-
-## Features
-
-- [Sales & POS](https://getshopwyse.com/features/sales): Checkout, promotions, payments, real-time sales tracking
-- [Inventory Management](https://getshopwyse.com/features/inventory): Stock counts, purchases, returns, transfers between stores
-- [Financial Tools](https://getshopwyse.com/features/finance): Receipts, payments, cash management, financial visibility
-- [Reports & Analytics](https://getshopwyse.com/features/reports): Custom reports, insights, data-driven decisions
+1. **Conversation-first writing** — An AI interviewer guides you through a structured brief before any writing begins.
+2. **Multiple draft angles** — Get 3 distinct content approaches (e.g., Hook-First, Story-Led, Data-Driven) per session.
+3. **10 content types** — Blog posts, Twitter threads, LinkedIn posts, emails, newsletters, press releases, product descriptions, ad copy, articles, and custom freeform.
+4. **Style profiles** — Define your voice with formality and energy scales, upload samples for AI analysis, and apply profiles to any session.
+5. **Style analysis** — Upload PDFs, text files, Markdown, or provide a URL to analyze writing style automatically.
+6. **Rich text editor** — Tiptap-powered editor with 20+ extensions including formatting, headings, lists, code blocks, images, and links.
+7. **Workspaces and folders** — Organize projects into color-coded workspaces with nested folders and custom tags.
+8. **Multi-format export** — Download finished work as PDF, DOCX, Markdown, or plain text.
+9. **Real-time sync** — Changes propagate instantly across all devices via Convex reactive queries.
+10. **50+ languages** — Write and get AI assistance in over 50 languages with automatic detection.
 
 ## Pricing
 
-- [Pricing & Plans](https://getshopwyse.com/pricing): Compare all tiers, features, and limits
+| Feature | Personal ($30/mo) | Pro ($50/mo) |
+|---------|-------------------|--------------|
+| Sessions | 50/month | 150/month |
+| Messages per session | Unlimited | Unlimited |
+| Style profiles | 5 | Unlimited |
+| Workspaces | 3 | Unlimited |
+| Drafts per session | 3 | 5 |
+| Languages | All 50+ | All 50+ |
+| Support | Email (48h) | Priority (12h) |
+| Early access | — | ✓ |
 
-## Getting Started
+Yearly billing: $24/mo (Personal), $40/mo (Pro).
 
-- [Start Free Trial](https://getshopwyse.com/get-started): Try Strait free for 14 days
-- [Contact Sales](https://getshopwyse.com/contact): Talk to our team for enterprise or custom needs
+## AI Capabilities
 
-## Resources
+- **Interviewer agent**: Gathers purpose, audience, key points, and tone through structured conversation.
+- **Writing assistant agent**: Generates 3 draft angles based on the interview brief, then refines through chat.
+- **Session lifecycle**: Full state machine managing interview → drafts → refinement → completion.
+- **Style matching**: AI adapts output to match your style profile's formality, energy, and voice characteristics.
 
-- [Blog](https://getshopwyse.com/blog): Product updates, best practices, industry insights
-- [Customer Stories](https://getshopwyse.com/customers): See how businesses use Strait to grow
+## Content Types
+
+1. Blog Post
+2. Twitter Thread
+3. LinkedIn Post
+4. Follow-Up Email
+5. Article
+6. Newsletter
+7. Product Description
+8. Ad Copy
+9. Press Release
+10. Custom (freeform)
+
+## Use Cases
+
+- **Content creators**: Produce blog posts, social media content, and newsletters faster with AI-guided drafting.
+- **Marketing teams**: Generate ad copy, product descriptions, and press releases with consistent brand voice.
+- **Freelance writers**: Manage multiple client projects with workspaces and apply different style profiles per client.
+- **Non-native speakers**: Write confidently in 50+ languages with AI assistance that understands grammar rules and cultural context.
+
+## Competitive Position
+
+- **vs. blank page**: Strait replaces the blank page with a conversation that builds your brief before writing.
+- **vs. ChatGPT**: Purpose-built for writing with structured interviews, multiple draft angles, and style profiles — not a general chatbot.
+- **vs. Grammarly**: Goes beyond corrections to generate full drafts from a guided conversation.
+- **vs. Jasper**: Conversation-first approach with style analysis instead of template-based generation.
+
+## Links
+
+- Website: https://trystrait.ai
+- Pricing: https://trystrait.ai/pricing
+- Blog: https://trystrait.ai/blog
+- Full documentation: https://trystrait.ai/llms-full.txt
+
+## Contact
+
+- Email: leonardomso11@gmail.com
+- Twitter: https://twitter.com/leonardomso
+- GitHub: https://github.com/leonardomso
