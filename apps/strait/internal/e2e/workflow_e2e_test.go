@@ -41,6 +41,7 @@ func wfSetup(t *testing.T) *api.Server {
 			TriggerRateLimitWindow:   time.Minute,
 			CORSAllowedOrigins:       []string{"*"},
 			CORSAllowCredentials:     false,
+			MaxBulkTriggerItems:     500,
 		},
 		Store:            testStore,
 		Queue:            testQueue,

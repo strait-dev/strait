@@ -24,9 +24,11 @@ type mockWorkflowTrigger struct {
 	forceCompleteStepFn func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
 	resumeWorkflowFn    func(ctx context.Context, workflowRunID string) error
 	onJobRunTerminal    func(ctx context.Context, run *domain.JobRun) error
+	onEventReceivedFn   func(ctx context.Context, trigger *domain.EventTrigger) error
+	onStepFailedFn      func(ctx context.Context, workflowRunID string, stepRunID string)
 }
 
-func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
+func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error) {
 	if m.triggerWorkflowFn != nil {
 		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
 	}
@@ -75,28 +77,45 @@ func (m *mockWorkflowTrigger) OnJobRunTerminal(ctx context.Context, run *domain.
 	return nil
 }
 
+func (m *mockWorkflowTrigger) OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error {
+	if m.onEventReceivedFn != nil {
+		return m.onEventReceivedFn(ctx, trigger)
+	}
+	return nil
+}
+
+func (m *mockWorkflowTrigger) OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string) {
+	if m.onStepFailedFn != nil {
+		m.onStepFailedFn(ctx, workflowRunID, stepRunID)
+	}
+}
+
 func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config:         cfg,
 		Store:          s,
 		Queue:          q,
 		PubSub:         pub,
 		WorkflowEngine: trigger,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, wfCallback WorkflowCallback, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config:           cfg,
 		Store:            s,
 		Queue:            q,
@@ -104,11 +123,14 @@ func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, p
 		WorkflowCallback: wfCallback,
 		WorkflowEngine:   trigger,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {
 	t.Parallel()
 	createStepCalls := 0
+	expectedResourceClass := map[string]string{"s1": "small", "s2": "large"}
 	ms := &mockAPIStore{
 		createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
 			wf.ID = "wf-1"
@@ -119,13 +141,16 @@ func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {
 			if step.WorkflowID != "wf-1" {
 				t.Fatalf("step workflow_id = %q, want wf-1", step.WorkflowID)
 			}
+			if want := expectedResourceClass[step.StepRef]; step.ResourceClass != want {
+				t.Fatalf("step %s resource_class = %q, want %q", step.StepRef, step.ResourceClass, want)
+			}
 			return nil
 		},
 	}
 
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1"},{"job_id":"job-2","step_ref":"s2","depends_on":["s1"]}]}`
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"small"},{"job_id":"job-2","step_ref":"s2","depends_on":["s1"],"resource_class":"large"}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
 
 	if w.Code != http.StatusCreated {
@@ -156,6 +181,53 @@ func TestHandleCreateWorkflow_InvalidStep(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateWorkflow_InvalidResourceClass(t *testing.T) {
+	t.Parallel()
+	srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"xlarge"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "resource_class") {
+		t.Fatalf("expected resource_class validation error, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateWorkflow_PolicyViolation(t *testing.T) {
+	t.Parallel()
+	createCalled := false
+	ms := &mockAPIStore{
+		createWorkflowFn: func(_ context.Context, _ *domain.Workflow) error {
+			createCalled = true
+			return nil
+		},
+		getWorkflowPolicyByProjectFn: func(_ context.Context, projectID string) (*domain.WorkflowPolicy, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("projectID = %q, want proj-1", projectID)
+			}
+			return &domain.WorkflowPolicy{ProjectID: projectID, MaxFanOut: 1}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"root"},{"job_id":"job-2","step_ref":"child-a","depends_on":["root"]},{"job_id":"job-3","step_ref":"child-b","depends_on":["root"]}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "max_fan_out") {
+		t.Fatalf("expected max_fan_out violation, got: %s", w.Body.String())
+	}
+	if createCalled {
+		t.Fatal("expected CreateWorkflow not to be called when policy validation fails")
 	}
 }
 
@@ -244,8 +316,11 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 			}
 			return nil
 		},
-		createWorkflowStepFn: func(_ context.Context, _ *domain.WorkflowStep) error {
+		createWorkflowStepFn: func(_ context.Context, step *domain.WorkflowStep) error {
 			createStepCalls++
+			if step.ResourceClass != "medium" {
+				t.Fatalf("step resource_class = %q, want medium", step.ResourceClass)
+			}
 			return nil
 		},
 		listStepsByWorkflowFn: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
@@ -253,7 +328,7 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 		},
 	}
 
-	body := `{"name":"new","slug":"new-slug","enabled":false,"steps":[{"job_id":"job-1","step_ref":"s1"}]}`
+	body := `{"name":"new","slug":"new-slug","enabled":false,"steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"medium"}]}`
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
@@ -266,6 +341,78 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 	}
 	if createStepCalls != 1 {
 		t.Fatalf("create step calls = %d, want 1", createStepCalls)
+	}
+}
+
+func TestHandleUpdateWorkflow_PolicyViolation(t *testing.T) {
+	t.Parallel()
+	updateCalled := false
+	deleteCalled := false
+	createStepCalled := false
+	ms := &mockAPIStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", ProjectID: "proj-1", Enabled: true}, nil
+		},
+		getWorkflowPolicyByProjectFn: func(_ context.Context, projectID string) (*domain.WorkflowPolicy, error) {
+			return &domain.WorkflowPolicy{ProjectID: projectID, MaxFanOut: 1}, nil
+		},
+		listStepsByWorkflowFn: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{WorkflowID: workflowID, StepRef: "root"},
+				{WorkflowID: workflowID, StepRef: "child-a", DependsOn: []string{"root"}},
+				{WorkflowID: workflowID, StepRef: "child-b", DependsOn: []string{"root"}},
+			}, nil
+		},
+		updateWorkflowFn: func(_ context.Context, _ *domain.Workflow) error {
+			updateCalled = true
+			return nil
+		},
+		deleteStepsByWorkflowFn: func(_ context.Context, _ string) error {
+			deleteCalled = true
+			return nil
+		},
+		createWorkflowStepFn: func(_ context.Context, _ *domain.WorkflowStep) error {
+			createStepCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"name":"new","steps":[{"job_id":"job-1","step_ref":"root"},{"job_id":"job-2","step_ref":"child-a","depends_on":["root"]},{"job_id":"job-3","step_ref":"child-b","depends_on":["root"]}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "max_fan_out") {
+		t.Fatalf("expected max_fan_out violation, got: %s", w.Body.String())
+	}
+	if updateCalled {
+		t.Fatal("expected UpdateWorkflow not to be called when policy validation fails")
+	}
+	if deleteCalled || createStepCalled {
+		t.Fatal("expected step replacement not to run when policy validation fails")
+	}
+}
+
+func TestHandleUpdateWorkflow_InvalidResourceClass(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Name: "old", Slug: "old", Enabled: true}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"steps":[{"job_id":"job-1","step_ref":"s1","resource_class":"xlarge"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "resource_class") {
+		t.Fatalf("expected resource_class validation error, got: %s", w.Body.String())
 	}
 }
 
@@ -426,6 +573,45 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 		}
 		if triggerCalled {
 			t.Fatal("expected trigger not to be called for disabled workflow")
+		}
+	})
+	t.Run("policy violation blocks trigger", func(t *testing.T) {
+		t.Parallel()
+		triggerCalled := false
+		trigger := &mockWorkflowTrigger{
+			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
+				triggerCalled = true
+				return &domain.WorkflowRun{ID: "wr-1"}, nil
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{
+					{StepRef: "root"},
+					{StepRef: "child-a", DependsOn: []string{"root"}},
+					{StepRef: "child-b", DependsOn: []string{"root"}},
+				}, nil
+			},
+			getWorkflowPolicyByProjectFn: func(_ context.Context, projectID string) (*domain.WorkflowPolicy, error) {
+				return &domain.WorkflowPolicy{ProjectID: projectID, MaxFanOut: 1}, nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/trigger", `{"project_id":"proj-1"}`))
+
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "max_fan_out") {
+			t.Fatalf("expected max_fan_out policy violation, got: %s", w.Body.String())
+		}
+		if triggerCalled {
+			t.Fatal("expected TriggerWorkflow not to be called on policy violation")
 		}
 	})
 }
@@ -666,6 +852,16 @@ func TestHandleGetWorkflowRunLabels(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+
+	var resp struct {
+		Labels map[string]string `json:"labels"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode labels response: %v", err)
+	}
+	if got := resp.Labels["env"]; got != "test" {
+		t.Fatalf("labels.env = %q, want test", got)
+	}
 }
 
 func TestHandleDryRunWorkflow(t *testing.T) {
@@ -692,6 +888,40 @@ func TestHandleDryRunWorkflow(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+}
+
+func TestHandleWorkflowPlan(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getWorkflowFn: func(_ context.Context, workflowID string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: workflowID, Version: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" || version != 1 {
+				t.Fatalf("unexpected workflow/version %s/%d", workflowID, version)
+			}
+			return []domain.WorkflowStep{
+				{StepRef: "a"},
+				{StepRef: "b", DependsOn: []string{"a"}},
+			}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/plan", `{}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	roots, ok := resp["roots"].([]any)
+	if !ok || len(roots) != 1 || roots[0] != "a" {
+		t.Fatalf("unexpected roots: %v", resp["roots"])
+	}
 }
 
 func TestHandleWorkflowGraph(t *testing.T) {
@@ -727,8 +957,8 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		getWorkflowRunCalls := 0
-		stepStatusUpdates := 0
-		runStatusUpdates := 0
+		stepsCanceled := false
+		jobsCanceled := false
 		published := map[string]int{}
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -744,31 +974,19 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 				}
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{
-					{ID: "sr-running", StepRef: "s1", Status: domain.StepRunning, JobRunID: "run-1"},
-					{ID: "sr-done", StepRef: "s2", Status: domain.StepCompleted, JobRunID: "run-2"},
-				}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id != "sr-running" || status != domain.StepCanceled {
-					t.Fatalf("unexpected step status update: %s %s", id, status)
+			cancelNonTerminalStepRunsFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
+				if workflowRunID != "wr-1" {
+					t.Fatalf("unexpected workflowRunID: %s", workflowRunID)
 				}
-				stepStatusUpdates++
-				return nil
+				stepsCanceled = true
+				return 1, nil
 			},
-			getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-				if id == "run-1" {
-					return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+			cancelJobRunsByWorkflowRunFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
+				if workflowRunID != "wr-1" {
+					t.Fatalf("unexpected workflowRunID: %s", workflowRunID)
 				}
-				return &domain.JobRun{ID: id, Status: domain.StatusCompleted}, nil
-			},
-			updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
-				if id != "run-1" || from != domain.StatusExecuting || to != domain.StatusCanceled {
-					t.Fatalf("unexpected run status update: %s %s -> %s", id, from, to)
-				}
-				runStatusUpdates++
-				return nil
+				jobsCanceled = true
+				return 1, nil
 			},
 		}
 
@@ -783,11 +1001,11 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
-		if stepStatusUpdates != 1 {
-			t.Fatalf("step status updates = %d, want 1", stepStatusUpdates)
+		if !stepsCanceled {
+			t.Fatal("expected CancelNonTerminalStepRuns to be called")
 		}
-		if runStatusUpdates != 1 {
-			t.Fatalf("job run status updates = %d, want 1", runStatusUpdates)
+		if !jobsCanceled {
+			t.Fatal("expected CancelJobRunsByWorkflowRun to be called")
 		}
 		if published["workflow-run:wr-1"] != 1 {
 			t.Fatalf("expected workflow-run hook publish once, got %d", published["workflow-run:wr-1"])
@@ -1118,6 +1336,163 @@ func TestHandleListWorkflowStepRuns(t *testing.T) {
 	})
 }
 
+func TestHandleGetWorkflowRunGraph(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", WorkflowVersion: 2}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" || version != 2 {
+				t.Fatalf("unexpected workflow/version: %s/%d", workflowID, version)
+			}
+			return []domain.WorkflowStep{{StepRef: "a", StepType: domain.WorkflowStepTypeJob}, {StepRef: "b", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"a"}}}, nil
+		},
+		listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted, DepsRequired: 0, DepsCompleted: 0}, {ID: "sr-b", StepRef: "b", Status: domain.StepWaiting, DepsRequired: 1, DepsCompleted: 1}}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/graph", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "\"runnable\":[\"b\"]") {
+		t.Fatalf("expected runnable step in response, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleGetWorkflowRunGraph_CriticalPathEstimate(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-2 * time.Second)
+	finishedAt := startedAt.Add(1 * time.Second)
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "a", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 5},
+				{StepRef: "b", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"a"}, TimeoutSecsOverride: 10},
+				{StepRef: "c", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 3},
+				{StepRef: "d", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"c"}, TimeoutSecsOverride: 20},
+			}, nil
+		},
+		listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{
+				{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted, StartedAt: &startedAt, FinishedAt: &finishedAt, DepsRequired: 0, DepsCompleted: 0},
+				{ID: "sr-b", StepRef: "b", Status: domain.StepPending, DepsRequired: 1, DepsCompleted: 1},
+				{ID: "sr-c", StepRef: "c", Status: domain.StepRunning, StartedAt: &startedAt, DepsRequired: 0, DepsCompleted: 0},
+				{ID: "sr-d", StepRef: "d", Status: domain.StepPending, DepsRequired: 1, DepsCompleted: 0},
+			}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/graph", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	pathRaw, ok := payload["critical_path"].([]any)
+	if !ok || len(pathRaw) != 2 || pathRaw[0] != "c" || pathRaw[1] != "d" {
+		t.Fatalf("unexpected critical path: %#v", payload["critical_path"])
+	}
+	estimateMS := int64(payload["critical_path_estimate_ms"].(float64))
+	if estimateMS != 23_000 {
+		t.Fatalf("critical_path_estimate_ms = %d, want 23000", estimateMS)
+	}
+	remainingMS := int64(payload["critical_path_remaining_ms"].(float64))
+	if remainingMS < 20_000 || remainingMS > 22_000 {
+		t.Fatalf("critical_path_remaining_ms out of range: %d", remainingMS)
+	}
+}
+
+func TestHandleGetWorkflowRunExplain(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		listWorkflowStepDecisionsFn: func(_ context.Context, workflowRunID, stepRef, decisionType string, _ int, _ *time.Time) ([]domain.WorkflowStepDecision, error) {
+			if workflowRunID != "wr-1" || stepRef != "review" || decisionType != "condition" {
+				t.Fatalf("unexpected filters")
+			}
+			return []domain.WorkflowStepDecision{{ID: "d1", WorkflowRunID: workflowRunID, StepRef: stepRef, DecisionType: decisionType, Decision: "skip", CreatedAt: time.Now()}}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/explain?step_ref=review&decision_type=condition", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "\"decision\":\"skip\"") {
+		t.Fatalf("expected decision in payload: %s", w.Body.String())
+	}
+}
+
+func TestHandleRetryWorkflowStep(t *testing.T) {
+	t.Parallel()
+	cb := &mockWorkflowTrigger{resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
+		if workflowRunID != "wr-1" {
+			t.Fatalf("unexpected workflow run id: %s", workflowRunID)
+		}
+		return nil
+	}}
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+		},
+		getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{ID: "sr-1", StepRef: "review", Status: domain.StepFailed}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id != "sr-1" || status != domain.StepPending {
+				t.Fatalf("unexpected status update")
+			}
+			return nil
+		},
+	}
+	srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestHandleReplayWorkflowSubtree(t *testing.T) {
+	t.Parallel()
+	cb := &mockWorkflowTrigger{resumeWorkflowFn: func(_ context.Context, _ string) error { return nil }}
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b", DependsOn: []string{"a"}}, {StepRef: "c", DependsOn: []string{"b"}}}, nil
+		},
+		listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return []domain.WorkflowStepRun{{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted}, {ID: "sr-b", StepRef: "b", Status: domain.StepFailed}, {ID: "sr-c", StepRef: "c", Status: domain.StepPending}}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
+			if status != domain.StepPending {
+				t.Fatalf("expected pending")
+			}
+			return nil
+		},
+	}
+	srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/b/replay-subtree", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
 func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
 	t.Parallel()
 	t.Run("not_found", func(t *testing.T) {
@@ -1372,7 +1747,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("list_step_runs_error", func(t *testing.T) {
+	t.Run("cancel_step_runs_error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -1381,8 +1756,8 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return nil, errors.New("db down")
+			cancelNonTerminalStepRunsFn: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+				return 0, errors.New("db down")
 			},
 		}
 
@@ -1395,7 +1770,7 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("step_update_conflict", func(t *testing.T) {
+	t.Run("cancel_job_runs_error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockAPIStore{
 			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -1404,82 +1779,8 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 				return nil
 			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return errors.New("step conflict")
-			},
-		}
-
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wr-1", ""))
-
-		if w.Code != http.StatusConflict {
-			t.Fatalf("expected 409, got %d", w.Code)
-		}
-	})
-
-	t.Run("job_run_not_found_skipped", func(t *testing.T) {
-		t.Parallel()
-		getCalls := 0
-		runStatusUpdates := 0
-		ms := &mockAPIStore{
-			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-				getCalls++
-				if getCalls == 1 {
-					return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
-				}
-				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusCanceled}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return nil
-			},
-			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-				return nil, store.ErrRunNotFound
-			},
-			updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-				runStatusUpdates++
-				return nil
-			},
-		}
-
-		srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, nil)
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wr-1", ""))
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-		}
-		if runStatusUpdates != 0 {
-			t.Fatalf("job run status updates = %d, want 0", runStatusUpdates)
-		}
-	})
-
-	t.Run("get_job_run_error", func(t *testing.T) {
-		t.Parallel()
-		ms := &mockAPIStore{
-			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-				return &domain.WorkflowRun{ID: id, Status: domain.WfStatusRunning}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return nil
-			},
-			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-				return nil, errors.New("db unavailable")
+			cancelJobRunsByWorkflowRunFn: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+				return 0, errors.New("db down")
 			},
 		}
 
@@ -1611,6 +1912,258 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 			t.Fatalf("expected 500, got %d", w.Code)
 		}
 	})
+}
+
+func TestHandleWorkflowVersionDiffAndImpact(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getWorkflowVersionByVersionIDFn: func(_ context.Context, _ string, versionID string) (*domain.WorkflowVersion, error) {
+			if versionID == "v1" {
+				return &domain.WorkflowVersion{ID: "v1", Version: 1}, nil
+			}
+			return &domain.WorkflowVersion{ID: "v2", Version: 2}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, version int) ([]domain.WorkflowStep, error) {
+			if version == 1 {
+				return []domain.WorkflowStep{{StepRef: "a"}}, nil
+			}
+			return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b"}}, nil
+		},
+		listWorkflowRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+			return []domain.WorkflowRun{{WorkflowVersion: 2}, {WorkflowVersion: 1}}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1/diff/v2", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v2/impact", ""))
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w2.Code)
+	}
+}
+
+func TestHandleListWorkflowVersions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			listWorkflowVersionsFn: func(_ context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
+				if workflowID != "wf-1" {
+					t.Fatalf("workflowID = %q, want wf-1", workflowID)
+				}
+				if limit != 10 {
+					t.Fatalf("limit = %d, want 10", limit)
+				}
+				return []domain.WorkflowVersion{{ID: "v1", WorkflowID: workflowID, Version: 1}}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions?limit=10", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var versions []domain.WorkflowVersion
+		if err := json.NewDecoder(w.Body).Decode(&versions); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(versions) != 1 || versions[0].ID != "v1" {
+			t.Fatalf("unexpected versions: %+v", versions)
+		}
+	})
+
+	t.Run("invalid limit", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions?limit=-1", ""))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			listWorkflowVersionsFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowVersion, error) {
+				return nil, errors.New("db down")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleGetWorkflowVersion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error) {
+				if workflowID != "wf-1" || versionID != "v1" {
+					t.Fatalf("unexpected args: %s %s", workflowID, versionID)
+				}
+				return &domain.WorkflowVersion{ID: "v1", WorkflowID: workflowID, Version: 1}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return nil, store.ErrWorkflowVersionNotFound
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/missing", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return nil, errors.New("db down")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleListWorkflowVersionSteps(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return &domain.WorkflowVersion{ID: "v2", Version: 2}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+				if workflowID != "wf-1" || version != 2 {
+					t.Fatalf("unexpected args: %s %d", workflowID, version)
+				}
+				return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b", DependsOn: []string{"a"}}}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v2/steps", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var steps []domain.WorkflowStep
+		if err := json.NewDecoder(w.Body).Decode(&steps); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(steps) != 2 {
+			t.Fatalf("steps len = %d, want 2", len(steps))
+		}
+	})
+
+	t.Run("version not found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return nil, store.ErrWorkflowVersionNotFound
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/missing/steps", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("list steps error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _, _ string) (*domain.WorkflowVersion, error) {
+				return &domain.WorkflowVersion{ID: "v1", Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return nil, errors.New("list failed")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1/steps", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleSimulateWorkflowAndPolicy(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, Version: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b"}}, nil
+		},
+		upsertWorkflowPolicyFn: func(_ context.Context, _ *domain.WorkflowPolicy) error { return nil },
+		getWorkflowPolicyByProjectFn: func(_ context.Context, _ string) (*domain.WorkflowPolicy, error) {
+			return &domain.WorkflowPolicy{ProjectID: "proj-1", MaxDepth: 5}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/simulate", "{}"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, authedRequest(http.MethodPut, "/v1/workflow-policies/proj-1", `{"max_depth":4}`))
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w2.Code)
+	}
+
+	w3 := httptest.NewRecorder()
+	srv.ServeHTTP(w3, authedRequest(http.MethodGet, "/v1/workflow-policies/proj-1", ""))
+	if w3.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w3.Code)
+	}
 }
 
 func TestHandleRetryWorkflowRun(t *testing.T) {
@@ -1919,6 +2472,7 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		t.Parallel()
 		stepsCopied := 0
 		snapshotCreated := false
+		expectedResourceClass := map[string]string{"a": "large", "b": "medium"}
 		ms := &mockAPIStore{
 			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
 				return &domain.Workflow{
@@ -1935,8 +2489,8 @@ func TestHandleCloneWorkflow(t *testing.T) {
 					t.Fatalf("expected source wf-1, got %s", workflowID)
 				}
 				return []domain.WorkflowStep{
-					{ID: "step-a", WorkflowID: workflowID, JobID: "job-a", StepRef: "a"},
-					{ID: "step-b", WorkflowID: workflowID, JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+					{ID: "step-a", WorkflowID: workflowID, JobID: "job-a", StepRef: "a", ResourceClass: "large"},
+					{ID: "step-b", WorkflowID: workflowID, JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}, ResourceClass: "medium"},
 				}, nil
 			},
 			createWorkflowFn: func(_ context.Context, wf *domain.Workflow) error {
@@ -1955,6 +2509,9 @@ func TestHandleCloneWorkflow(t *testing.T) {
 			createWorkflowStepFn: func(_ context.Context, step *domain.WorkflowStep) error {
 				if step.WorkflowID != "wf-clone" {
 					t.Fatalf("cloned step should belong to wf-clone, got %s", step.WorkflowID)
+				}
+				if want := expectedResourceClass[step.StepRef]; step.ResourceClass != want {
+					t.Fatalf("step %s resource_class = %q, want %q", step.StepRef, step.ResourceClass, want)
 				}
 				stepsCopied++
 				return nil
@@ -2070,4 +2627,347 @@ func TestHandleCloneWorkflow(t *testing.T) {
 			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+}
+
+func TestHandleRetryWorkflowStep_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("step_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+				return nil, nil
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("step_not_terminal", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", StepRef: "review", Status: domain.StepRunning}, nil
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("run_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, store.ErrWorkflowRunNotFound
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("reset_error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+			},
+			getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+				return &domain.WorkflowStepRun{ID: "sr-1", StepRef: "review", Status: domain.StepFailed}, nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return errors.New("db write failed")
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleReplayWorkflowSubtree_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("run_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return nil, store.ErrWorkflowRunNotFound
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/a/replay-subtree", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("step_not_in_version", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{StepRef: "x"}, {StepRef: "y"}}, nil
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/missing/replay-subtree", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("callback_unavailable", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/a/replay-subtree", ""))
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("callback_unavailable", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("callback_error", func(t *testing.T) {
+		t.Parallel()
+		cb := &mockWorkflowTrigger{
+			approveStepFn: func(_ context.Context, _, _, _ string) error {
+				return errors.New("approval rejected")
+			},
+		}
+		ms := &mockAPIStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+			},
+		}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleWorkflowPlan_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid_body", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/plan", `{invalid`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("workflow_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return nil, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/plan", `{}`))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleUpsertWorkflowPolicy_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid_body", func(t *testing.T) {
+		t.Parallel()
+		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPut, "/v1/workflow-policies/proj-1", `{invalid`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("store_error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			upsertWorkflowPolicyFn: func(_ context.Context, _ *domain.WorkflowPolicy) error {
+				return errors.New("db write failed")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPut, "/v1/workflow-policies/proj-1", `{}`))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("from_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
+				return nil, errors.New("not found")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v-missing/diff/v2", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("to_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _ string, versionID string) (*domain.WorkflowVersion, error) {
+				if versionID == "v1" {
+					return &domain.WorkflowVersion{ID: "v1", Version: 1}, nil
+				}
+				return nil, errors.New("not found")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1/diff/v-missing", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleWorkflowVersionImpact_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("version_not_found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWorkflowVersionByVersionIDFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
+				return nil, errors.New("not found")
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v-missing/impact", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleListWorkflows_TagFilter(t *testing.T) {
+	t.Parallel()
+	called := false
+	ms := &mockAPIStore{
+		listWorkflowsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.Workflow, error) {
+			called = true
+			if projectID != "proj-1" || tagKey != "env" || tagValue != "prod" {
+				t.Fatalf("unexpected args: %s %s %s", projectID, tagKey, tagValue)
+			}
+			return []domain.Workflow{{ID: "wf-1", ProjectID: projectID}}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows?project_id=proj-1&tag_key=env&tag_value=prod", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected ListWorkflowsByTag to be called")
+	}
+}
+
+func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
+	t.Parallel()
+	called := false
+	ms := &mockAPIStore{
+		listWorkflowRunsByTagFn: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+			called = true
+			if projectID != "proj-1" || tagKey != "env" || tagValue != "staging" {
+				t.Fatalf("unexpected args: %s %s %s", projectID, tagKey, tagValue)
+			}
+			return []domain.WorkflowRun{{ID: "wr-1", ProjectID: projectID}}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&tag_key=env&tag_value=staging", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected ListWorkflowRunsByTag to be called")
+	}
 }

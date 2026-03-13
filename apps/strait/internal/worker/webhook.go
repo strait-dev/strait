@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -63,12 +65,16 @@ func SendWebhookWithClient(ctx context.Context, client *http.Client, job *domain
 		return WebhookResult{Delivered: true}
 	}
 
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
+	defer span.End()
+
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
 
 	var result WebhookResult
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		span.SetAttributes(attribute.Int("attempt_number", attempt))
 		result = sendWebhookOnceWith(ctx, client, job, run)
 		if result.Delivered {
 			slog.Info("webhook delivered",
@@ -129,12 +135,16 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 		return WebhookResult{Delivered: true}
 	}
 
+	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
+	defer span.End()
+
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
 
 	var result WebhookResult
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		span.SetAttributes(attribute.Int("attempt_number", attempt))
 		result = sendWebhookOnce(ctx, job, run)
 		if result.Delivered {
 			slog.Info("webhook delivered",
@@ -221,26 +231,38 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
-
-	// HMAC-SHA256 signature if webhook secret is configured
-	if job.WebhookSecret != "" {
-		mac := hmac.New(sha256.New, []byte(job.WebhookSecret))
-		mac.Write(body)
-		sig := hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
-	}
+	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := webhookClient.Do(req)
 	if err != nil {
 		return WebhookResult{Error: "delivery failed: " + err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return WebhookResult{StatusCode: resp.StatusCode, Delivered: true}
 	}
 
 	return WebhookResult{StatusCode: resp.StatusCode, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+}
+
+func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte) {
+	if webhookSecret == "" {
+		return
+	}
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	payload := append([]byte(ts+"."), body...)
+	mac := hmac.New(sha256.New, []byte(webhookSecret))
+	_, _ = mac.Write(payload)
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	// New headers.
+	req.Header.Set("X-Strait-Timestamp", ts)
+	req.Header.Set("X-Strait-Signature", "v1="+sig)
+	req.Header.Set("X-Webhook-Signature", "v1="+sig)
 }
 
 func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun) WebhookResult {
@@ -274,20 +296,16 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
-
-	// HMAC-SHA256 signature if webhook secret is configured
-	if job.WebhookSecret != "" {
-		mac := hmac.New(sha256.New, []byte(job.WebhookSecret))
-		mac.Write(body)
-		sig := hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
-	}
+	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return WebhookResult{Error: "delivery failed: " + err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return WebhookResult{StatusCode: resp.StatusCode, Delivered: true}

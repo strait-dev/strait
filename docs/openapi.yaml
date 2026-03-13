@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Strait API
   version: 1.0.0
-  description: A production-grade Go job strait API.
+  description: A production-grade Go job orchestration service API.
 servers:
   - url: http://localhost:8080
     description: Local development server
@@ -26,10 +26,20 @@ tags:
     description: Project-level API key management
   - name: Stats
     description: Queue and system statistics
+  - name: Analytics
+    description: Performance analytics insights
   - name: Secrets
     description: Job and environment secret management
+  - name: EventTriggers
+    description: External event trigger management for durable waits
   - name: SDK
     description: Endpoints called by job executors using run tokens
+  - name: BatchOperations
+    description: Batch operation tracking for bulk triggers
+  - name: LogDrains
+    description: External log drain configuration and management
+  - name: EventSources
+    description: Inbound event source and subscription management
 
 paths:
   /health:
@@ -312,18 +322,14 @@ paths:
         content:
           application/json:
             schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/TriggerJobRequest'
+              $ref: '#/components/schemas/BulkTriggerRequest'
       responses:
-        '202':
-          description: Runs triggered
+        '201':
+          description: Bulk trigger results
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/JobRun'
+                $ref: '#/components/schemas/BulkTriggerResponse'
 
   /v1/jobs/{jobID}/versions:
     get:
@@ -606,6 +612,61 @@ paths:
                 items:
                   $ref: '#/components/schemas/Job'
 
+  /v1/job-groups/{groupID}/pause-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Pause all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group paused
+
+  /v1/job-groups/{groupID}/resume-all:
+    post:
+      tags:
+        - JobGroups
+      summary: Resume all jobs in a group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All jobs in group resumed
+
+  /v1/job-groups/{groupID}/stats:
+    get:
+      tags:
+        - JobGroups
+      summary: Get aggregate run stats for a job group
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Aggregate run counts by status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobGroupStats'
+
   /v1/environments:
     get:
       tags:
@@ -767,6 +828,21 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: triggered_by
+          in: query
+          schema:
+            type: string
+          description: Filter by trigger source (manual, cron, spawn, workflow, retry, event)
+        - name: batch_id
+          in: query
+          schema:
+            type: string
+          description: Filter runs by batch operation ID
+        - name: payload_contains
+          in: query
+          schema:
+            type: string
+          description: JSON object for JSONB containment filter on run payload
       responses:
         '200':
           description: List of runs
@@ -820,8 +896,11 @@ paths:
                     type: string
       responses:
         '200':
-          description: Runs canceled
-
+          description: Bulk cancel results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkCancelResponse'
   /v1/runs/{runID}:
     get:
       tags:
@@ -899,6 +978,96 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobRun'
+
+  /v1/runs/bulk-dlq-replay:
+    post:
+      tags:
+        - Runs
+      summary: Bulk replay dead-lettered runs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDLQReplayRequest'
+      responses:
+        '200':
+          description: Runs replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkDLQReplayResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: No eligible dead-letter runs to replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/runs/bulk-cancel-all:
+    post:
+      tags:
+        - Runs
+      summary: Cancel all runs matching filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkCancelAllRequest'
+      responses:
+        '200':
+          description: Bulk cancel results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkCancelResponse'
+
+  /v1/runs/bulk-replay:
+    post:
+      tags:
+        - Runs
+      summary: Replay multiple runs by ID
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - run_ids
+              properties:
+                run_ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Replayed runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobRun'
 
   /v1/runs/{runID}/stream:
     get:
@@ -1072,7 +1241,7 @@ paths:
       tags:
         - Runs
       summary: Get debug bundle
-      description: Requires FF_DEBUG_BUNDLE feature flag.
+      description: Returns a debug bundle with diagnostic information for the run.
       security:
         - bearerAuth: []
       parameters:
@@ -1137,6 +1306,88 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/JobRun'
+
+  /v1/runs/{runID}/dependency-status:
+    get:
+      tags:
+        - Runs
+      summary: Get dependency status for a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dependency status details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDependencyStatusResponse'
+
+  /v1/runs/{runID}/idempotency-key:
+    delete:
+      tags:
+        - Runs
+      summary: Reset idempotency key for a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Idempotency key reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  run_id:
+                    type: string
+
+  /v1/runs/{runID}/reschedule:
+    post:
+      tags:
+        - Runs
+      summary: Reschedule a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - scheduled_at
+              properties:
+                scheduled_at:
+                  type: string
+                  format: date-time
+                payload:
+                  type: object
+      responses:
+        '200':
+          description: Run rescheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRun'
 
   /v1/workflows:
     get:
@@ -1290,6 +1541,40 @@ paths:
                 items:
                   $ref: '#/components/schemas/WorkflowRun'
 
+  /v1/workflows/{workflowID}/clone:
+    post:
+      tags:
+        - Workflows
+      summary: Clone a workflow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workflowID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: string
+                name:
+                  type: string
+                slug:
+                  type: string
+      responses:
+        '201':
+          description: Workflow cloned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+
   /v1/workflows/{workflowID}/graph:
     get:
       tags:
@@ -1303,13 +1588,19 @@ paths:
           required: true
           schema:
             type: string
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, dot]
+          description: Output format. Default is JSON adjacency list; 'dot' returns Graphviz DOT.
       responses:
         '200':
           description: DAG graph data
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/WorkflowGraphResponse'
 
   /v1/workflow-runs:
     get:
@@ -1450,7 +1741,7 @@ paths:
           schema:
             type: string
       responses:
-        '202':
+        '201':
           description: Workflow run retried
           content:
             application/json:
@@ -1603,6 +1894,810 @@ paths:
         '204':
           description: API key revoked
 
+  /v1/api-keys/{keyID}/rotate:
+    post:
+      tags: [APIKeys]
+      summary: Rotate an API key with optional grace period
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keyID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RotateAPIKeyRequest'
+      responses:
+        '201':
+          description: Rotated API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateAPIKeyResponse'
+
+  /v1/roles:
+    post:
+      tags: [RBAC]
+      summary: Create a custom project role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Role created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    get:
+      tags: [RBAC]
+      summary: List roles for a project
+      responses:
+        '200':
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+
+  /v1/roles/{roleID}:
+    parameters:
+      - name: roleID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [RBAC]
+      summary: Get role by ID
+      parameters:
+        - name: include_lineage
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, returns `{ role, lineage[] }` with inherited parent chain
+      responses:
+        '200':
+          description: Role
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Role'
+                  - type: object
+                    properties:
+                      role:
+                        $ref: '#/components/schemas/Role'
+                      lineage:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Role'
+    patch:
+      tags: [RBAC]
+      summary: Update role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Updated role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+    delete:
+      tags: [RBAC]
+      summary: Delete role
+      responses:
+        '204':
+          description: Role deleted
+
+  /v1/members:
+    post:
+      tags: [RBAC]
+      summary: Assign member role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMemberRequest'
+      responses:
+        '200':
+          description: Member assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMember'
+    get:
+      tags: [RBAC]
+      summary: List project members
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectMember'
+
+  /v1/members/bulk:
+    post:
+      tags: [RBAC]
+      summary: Bulk assign members
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkAssignMembersRequest'
+      responses:
+        '200':
+          description: Bulk assignment result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkAssignMembersResponse'
+
+  /v1/members/{userID}:
+    parameters:
+      - name: userID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Remove project member
+      responses:
+        '204':
+          description: Member removed
+
+  /v1/seed-roles:
+    post:
+      tags: [RBAC]
+      summary: Seed system roles
+      responses:
+        '200':
+          description: Seeded
+
+  /v1/audit-events:
+    get:
+      tags: [RBAC]
+      summary: List audit events
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAuditEventsResponse'
+
+  /v1/resource-policies:
+    post:
+      tags: [RBAC]
+      summary: Create resource policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourcePolicyRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourcePolicy'
+    get:
+      tags: [RBAC]
+      summary: List resource policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListResourcePoliciesResponse'
+
+  /v1/resource-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete resource policy
+      responses:
+        '204':
+          description: Deleted
+
+  /v1/tag-policies:
+    post:
+      tags: [RBAC]
+      summary: Create tag policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTagPolicyRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagPolicy'
+    get:
+      tags: [RBAC]
+      summary: List tag policies
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListTagPoliciesResponse'
+
+  /v1/tag-policies/{policyID}:
+    parameters:
+      - name: policyID
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [RBAC]
+      summary: Delete tag policy
+      responses:
+        '204':
+          description: Deleted
+
+  /v1/jobs/{jobID}/versions/{versionID}:
+    parameters:
+      - name: jobID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Jobs]
+      summary: Get job version by version ID
+      responses:
+        '200':
+          description: Job version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobVersion'
+
+  /v1/workflows/{workflowID}/dry-run:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Validate a workflow DAG structure
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                steps:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/WorkflowStep'
+      responses:
+        '200':
+          description: Dry run result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  step_count:
+                    type: integer
+
+  /v1/workflows/{workflowID}/plan:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Build topological workflow plan preview
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                step_overrides:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      step_ref:
+                        type: string
+                      enabled:
+                        type: boolean
+      responses:
+        '200':
+          description: Plan preview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflow_id:
+                    type: string
+                  workflow_version:
+                    type: integer
+                  step_count:
+                    type: integer
+                  roots:
+                    type: array
+                    items:
+                      type: string
+                  topological_order:
+                    type: array
+                    items:
+                      type: string
+
+  /v1/workflows/{workflowID}/versions:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow versions
+      responses:
+        '200':
+          description: Workflow versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowVersion'
+
+  /v1/workflows/{workflowID}/versions/{versionID}:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow version by version ID
+      responses:
+        '200':
+          description: Workflow version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowVersion'
+
+  /v1/workflows/{workflowID}/versions/{versionID}/steps:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List workflow version steps
+      responses:
+        '200':
+          description: Workflow version steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowStep'
+
+  /v1/workflow-runs/{workflowRunID}/labels:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run labels
+      responses:
+        '200':
+          description: Workflow run labels
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunLabelsResponse'
+
+  /v1/workflow-runs/{workflowRunID}/graph:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run graph
+      responses:
+        '200':
+          description: Workflow run graph
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunGraphResponse'
+
+  /v1/workflow-runs/{workflowRunID}/explain:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: step_ref
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: decision_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [scheduler, concurrency, resource, condition]
+    get:
+      tags: [Workflows]
+      summary: List workflow step decisions
+      responses:
+        '200':
+          description: Workflow decisions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowStepDecisionListResponse'
+
+  /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stepRef
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [WorkflowRuns]
+      summary: Retry a single workflow step
+      responses:
+        '200':
+          description: Step retried
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetryWorkflowStepResponse'
+
+  /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stepRef
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [WorkflowRuns]
+      summary: Replay a step subtree
+      responses:
+        '200':
+          description: Subtree replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplayWorkflowSubtreeResponse'
+
+  /v1/workflow-runs/bulk-cancel:
+    post:
+      tags:
+        - WorkflowRuns
+      summary: Bulk cancel workflow runs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkWorkflowRunRequest'
+      responses:
+        '200':
+          description: Bulk cancel results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  canceled:
+                    type: integer
+                  failed:
+                    type: integer
+
+  /v1/workflow-runs/bulk-replay:
+    post:
+      tags:
+        - WorkflowRuns
+      summary: Bulk replay workflow runs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkWorkflowRunRequest'
+      responses:
+        '200':
+          description: Bulk replay results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  replayed:
+                    type: integer
+                  failed:
+                    type: integer
+
+  /v1/workflows/{workflowID}/simulate:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Workflows]
+      summary: Simulate workflow execution
+      responses:
+        '200':
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowSimulationResponse'
+
+  /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: fromVersionID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: toVersionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Diff workflow versions
+      responses:
+        '200':
+          description: Workflow version diff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowVersionDiffResponse'
+
+  /v1/workflows/{workflowID}/versions/{versionID}/impact:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: versionID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Workflow version impact
+      responses:
+        '200':
+          description: Workflow version impact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowVersionImpactResponse'
+
+  /v1/workflow-policies/{projectID}:
+    parameters:
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow policy
+      responses:
+        '200':
+          description: Workflow policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowPolicy'
+    put:
+      tags: [Workflows]
+      summary: Upsert workflow policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowPolicyUpsertRequest'
+      responses:
+        '200':
+          description: Workflow policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowPolicy'
+
   /v1/stats:
     get:
       tags:
@@ -1617,6 +2712,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueStats'
+
+  /v1/analytics/performance:
+    get:
+      tags:
+        - Analytics
+      summary: Performance analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period_hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+          description: Time window in hours (1-720)
+      responses:
+        '200':
+          description: Performance analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PerformanceAnalytics'
 
   /v1/webhook-deliveries:
     get:
@@ -1716,6 +2833,894 @@ paths:
       responses:
         '204':
           description: Secret deleted
+
+  /v1/events:
+    get:
+      tags:
+        - EventTriggers
+      summary: List event triggers for a project
+      description: Returns a paginated list of event triggers, optionally filtered by status, workflow run, or source type.
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [waiting, received, timed_out, canceled]
+        - name: workflow_run_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter triggers by workflow run ID.
+        - name: source_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [workflow_step, job_run]
+          description: Filter triggers by source type.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated list of event triggers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventTrigger'
+                  has_more:
+                    type: boolean
+
+  /v1/events/stats:
+    get:
+      tags:
+        - EventTriggers
+      summary: Get event trigger statistics
+      description: Returns aggregate counts by status and average wait duration for the project.
+      responses:
+        '200':
+          description: Event trigger statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count:
+                    type: integer
+                  waiting_count:
+                    type: integer
+                  received_count:
+                    type: integer
+                  timed_out_count:
+                    type: integer
+                  canceled_count:
+                    type: integer
+                  avg_wait_duration_secs:
+                    type: number
+                    format: double
+        '400':
+          description: No project context
+
+  /v1/events/{eventKey}:
+    get:
+      tags:
+        - EventTriggers
+      summary: Get event trigger by key
+      description: Returns a single event trigger by its globally unique event key.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event trigger details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
+        '404':
+          description: Event trigger not found
+    delete:
+      tags:
+        - EventTriggers
+      summary: Cancel a waiting event trigger
+      description: |
+        Cancels a waiting event trigger by key. The associated workflow step is failed
+        (respecting on_failure policy) or the job run is canceled.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event trigger canceled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
+        '403':
+          description: Trigger does not belong to project
+        '404':
+          description: Event trigger not found
+        '409':
+          description: Event trigger is not in waiting state
+
+  /v1/events/{eventKey}/stream:
+    get:
+      tags:
+        - EventTriggers
+      summary: Stream event trigger status updates via SSE
+      description: |
+        Opens a Server-Sent Events stream for a specific event trigger.
+        Sends the current state immediately, then streams status changes
+        until the trigger reaches a terminal state.
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE stream of trigger status updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          description: Event trigger not found
+
+  /v1/events/{eventKey}/send:
+    post:
+      tags:
+        - EventTriggers
+      summary: Send an event to a waiting trigger
+      description: |
+        Delivers an event payload to a waiting trigger. The trigger transitions to 'received'
+        and the associated workflow step is completed or job run is re-queued.
+
+        Event keys are globally unique. Recommended patterns:
+        - Workflow steps: `{domain}:{entity_id}` — e.g., `aml-check:app-456`
+        - SDK runs: `{service}:{correlation_id}` — e.g., `payment:order-789`
+        - Per-execution uniqueness: include `{{workflow_run_id}}` in the template
+      parameters:
+        - name: eventKey
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEventRequest'
+      responses:
+        '200':
+          description: Event received and trigger updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTrigger'
+        '404':
+          description: No waiting trigger found for this key
+        '409':
+          description: Trigger already received or timed out
+
+  /v1/events/prefix/{prefix}/send:
+    post:
+      tags:
+        - EventTriggers
+      summary: Send an event to all waiting triggers matching a prefix
+      description: |
+        Delivers an event payload to all waiting triggers whose event_key starts
+        with the given prefix. Each matched trigger is resolved individually.
+        Results are scoped to the authenticated project when using API key auth.
+        Returns up to 1000 matching triggers per request.
+      parameters:
+        - name: prefix
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEventRequest'
+      responses:
+        '200':
+          description: Events resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resolved:
+                    type: integer
+                    description: Number of triggers resolved
+                  triggers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventTrigger'
+        '400':
+          description: Invalid or empty prefix
+
+  /v1/events/purge:
+    post:
+      tags:
+        - EventTriggers
+      summary: Purge terminal event triggers
+      description: |
+        Deletes event triggers in terminal state (received, timed_out, canceled)
+        older than the specified number of days. Use dry_run to preview.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - older_than_days
+              properties:
+                older_than_days:
+                  type: integer
+                  minimum: 1
+                  description: Delete triggers older than N days
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Preview without deleting
+      responses:
+        '200':
+          description: Purge result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+                  dry_run:
+                    type: boolean
+                  would_delete:
+                    type: integer
+
+  /v1/webhook-deliveries/{deliveryID}/retry:
+    post:
+      tags:
+        - Webhooks
+      summary: Retry a failed webhook delivery
+      description: |
+        Resets a failed webhook delivery to pending status with zero attempts
+        and immediate next retry time. Only failed deliveries can be retried.
+      parameters:
+        - name: deliveryID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery reset for retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+        '409':
+          description: Only failed deliveries can be retried
+
+  /v1/webhooks/deliveries:
+    get:
+      tags:
+        - Webhooks
+      summary: List webhook deliveries
+      description: |
+        List webhook deliveries for a project with optional status filtering
+        and cursor-based pagination.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, delivered, failed, dead]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of webhook deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookDelivery'
+
+  /v1/webhooks/deliveries/{id}:
+    get:
+      tags:
+        - Webhooks
+      summary: Get webhook delivery details
+      description: Returns a single webhook delivery by ID.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook delivery details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+
+  /v1/webhooks/deliveries/{id}/retry:
+    post:
+      tags:
+        - Webhooks
+      summary: Retry a webhook delivery
+      description: |
+        Resets a failed or dead webhook delivery to pending status for retry.
+        Only deliveries with status failed or dead can be retried.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery reset for retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          description: Delivery not found
+        '409':
+          description: Delivery is not in a retriable status
+
+  /v1/webhooks/subscriptions:
+    post:
+      tags:
+        - Webhooks
+      summary: Create a webhook subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookSubscriptionRequest'
+      responses:
+        '201':
+          description: Webhook subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+    get:
+      tags:
+        - Webhooks
+      summary: List active webhook subscriptions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active webhook subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookSubscription'
+
+  /v1/webhooks/subscriptions/{id}:
+    delete:
+      tags:
+        - Webhooks
+      summary: Delete a webhook subscription
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Webhook subscription deleted
+
+  /v1/batch-operations:
+    get:
+      tags:
+        - BatchOperations
+      summary: List batch operations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of batch operations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BatchOperation'
+
+  /v1/batch-operations/{batchID}:
+    get:
+      tags:
+        - BatchOperations
+      summary: Get a batch operation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: batchID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Batch operation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchOperation'
+
+  /v1/log-drains:
+    get:
+      tags:
+        - LogDrains
+      summary: List log drains
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of log drains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LogDrain'
+    post:
+      tags:
+        - LogDrains
+      summary: Create a log drain
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLogDrainRequest'
+      responses:
+        '201':
+          description: Log drain created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogDrain'
+
+  /v1/log-drains/{drainID}:
+    get:
+      tags:
+        - LogDrains
+      summary: Get a log drain
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: drainID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Log drain details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogDrain'
+    patch:
+      tags:
+        - LogDrains
+      summary: Update a log drain
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: drainID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLogDrainRequest'
+      responses:
+        '200':
+          description: Log drain updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogDrain'
+    delete:
+      tags:
+        - LogDrains
+      summary: Delete a log drain
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: drainID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Log drain deleted
+
+  /v1/event-sources:
+    get:
+      tags:
+        - EventSources
+      summary: List event sources
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of event sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventSource'
+    post:
+      tags:
+        - EventSources
+      summary: Create an event source
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventSourceRequest'
+      responses:
+        '201':
+          description: Event source created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSource'
+
+  /v1/event-sources/{sourceID}:
+    get:
+      tags:
+        - EventSources
+      summary: Get an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event source details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSource'
+    patch:
+      tags:
+        - EventSources
+      summary: Update an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventSourceRequest'
+      responses:
+        '204':
+          description: Event source updated
+    delete:
+      tags:
+        - EventSources
+      summary: Delete an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Event source deleted
+
+  /v1/event-sources/{sourceID}/subscriptions:
+    get:
+      tags:
+        - EventSources
+      summary: List subscriptions for an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventSubscription'
+
+  /v1/event-sources/{sourceID}/subscribe:
+    post:
+      tags:
+        - EventSources
+      summary: Subscribe to an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscribeToEventSourceRequest'
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSubscription'
+
+  /v1/event-sources/{sourceID}/subscriptions/{subID}:
+    delete:
+      tags:
+        - EventSources
+      summary: Delete a subscription
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: subID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Subscription deleted
+
+  /v1/events/dispatch:
+    post:
+      tags:
+        - EventSources
+      summary: Dispatch an event
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchEventRequest'
+      responses:
+        '200':
+          description: Event dispatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchEventResponse'
+
+  /sdk/v1/runs/{runID}/wait-for-event:
+    post:
+      tags:
+        - SDK
+      summary: Pause a run to wait for an external event
+      description: |
+        Transitions the run from executing to waiting and creates an event trigger.
+        When the event is received via POST /v1/events/{eventKey}/send, the run
+        transitions back to queued with checkpoint data and is re-dispatched.
+
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SDKWaitForEventRequest'
+      responses:
+        '200':
+          description: Run paused, waiting for event
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: waiting
+                  event_key:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  trigger_id:
+                    type: string
+        '400':
+          description: Invalid request
+        '404':
+          description: Feature not enabled or run not found
+        '409':
+          description: Run not in executing state or event key conflict
 
   /sdk/v1/runs/{runID}/log:
     post:
@@ -2026,7 +4031,7 @@ paths:
       tags:
         - SDK
       summary: Create a continuation run
-      description: Requires FF_RUN_CONTINUATION feature flag.
+      description: Creates a continuation run that inherits context from the parent run.
       security:
         - runToken: []
       parameters:
@@ -2063,6 +4068,78 @@ components:
       description: JWT run token issued by the trigger response.
 
   schemas:
+    EventTrigger:
+      type: object
+      properties:
+        id:
+          type: string
+        event_key:
+          type: string
+          description: Globally unique event key. Supports template variables from workflow payload.
+        project_id:
+          type: string
+        source_type:
+          type: string
+          enum: [workflow_step, job_run]
+        workflow_run_id:
+          type: string
+          nullable: true
+        workflow_step_run_id:
+          type: string
+          nullable: true
+        job_run_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [waiting, received, timed_out, canceled]
+        request_payload:
+          type: object
+          nullable: true
+        response_payload:
+          type: object
+          nullable: true
+        timeout_secs:
+          type: integer
+        requested_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+
+    SendEventRequest:
+      type: object
+      properties:
+        payload:
+          type: object
+          nullable: true
+          description: Optional payload to deliver to the waiting trigger.
+
+    SDKWaitForEventRequest:
+      type: object
+      required:
+        - event_key
+      properties:
+        event_key:
+          type: string
+          description: Globally unique key for the event trigger.
+        timeout_secs:
+          type: integer
+          default: 3600
+          description: Timeout in seconds before the trigger expires.
+        notify_url:
+          type: string
+          format: uri
+          description: Optional webhook URL to notify when the event trigger is created.
+
     Job:
       type: object
       properties:
@@ -2104,6 +4181,18 @@ components:
           type: integer
         rate_limit_window_secs:
           type: integer
+        max_concurrency_per_key:
+          type: integer
+          description: Per-key concurrency limit for runs with matching concurrency_key
+        rate_limit_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateLimitKey'
+        default_run_metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Default metadata applied to every run created for this job
         dedup_window_secs:
           type: integer
         enabled:
@@ -2124,6 +4213,18 @@ components:
           type: string
         version:
           type: integer
+        version_id:
+          type: string
+          description: Nanoid-based public version identifier (e.g. ver_k8f2m9x1p3)
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
+        backwards_compatible:
+          type: boolean
+        created_by:
+          type: string
+        updated_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2243,6 +4344,20 @@ components:
           type: string
         lineage_depth:
           type: integer
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        job_version_id:
+          type: string
+        created_by:
+          type: string
+        batch_id:
+          type: string
+          description: Reference to the batch operation that created this run
+        concurrency_key:
+          type: string
+          description: Key used for per-key concurrency limiting
         created_at:
           type: string
           format: date-time
@@ -2282,6 +4397,21 @@ components:
         dispatch_ms:
           type: integer
 
+    JobDependency:
+      type: object
+      properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        depends_on_job_id:
+          type: string
+        condition:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
     Workflow:
       type: object
       properties:
@@ -2311,6 +4441,21 @@ components:
           type: string
         skip_if_running:
           type: boolean
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_id:
+          type: string
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
+        backwards_compatible:
+          type: boolean
+        created_by:
+          type: string
+        updated_by:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -2351,6 +4496,16 @@ components:
         retry_of_run_id:
           type: string
         parent_workflow_run_id:
+          type: string
+        parent_step_run_id:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        workflow_version_id:
+          type: string
+        created_by:
           type: string
         created_at:
           type: string
@@ -2413,6 +4568,234 @@ components:
         - skipped
         - canceled
 
+    WorkflowRunLabels:
+      type: object
+      additionalProperties:
+        type: string
+
+    WorkflowRunLabelsResponse:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          $ref: '#/components/schemas/WorkflowRunLabels'
+
+    WorkflowRunGraphEdge:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+
+    WorkflowRunGraphNode:
+      type: object
+      properties:
+        step_ref:
+          type: string
+        type:
+          type: string
+          enum: [job, approval, sub_workflow, wait_for_event, sleep]
+        status:
+          $ref: '#/components/schemas/StepRunStatus'
+        depends_on:
+          type: array
+          items:
+            type: string
+        attempt:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+
+    WorkflowRunGraphResponse:
+      type: object
+      properties:
+        workflow_run_id:
+          type: string
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunGraphNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunGraphEdge'
+        roots:
+          type: array
+          items:
+            type: string
+        runnable:
+          type: array
+          items:
+            type: string
+        critical_path:
+          type: array
+          items:
+            type: string
+        critical_path_estimate_ms:
+          type: integer
+          format: int64
+        critical_path_remaining_ms:
+          type: integer
+          format: int64
+
+    WorkflowStepDecision:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_run_id:
+          type: string
+        step_run_id:
+          type: string
+        step_ref:
+          type: string
+        decision_type:
+          type: string
+          enum: [scheduler, concurrency, resource, condition]
+        decision:
+          type: string
+        explanation:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+    WorkflowStepDecisionListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowStepDecision'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    RetryWorkflowStepResponse:
+      type: object
+      properties:
+        step_run:
+          allOf:
+            - $ref: '#/components/schemas/WorkflowStepRun'
+          nullable: true
+
+    ReplayWorkflowSubtreeResponse:
+      type: object
+      properties:
+        reset_steps:
+          type: integer
+
+    WorkflowSimulationResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        predicted_order:
+          type: array
+          items:
+            type: string
+        step_count:
+          type: integer
+
+    WorkflowVersionDiffResponse:
+      type: object
+      properties:
+        from_version_id:
+          type: string
+        to_version_id:
+          type: string
+        added_steps:
+          type: array
+          items:
+            type: string
+        removed_steps:
+          type: array
+          items:
+            type: string
+
+    WorkflowVersionImpactResponse:
+      type: object
+      properties:
+        version_id:
+          type: string
+        matching_runs:
+          type: integer
+        sampled_runs:
+          type: integer
+
+    WorkflowPolicyUpsertRequest:
+      type: object
+      properties:
+        max_fan_out:
+          type: integer
+        max_depth:
+          type: integer
+        forbidden_step_types:
+          type: array
+          items:
+            type: string
+        require_approval_for_deploy:
+          type: boolean
+
+    WorkflowPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        max_fan_out:
+          type: integer
+        max_depth:
+          type: integer
+        forbidden_step_types:
+          type: array
+          items:
+            type: string
+        require_approval_for_deploy:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RunDependencyStatusResponse:
+      type: object
+      properties:
+        run_id:
+          type: string
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/RunStatus'
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobDependency'
+        dependencies_satisfied:
+          type: boolean
+
     JobGroup:
       type: object
       properties:
@@ -2432,6 +4815,16 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    JobGroupStats:
+      type: object
+      properties:
+        group_id:
+          type: string
+        run_counts:
+          type: object
+          additionalProperties:
+            type: integer
 
     Environment:
       type: object
@@ -2482,6 +4875,361 @@ components:
           type: string
           format: date-time
         revoked_at:
+          type: string
+          format: date-time
+        replaced_by_key_id:
+          type: string
+        grace_expires_at:
+          type: string
+          format: date-time
+
+    RotateAPIKeyRequest:
+      type: object
+      properties:
+        grace_period_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+
+    RotateAPIKeyResponse:
+      type: object
+      properties:
+        old_key_id:
+          type: string
+        new_key_id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        key:
+          type: string
+        key_prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        grace_expires_at:
+          type: string
+          format: date-time
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+        is_system:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateRoleRequest:
+      type: object
+      required:
+        - project_id
+        - name
+        - permissions
+      properties:
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        parent_role_id:
+          type: string
+
+    ProjectMember:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        user_id:
+          type: string
+        role_id:
+          type: string
+        granted_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AssignMemberRequest:
+      type: object
+      required:
+        - user_id
+        - role_id
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+
+    BulkAssignMembersRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignMemberRequest'
+
+    BulkAssignMemberResult:
+      type: object
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+        status:
+          type: string
+        error:
+          type: string
+
+    BulkAssignMembersResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkAssignMemberResult'
+        total:
+          type: integer
+
+    ResourcePolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        user_id:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateResourcePolicyRequest:
+      type: object
+      required:
+        - project_id
+        - resource_type
+        - resource_id
+        - user_id
+        - actions
+      properties:
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        user_id:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    TagPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        user_id:
+          type: string
+        tag_key:
+          type: string
+        tag_value:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateTagPolicyRequest:
+      type: object
+      required:
+        - project_id
+        - resource_type
+        - user_id
+        - tag_key
+        - actions
+      properties:
+        project_id:
+          type: string
+        resource_type:
+          type: string
+        user_id:
+          type: string
+        tag_key:
+          type: string
+        tag_value:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        actor_id:
+          type: string
+        actor_type:
+          type: string
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        details:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    ListAuditEventsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    ListResourcePoliciesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourcePolicy'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    ListTagPoliciesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagPolicy'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    WorkflowVersion:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        version:
+          type: integer
+        project_id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        timeout_secs:
+          type: integer
+        max_concurrent_runs:
+          type: integer
+        max_parallel_steps:
+          type: integer
+        cron:
+          type: string
+        cron_timezone:
+          type: string
+        skip_if_running:
+          type: boolean
+        version_id:
+          type: string
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        created_at:
           type: string
           format: date-time
 
@@ -2639,6 +5387,27 @@ components:
           type: string
           format: date-time
 
+    WebhookSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
     QueueStats:
       type: object
       properties:
@@ -2649,17 +5418,115 @@ components:
         delayed:
           type: integer
 
+    PerformanceAnalytics:
+      type: object
+      properties:
+        slowest_jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              job_id:
+                type: string
+              job_slug:
+                type: string
+              avg_duration_secs:
+                type: number
+              p95_duration_secs:
+                type: number
+              total_runs:
+                type: integer
+              failed_runs:
+                type: integer
+        throughput:
+          type: object
+          properties:
+            completed:
+              type: integer
+            failed:
+              type: integer
+            timed_out:
+              type: integer
+            canceled:
+              type: integer
+            period_hours:
+              type: integer
+        health_summary:
+          type: object
+          properties:
+            total_jobs:
+              type: integer
+            active_jobs:
+              type: integer
+            success_rate:
+              type: number
+            avg_duration_secs:
+              type: number
+            queue_depth:
+              type: integer
+
     ErrorResponse:
       type: object
       required:
         - error
       properties:
         error:
-          type: string
-        code:
-          type: string
+          oneOf:
+            - type: string
+            - $ref: '#/components/schemas/APIError'
         request_id:
           type: string
+
+    APIError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - validation_error
+            - not_found
+            - conflict
+            - rate_limited
+            - internal_error
+            - unauthorized
+            - forbidden
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+
+    BulkDLQReplayRequest:
+      type: object
+      properties:
+        run_ids:
+          type: array
+          items:
+            type: string
+        project_id:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+      description: Provide either run_ids or project_id with optional limit.
+
+    BulkDLQReplayResponse:
+      type: object
+      required:
+        - replayed
+        - count
+      properties:
+        replayed:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobRun'
+        count:
+          type: integer
 
     CreateJobRequest:
       type: object
@@ -2813,8 +5680,31 @@ components:
       properties:
         name:
           type: string
+        slug:
+          type: string
         description:
           type: string
+
+    CreateWebhookSubscriptionRequest:
+      type: object
+      required:
+        - project_id
+        - webhook_url
+        - event_types
+        - secret
+      properties:
+        project_id:
+          type: string
+        webhook_url:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
 
     CreateEnvironmentRequest:
       type: object
@@ -2874,6 +5764,15 @@ components:
           type: string
         skip_if_running:
           type: boolean
+        enabled:
+          type: boolean
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
         steps:
           type: array
           items:
@@ -2899,6 +5798,17 @@ components:
         cron_timezone:
           type: string
         skip_if_running:
+          type: boolean
+        slug:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        version_policy:
+          type: string
+          enum: [pin, latest, minor]
+        backwards_compatible:
           type: boolean
         steps:
           type: array
@@ -2934,6 +5844,8 @@ components:
             - job
             - approval
             - sub_workflow
+            - wait_for_event
+            - sleep
         approval_timeout_secs:
           type: integer
         approval_approvers:
@@ -2959,6 +5871,21 @@ components:
           type: string
         max_nesting_depth:
           type: integer
+        event_key:
+          type: string
+        event_timeout_secs:
+          type: integer
+        event_notify_url:
+          type: string
+        sleep_duration_secs:
+          type: integer
+        event_emit_key:
+          type: string
+        concurrency_key:
+          type: string
+        resource_class:
+          type: string
+          enum: [small, medium, large]
 
     TriggerWorkflowRequest:
       type: object
@@ -3065,3 +5992,399 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RunOutput'
+
+
+    EventTrigger:
+      type: object
+      properties:
+        id:
+          type: string
+        event_key:
+          type: string
+        project_id:
+          type: string
+        source_type:
+          type: string
+          enum: [workflow_step, job_run]
+        workflow_run_id:
+          type: string
+        workflow_step_run_id:
+          type: string
+        job_run_id:
+          type: string
+        status:
+          type: string
+          enum: [waiting, received, timed_out, canceled]
+        request_payload:
+          type: object
+        response_payload:
+          type: object
+        timeout_secs:
+          type: integer
+        requested_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+        notify_url:
+          type: string
+        notify_status:
+          type: string
+          enum: [pending, sent, failed]
+        trigger_type:
+          type: string
+          enum: [event, sleep]
+        sent_by:
+          type: string
+
+    BulkTriggerRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              payload:
+                type: object
+              scheduled_at:
+                type: string
+                format: date-time
+              priority:
+                type: integer
+              idempotency_key:
+                type: string
+              tags:
+                type: object
+                additionalProperties:
+                  type: string
+
+    BulkTriggerResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+              run_token:
+                type: string
+              idempotency_hit:
+                type: boolean
+        total:
+          type: integer
+        created:
+          type: integer
+
+    BulkCancelResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+              error:
+                type: string
+        total:
+          type: integer
+        canceled:
+          type: integer
+        failed:
+          type: integer
+
+    WorkflowGraphResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+        roots:
+          type: array
+          items:
+            type: string
+        adjacency:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        dot:
+          type: string
+
+    RateLimitKey:
+      type: object
+      properties:
+        name:
+          type: string
+        max:
+          type: integer
+        window_secs:
+          type: integer
+
+    BatchOperation:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        job_id:
+          type: string
+        item_count:
+          type: integer
+        created_count:
+          type: integer
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    LogDrain:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        drain_type:
+          type: string
+        endpoint_url:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        level_filter:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateLogDrainRequest:
+      type: object
+      required:
+        - project_id
+        - name
+        - drain_type
+        - endpoint_url
+        - auth_type
+      properties:
+        project_id:
+          type: string
+        name:
+          type: string
+        drain_type:
+          type: string
+        endpoint_url:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        level_filter:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    UpdateLogDrainRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        endpoint_url:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        level_filter:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    EventSource:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+          description: Optional JSON Schema for event payload validation
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateEventSourceRequest:
+      type: object
+      required:
+        - project_id
+        - name
+      properties:
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+        enabled:
+          type: boolean
+
+    UpdateEventSourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+        enabled:
+          type: boolean
+
+    EventSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+        source_id:
+          type: string
+        target_type:
+          type: string
+          enum: [job, workflow]
+        target_id:
+          type: string
+        filter_expr:
+          type: object
+          description: Filter expression evaluated against event payload
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    SubscribeToEventSourceRequest:
+      type: object
+      required:
+        - target_type
+        - target_id
+      properties:
+        target_type:
+          type: string
+          enum: [job, workflow]
+        target_id:
+          type: string
+        filter_expr:
+          type: object
+        enabled:
+          type: boolean
+
+    DispatchEventRequest:
+      type: object
+      required:
+        - source
+        - project_id
+      properties:
+        source:
+          type: string
+          description: Event source name
+        project_id:
+          type: string
+        payload:
+          type: object
+
+    DispatchEventResponse:
+      type: object
+      properties:
+        dispatched:
+          type: integer
+        source:
+          type: string
+
+    BulkCancelAllRequest:
+      type: object
+      properties:
+        job_id:
+          type: string
+        batch_id:
+          type: string
+        triggered_by:
+          type: string
+        status:
+          $ref: '#/components/schemas/RunStatus'
+
+    BulkReplayRequest:
+      type: object
+      required:
+        - run_ids
+      properties:
+        run_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 100
+
+    BulkWorkflowRunRequest:
+      type: object
+      required:
+        - workflow_run_ids
+      properties:
+        workflow_run_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 100

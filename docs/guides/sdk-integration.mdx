@@ -1,9 +1,9 @@
 ---
 title: "SDK Integration"
-description: "Integrating your job code with the strait using the SDK endpoints."
+description: "Integrating your job code with Strait using the SDK endpoints."
 ---
 
-The strait provides a set of SDK endpoints that allow your job code to communicate its progress, logs, and state back to the system.
+Strait provides a set of SDK endpoints that allow your job code to communicate its progress, logs, and state back to the system.
 
 ## SDK Authentication
 
@@ -27,12 +27,11 @@ Report the completion percentage of a job.
 ### Annotations
 `POST /annotate`
 Add or update metadata annotations on the run.
-- **Feature Flag**: `FF_RUN_ANNOTATIONS`
 - **Limit**: Max 50 annotations per run.
 
 ### Heartbeat
 `POST /heartbeat`
-Signal that the job is still alive and executing. This prevents the strait from marking the run as timed out or crashed.
+Signal that the job is still alive and executing. This prevents Strait from marking the run as timed out or crashed.
 
 ### Checkpoints
 `POST /checkpoint`
@@ -58,16 +57,76 @@ Store structured results or artifacts produced by the job.
 - `POST /complete`: Mark the run as successfully completed. Optionally include a `result`.
 - `POST /fail`: Mark the run as failed. Requires an `error` message.
 
+### Wait for Event
+`POST /wait-for-event`
+Pause the current run and wait for an external event to arrive. The run transitions to `waiting` status.
+- **Fields**: `event_key` (required, globally unique), `timeout_secs` (default: 3600), `notify_url` (optional webhook).
+- **Behavior**: When the event arrives via `POST /v1/events/{eventKey}/send`, the run is re-queued with the event payload as checkpoint data and re-dispatched to your endpoint.
+
 ### Control Flow
 - `POST /spawn`: Create a child job run.
 - `POST /continue`: Create a continuation run (for long-running jobs that need to restart with fresh timeouts).
 
-## Feature Flags
+## SDK Client Libraries
 
-Some endpoints are gated by feature flags in the strait configuration:
-- `FF_RUN_ANNOTATIONS`: Gates `/annotate`.
-- `FF_RUN_CONTINUATION`: Gates `/continue`.
-- `FF_DEBUG_BUNDLE`: Required for some advanced telemetry features.
+Official SDK clients are available for TypeScript and Python in the `sdk/` directory. These provide typed wrappers around the REST API for event trigger operations.
+
+### TypeScript
+
+```typescript
+import { EventsClient } from "@strait/sdk";
+
+const events = new EventsClient("https://strait.dev", {
+  Authorization: "Bearer strait_...",
+});
+
+// Pause a run and wait for an external event
+const trigger = await events.waitForEvent("run-123", {
+  eventKey: "approval:order-789",
+  timeoutSecs: 7200,
+});
+
+// Send an event to resolve the trigger
+await events.sendEvent({
+  eventKey: "approval:order-789",
+  payload: { approved: true },
+});
+
+// Get trigger status
+const status = await events.getEventTrigger("approval:order-789");
+
+// Cancel a waiting trigger
+await events.cancelEventTrigger("approval:order-789");
+```
+
+### Python
+
+```python
+from strait import EventsClient, WaitForEventOptions, SendEventOptions
+
+client = EventsClient(
+    "https://strait.dev",
+    {"Authorization": "Bearer strait_..."}
+)
+
+trigger = client.wait_for_event("run-123", WaitForEventOptions(
+    event_key="approval:order-789",
+    timeout_secs=7200,
+))
+
+resolved = client.send_event(SendEventOptions(
+    event_key="approval:order-789",
+    payload={"approved": True},
+))
+
+status = client.get_event_trigger("approval:order-789")
+client.cancel_event_trigger("approval:order-789")
+client.close()
+```
+
+## Endpoint Availability
+
+All SDK endpoints documented on this page are always available.
 
 ## Example: Reporting Progress
 
@@ -83,5 +142,5 @@ curl -X POST https://strait.dev/sdk/v1/runs/{runID}/progress \
 ```
 
 <Tip>
-  Use the `heartbeat` endpoint regularly (e.g., every 30 seconds) in long-running jobs to ensure the strait knows the job is still active.
+  Use the `heartbeat` endpoint regularly (e.g., every 30 seconds) in long-running jobs to ensure Strait knows the job is still active.
 </Tip>

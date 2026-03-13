@@ -18,7 +18,8 @@
             "pages": [
               "introduction",
               "quickstart",
-              "architecture"
+              "architecture",
+              "changelog"
             ]
           },
           {
@@ -27,26 +28,43 @@
               "concepts/jobs",
               "concepts/runs",
               "concepts/workflows",
+              "concepts/dag-runtime",
               "concepts/scheduling",
               "concepts/retry-strategies",
+              "concepts/resilience",
+              "concepts/event-triggers",
               "concepts/webhooks",
               "concepts/environments",
+              "concepts/versioning",
               "concepts/cost-budgets",
-              "concepts/cdc"
+              "concepts/cdc",
+              "concepts/adaptive-concurrency",
+              "concepts/audit-logging",
+              "concepts/webhook-subscriptions",
+              "concepts/log-drains",
+              "concepts/event-sources",
+              "concepts/batch-operations"
             ]
           },
           {
             "group": "Guides",
             "pages": [
               "guides/authentication",
+              "guides/oidc",
+              "guides/rbac",
+              "guides/audit-events",
+              "guides/api-key-rotation",
               "guides/security",
               "guides/deployment",
+              "guides/performance-tuning",
               "guides/job-dependencies",
               "guides/debug-bundles",
               "guides/job-groups",
               "guides/idempotency",
               "guides/sdk-integration",
-              "guides/workflow-approvals"
+              "guides/workflow-approvals",
+              "guides/dag-operations-playbook",
+              "guides/event-triggers"
             ]
           },
           {
@@ -61,7 +79,19 @@
             "pages": [
               "development/contributing",
               "development/testing",
-              "development/database-schema"
+              "development/database-schema",
+              "development/technology-choices",
+              "migrations"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/monitoring-and-alerts",
+              "operations/oidc-rollout",
+              "operations/rbac-policy-rollout",
+              "operations/api-key-rotation-rollout",
+              "operations/incident-response-authz"
             ]
           }
         ]
@@ -93,9 +123,9 @@
               "cli/workflows",
               "cli/workflow-runs",
               "cli/trigger",
+              "cli/events",
               "cli/api-keys",
               "cli/secrets",
-              "cli/environments",
               "cli/stats",
               "cli/backup",
               "cli/server",

@@ -1,0 +1,46 @@
+name: Benchmarks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Run benchmarks
+        run: |
+          set -o pipefail
+          go test -bench . -benchmem -run=^$ -count=3 ./internal/... | tee benchmark-results.txt
+
+      - name: Format benchmark summary
+        if: always() && hashFiles('benchmark-results.txt') != ''
+        run: go run ./scripts/format-benchmarks benchmark-results.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          if-no-files-found: ignore
+          path: |
+            benchmark-results.txt

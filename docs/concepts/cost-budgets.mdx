@@ -3,7 +3,7 @@ title: "Cost Budgets"
 description: "Tracking and limiting AI model usage costs."
 ---
 
-The strait includes a built-in cost tracking and budgeting system, primarily designed for managing expenses related to AI model usage (e.g., OpenAI, Anthropic).
+Strait includes a built-in cost tracking and budgeting system, primarily designed for managing expenses related to AI model usage (e.g., OpenAI, Anthropic).
 
 ## Micro-USD Precision
 
@@ -58,6 +58,6 @@ max_cost_per_run_microusd  BIGINT NOT NULL DEFAULT 0  -- 0 = unlimited
 max_daily_cost_microusd    BIGINT NOT NULL DEFAULT 0  -- 0 = unlimited
 ```
 
-## Feature Flag
+## Budget Enforcement
 
-The cost budgeting system is gated behind the `FF_COST_BUDGETS` feature flag. When disabled, usage reports are still recorded, but no budget checks are performed at trigger time or during execution.
+Usage reports are always recorded, and budget checks are performed at trigger time and during execution.

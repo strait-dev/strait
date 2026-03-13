@@ -161,7 +161,7 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	items := make([]map[string]any, 101)
+	items := make([]map[string]any, 501)
 	for i := range items {
 		items[i] = map[string]any{}
 	}
@@ -176,7 +176,7 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "maximum 100 items") {
+	if !strings.Contains(w.Body.String(), "maximum 500 items") {
 		t.Fatalf("expected maximum items error, got %s", w.Body.String())
 	}
 }
@@ -288,23 +288,25 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 		"run-2": {ID: "run-2", Status: domain.StatusExecuting},
 		"run-3": {ID: "run-3", Status: domain.StatusExecuting},
 	}
-	updates := 0
 	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if r, ok := runs[id]; ok {
-				return r, nil
+		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+			result := make(map[string]*domain.JobRun)
+			for _, id := range ids {
+				if r, ok := runs[id]; ok {
+					result[id] = r
+				}
 			}
-			return nil, fmt.Errorf("not found")
+			return result, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
-			if to != domain.StatusCanceled {
-				t.Fatalf("expected transition to canceled, got %s", to)
+		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
+			results := make([]store.BulkCancelResult, 0, len(ids))
+			for _, id := range ids {
+				results = append(results, store.BulkCancelResult{ID: id, Canceled: true})
 			}
-			updates++
-			return nil
+			return results, nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			return nil, nil
+		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -323,9 +325,6 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 	if resp.Canceled != 3 || resp.Failed != 0 || resp.Total != 3 {
 		t.Fatalf("unexpected counters: canceled=%d failed=%d total=%d", resp.Canceled, resp.Failed, resp.Total)
 	}
-	if updates != 3 {
-		t.Fatalf("expected 3 status updates, got %d", updates)
-	}
 }
 
 func TestHandleBulkCancel_PartialFailure(t *testing.T) {
@@ -335,17 +334,24 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 		"run-3": {ID: "run-3", Status: domain.StatusCompleted},
 	}
 	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if r, ok := runs[id]; ok {
-				return r, nil
+		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+			result := make(map[string]*domain.JobRun)
+			for _, id := range ids {
+				if r, ok := runs[id]; ok {
+					result[id] = r
+				}
 			}
-			return nil, fmt.Errorf("not found")
+			return result, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
-			return nil
+		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
+			results := make([]store.BulkCancelResult, 0, len(ids))
+			for _, id := range ids {
+				results = append(results, store.BulkCancelResult{ID: id, Canceled: true})
+			}
+			return results, nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			return nil, nil
+		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -433,14 +439,14 @@ func TestHandleBulkCancel_AllTerminal(t *testing.T) {
 		"run-3": {ID: "run-3", Status: domain.StatusCanceled},
 	}
 	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if r, ok := runs[id]; ok {
-				return r, nil
+		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+			result := make(map[string]*domain.JobRun)
+			for _, id := range ids {
+				if r, ok := runs[id]; ok {
+					result[id] = r
+				}
 			}
-			return nil, fmt.Errorf("not found")
-		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			return nil, nil
+			return result, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -466,29 +472,30 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 	runs := map[string]*domain.JobRun{
 		"run-parent": {ID: "run-parent", Status: domain.StatusExecuting},
 	}
-	updatedIDs := make([]string, 0, 2)
+	var childCancelCalled bool
 	ms := &mockAPIStore{
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if r, ok := runs[id]; ok {
-				return r, nil
+		getRunsByIDsFn: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+			result := make(map[string]*domain.JobRun)
+			for _, id := range ids {
+				if r, ok := runs[id]; ok {
+					result[id] = r
+				}
 			}
-			return nil, fmt.Errorf("not found")
+			return result, nil
 		},
-		updateRunStatusFn: func(_ context.Context, id string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
-			if to != domain.StatusCanceled {
-				t.Fatalf("expected canceled status, got %s", to)
+		bulkCancelRunsFn: func(_ context.Context, ids []string, _ time.Time, _ string) ([]store.BulkCancelResult, error) {
+			results := make([]store.BulkCancelResult, 0, len(ids))
+			for _, id := range ids {
+				results = append(results, store.BulkCancelResult{ID: id, Canceled: true})
 			}
-			updatedIDs = append(updatedIDs, id)
-			return nil
+			return results, nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			if parentRunID != "run-parent" {
-				t.Fatalf("unexpected parent run ID: %s", parentRunID)
+		cancelChildRunsByParentIDsFn: func(_ context.Context, parentIDs []string, _ time.Time, _ string) (int64, error) {
+			if len(parentIDs) != 1 || parentIDs[0] != "run-parent" {
+				t.Fatalf("expected parent ID run-parent, got %v", parentIDs)
 			}
-			return []domain.JobRun{
-				{ID: "run-child-1", Status: domain.StatusExecuting},
-				{ID: "run-child-2", Status: domain.StatusCompleted},
-			}, nil
+			childCancelCalled = true
+			return 1, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -507,21 +514,7 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 	if resp.Canceled != 1 || resp.Failed != 0 {
 		t.Fatalf("expected canceled=1 failed=0, got canceled=%d failed=%d", resp.Canceled, resp.Failed)
 	}
-	if len(updatedIDs) != 2 {
-		t.Fatalf("expected parent + one child cancellation updates, got %d", len(updatedIDs))
-	}
-
-	seen := map[string]bool{}
-	for _, id := range updatedIDs {
-		seen[id] = true
-	}
-	if !seen["run-parent"] {
-		t.Fatal("expected parent run cancellation")
-	}
-	if !seen["run-child-1"] {
-		t.Fatal("expected non-terminal child run cancellation")
-	}
-	if seen["run-child-2"] {
-		t.Fatal("did not expect terminal child run cancellation")
+	if !childCancelCalled {
+		t.Fatal("expected CancelChildRunsByParentIDs to be called")
 	}
 }

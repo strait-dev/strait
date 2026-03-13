@@ -156,6 +156,42 @@ func TestEvaluateCondition(t *testing.T) {
 			want: true,
 		},
 		{
+			name:         "step_status_in: one allowed status -> true",
+			cond:         mustJSON(`{"type":"step_status_in","step_ref":"validate-data","statuses":["failed","completed"]}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         true,
+		},
+		{
+			name:         "not: inverts nested result",
+			cond:         mustJSON(`{"type":"not","condition":{"type":"step_status","step_ref":"validate-data","status":"failed"}}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         true,
+		},
+		{
+			name:         "eq operator",
+			cond:         mustJSON(`{"type":"eq","left":"a","right":"a"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name:         "gt operator",
+			cond:         mustJSON(`{"type":"gt","left":3,"right":2}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name:         "regex operator",
+			cond:         mustJSON(`{"type":"regex","left":"abc-123","right":"^[a-z]+-[0-9]+$"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         true,
+		},
+		{
+			name:         "exists operator with missing step_ref",
+			cond:         mustJSON(`{"type":"exists","operand":{"step_ref":"missing"}}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			want:         false,
+		},
+		{
 			name:         "unknown type -> error",
 			cond:         mustJSON(`{"type":"foobar"}`),
 			stepStatuses: map[string]domain.StepRunStatus{},
@@ -201,6 +237,28 @@ func TestEvaluateCondition(t *testing.T) {
 			}
 		})
 	}
+}
+
+func BenchmarkEvaluateCondition(b *testing.B) {
+	statuses := map[string]domain.StepRunStatus{
+		"step-1": domain.StepCompleted,
+		"step-2": domain.StepCompleted,
+		"step-3": domain.StepFailed,
+	}
+
+	simple := json.RawMessage(`{"type":"step_status","step_ref":"step-1","status":"completed"}`)
+	composite := json.RawMessage(`{"type":"all_of","conditions":[{"type":"step_status","step_ref":"step-1","status":"completed"},{"type":"step_status","step_ref":"step-2","status":"completed"},{"type":"step_status","step_ref":"step-3","status":"failed"}]}`)
+
+	b.Run("simple", func(b *testing.B) {
+		for range b.N {
+			_, _ = EvaluateCondition(simple, statuses)
+		}
+	})
+	b.Run("composite", func(b *testing.B) {
+		for range b.N {
+			_, _ = EvaluateCondition(composite, statuses)
+		}
+	})
 }
 
 func mustJSON(s string) json.RawMessage {

@@ -1,17 +1,30 @@
 ---
 title: "Webhooks"
-description: "Real-time notifications for job run terminal states."
+description: "Real-time notifications for job run terminal states and event triggers."
 ---
 
-Webhooks allow your external services to be notified automatically when a [Job Run](/concepts/runs) reaches a terminal state (e.g., `completed`, `failed`, `timed_out`).
+Webhooks allow your external services to be notified automatically when a [Job Run](/docs/concepts/runs) reaches a terminal state (e.g., `completed`, `failed`, `timed_out`) or when an [Event Trigger](/docs/concepts/event-triggers) is resolved.
+
+## Delivery Models
+
+Strait has two webhook delivery models:
+
+### Job Run Webhooks
+
+When a run reaches a terminal state, the executor checks if the parent Job has a `webhook_url` configured and dispatches a signed HTTP POST. Delivery uses in-memory retry with blocking backoff (up to 3 attempts). If the worker process crashes during delivery, in-flight retries are lost.
+
+### Event Trigger Webhooks
+
+Event trigger webhooks (configured via `notify_url` on wait-for-event steps) use a **durable delivery** model. Deliveries are persisted to the `webhook_deliveries` table and processed by a background polling worker (`internal/webhook/event_notify.go`). This survives process restarts -- pending deliveries are picked up on the next poll cycle.
 
 ## Delivery Lifecycle
 
 1. **Terminal State Reached**: When a run finishes, the executor checks if the parent Job has a `webhook_url` configured.
 2. **Payload Construction**: A `WebhookPayload` is assembled containing the run's final state, result, and error (if any).
-3. **Signing**: If a `webhook_secret` is configured, the payload is signed using HMAC-SHA256.
+3. **Signing**: If a `webhook_secret` is configured, the payload is signed using HMAC-SHA256 with a timestamp for replay protection.
 4. **Dispatch**: An HTTP POST request is sent to the `webhook_url`.
-5. **Retry Logic**: If delivery fails, the strait retries based on the response status code.
+5. **Retry Logic**: If delivery fails, Strait retries based on the response status code.
+6. **Dead Letter**: After exhausting retries, deliveries are marked as `dead` (event trigger) or silently dropped (job run).
 
 ## Webhook Payload
 
@@ -30,45 +43,86 @@ The payload sent to your endpoint (defined in `internal/worker/webhook.go`) incl
 
 ## HMAC-SHA256 Signing
 
-To ensure the webhook was sent by the strait, every request includes an `X-Webhook-Signature` header if a `webhook_secret` is set for the job.
+To ensure the webhook was sent by Strait, signed deliveries include:
 
-- **Header Format**: `sha256=<signature>`
-- **Algorithm**: HMAC-SHA256 using the `webhook_secret` as the key and the raw JSON request body as the message.
+- `X-Strait-Timestamp`: Unix timestamp used in signature generation
+- `X-Strait-Signature`: `sha256=<signature>`
+- `X-Webhook-Signature`: compatibility header for existing consumers
+
+**Algorithm:** HMAC-SHA256 using `webhook_secret` as key and `{timestamp}.{raw-json-body}` as the signed payload. The timestamp is included in the signed payload to provide replay protection -- receivers should reject deliveries where the timestamp is more than 5 minutes old.
+
+**Signed payload format:**
+```
+signed_payload = "{unix_timestamp}.{raw_json_body}"
+signature      = HMAC-SHA256(webhook_secret, signed_payload)
+```
 
 ### Verifying Signatures (Go Example)
 
 ```go
-func verifySignature(payload []byte, signatureHeader string, secret string) bool {
-    if !strings.HasPrefix(signatureHeader, "sha256=") {
+func verifySignature(payload []byte, timestamp string, signatureHeader string, secret string) bool {
+    if !strings.HasPrefix(signatureHeader, "sha256=") || timestamp == "" {
         return false
     }
     actualSig := signatureHeader[7:]
-    
+
     mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write([]byte(timestamp + "."))
     mac.Write(payload)
     expectedSig := hex.EncodeToString(mac.Sum(nil))
-    
+
     return hmac.Equal([]byte(actualSig), []byte(expectedSig))
 }
 ```
 
 ## Retry Strategy
 
-The strait attempts to deliver the webhook up to **3 times** with an exponential backoff:
+### Job Run Webhooks
+
+Strait attempts to deliver job run webhooks up to **3 times** with an exponential backoff:
 - **Attempt 1**: Immediate
 - **Attempt 2**: 1 second delay
 - **Attempt 3**: 5 seconds delay
 
+### Event Trigger Webhooks
+
+Event trigger webhooks (configured via `notify_url` on wait-for-event) use a persistent delivery queue that survives process restarts:
+- **Max attempts**: 5
+- **Backoff**: Exponential — 5s, 25s, 125s, 625s (capped at 30 minutes)
+- **Delivery worker**: Polls the database every 5 seconds for pending deliveries
+
 ### Retry Rules
-- **Client Errors (4xx)**: Delivery is considered a permanent failure; **no retries** are attempted.
+- **Client Errors (4xx)**: Delivery is considered a permanent failure; **no retries** are attempted. The delivery is dead-lettered immediately.
 - **Server Errors (5xx) / Timeouts**: Delivery is retried up to the maximum attempt limit.
 - **Context Cancellation**: If the system is shutting down, delivery may be aborted with a "context canceled" error.
 
 ## Configuration
 
+### Job Webhooks
 Webhooks are configured per job:
 - `webhook_url`: The destination for the POST request.
 - `webhook_secret`: (Optional) The key used for HMAC signing.
+
+### Event Trigger Webhooks
+Event trigger webhooks are configured per trigger:
+- `notify_url`: Set when creating a wait-for-event step or SDK call.
+- Delivery status is tracked in the `webhook_deliveries` table with `event_trigger_id`.
+
+### Dead Letter Queue (DLQ) Management
+
+Failed webhook deliveries are stored in the database and can be inspected and retried:
+
+```bash
+# List all failed deliveries for a project
+curl "https://strait.dev/v1/webhook-deliveries?project_id=proj_1&status=failed" \
+  -H "Authorization: Bearer strait_..."
+
+# Retry a specific failed delivery
+curl -X POST https://strait.dev/v1/webhook-deliveries/{deliveryID}/retry \
+  -H "Authorization: Bearer strait_..."
+```
+
+The retry endpoint resets the delivery to `pending` status with zero attempts and immediate next retry time. Only deliveries in `failed` status can be retried — attempting to retry a `pending` or `delivered` delivery returns `409 Conflict`.
 
 <Warning>
 Always use HTTPS for your webhook URLs to protect the payload and signature in transit.

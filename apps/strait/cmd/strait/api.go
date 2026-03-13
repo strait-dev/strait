@@ -121,7 +121,7 @@ func newAPICommand(state *appState) *cobra.Command {
 
 func fieldsToJSON(fields []string) (map[string]any, error) {
 	if len(fields) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil map signals no fields provided.
 	}
 	out := make(map[string]any, len(fields))
 	for _, field := range fields {

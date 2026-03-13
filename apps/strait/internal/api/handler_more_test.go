@@ -214,8 +214,8 @@ func TestHandleCreateJob_DefaultValues(t *testing.T) {
 func TestHandleDeleteJob_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
-			return nil, store.ErrJobNotFound
+		deleteJobFn: func(_ context.Context, _ string) error {
+			return store.ErrJobNotFound
 		},
 	}
 
@@ -228,31 +228,11 @@ func TestHandleDeleteJob_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleDeleteJob_StoreGetError(t *testing.T) {
+func TestHandleDeleteJob_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
-			return nil, errors.New("db down")
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-500", ""))
-
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
-}
-
-func TestHandleDeleteJob_StoreUpdateError(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{
-		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{ID: id, EndpointURL: "https://example.com", Enabled: true}, nil
-		},
-		updateJobFn: func(_ context.Context, _ *domain.Job) error {
-			return errors.New("update failed")
+		deleteJobFn: func(_ context.Context, _ string) error {
+			return errors.New("db down")
 		},
 	}
 
@@ -336,7 +316,10 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 			updates[id] = to
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
+			if cursor != nil {
+				return nil, nil
+			}
 			return []domain.JobRun{
 				{ID: "child-running", ParentRunID: parentRunID, Status: domain.StatusQueued},
 				{ID: "child-done", ParentRunID: parentRunID, Status: domain.StatusCompleted},
@@ -359,6 +342,65 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 	}
 	if _, ok := updates["child-done"]; ok {
 		t.Fatal("expected terminal child to not be updated")
+	}
+}
+
+func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
+	t.Parallel()
+	getRunCalls := 0
+	updates := make(map[string]domain.RunStatus)
+	listCalls := 0
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			getRunCalls++
+			if getRunCalls == 1 {
+				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusCanceled}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
+			updates[id] = to
+			return nil
+		},
+		listChildRunsFn: func(_ context.Context, _ string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
+			listCalls++
+			switch listCalls {
+			case 1:
+				if cursor != nil {
+					t.Fatalf("expected nil cursor on first page")
+				}
+				return []domain.JobRun{
+					{ID: "child-1", Status: domain.StatusQueued, CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+					{ID: "child-2", Status: domain.StatusExecuting, CreatedAt: time.Date(2024, 1, 1, 0, 0, 1, 0, time.UTC)},
+				}, nil
+			case 2:
+				if cursor == nil {
+					t.Fatalf("expected non-nil cursor on second page")
+				}
+				return []domain.JobRun{
+					{ID: "child-3", Status: domain.StatusQueued, CreatedAt: time.Date(2024, 1, 1, 0, 0, 2, 0, time.UTC)},
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-parent", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	for _, childID := range []string{"child-1", "child-2", "child-3"} {
+		if updates[childID] != domain.StatusCanceled {
+			t.Fatalf("expected %s to be canceled, got %q", childID, updates[childID])
+		}
+	}
+	if listCalls != 3 {
+		t.Fatalf("expected 3 listChildRuns calls for pagination, got %d", listCalls)
 	}
 }
 
@@ -478,7 +520,6 @@ func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFPayloadValidation = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"name":"leo"}}`))
@@ -512,7 +553,6 @@ func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFPayloadValidation = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"age":12}}`))
@@ -1071,7 +1111,6 @@ func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFProjectQuotas = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -1160,7 +1199,6 @@ func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFExecutionWindows = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -1592,6 +1630,234 @@ func TestHandleListWebhookDeliveries_MissingProjectID(t *testing.T) {
 	}
 }
 
+func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		listWebhookDeliveriesFn: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("project_id = %q, want proj-1", projectID)
+			}
+			return []domain.WebhookDelivery{{ID: "del-1", Status: domain.WebhookStatusPending, CreatedAt: time.Now().UTC()}}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries?project_id=proj-1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetWebhookDelivery_Success(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			if id != "del-1" {
+				t.Fatalf("delivery id = %q, want del-1", id)
+			}
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusPending}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/del-1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("webhook delivery not found")
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/missing", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusDead}, nil
+		},
+		retryWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusPending, Attempts: 0}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWebhookDeliveryFn: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusDelivered}, nil
+		},
+		retryWebhookDeliveryFn: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			t.Fatal("RetryWebhookDelivery should not be called")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		retryCalled := false
+		ms := &mockAPIStore{
+			getWebhookDeliveryFn: func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+				if id != "del-1" {
+					t.Fatalf("delivery id = %q, want del-1", id)
+				}
+				return &domain.WebhookDelivery{
+					ID:        id,
+					Status:    "failed",
+					Attempts:  2,
+					LastError: "boom",
+				}, nil
+			},
+			retryWebhookDeliveryFn: func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+				retryCalled = true
+				return &domain.WebhookDelivery{
+					ID:       id,
+					Status:   "pending",
+					Attempts: 0,
+				}, nil
+			},
+		}
+
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+		if !retryCalled {
+			t.Fatal("expected RetryWebhookDelivery to be called")
+		}
+
+		var resp domain.WebhookDelivery
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp.Status != "pending" || resp.Attempts != 0 {
+			t.Fatalf("unexpected response: %+v", resp)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWebhookDeliveryFn: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+				return nil, nil
+			},
+		}
+
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/missing/retry", ""))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", w.Code)
+		}
+	})
+
+	t.Run("conflict when status is not failed", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWebhookDeliveryFn: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+				return &domain.WebhookDelivery{ID: "del-1", Status: "delivered"}, nil
+			},
+		}
+
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
+
+		if w.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409", w.Code)
+		}
+	})
+
+	t.Run("get delivery store error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWebhookDeliveryFn: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+				return nil, fmt.Errorf("db down")
+			},
+		}
+
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("retry delivery store error", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getWebhookDeliveryFn: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+				return &domain.WebhookDelivery{ID: "del-1", Status: "failed"}, nil
+			},
+			retryWebhookDeliveryFn: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+				return nil, fmt.Errorf("retry failed")
+			},
+		}
+
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", w.Code)
+		}
+	})
+}
+
 func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -1809,7 +2075,6 @@ func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -1843,7 +2108,6 @@ func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
@@ -1984,7 +2248,6 @@ func TestHandleSDKUsage_CostBudgetCheckBeforeRecord(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)

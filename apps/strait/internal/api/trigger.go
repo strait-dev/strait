@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 // maxIdempotencyKeyLength is the maximum allowed length for idempotency keys.
@@ -25,14 +28,21 @@ import (
 const maxIdempotencyKeyLength = 256
 
 type TriggerRequest struct {
-	Payload     json.RawMessage `json:"payload,omitempty"`
-	ScheduledAt *time.Time      `json:"scheduled_at,omitempty"`
-	Priority    int             `json:"priority,omitempty" validate:"min=0,max=10"`
-	DryRun      bool            `json:"dry_run,omitempty"`
+	Payload        json.RawMessage   `json:"payload,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	ScheduledAt    *time.Time        `json:"scheduled_at,omitempty"`
+	Priority       int               `json:"priority,omitempty" validate:"min=0,max=10"`
+	DryRun         bool              `json:"dry_run,omitempty"`
+	TTLSecs        *int              `json:"ttl_secs,omitempty"`
+	ConcurrencyKey string            `json:"concurrency_key,omitempty"`
 }
 
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
+	if err := validateRunCreationJobID(jobID); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	job, err := s.store.GetJob(r.Context(), jobID)
 	if err != nil {
@@ -58,13 +68,13 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	if !s.validateRequest(w, r, &req) {
 		return
 	}
+	if err := validatePayloadSize(req.Payload); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Handle dry-run mode
 	if req.DryRun {
-		if !s.config.FFDryRun {
-			respondError(w, r, http.StatusNotFound, "dry-run mode is not enabled")
-			return
-		}
 		result, err := s.validateTriggerRequest(r.Context(), jobID, req)
 		if err != nil {
 			respondError(w, r, http.StatusBadRequest, err.Error())
@@ -73,11 +83,9 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, result)
 		return
 	}
-	if s.config.FFPayloadValidation {
-		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
-			respondError(w, r, http.StatusBadRequest, "payload validation failed: "+err.Error())
-			return
-		}
+	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
+		respondError(w, r, http.StatusBadRequest, "payload validation failed: "+err.Error())
+		return
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
@@ -121,15 +129,13 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var projectQuota *store.ProjectQuota
-	if s.config.FFProjectQuotas || s.config.FFExecutionWindows || s.config.FFCostBudgets {
-		projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
-			return
-		}
+	projectQuota, err = s.store.GetProjectQuota(r.Context(), job.ProjectID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to load project quota")
+		return
 	}
 
-	if s.config.FFProjectQuotas && projectQuota != nil {
+	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := s.store.CountProjectQueuedRuns(r.Context(), job.ProjectID)
 			if countErr != nil {
@@ -155,7 +161,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if s.config.FFCostBudgets && projectQuota != nil && projectQuota.MaxDailyCostMicrousd > 0 {
+	if projectQuota != nil && projectQuota.MaxDailyCostMicrousd > 0 {
 		tz := projectQuota.Timezone
 		if tz == "" {
 			tz = "UTC"
@@ -205,7 +211,7 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	runID := uuid.Must(uuid.NewV7()).String()
 	now := time.Now()
 	scheduledAt := req.ScheduledAt
-	if s.config.FFExecutionWindows && job.ExecutionWindowCron != "" {
+	if job.ExecutionWindowCron != "" {
 		timezone := job.Timezone
 		if timezone == "" && projectQuota != nil {
 			timezone = projectQuota.Timezone
@@ -219,7 +225,9 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var expiresAt time.Time
-	if job.RunTTLSecs > 0 {
+	if req.TTLSecs != nil && *req.TTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
+	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
@@ -242,10 +250,18 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		status = domain.StatusDelayed
 	}
 
+	dependencyKey := extractDependencyKey(payload)
+
+	// Inherit job tags, then overlay with trigger-specific tags.
+	runTags := make(map[string]string, len(job.Tags)+len(req.Tags))
+	maps.Copy(runTags, job.Tags)
+	maps.Copy(runTags, req.Tags)
+
 	run := &domain.JobRun{
 		ID:             runID,
 		JobID:          job.ID,
 		ProjectID:      job.ProjectID,
+		Tags:           runTags,
 		Status:         status,
 		Attempt:        1,
 		Payload:        payload,
@@ -254,7 +270,81 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		Priority:       req.Priority,
 		IdempotencyKey: idempotencyKey,
 		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		CreatedBy:      actorFromContext(r.Context()),
 		ExpiresAt:      &expiresAt,
+	}
+	if dependencyKey != "" {
+		run.Metadata = map[string]string{"dependency_key": dependencyKey}
+	}
+
+	// Merge default run metadata from job. Caller metadata wins on conflicts.
+	if len(job.DefaultRunMetadata) > 0 {
+		if run.Metadata == nil {
+			run.Metadata = make(map[string]string, len(job.DefaultRunMetadata))
+		}
+		for k, v := range job.DefaultRunMetadata {
+			if _, exists := run.Metadata[k]; !exists {
+				run.Metadata[k] = v
+			}
+		}
+	}
+	run.ConcurrencyKey = req.ConcurrencyKey
+
+	if status == domain.StatusQueued {
+		satisfied, depErr := s.store.AreJobDependenciesSatisfied(r.Context(), run)
+		if depErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to evaluate job dependencies")
+			return
+		}
+		if !satisfied {
+			run.Status = domain.StatusWaiting
+			if s.metrics != nil {
+				attrs := otelmetric.WithAttributes(
+					otelattr.String("project_id", run.ProjectID),
+					otelattr.String("job_id", run.JobID),
+				)
+				s.metrics.WorkflowDependencyWaits.Add(r.Context(), 1, attrs)
+			}
+			if err := s.store.CreateRun(r.Context(), run); err != nil {
+				if errors.Is(err, domain.ErrIdempotencyConflict) && idempotencyKey != "" {
+					existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, idempotencyKey)
+					if retryErr != nil {
+						slog.Error("idempotency conflict retry failed",
+							"job_id", job.ID,
+							"idempotency_key", idempotencyKey,
+							"error", retryErr)
+						respondError(w, r, http.StatusInternalServerError, "failed to check idempotency key after conflict")
+						return
+					}
+					if existingRun != nil {
+						slog.Warn("idempotency conflict resolved",
+							"job_id", job.ID,
+							"idempotency_key", idempotencyKey,
+							"winning_run_id", existingRun.ID)
+						respondJSON(w, http.StatusCreated, map[string]any{
+							"id":              existingRun.ID,
+							"status":          existingRun.Status,
+							"idempotency_hit": true,
+						})
+						return
+					}
+					slog.Error("idempotency conflict retry returned nil",
+						"job_id", job.ID,
+						"idempotency_key", idempotencyKey)
+				}
+				respondError(w, r, http.StatusInternalServerError, "failed to create waiting run")
+				return
+			}
+			respondJSON(w, http.StatusCreated, map[string]any{
+				"id":              run.ID,
+				"status":          run.Status,
+				"payload_hash":    payloadHash,
+				"run_token":       tokenString,
+				"idempotency_hit": false,
+			})
+			return
+		}
 	}
 
 	if err := s.queue.Enqueue(r.Context(), run); err != nil {
@@ -319,6 +409,20 @@ func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, erro
 	return canonical, hex.EncodeToString(hash[:]), nil
 }
 
+func extractDependencyKey(payload json.RawMessage) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return ""
+	}
+	if key, ok := body["dependency_key"].(string); ok {
+		return key
+	}
+	return ""
+}
+
 func alignToExecutionWindow(requested *time.Time, now time.Time, expr, tz string) (*time.Time, error) {
 	if tz == "" {
 		tz = "UTC"
@@ -346,7 +450,7 @@ func alignToExecutionWindow(requested *time.Time, now time.Time, expr, tz string
 			ts := requested.UTC()
 			return &ts, nil
 		}
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil signals "trigger now" with no explicit time.
 	}
 
 	next := schedule.Next(referenceLocal)
@@ -371,6 +475,13 @@ type DryRunValidationResult struct {
 }
 
 func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
+	if err := validateRunCreationJobID(jobID); err != nil {
+		return nil, err
+	}
+	if err := validatePayloadSize(req.Payload); err != nil {
+		return nil, err
+	}
+
 	job, err := s.store.GetJob(ctx, jobID)
 	if err != nil {
 		return nil, err
@@ -380,10 +491,8 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		return nil, errors.New("job is disabled")
 	}
 
-	if s.config.FFPayloadValidation {
-		if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
-			return nil, fmt.Errorf("payload validation failed: %w", err)
-		}
+	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
+		return nil, fmt.Errorf("payload validation failed: %w", err)
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
@@ -393,14 +502,12 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	var projectQuota *store.ProjectQuota
 	var warnings []string
-	if s.config.FFProjectQuotas || s.config.FFExecutionWindows {
-		projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load project quota: %w", err)
-		}
+	projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project quota: %w", err)
 	}
 
-	if s.config.FFProjectQuotas && projectQuota != nil {
+	if projectQuota != nil {
 		if projectQuota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 			if countErr != nil {
@@ -446,7 +553,7 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	now := time.Now()
 	scheduledAt := req.ScheduledAt
-	if s.config.FFExecutionWindows && job.ExecutionWindowCron != "" {
+	if job.ExecutionWindowCron != "" {
 		timezone := job.Timezone
 		if timezone == "" && projectQuota != nil {
 			timezone = projectQuota.Timezone
@@ -459,7 +566,9 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 	}
 
 	var expiresAt time.Time
-	if job.RunTTLSecs > 0 {
+	if req.TTLSecs != nil && *req.TTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
+	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)

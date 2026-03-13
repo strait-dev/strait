@@ -19,11 +19,16 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var result []byte
 	var metadata []byte
 	var executionTrace []byte
+	var tagsJSON []byte
 	var runError *string
 	var parentRunID *string
 	var idempotencyKey *string
 	var workflowStepRunID *string
 	var continuationOf *string
+	var jobVersionID *string
+	var createdBy *string
+	var batchID *string
+	var concurrencyKey *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -52,6 +57,11 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&run.DebugMode,
 		&continuationOf,
 		&run.LineageDepth,
+		&tagsJSON,
+		&jobVersionID,
+		&createdBy,
+		&batchID,
+		&concurrencyKey,
 	)
 	if err != nil {
 		return nil, err
@@ -89,6 +99,23 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if continuationOf != nil {
 		run.ContinuationOf = *continuationOf
+	}
+	if len(tagsJSON) > 0 && string(tagsJSON) != "{}" {
+		if err := json.Unmarshal(tagsJSON, &run.Tags); err != nil {
+			return nil, err
+		}
+	}
+	if jobVersionID != nil {
+		run.JobVersionID = *jobVersionID
+	}
+	if createdBy != nil {
+		run.CreatedBy = *createdBy
+	}
+	if batchID != nil {
+		run.BatchID = *batchID
+	}
+	if concurrencyKey != nil {
+		run.ConcurrencyKey = *concurrencyKey
 	}
 
 	return &run, nil

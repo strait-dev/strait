@@ -1,0 +1,3 @@
+-- Intentionally empty: idempotency dedup on partitioned job_runs is enforced
+-- via CTE-based check in the INSERT query (store.CreateRun / queue.Enqueue).
+-- A UNIQUE INDEX cannot enforce cross-partition uniqueness in PostgreSQL.

@@ -125,8 +125,8 @@ func newRootCommand() *cobra.Command {
 
 			return nil
 		},
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runServe("")
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runServe(cmd.Context(), "")
 		},
 	}
 
@@ -183,6 +183,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newDBCommand())
 	cmd.AddCommand(newRunCommand(state))
 	cmd.AddCommand(newSendCommand(state))
+	cmd.AddCommand(newTriggersCommand(state))
 	cmd.AddCommand(newSecretsCommand(state))
 	cmd.AddCommand(newFixturesCommand(state))
 	cmd.AddCommand(newExtensionCommand(state))
@@ -322,8 +323,8 @@ func newServeCommand() *cobra.Command {
 		Use:   "serve",
 		Short: "Start strait server components",
 		Long:  "Starts strait runtime in api, worker, or all mode.",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runServe(mode)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runServe(cmd.Context(), mode)
 		},
 	}
 

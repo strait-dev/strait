@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
 
@@ -35,13 +34,24 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		run.WorkflowVersion = 1
 	}
 
+	tagsJSON := []byte("{}")
+	if len(run.Tags) > 0 {
+		var marshalErr error
+		tagsJSON, marshalErr = json.Marshal(run.Tags)
+		if marshalErr != nil {
+			return fmt.Errorf("create workflow run: marshal tags: %w", marshalErr)
+		}
+	}
+
 	query := `
 		INSERT INTO workflow_runs (
 			id, workflow_id, project_id, status, triggered_by, payload,
 			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			retry_of_run_id, parent_workflow_run_id
+			retry_of_run_id, parent_workflow_run_id, parent_step_run_id,
+			tags, workflow_version_id, created_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+			$16::jsonb, $17, $18)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -61,6 +71,10 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		run.ExpiresAt,
 		dbscan.NilIfEmptyString(run.RetryOfRunID),
 		dbscan.NilIfEmptyString(run.ParentWorkflowRunID),
+		dbscan.NilIfEmptyString(run.ParentStepRunID),
+		tagsJSON,
+		dbscan.NilIfEmptyString(run.WorkflowVersionID),
+		dbscan.NilIfEmptyString(run.CreatedBy),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow run: %w", err)
@@ -76,7 +90,7 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -102,7 +116,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, created_at
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
 			FROM workflow_runs
 			WHERE workflow_id = $1 AND created_at < $3
 			ORDER BY created_at DESC
@@ -112,7 +126,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, created_at
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
 			FROM workflow_runs
 			WHERE workflow_id = $1
 			ORDER BY created_at DESC
@@ -148,7 +162,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -243,7 +257,10 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, 
 	args := []any{to, id, from}
 	param := 4
 
-	keys := lo.Keys(fields)
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
@@ -291,7 +308,7 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, created_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
 		ORDER BY created_at ASC`
@@ -321,12 +338,16 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	var run domain.WorkflowRun
 	var payload []byte
+	var tagsJSON []byte
 	var runError *string
 	var startedAt *time.Time
 	var finishedAt *time.Time
 	var expiresAt *time.Time
 	var retryOfRunID *string
 	var parentWorkflowRunID *string
+	var parentStepRunID *string
+	var workflowVersionID *string
+	var createdBy *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -343,7 +364,11 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 		&expiresAt,
 		&retryOfRunID,
 		&parentWorkflowRunID,
+		&parentStepRunID,
 		&run.CreatedAt,
+		&tagsJSON,
+		&workflowVersionID,
+		&createdBy,
 	)
 	if err != nil {
 		return nil, err
@@ -361,9 +386,180 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	if parentWorkflowRunID != nil {
 		run.ParentWorkflowRunID = *parentWorkflowRunID
 	}
+	if parentStepRunID != nil {
+		run.ParentStepRunID = *parentStepRunID
+	}
 	run.StartedAt = startedAt
 	run.FinishedAt = finishedAt
 	run.ExpiresAt = expiresAt
+	if len(tagsJSON) > 0 && string(tagsJSON) != "{}" {
+		if err := json.Unmarshal(tagsJSON, &run.Tags); err != nil {
+			return nil, err
+		}
+	}
+	if workflowVersionID != nil {
+		run.WorkflowVersionID = *workflowVersionID
+	}
+	if createdBy != nil {
+		run.CreatedBy = *createdBy
+	}
 
 	return &run, nil
+}
+
+func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunBootstrap")
+	defer span.End()
+
+	txb, ok := q.db.(TxBeginner)
+	if !ok {
+		if err := q.CreateWorkflowRun(ctx, run); err != nil {
+			return err
+		}
+		if err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+			return err
+		}
+		for i := range stepRuns {
+			sr := stepRuns[i]
+			if err := q.CreateWorkflowStepRun(ctx, &sr); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	return WithTx(ctx, txb, func(txQ *Queries) error {
+		if err := txQ.CreateWorkflowRun(ctx, run); err != nil {
+			return fmt.Errorf("create workflow run bootstrap: %w", err)
+		}
+		if err := txQ.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+			return fmt.Errorf("mark workflow running bootstrap: %w", err)
+		}
+		for i := range stepRuns {
+			sr := stepRuns[i]
+			if err := txQ.CreateWorkflowStepRun(ctx, &sr); err != nil {
+				return fmt.Errorf("create workflow step run bootstrap %s: %w", sr.StepRef, err)
+			}
+		}
+		return nil
+	})
+}
+
+func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStalledWorkflowRuns")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, project_id, status, triggered_by, payload,
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		FROM workflow_runs wr
+		WHERE wr.status = 'running'
+		  AND wr.started_at IS NOT NULL
+		  AND wr.started_at < NOW() - ($1::interval)
+		  AND NOT EXISTS (
+			SELECT 1 FROM workflow_step_runs sr
+			WHERE sr.workflow_run_id = wr.id
+			  AND sr.status = 'running'
+		  )
+		ORDER BY wr.started_at ASC
+		LIMIT 200`
+
+	interval := fmt.Sprintf("%f seconds", threshold.Seconds())
+	rows, err := q.db.Query(ctx, query, interval)
+	if err != nil {
+		return nil, fmt.Errorf("list stalled workflow runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.WorkflowRun, 0, 16)
+	for rows.Next() {
+		run, scanErr := scanWorkflowRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list stalled workflow runs scan: %w", scanErr)
+		}
+		runs = append(runs, *run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list stalled workflow runs rows: %w", err)
+	}
+	return runs, nil
+}
+
+func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRunsByTag")
+	defer span.End()
+
+	base := `
+		SELECT id, workflow_id, project_id, status, triggered_by, payload,
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		FROM workflow_runs
+		WHERE project_id = $1`
+
+	args := []any{projectID, tagKey}
+	param := 3
+	if tagValue == "" {
+		base += ` AND tags ? $2`
+	} else {
+		base += ` AND tags ->> $2 = $3`
+		args = append(args, tagValue)
+		param++
+	}
+
+	if cursor != nil {
+		base += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	base += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, base, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow runs by tag: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.WorkflowRun, 0, limit)
+	for rows.Next() {
+		run, scanErr := scanWorkflowRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list workflow runs by tag scan: %w", scanErr)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflow runs by tag rows: %w", err)
+	}
+
+	return runs, nil
+}
+
+func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCancelWorkflowRuns")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		UPDATE workflow_runs
+		SET status = 'failed', finished_at = $2, error = 'canceled by user (bulk)'
+		WHERE id = ANY($1) AND project_id = $3 AND status NOT IN ('completed', 'failed')
+		RETURNING id
+	`, ids, now, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("bulk cancel workflow runs: %w", err)
+	}
+	defer rows.Close()
+
+	var canceled []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("bulk cancel workflow runs scan: %w", err)
+		}
+		canceled = append(canceled, id)
+	}
+	return canceled, rows.Err()
 }

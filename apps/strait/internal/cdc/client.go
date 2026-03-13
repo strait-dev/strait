@@ -155,24 +155,7 @@ func (c *Client) doRequest(ctx context.Context, method, endpointPath string, bod
 		req.Header.Set("Authorization", "Bearer "+c.apiToken)
 	}
 
-	if timeout := c.httpClient.Timeout; timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-		req = req.WithContext(ctx)
-	}
-
-	transport := c.httpClient.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-
-	resp, err := transport.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp, nil
+	return c.httpClient.Do(req)
 }
 
 // readError reads the error body from a non-200 response.

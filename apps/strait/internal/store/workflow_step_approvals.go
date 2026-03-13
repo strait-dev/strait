@@ -101,7 +101,8 @@ func (q *Queries) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domai
 		       approved_by, requested_at, approved_at, expires_at, error
 		FROM workflow_step_approvals
 		WHERE status = 'pending' AND expires_at IS NOT NULL AND expires_at <= NOW()
-		ORDER BY expires_at ASC`
+		ORDER BY expires_at ASC
+		LIMIT 1000`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {

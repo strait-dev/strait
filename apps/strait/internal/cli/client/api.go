@@ -298,10 +298,73 @@ func (c *Client) RevokeAPIKey(ctx context.Context, keyID string) error {
 	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/api-keys", keyID), nil, nil, &map[string]string{})
 }
 
+func (c *Client) RotateAPIKey(ctx context.Context, keyID string, req RotateAPIKeyRequest) (*RotateAPIKeyResponse, error) {
+	var out RotateAPIKeyResponse
+	if err := c.doJSON(ctx, http.MethodPost, path.Join("/v1/api-keys", keyID, "rotate"), nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) Stats(ctx context.Context) (*QueueStats, error) {
 	var out QueueStats
 	if err := c.doJSON(ctx, http.MethodGet, "/v1/stats", nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) ListEventTriggers(ctx context.Context, projectID, status string) ([]domain.EventTrigger, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+	if status != "" {
+		query.Set("status", status)
+	}
+
+	var out []domain.EventTrigger
+	if err := c.doListJSON(ctx, "/v1/events", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetEventTrigger(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	var out domain.EventTrigger
+	if err := c.doJSON(ctx, http.MethodGet, path.Join("/v1/events", eventKey), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) SendEvent(ctx context.Context, eventKey string, payload map[string]any) (*domain.EventTrigger, error) {
+	body := map[string]any{}
+	if payload != nil {
+		body["payload"] = payload
+	}
+	var out domain.EventTrigger
+	if err := c.doJSON(ctx, http.MethodPost, path.Join("/v1/events", eventKey, "send"), nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) PurgeEventTriggers(ctx context.Context, olderThanDays int, dryRun bool) (int64, error) {
+	body := map[string]any{
+		"older_than_days": olderThanDays,
+		"dry_run":         dryRun,
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/events/purge", nil, body, &out); err != nil {
+		return 0, err
+	}
+	if dryRun {
+		if v, ok := out["would_delete"].(float64); ok {
+			return int64(v), nil
+		}
+		return 0, nil
+	}
+	if v, ok := out["deleted"].(float64); ok {
+		return int64(v), nil
+	}
+	return 0, nil
 }

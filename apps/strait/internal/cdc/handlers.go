@@ -19,6 +19,7 @@ type ChangeEvent struct {
 	Record    json.RawMessage `json:"record"`
 	Changes   json.RawMessage `json:"changes,omitempty"`
 	Timestamp string          `json:"timestamp"`
+	Source    string          `json:"source,omitempty"`
 }
 
 type JobRunHandler struct {
@@ -65,6 +66,7 @@ func (h *JobRunHandler) Handle(ctx context.Context, msg Message) error {
 		Record:    msg.Record,
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
 	}, fmt.Sprintf("cdc:project:%s:job_runs", record.ProjectID))
 }
 
@@ -112,6 +114,7 @@ func (h *WorkflowRunHandler) Handle(ctx context.Context, msg Message) error {
 		Record:    msg.Record,
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
 	}, fmt.Sprintf("cdc:project:%s:workflow_runs", record.ProjectID))
 }
 
@@ -159,7 +162,56 @@ func (h *WorkflowStepRunHandler) Handle(ctx context.Context, msg Message) error 
 		Record:    msg.Record,
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
 	}, fmt.Sprintf("cdc:workflow_run:%s:steps", record.WorkflowRunID))
+}
+
+type EventTriggerHandler struct {
+	publisher EventPublisher
+	logger    *slog.Logger
+}
+
+func NewEventTriggerHandler(pub EventPublisher, logger *slog.Logger) *EventTriggerHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	return &EventTriggerHandler{publisher: pub, logger: logger}
+}
+
+func (h *EventTriggerHandler) Table() string { return "event_triggers" }
+
+func (h *EventTriggerHandler) Handle(ctx context.Context, msg Message) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.HandleEventTrigger")
+	defer span.End()
+
+	var record struct {
+		ID        string `json:"id"`
+		EventKey  string `json:"event_key"`
+		ProjectID string `json:"project_id"`
+		Status    string `json:"status"`
+	}
+
+	if err := json.Unmarshal(msg.Record, &record); err != nil {
+		return fmt.Errorf("decode event_trigger record: %w", err)
+	}
+
+	h.logger.Info("cdc event_trigger change",
+		"action", msg.Action,
+		"trigger_id", record.ID,
+		"event_key", record.EventKey,
+		"project_id", record.ProjectID,
+		"status", record.Status,
+	)
+
+	return publishChangeEvent(ctx, h.publisher, h.logger, ChangeEvent{
+		Table:     h.Table(),
+		Action:    msg.Action,
+		Record:    msg.Record,
+		Changes:   msg.Changes,
+		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
+	}, fmt.Sprintf("cdc:project:%s:event_triggers", record.ProjectID))
 }
 
 func publishChangeEvent(ctx context.Context, publisher EventPublisher, logger *slog.Logger, event ChangeEvent, channel string) error {

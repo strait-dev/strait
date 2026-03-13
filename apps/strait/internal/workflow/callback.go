@@ -9,24 +9,35 @@ import (
 
 	"strait/internal/domain"
 	storepkg "strait/internal/store"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 )
 
 type StepCallback struct {
-	store  CallbackStore
-	engine *WorkflowEngine
-	logger *slog.Logger
+	store   CallbackStore
+	engine  *WorkflowEngine
+	logger  *slog.Logger
+	metrics *telemetry.Metrics
 }
 
 type CallbackStore interface {
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
+	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	UpdateStepRunStatusFrom(ctx context.Context, id string, from, to domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]storepkg.StepDepResult, error)
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
+	CountNonTerminalStepRuns(ctx context.Context, workflowRunID string) (int, error)
+	ListFailedStepRunRefs(ctx context.Context, workflowRunID string) ([]string, error)
+	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	SkipStepRunsByRefs(ctx context.Context, workflowRunID string, refs []string, finishedAt time.Time) (int64, error)
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
@@ -35,7 +46,15 @@ type CallbackStore interface {
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	ListDependentsByDependencyJob(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error)
+	ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, limit int) ([]domain.JobRun, error)
+	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	AdvisoryXactLock(ctx context.Context, lockID int64) error
+	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
 }
 
 // NewStepCallback creates a new step callback handler for workflow progression.
@@ -51,11 +70,49 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 	}
 }
 
+// wfCtx caches immutable workflow data for a single callback invocation.
+// Step definitions for a given (workflowID, version) never change after creation,
+// so fetching them once per entry point is safe.
+type wfCtx struct {
+	run       *domain.WorkflowRun
+	steps     []domain.WorkflowStep
+	stepByRef map[string]domain.WorkflowStep
+}
+
+func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wfCtx, error) {
+	wfRun, err := s.store.GetWorkflowRun(ctx, workflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("get workflow run: %w", err)
+	}
+	if wfRun == nil {
+		return nil, fmt.Errorf("workflow run not found: %s", workflowRunID)
+	}
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return nil, fmt.Errorf("list steps by workflow version: %w", err)
+	}
+	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
+	for _, st := range steps {
+		stepByRef[st.StepRef] = st
+	}
+	return &wfCtx{run: wfRun, steps: steps, stepByRef: stepByRef}, nil
+}
+
+func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
+	s.metrics = m
+	return s
+}
+
 func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnJobRunTerminal")
 	defer span.End()
 
-	if run == nil || run.WorkflowStepRunID == "" {
+	if run == nil {
+		return nil
+	}
+	defer s.tryReleaseDependencyRuns(ctx, run)
+
+	if run.WorkflowStepRunID == "" {
 		return nil
 	}
 
@@ -68,21 +125,22 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 		return nil
 	}
 
+	wc, wcErr := s.loadWfCtx(ctx, stepRun.WorkflowRunID)
+	if wcErr != nil {
+		s.logger.Error("failed to load workflow context", "workflow_run_id", stepRun.WorkflowRunID, "error", wcErr)
+		return fmt.Errorf("load workflow context: %w", wcErr)
+	}
+
 	stepStatus, fields := mapRunStatusToStepStatus(run)
 
 	// Apply output transformation for completed steps before persisting.
 	if stepStatus == domain.StepCompleted {
-		var wfRunForTransform *domain.WorkflowRun
-		wfRunForTransform, err = s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
-		if err != nil {
-			wfRunForTransform = nil
-		}
 		if rawOut, ok := fields["output"].(json.RawMessage); ok && len(rawOut) > 0 {
-			if transformPath := s.lookupOutputTransform(ctx, stepRun, wfRunForTransform); transformPath != "" {
-				transformed, transformErr := ApplyOutputTransform(rawOut, transformPath)
+			if step, ok := wc.stepByRef[stepRun.StepRef]; ok && step.OutputTransform != "" {
+				transformed, transformErr := ApplyOutputTransform(rawOut, step.OutputTransform)
 				if transformErr != nil {
 					s.logger.Warn("output transform failed, keeping original output",
-						"step_ref", stepRun.StepRef, "transform", transformPath, "error", transformErr)
+						"step_ref", stepRun.StepRef, "transform", step.OutputTransform, "error", transformErr)
 				} else {
 					fields["output"] = transformed
 				}
@@ -91,8 +149,8 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	}
 
 	fields["finished_at"] = time.Now()
-	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, stepStatus, fields); err != nil {
-		s.logger.Error("failed to update step run terminal status", "step_run_id", stepRun.ID, "status", stepStatus, "error", err)
+	if err := s.store.UpdateStepRunStatusFrom(ctx, stepRun.ID, stepRun.Status, stepStatus, fields); err != nil {
+		s.logger.Error("failed to update step run terminal status", "step_run_id", stepRun.ID, "from", stepRun.Status, "status", stepStatus, "error", err)
 		return fmt.Errorf("update step run terminal status: %w", err)
 	}
 
@@ -106,7 +164,7 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 
 	// Check if step retry is needed before handling failure
 	if stepStatus == domain.StepFailed {
-		if shouldRetry, nextRetryAt, newAttempt, err := s.checkStepRetry(ctx, stepRun, run); err != nil {
+		if shouldRetry, nextRetryAt, newAttempt, err := s.checkStepRetry(ctx, stepRun, run, wc); err != nil {
 			s.logger.Error("failed to check step retry", "step_run_id", stepRun.ID, "error", err)
 			return fmt.Errorf("check step retry: %w", err)
 		} else if shouldRetry {
@@ -121,19 +179,139 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 
 	switch stepStatus {
 	case domain.StepCompleted:
-		if err := s.fanInAndStartReadyChildren(ctx, stepRun); err != nil {
+		// Auto-emit event if step has event_emit_key configured.
+		s.tryEmitEvent(ctx, stepRun, wc)
+
+		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 			s.logger.Error("failed to process completed step", "step_ref", stepRun.StepRef, "error", err)
 			return fmt.Errorf("process completed step %s: %w", stepRun.StepRef, err)
 		}
-		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
+		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	case domain.StepFailed:
-		if err := s.handleFailedStep(ctx, stepRun); err != nil {
+		if err := s.handleFailedStep(ctx, stepRun, wc); err != nil {
 			s.logger.Error("failed to process failed step", "step_ref", stepRun.StepRef, "error", err)
 			return fmt.Errorf("process failed step %s: %w", stepRun.StepRef, err)
 		}
 		return nil
 	default:
-		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID)
+		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
+	}
+}
+
+// OnEventReceived handles progression when an external event is received for a workflow step.
+func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnEventReceived")
+	defer span.End()
+
+	if trigger == nil || trigger.SourceType != domain.EventSourceWorkflowStep || trigger.WorkflowStepRunID == "" {
+		return nil
+	}
+
+	targetStepRun, err := s.store.GetWorkflowStepRun(ctx, trigger.WorkflowStepRunID)
+	if err != nil {
+		return fmt.Errorf("get step run for event trigger: %w", err)
+	}
+	if targetStepRun == nil {
+		return nil
+	}
+
+	// When handleSendEvent wraps the trigger + step update in runInTx,
+	// the step is already completed before this callback runs. Skip the
+	// status update but still drive fan-in and workflow completion.
+	if !targetStepRun.Status.IsTerminal() {
+		now := time.Now()
+		fields := map[string]any{
+			"finished_at": now,
+		}
+		if len(trigger.ResponsePayload) > 0 {
+			fields["output"] = trigger.ResponsePayload
+		}
+		if err := s.store.UpdateStepRunStatusFrom(ctx, targetStepRun.ID, targetStepRun.Status, domain.StepCompleted, fields); err != nil {
+			return fmt.Errorf("update step run status for event trigger: %w", err)
+		}
+		targetStepRun.Status = domain.StepCompleted
+		if len(trigger.ResponsePayload) > 0 {
+			targetStepRun.Output = trigger.ResponsePayload
+		}
+	} else if targetStepRun.Status != domain.StepCompleted {
+		// Step is terminal but not completed (e.g., failed, canceled). No progression.
+		return nil
+	}
+
+	wc, wcErr := s.loadWfCtx(ctx, targetStepRun.WorkflowRunID)
+	if wcErr != nil {
+		return fmt.Errorf("load workflow context: %w", wcErr)
+	}
+
+	// Auto-emit event if step has event_emit_key configured.
+	s.tryEmitEvent(ctx, targetStepRun, wc)
+
+	// Fan-in and start ready children.
+	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun, wc); err != nil {
+		s.logger.Error("failed to process event-completed step", "step_ref", targetStepRun.StepRef, "error", err)
+		return fmt.Errorf("process event-completed step %s: %w", targetStepRun.StepRef, err)
+	}
+
+	return s.checkWorkflowCompletion(ctx, targetStepRun.WorkflowRunID, wc)
+}
+
+// OnStepCompleted handles workflow progression after a step is externally completed
+// (e.g., by the reaper for sleep triggers). The step must already be in a terminal state.
+func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnStepCompleted")
+	defer span.End()
+
+	target, err := s.store.GetWorkflowStepRun(ctx, stepRunID)
+	if err != nil {
+		s.logger.Error("OnStepCompleted: failed to get step run", "workflow_run_id", workflowRunID, "step_run_id", stepRunID, "error", err)
+		return
+	}
+	if target == nil {
+		return
+	}
+
+	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
+	if wcErr != nil {
+		s.logger.Error("OnStepCompleted: failed to load workflow context", "workflow_run_id", workflowRunID, "error", wcErr)
+		return
+	}
+
+	s.tryEmitEvent(ctx, target, wc)
+
+	if err := s.fanInAndStartReadyChildren(ctx, target, wc); err != nil {
+		s.logger.Error("OnStepCompleted: failed to advance workflow", "step_ref", target.StepRef, "error", err)
+		return
+	}
+
+	if err := s.checkWorkflowCompletion(ctx, workflowRunID, wc); err != nil {
+		s.logger.Error("OnStepCompleted: failed to check workflow completion", "workflow_run_id", workflowRunID, "error", err)
+	}
+}
+
+// OnStepFailed handles workflow progression after a step fails, delegating to
+// handleFailedStep which respects the step's on_failure policy.
+func (s *StepCallback) OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnStepFailed")
+	defer span.End()
+
+	target, err := s.store.GetWorkflowStepRun(ctx, stepRunID)
+	if err != nil {
+		s.logger.Error("OnStepFailed: failed to get step run", "workflow_run_id", workflowRunID, "step_run_id", stepRunID, "error", err)
+		return
+	}
+	if target == nil {
+		s.logger.Warn("OnStepFailed: step run not found", "step_run_id", stepRunID)
+		return
+	}
+
+	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
+	if wcErr != nil {
+		s.logger.Error("OnStepFailed: failed to load workflow context", "error", wcErr)
+		return
+	}
+
+	if err := s.handleFailedStep(ctx, target, wc); err != nil {
+		s.logger.Error("OnStepFailed: failed to handle step failure", "step_ref", target.StepRef, "error", err)
 	}
 }
 
@@ -162,5 +340,129 @@ func mapRunStatusToStepStatus(run *domain.JobRun) (domain.StepRunStatus, map[str
 			fields["error"] = fmt.Sprintf("job run ended with unexpected status %s", run.Status)
 		}
 		return domain.StepFailed, fields
+	}
+}
+
+// tryEmitEvent uses the cached step definitions to check if a completed step
+// has event_emit_key configured, and auto-emits an event if so. Non-fatal on failure.
+func (s *StepCallback) tryEmitEvent(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx) {
+	step, ok := wc.stepByRef[stepRun.StepRef]
+	if !ok {
+		return
+	}
+	s.emitEventIfConfigured(ctx, stepRun, &step, wc.run)
+}
+
+// emitEventIfConfigured checks if a step has event_emit_key set and if so,
+// auto-resolves a matching waiting trigger with the step's output.
+// The event_emit_key is template-rendered using the workflow run payload.
+func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domain.WorkflowStepRun, step *domain.WorkflowStep, wfRun *domain.WorkflowRun) {
+	if step == nil || step.EventEmitKey == "" {
+		return
+	}
+
+	emitKey := renderStringTemplate(step.EventEmitKey, wfRun.Payload)
+	if emitKey == "" {
+		return
+	}
+
+	trigger, err := s.store.GetEventTriggerByEventKey(ctx, emitKey)
+	if err != nil {
+		s.logger.Error("emit event: failed to get trigger", "event_key", emitKey, "error", err)
+		return
+	}
+	if trigger == nil || trigger.Status != domain.EventTriggerStatusWaiting {
+		return
+	}
+
+	now := time.Now()
+	if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, stepRun.Output, &now, ""); err != nil {
+		s.logger.Error("emit event: failed to resolve trigger", "event_key", emitKey, "trigger_id", trigger.ID, "error", err)
+		return
+	}
+
+	// Update the in-memory trigger so OnEventReceived sees the correct state.
+	trigger.Status = domain.EventTriggerStatusReceived
+	trigger.ResponsePayload = stepRun.Output
+	trigger.ReceivedAt = &now
+
+	// Resume the waiting step/run — without this, the target step stays
+	// in 'waiting' until the reconciliation reaper picks it up.
+	switch trigger.SourceType {
+	case domain.EventSourceWorkflowStep:
+		if err := s.OnEventReceived(ctx, trigger); err != nil {
+			s.logger.Error("emit event: failed to resume waiting step", "event_key", emitKey, "trigger_id", trigger.ID, "error", err)
+		}
+	case domain.EventSourceJobRun:
+		if trigger.JobRunID != "" {
+			if err := s.store.UpdateRunStatus(ctx, trigger.JobRunID, domain.StatusWaiting, domain.StatusQueued, nil); err != nil {
+				s.logger.Error("emit event: failed to re-queue job run", "event_key", emitKey, "job_run_id", trigger.JobRunID, "error", err)
+			}
+		}
+	}
+
+	s.logger.Info("auto-emitted event on step completion", "step_ref", step.StepRef, "event_key", emitKey, "trigger_id", trigger.ID)
+}
+
+func (s *StepCallback) recordDecision(ctx context.Context, stepRun *domain.WorkflowStepRun, decisionType, decision, explanation string, details json.RawMessage) {
+	if stepRun == nil || stepRun.WorkflowRunID == "" {
+		return
+	}
+	if err := s.store.CreateWorkflowStepDecision(ctx, &domain.WorkflowStepDecision{
+		WorkflowRunID: stepRun.WorkflowRunID,
+		StepRunID:     stepRun.ID,
+		StepRef:       stepRun.StepRef,
+		DecisionType:  decisionType,
+		Decision:      decision,
+		Explanation:   explanation,
+		Details:       details,
+	}); err != nil {
+		slog.Warn("failed to record step decision", "step_run_id", stepRun.ID, "error", err)
+	}
+}
+
+func (s *StepCallback) tryReleaseDependencyRuns(ctx context.Context, run *domain.JobRun) {
+	if run == nil || !run.Status.IsTerminal() {
+		return
+	}
+
+	deps, err := s.store.ListDependentsByDependencyJob(ctx, run.JobID)
+	if err != nil {
+		s.logger.Error("dependency release: list dependents failed", "job_id", run.JobID, "error", err)
+		return
+	}
+	if len(deps) == 0 {
+		return
+	}
+
+	dependentJobIDs := make([]string, 0, len(deps))
+	seen := make(map[string]struct{}, len(deps))
+	for _, dep := range deps {
+		if _, ok := seen[dep.JobID]; ok {
+			continue
+		}
+		seen[dep.JobID] = struct{}{}
+		dependentJobIDs = append(dependentJobIDs, dep.JobID)
+	}
+
+	waitingRuns, err := s.store.ListWaitingRunsByJobIDs(ctx, dependentJobIDs, 1000)
+	if err != nil {
+		s.logger.Error("dependency release: list waiting runs failed", "job_ids", dependentJobIDs, "error", err)
+		return
+	}
+
+	for i := range waitingRuns {
+		candidate := &waitingRuns[i]
+		satisfied, checkErr := s.store.AreJobDependenciesSatisfied(ctx, candidate)
+		if checkErr != nil {
+			s.logger.Error("dependency release: dependency check failed", "run_id", candidate.ID, "error", checkErr)
+			continue
+		}
+		if !satisfied {
+			continue
+		}
+		if err := s.store.UpdateRunStatus(ctx, candidate.ID, domain.StatusWaiting, domain.StatusQueued, nil); err != nil {
+			s.logger.Error("dependency release: failed to queue waiting run", "run_id", candidate.ID, "error", err)
+		}
 	}
 }

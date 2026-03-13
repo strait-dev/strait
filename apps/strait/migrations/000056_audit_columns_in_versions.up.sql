@@ -1,0 +1,4 @@
+ALTER TABLE job_versions ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT '';
+ALTER TABLE job_versions ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT '';
+ALTER TABLE workflow_versions ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT '';
+ALTER TABLE workflow_versions ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT '';

@@ -18,6 +18,7 @@ type retryReadyStep struct {
 
 func (e *WorkflowEngine) buildRetryStepRuns(
 	ctx context.Context,
+	store EngineStore,
 	wfRun *domain.WorkflowRun,
 	steps []domain.WorkflowStep,
 	origStepRunByRef map[string]domain.WorkflowStepRun,
@@ -45,7 +46,7 @@ func (e *WorkflowEngine) buildRetryStepRuns(
 				StartedAt:      &finished,
 				FinishedAt:     &finished,
 			}
-			if err := e.store.CreateWorkflowStepRun(ctx, sr); err != nil {
+			if err := store.CreateWorkflowStepRun(ctx, sr); err != nil {
 				return nil, fmt.Errorf("create pre-completed step run %s: %w", step.StepRef, err)
 			}
 			continue
@@ -80,7 +81,7 @@ func (e *WorkflowEngine) buildRetryStepRuns(
 			sr.Status = domain.StepWaiting
 		}
 
-		if err := e.store.CreateWorkflowStepRun(ctx, sr); err != nil {
+		if err := store.CreateWorkflowStepRun(ctx, sr); err != nil {
 			return nil, fmt.Errorf("create step run %s: %w", step.StepRef, err)
 		}
 	}
@@ -149,7 +150,7 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 		}
 	}
 
-	// 5. Create the retry workflow run.
+	// 5-6. Create the retry workflow run and step runs inside a transaction.
 	wfRun := &domain.WorkflowRun{
 		WorkflowID:       origRun.WorkflowID,
 		ProjectID:        origRun.ProjectID,
@@ -164,22 +165,24 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
 		wfRun.ExpiresAt = &expiresAt
 	}
-	if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
-		return nil, fmt.Errorf("create retry workflow run: %w", err)
-	}
 
+	var roots []retryReadyStep
 	now := time.Now()
-	if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
-		return nil, fmt.Errorf("start retry workflow run: %w", err)
+	if err := e.runInTx(ctx, func(txStore EngineStore) error {
+		if err := txStore.CreateWorkflowRun(ctx, wfRun); err != nil {
+			return fmt.Errorf("create retry workflow run: %w", err)
+		}
+		if err := txStore.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+			return fmt.Errorf("start retry workflow run: %w", err)
+		}
+		var buildErr error
+		roots, buildErr = e.buildRetryStepRuns(ctx, txStore, wfRun, steps, origStepRunByRef, completedRefs, now)
+		return buildErr
+	}); err != nil {
+		return nil, err
 	}
 	wfRun.Status = domain.WfStatusRunning
 	wfRun.StartedAt = &now
-
-	// 6. Create step runs. Completed steps are pre-populated; others start fresh.
-	roots, err := e.buildRetryStepRuns(ctx, wfRun, steps, origStepRunByRef, completedRefs, now)
-	if err != nil {
-		return nil, err
-	}
 
 	// 7. Start ready steps (same logic as TriggerWorkflow).
 	runningStarts := 0

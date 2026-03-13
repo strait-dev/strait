@@ -2,7 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,6 +45,47 @@ func TestReaper_ReapStale(t *testing.T) {
 
 	if transitioned.Load() != 2 {
 		t.Fatalf("expected 2 status transitions, got %d", transitioned.Load())
+	}
+}
+
+func TestReaper_ReapStale_RespectsLimit(t *testing.T) {
+	t.Parallel()
+	runs := make([]domain.JobRun, 1000)
+	for i := range runs {
+		runs[i] = domain.JobRun{
+			ID:     fmt.Sprintf("run-%03d", i),
+			Status: domain.StatusExecuting,
+		}
+	}
+
+	var transitioned atomic.Int32
+	ms := &mockReaperStore{
+		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return runs, nil
+		},
+		listExpiredRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		listStaleDequeuedFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
+			return nil, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+			if from != domain.StatusExecuting {
+				t.Fatalf("expected from=executing, got %s", from)
+			}
+			if to != domain.StatusCrashed {
+				t.Fatalf("expected to=crashed, got %s", to)
+			}
+			transitioned.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapStale(context.Background())
+
+	if transitioned.Load() != int32(len(runs)) {
+		t.Fatalf("expected %d status transitions, got %d", len(runs), transitioned.Load())
 	}
 }
 
@@ -196,8 +239,8 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 	t.Parallel()
 	var wfUpdates atomic.Int32
-	var stepUpdates atomic.Int32
-	var runUpdates atomic.Int32
+	var stepCancels atomic.Int32
+	var jobRunCancels atomic.Int32
 
 	ms := &mockReaperStore{
 		listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
@@ -213,31 +256,19 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 			wfUpdates.Add(1)
 			return nil
 		},
-		listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+		cancelNonTerminalStepRunsFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
 			if workflowRunID != "wr-1" {
 				t.Fatalf("unexpected workflowRunID %q", workflowRunID)
 			}
-			return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
+			stepCancels.Add(1)
+			return 1, nil
 		},
-		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-			if id != "sr-1" || status != domain.StepCanceled {
-				t.Fatalf("unexpected step update %s -> %s", id, status)
+		cancelJobRunsByWorkflowRunFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
+			if workflowRunID != "wr-1" {
+				t.Fatalf("unexpected workflowRunID %q", workflowRunID)
 			}
-			stepUpdates.Add(1)
-			return nil
-		},
-		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if id != "run-1" {
-				t.Fatalf("unexpected run id %q", id)
-			}
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
-		},
-		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
-			if id != "run-1" || from != domain.StatusExecuting || to != domain.StatusCanceled {
-				t.Fatalf("unexpected run update %s %s -> %s", id, from, to)
-			}
-			runUpdates.Add(1)
-			return nil
+			jobRunCancels.Add(1)
+			return 1, nil
 		},
 	}
 
@@ -247,11 +278,11 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 	if wfUpdates.Load() != 1 {
 		t.Fatalf("expected 1 workflow update, got %d", wfUpdates.Load())
 	}
-	if stepUpdates.Load() != 1 {
-		t.Fatalf("expected 1 step update, got %d", stepUpdates.Load())
+	if stepCancels.Load() != 1 {
+		t.Fatalf("expected 1 step cancel call, got %d", stepCancels.Load())
 	}
-	if runUpdates.Load() != 1 {
-		t.Fatalf("expected 1 job run update, got %d", runUpdates.Load())
+	if jobRunCancels.Load() != 1 {
+		t.Fatalf("expected 1 job run cancel call, got %d", jobRunCancels.Load())
 	}
 }
 
@@ -843,10 +874,8 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 	t.Run("list_error", func(t *testing.T) {
 		t.Parallel()
 		var wfUpdates atomic.Int32
-		var stepLists atomic.Int32
-		var stepUpdates atomic.Int32
-		var runGets atomic.Int32
-		var runUpdates atomic.Int32
+		var stepCancels atomic.Int32
+		var jobRunCancels atomic.Int32
 
 		ms := &mockReaperStore{
 			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
@@ -856,36 +885,29 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 				wfUpdates.Add(1)
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				stepLists.Add(1)
-				return nil, nil
+			cancelNonTerminalStepRunsFn: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+				stepCancels.Add(1)
+				return 0, nil
 			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				stepUpdates.Add(1)
-				return nil
-			},
-			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-				runGets.Add(1)
-				return nil, nil
-			},
-			updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-				runUpdates.Add(1)
-				return nil
+			cancelJobRunsByWorkflowRunFn: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+				jobRunCancels.Add(1)
+				return 0, nil
 			},
 		}
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
 
-		if wfUpdates.Load() != 0 || stepLists.Load() != 0 || stepUpdates.Load() != 0 || runGets.Load() != 0 || runUpdates.Load() != 0 {
-			t.Fatalf("expected no update/list calls after list error, got wf=%d stepLists=%d stepUpdates=%d runGets=%d runUpdates=%d", wfUpdates.Load(), stepLists.Load(), stepUpdates.Load(), runGets.Load(), runUpdates.Load())
+		if wfUpdates.Load() != 0 || stepCancels.Load() != 0 || jobRunCancels.Load() != 0 {
+			t.Fatalf("expected no calls after list error, got wf=%d stepCancels=%d jobRunCancels=%d", wfUpdates.Load(), stepCancels.Load(), jobRunCancels.Load())
 		}
 	})
 
 	t.Run("workflow_update_error_continues", func(t *testing.T) {
 		t.Parallel()
 		var wfUpdates atomic.Int32
-		var stepLists atomic.Int32
+		var stepCancels atomic.Int32
+		var jobRunCancels atomic.Int32
 
 		ms := &mockReaperStore{
 			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
@@ -901,12 +923,19 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 				}
 				return nil
 			},
-			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				stepLists.Add(1)
+			cancelNonTerminalStepRunsFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
 				if workflowRunID != "wr-2" {
-					t.Fatalf("expected step listing only for wr-2, got %s", workflowRunID)
+					t.Fatalf("expected bulk cancel only for wr-2, got %s", workflowRunID)
 				}
-				return nil, nil
+				stepCancels.Add(1)
+				return 1, nil
+			},
+			cancelJobRunsByWorkflowRunFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
+				if workflowRunID != "wr-2" {
+					t.Fatalf("expected bulk cancel only for wr-2, got %s", workflowRunID)
+				}
+				jobRunCancels.Add(1)
+				return 1, nil
 			},
 		}
 
@@ -916,231 +945,11 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 		if wfUpdates.Load() != 2 {
 			t.Fatalf("expected 2 workflow update attempts, got %d", wfUpdates.Load())
 		}
-		if stepLists.Load() != 1 {
-			t.Fatalf("expected 1 step listing call, got %d", stepLists.Load())
+		if stepCancels.Load() != 1 {
+			t.Fatalf("expected 1 step cancel call, got %d", stepCancels.Load())
 		}
-	})
-
-	t.Run("step_listing_error_continues", func(t *testing.T) {
-		t.Parallel()
-		var stepLists atomic.Int32
-
-		ms := &mockReaperStore{
-			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
-				return []domain.WorkflowRun{
-					{ID: "wr-1", Status: domain.WfStatusRunning},
-					{ID: "wr-2", Status: domain.WfStatusRunning},
-				}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByWfRunFn: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				stepLists.Add(1)
-				if workflowRunID == "wr-1" {
-					return nil, errors.New("list steps failed")
-				}
-				if workflowRunID != "wr-2" {
-					t.Fatalf("unexpected workflowRunID %s", workflowRunID)
-				}
-				return nil, nil
-			},
-		}
-
-		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
-		r.reapTimedOutWorkflows(context.Background())
-
-		if stepLists.Load() != 2 {
-			t.Fatalf("expected 2 step listing attempts, got %d", stepLists.Load())
-		}
-	})
-
-	t.Run("step_already_terminal_skipped", func(t *testing.T) {
-		t.Parallel()
-		var stepUpdates atomic.Int32
-
-		ms := &mockReaperStore{
-			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
-				return []domain.WorkflowRun{{ID: "wr-1", Status: domain.WfStatusRunning}}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepCompleted}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				stepUpdates.Add(1)
-				return nil
-			},
-		}
-
-		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
-		r.reapTimedOutWorkflows(context.Background())
-
-		if stepUpdates.Load() != 0 {
-			t.Fatalf("expected 0 step updates, got %d", stepUpdates.Load())
-		}
-	})
-
-	t.Run("step_no_job_run_skipped", func(t *testing.T) {
-		t.Parallel()
-		var stepUpdates atomic.Int32
-		var runGets atomic.Int32
-
-		ms := &mockReaperStore{
-			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
-				return []domain.WorkflowRun{{ID: "wr-1", Status: domain.WfStatusRunning}}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: ""}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id != "sr-1" || status != domain.StepCanceled {
-					t.Fatalf("unexpected step update id=%s status=%s", id, status)
-				}
-				stepUpdates.Add(1)
-				return nil
-			},
-			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-				runGets.Add(1)
-				return nil, nil
-			},
-		}
-
-		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
-		r.reapTimedOutWorkflows(context.Background())
-
-		if stepUpdates.Load() != 1 {
-			t.Fatalf("expected 1 step update, got %d", stepUpdates.Load())
-		}
-		if runGets.Load() != 0 {
-			t.Fatalf("expected 0 get run calls, got %d", runGets.Load())
-		}
-	})
-
-	t.Run("get_job_run_error_continues", func(t *testing.T) {
-		t.Parallel()
-		var runGets atomic.Int32
-		var runUpdates atomic.Int32
-
-		ms := &mockReaperStore{
-			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
-				return []domain.WorkflowRun{{ID: "wr-1", Status: domain.WfStatusRunning}}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{
-					{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"},
-					{ID: "sr-2", Status: domain.StepRunning, JobRunID: "run-2"},
-				}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return nil
-			},
-			getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-				runGets.Add(1)
-				if id == "run-1" {
-					return nil, errors.New("get run failed")
-				}
-				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
-			},
-			updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-				runUpdates.Add(1)
-				return nil
-			},
-		}
-
-		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
-		r.reapTimedOutWorkflows(context.Background())
-
-		if runGets.Load() != 2 {
-			t.Fatalf("expected 2 get run calls, got %d", runGets.Load())
-		}
-		if runUpdates.Load() != 1 {
-			t.Fatalf("expected 1 run update call, got %d", runUpdates.Load())
-		}
-	})
-
-	t.Run("job_run_already_terminal_skipped", func(t *testing.T) {
-		t.Parallel()
-		var runUpdates atomic.Int32
-
-		ms := &mockReaperStore{
-			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
-				return []domain.WorkflowRun{{ID: "wr-1", Status: domain.WfStatusRunning}}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"}}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return nil
-			},
-			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
-				return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
-			},
-			updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-				runUpdates.Add(1)
-				return nil
-			},
-		}
-
-		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
-		r.reapTimedOutWorkflows(context.Background())
-
-		if runUpdates.Load() != 0 {
-			t.Fatalf("expected 0 run updates, got %d", runUpdates.Load())
-		}
-	})
-
-	t.Run("job_run_update_error_continues", func(t *testing.T) {
-		t.Parallel()
-		var runUpdates atomic.Int32
-
-		ms := &mockReaperStore{
-			listTimedOutWfRunsFn: func(_ context.Context) ([]domain.WorkflowRun, error) {
-				return []domain.WorkflowRun{{ID: "wr-1", Status: domain.WfStatusRunning}}, nil
-			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				return nil
-			},
-			listStepRunsByWfRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				return []domain.WorkflowStepRun{
-					{ID: "sr-1", Status: domain.StepRunning, JobRunID: "run-1"},
-					{ID: "sr-2", Status: domain.StepRunning, JobRunID: "run-2"},
-				}, nil
-			},
-			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-				return nil
-			},
-			getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
-			},
-			updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
-				runUpdates.Add(1)
-				if from != domain.StatusExecuting || to != domain.StatusCanceled {
-					t.Fatalf("unexpected run transition %s->%s", from, to)
-				}
-				if id == "run-1" {
-					return errors.New("update run failed")
-				}
-				return nil
-			},
-		}
-
-		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
-		r.reapTimedOutWorkflows(context.Background())
-
-		if runUpdates.Load() != 2 {
-			t.Fatalf("expected 2 run update attempts, got %d", runUpdates.Load())
+		if jobRunCancels.Load() != 1 {
+			t.Fatalf("expected 1 job run cancel call, got %d", jobRunCancels.Load())
 		}
 	})
 }
@@ -1345,5 +1154,754 @@ func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
 
 	if called.Load() != 1 {
 		t.Fatalf("retention call count = %d, want 1", called.Load())
+	}
+}
+
+func TestReapExpiredEventTriggers_WorkflowStep_TimesOut(t *testing.T) {
+	t.Parallel()
+
+	var triggerTimedOut, stepFailed, workflowFailed bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-1",
+					EventKey:          "aml:app-1",
+					SourceType:        "workflow_step",
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, id string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if id == "evt-1" && status == domain.EventTriggerStatusTimedOut {
+				triggerTimedOut = true
+			}
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			if id == "sr-1" && status == domain.StepFailed {
+				stepFailed = true
+			}
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, _, to domain.WorkflowRunStatus, _ map[string]any) error {
+			if id == "wr-1" && to == domain.WfStatusFailed {
+				workflowFailed = true
+			}
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+
+	if !triggerTimedOut {
+		t.Fatal("expected event trigger to be marked timed out")
+	}
+	if !stepFailed {
+		t.Fatal("expected step run to be marked failed")
+	}
+	if !workflowFailed {
+		t.Fatal("expected workflow run to be marked failed")
+	}
+}
+
+func TestReapExpiredEventTriggers_JobRun_TimesOut(t *testing.T) {
+	t.Parallel()
+
+	var triggerTimedOut, runTimedOut bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:         "evt-2",
+					EventKey:   "agent:run-1:confirm",
+					SourceType: "job_run",
+					JobRunID:   "run-1",
+					Status:     domain.EventTriggerStatusWaiting,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, id string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if id == "evt-2" && status == domain.EventTriggerStatusTimedOut {
+				triggerTimedOut = true
+			}
+			return nil
+		},
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			if id == "run-1" {
+				return &domain.JobRun{ID: "run-1", Status: domain.StatusWaiting}, nil
+			}
+			return nil, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _, to domain.RunStatus, _ map[string]any) error {
+			if id == "run-1" && to == domain.StatusTimedOut {
+				runTimedOut = true
+			}
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+
+	if !triggerTimedOut {
+		t.Fatal("expected event trigger to be marked timed out")
+	}
+	if !runTimedOut {
+		t.Fatal("expected job run to be marked timed out")
+	}
+}
+
+func TestReapExpiredEventTriggers_NoExpired(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return nil, nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+}
+
+func TestReapExpiredEventTriggers_StoreError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return nil, errors.New("db down")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+}
+
+func TestReapExpiredEventTriggers_JobRunAlreadyTerminal(t *testing.T) {
+	t.Parallel()
+
+	var updateRunCalled bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:         "evt-3",
+					EventKey:   "payment:order-1",
+					SourceType: "job_run",
+					JobRunID:   "run-1",
+					Status:     domain.EventTriggerStatusWaiting,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			updateRunCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+
+	if updateRunCalled {
+		t.Fatal("should not update already-terminal job run")
+	}
+}
+
+func TestReapExpiredEventTriggers_SleepCompletesStep(t *testing.T) {
+	t.Parallel()
+
+	var updatedTriggerStatus string
+	var updatedStepStatus domain.StepRunStatus
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "slp:sr-1",
+					EventKey:          "sleep:wr-1:wait-step",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeSleep,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			updatedTriggerStatus = status
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
+			updatedStepStatus = status
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if updatedTriggerStatus != domain.EventTriggerStatusReceived {
+		t.Fatalf("expected trigger status=received, got %s", updatedTriggerStatus)
+	}
+	if updatedStepStatus != domain.StepCompleted {
+		t.Fatalf("expected step status=completed, got %s", updatedStepStatus)
+	}
+}
+
+func TestReapExpiredEventTriggers_SleepCallsOnStepCompleted(t *testing.T) {
+	t.Parallel()
+
+	var callbackCalled bool
+	var callbackRunID, callbackStepID string
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "slp:sr-1",
+					EventKey:          "sleep:wr-1:wait-step",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeSleep,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := &mockWorkflowCallback{
+		onStepCompletedFn: func(_ context.Context, wfRunID string, stepRunID string) {
+			callbackCalled = true
+			callbackRunID = wfRunID
+			callbackStepID = stepRunID
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
+	r.ReapOnce(context.Background())
+
+	if !callbackCalled {
+		t.Fatal("expected OnStepCompleted callback to be called")
+	}
+	if callbackRunID != "wr-1" {
+		t.Fatalf("expected workflow run ID wr-1, got %s", callbackRunID)
+	}
+	if callbackStepID != "sr-1" {
+		t.Fatalf("expected step run ID sr-1, got %s", callbackStepID)
+	}
+}
+
+func TestReapExpiredEventTriggers_DelegatesOnStepFailed(t *testing.T) {
+	t.Parallel()
+
+	var failedCallbackCalled bool
+	var failedRunID, failedStepID string
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt:sr-1",
+					EventKey:          "approval:wr-1:check",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeEvent,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := &mockWorkflowCallback{
+		onStepFailedFn: func(_ context.Context, wfRunID string, stepRunID string) {
+			failedCallbackCalled = true
+			failedRunID = wfRunID
+			failedStepID = stepRunID
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
+	r.ReapOnce(context.Background())
+
+	if !failedCallbackCalled {
+		t.Fatal("expected OnStepFailed callback to be called")
+	}
+	if failedRunID != "wr-1" {
+		t.Fatalf("expected workflow run ID wr-1, got %s", failedRunID)
+	}
+	if failedStepID != "sr-1" {
+		t.Fatalf("expected step run ID sr-1, got %s", failedStepID)
+	}
+}
+
+func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
+	t.Parallel()
+
+	var wfStatusUpdated bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt:sr-1",
+					EventKey:          "approval:wr-1:check",
+					SourceType:        domain.EventSourceWorkflowStep,
+					WorkflowRunID:     "wr-1",
+					WorkflowStepRunID: "sr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					TriggerType:       domain.TriggerTypeEvent,
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			wfStatusUpdated = true
+			return nil
+		},
+	}
+
+	// nil callback → direct workflow failure
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if !wfStatusUpdated {
+		t.Fatal("expected direct workflow run status update when callback is nil")
+	}
+}
+
+func TestReapInconsistentEventTriggers_WorkflowStepReconciled(t *testing.T) {
+	t.Parallel()
+
+	var onEventCalled bool
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-stale",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeEvent,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusReceived,
+				},
+			}, nil
+		},
+	}
+
+	wfCb := &mockWorkflowCallback{
+		onEventReceivedFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			onEventCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.workflowCallback = wfCb
+	r.ReapOnce(context.Background())
+
+	if !onEventCalled {
+		t.Fatal("expected OnEventReceived to be called for inconsistent event trigger")
+	}
+}
+
+func TestReapInconsistentEventTriggers_SleepReconciled(t *testing.T) {
+	t.Parallel()
+
+	var onStepCompletedCalled bool
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-sleep-stale",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeSleep,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusReceived,
+				},
+			}, nil
+		},
+	}
+
+	wfCb := &mockWorkflowCallback{
+		onStepCompletedFn: func(_ context.Context, _ string, _ string) {
+			onStepCompletedCalled = true
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.workflowCallback = wfCb
+	r.ReapOnce(context.Background())
+
+	if !onStepCompletedCalled {
+		t.Fatal("expected OnStepCompleted for inconsistent sleep trigger")
+	}
+}
+
+func TestReapInconsistentEventTriggers_JobRunReconciled(t *testing.T) {
+	t.Parallel()
+
+	var requeuedRunID string
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:         "evt-jr-stale",
+					SourceType: domain.EventSourceJobRun,
+					JobRunID:   "run-stale",
+					Status:     domain.EventTriggerStatusReceived,
+				},
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
+			requeuedRunID = id
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if requeuedRunID != "run-stale" {
+		t.Fatalf("expected run-stale to be requeued, got %q", requeuedRunID)
+	}
+}
+
+func TestReapInconsistentEventTriggers_ListError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return nil, errors.New("db error")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background()) // should not panic
+}
+
+func TestCompleteSleepTrigger_StepUpdateError(t *testing.T) {
+	t.Parallel()
+
+	var triggerUpdated bool
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-sleep-err",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeSleep,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					RequestedAt:       time.Now().Add(-10 * time.Minute),
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			triggerUpdated = true
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return errors.New("step update failed")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if !triggerUpdated {
+		t.Fatal("expected trigger status to be updated even if step update fails")
+	}
+}
+
+func TestReapOldEventTriggers_RetentionDisabled(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	// eventTriggerRetention defaults to 0 → skip
+	r.ReapOnce(context.Background()) // should not panic or call delete
+}
+
+func TestReapOldEventTriggers_DeleteError(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockReaperStore{
+		deleteEventTriggersFinishedBeforeFn: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+			return 0, errors.New("delete failed")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.eventTriggerRetention = 24 * time.Hour
+	r.ReapOnce(context.Background()) // should not panic
+}
+
+// completeSleepTrigger: no step run ID skips step update, still completes trigger.
+func TestCompleteSleepTrigger_NoStepRunID(t *testing.T) {
+	t.Parallel()
+
+	var triggerUpdated bool
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:          "evt-sleep-nostep",
+					SourceType:  domain.EventSourceJobRun,
+					TriggerType: domain.TriggerTypeSleep,
+					JobRunID:    "run-1",
+					Status:      domain.EventTriggerStatusWaiting,
+					RequestedAt: time.Now().Add(-5 * time.Minute),
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			triggerUpdated = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if !triggerUpdated {
+		t.Fatal("expected trigger status to be updated for sleep trigger without step")
+	}
+}
+
+// completeSleepTrigger: nil callback skips OnStepCompleted call.
+func TestCompleteSleepTrigger_NilCallback(t *testing.T) {
+	t.Parallel()
+
+	var stepUpdated bool
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-sleep-nocb",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeSleep,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					RequestedAt:       time.Now().Add(-5 * time.Minute),
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			stepUpdated = true
+			return nil
+		},
+	}
+
+	// nil callback — should not panic.
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if !stepUpdated {
+		t.Fatal("expected step to be updated even with nil callback")
+	}
+}
+
+// completeSleepTrigger: trigger status update error returns early.
+func TestCompleteSleepTrigger_TriggerUpdateError(t *testing.T) {
+	t.Parallel()
+
+	var stepUpdated bool
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-sleep-trigerr",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeSleep,
+					WorkflowStepRunID: "wsr-1",
+					Status:            domain.EventTriggerStatusWaiting,
+					RequestedAt:       time.Now().Add(-5 * time.Minute),
+				},
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return errors.New("trigger update failed")
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			stepUpdated = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if stepUpdated {
+		t.Fatal("step should NOT be updated when trigger update fails")
+	}
+}
+
+// reapInconsistentEventTriggers: OnEventReceived error continues to next trigger.
+func TestReapInconsistentEventTriggers_EventReceivedError(t *testing.T) {
+	t.Parallel()
+
+	var requeuedRunID string
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:                "evt-err",
+					SourceType:        domain.EventSourceWorkflowStep,
+					TriggerType:       domain.TriggerTypeEvent,
+					WorkflowRunID:     "wfr-1",
+					WorkflowStepRunID: "wsr-1",
+				},
+				{
+					ID:         "evt-jr",
+					SourceType: domain.EventSourceJobRun,
+					JobRunID:   "run-2",
+				},
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
+			requeuedRunID = id
+			return nil
+		},
+	}
+
+	wfCb := &mockWorkflowCallback{
+		onEventReceivedFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			return errors.New("callback failed")
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.workflowCallback = wfCb
+	r.ReapOnce(context.Background())
+
+	// The second trigger (job run) should still be processed despite the first failing.
+	if requeuedRunID != "run-2" {
+		t.Fatalf("expected run-2 to be requeued after first trigger error, got %q", requeuedRunID)
+	}
+}
+
+// reapInconsistentEventTriggers: empty job run ID is skipped.
+func TestReapInconsistentEventTriggers_EmptyJobRunID(t *testing.T) {
+	t.Parallel()
+
+	var updateCalled bool
+	ms := &mockReaperStore{
+		listReceivedEventTriggersWithStaleStepsFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{
+				{
+					ID:         "evt-nojr",
+					SourceType: domain.EventSourceJobRun,
+					JobRunID:   "", // empty — should be skipped
+				},
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
+			updateCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.ReapOnce(context.Background())
+
+	if updateCalled {
+		t.Fatal("expected empty job run ID to be skipped")
+	}
+}
+
+func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
+	t.Parallel()
+
+	var resumed atomic.Int32
+	ms := &mockReaperStore{
+		listStalledWorkflowRunsFn: func(_ context.Context, _ time.Duration) ([]domain.WorkflowRun, error) {
+			return []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}}, nil
+		},
+	}
+	cb := &mockWorkflowCallback{
+		resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
+			if workflowRunID != "wr-1" {
+				t.Fatalf("workflowRunID = %s, want wr-1", workflowRunID)
+			}
+			resumed.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb).WithStalledAction("reconcile")
+	r.reapStalledWorkflows(context.Background())
+
+	if resumed.Load() != 1 {
+		t.Fatalf("resumed count = %d, want 1", resumed.Load())
+	}
+}
+
+func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
+	t.Parallel()
+
+	var failed atomic.Int32
+	ms := &mockReaperStore{
+		listStalledWorkflowRunsFn: func(_ context.Context, _ time.Duration) ([]domain.WorkflowRun, error) {
+			return []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
+			if id != "wr-1" {
+				t.Fatalf("id = %s, want wr-1", id)
+			}
+			if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
+				t.Fatalf("unexpected transition %s -> %s", from, to)
+			}
+			if fields["finished_at"] == nil {
+				t.Fatal("expected finished_at field")
+			}
+			failed.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithStalledAction("fail_workflow")
+	r.reapStalledWorkflows(context.Background())
+
+	if failed.Load() != 1 {
+		t.Fatalf("failed transition count = %d, want 1", failed.Load())
 	}
 }

@@ -297,6 +297,95 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestConsumer_Shutdown_Idle(t *testing.T) {
+	t.Parallel()
+
+	consumer := NewConsumer(NewClient("http://example.com", "consumer", "token"), ConsumerConfig{ConsumerName: "consumer"}, slog.Default())
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+	defer shutdownCancel()
+
+	if err := consumer.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() error = %v, want nil", err)
+	}
+}
+
+func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
+	t.Parallel()
+
+	pollStarted := make(chan struct{})
+	allowPollExit := make(chan struct{})
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/http_pull_consumers/c-shutdown/receive" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		select {
+		case <-pollStarted:
+		default:
+			close(pollStarted)
+		}
+
+		select {
+		case <-allowPollExit:
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case <-r.Context().Done():
+			return
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(
+		NewClient(ts.URL, "c-shutdown", "token"),
+		ConsumerConfig{ConsumerName: "c-shutdown", BatchSize: 1, WaitTimeMs: 1},
+		slog.Default(),
+	)
+
+	runCtx, runCancel := context.WithCancel(context.Background())
+	t.Cleanup(runCancel)
+	runDone := make(chan struct{})
+	go func() {
+		consumer.Run(runCtx)
+		close(runDone)
+	}()
+
+	select {
+	case <-pollStarted:
+	case <-time.After(time.Second):
+		t.Fatal("poll did not start")
+	}
+
+	shutdownDone := make(chan error, 1)
+	go func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		shutdownDone <- consumer.Shutdown(shutdownCtx)
+	}()
+
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned early with err=%v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowPollExit)
+
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Fatalf("Shutdown() error = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not return after poll completed")
+	}
+
+	select {
+	case <-runDone:
+	case <-time.After(time.Second):
+		t.Fatal("consumer did not stop after shutdown")
+	}
+}
+
 func TestConsumerRunContinuesAfterRecoverableError(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
@@ -428,4 +517,20 @@ func decodeAckIDs(t *testing.T, r *http.Request) []string {
 		t.Fatalf("decode body: %v", err)
 	}
 	return body.AckIDs
+}
+
+func TestConsumerDefaultWaitTimeMs(t *testing.T) {
+	t.Parallel()
+	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
+	if consumer.config.WaitTimeMs != 1000 {
+		t.Fatalf("default WaitTimeMs = %d, want 1000", consumer.config.WaitTimeMs)
+	}
+}
+
+func TestConsumerDefaultBatchSize(t *testing.T) {
+	t.Parallel()
+	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
+	if consumer.config.BatchSize != 10 {
+		t.Fatalf("default BatchSize = %d, want 10", consumer.config.BatchSize)
+	}
 }

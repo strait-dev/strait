@@ -19,9 +19,9 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 	defer span.End()
 
 	query := `
-		INSERT INTO job_versions (id, job_id, version, name, slug, description, cron, payload_schema,
+		INSERT INTO job_versions (id, job_id, version, version_id, backwards_compatible, name, slug, description, cron, payload_schema,
 			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING created_at`
 
 	var desc, cronStr, webhookURL, webhookSecret *string
@@ -46,13 +46,14 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 		runTTL = &v.RunTTLSecs
 	}
 
-	tagsJSON, err := marshalJobTags(v.Tags)
+	tagsJSON, err := marshalTags(v.Tags)
 	if err != nil {
 		return fmt.Errorf("create job version: %w", err)
 	}
 
 	return q.db.QueryRow(ctx, query,
-		v.ID, v.JobID, v.Version, v.Name, v.Slug, desc, cronStr, payloadSchema,
+		v.ID, v.JobID, v.Version, dbscan.NilIfEmptyString(v.VersionID), v.BackwardsCompatible,
+		v.Name, v.Slug, desc, cronStr, payloadSchema,
 		tagsJSON, v.EndpointURL, dbscan.NilIfEmptyString(v.FallbackEndpointURL), v.MaxAttempts, v.TimeoutSecs, webhookURL, webhookSecret, runTTL,
 	).Scan(&v.CreatedAt)
 }
@@ -62,7 +63,8 @@ func (q *Queries) ListJobVersionsByJob(ctx context.Context, jobID string, limit 
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, version, name, slug, description, cron, payload_schema,
+		SELECT id, job_id, version, version_id, backwards_compatible,
+		       name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
 		FROM job_versions
 		WHERE job_id = $1`
@@ -101,7 +103,8 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, version, name, slug, description, cron, payload_schema,
+		SELECT id, job_id, version, version_id, backwards_compatible,
+		       name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
 		FROM job_versions
 		WHERE job_id = $1 AND version = $2`
@@ -116,8 +119,53 @@ func (q *Queries) GetJobVersion(ctx context.Context, jobID string, version int) 
 	return v, nil
 }
 
+// GetJobAtVersion returns the job configuration as it existed at the given version.
+// It reads from the job_versions snapshot table. If no snapshot exists for the
+// requested version (e.g., version 1 before snapshotting was enabled), it falls
+// back to the live jobs table.
+//
+// Note: version_policy, created_by, and updated_by are read from the live jobs
+// table since they are not stored per-version in job_versions.
+func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int) (*domain.Job, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobAtVersion")
+	defer span.End()
+
+	query := `
+		SELECT jv.job_id, COALESCE(jv.project_id, j.project_id), COALESCE(jv.group_id, j.group_id),
+		       jv.name, jv.slug, jv.description, jv.cron, jv.payload_schema,
+		       jv.tags, jv.endpoint_url, jv.fallback_endpoint_url, jv.max_attempts, jv.timeout_secs,
+		       COALESCE(jv.max_concurrency, j.max_concurrency), COALESCE(jv.execution_window_cron, j.execution_window_cron),
+		       COALESCE(jv.timezone, j.timezone),
+		       COALESCE(jv.rate_limit_max, j.rate_limit_max), COALESCE(jv.rate_limit_window_secs, j.rate_limit_window_secs),
+		       COALESCE(jv.dedup_window_secs, j.dedup_window_secs),
+		       COALESCE(jv.enabled, j.enabled), jv.webhook_url, jv.webhook_secret, jv.run_ttl_secs,
+		       COALESCE(jv.retry_strategy, j.retry_strategy), COALESCE(jv.retry_delays_secs, j.retry_delays_secs),
+		       COALESCE(jv.environment_id, j.environment_id),
+		       jv.version, jv.version_id, j.version_policy, COALESCE(jv.backwards_compatible, j.backwards_compatible),
+		       COALESCE(NULLIF(jv.created_by, ''), j.created_by), COALESCE(NULLIF(jv.updated_by, ''), j.updated_by),
+		       jv.created_at, j.updated_at,
+		       COALESCE(jv.max_concurrency_per_key, j.max_concurrency_per_key),
+		       COALESCE(jv.rate_limit_keys, j.rate_limit_keys),
+		       COALESCE(jv.default_run_metadata, j.default_run_metadata)
+		FROM job_versions jv
+		JOIN jobs j ON j.id = jv.job_id
+		WHERE jv.job_id = $1 AND jv.version = $2`
+
+	job, err := scanJob(q.db.QueryRow(ctx, query, jobID, version))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No snapshot for this version — fall back to live job.
+			return q.GetJob(ctx, jobID)
+		}
+		return nil, fmt.Errorf("get job at version: %w", err)
+	}
+
+	return job, nil
+}
+
 func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	var v domain.JobVersion
+	var versionID *string
 	var description, cronStr, webhookURL, webhookSecret *string
 	var fallbackEndpointURL *string
 	var payloadSchema []byte
@@ -125,7 +173,8 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	var runTTLSecs *int
 
 	err := scanner.Scan(
-		&v.ID, &v.JobID, &v.Version, &v.Name, &v.Slug,
+		&v.ID, &v.JobID, &v.Version, &versionID, &v.BackwardsCompatible,
+		&v.Name, &v.Slug,
 		&description, &cronStr, &payloadSchema,
 		&tagsJSON, &v.EndpointURL, &fallbackEndpointURL, &v.MaxAttempts, &v.TimeoutSecs,
 		&webhookURL, &webhookSecret, &runTTLSecs,
@@ -133,6 +182,9 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+	if versionID != nil {
+		v.VersionID = *versionID
 	}
 	if description != nil {
 		v.Description = *description
@@ -144,7 +196,7 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 		v.PayloadSchema = json.RawMessage(payloadSchema)
 	}
 	if len(tagsJSON) > 0 {
-		tags, unmarshalErr := unmarshalJobTags(tagsJSON)
+		tags, unmarshalErr := unmarshalTags(tagsJSON)
 		if unmarshalErr != nil {
 			return nil, unmarshalErr
 		}
@@ -163,4 +215,26 @@ func scanJobVersion(scanner scanTarget) (*domain.JobVersion, error) {
 		v.RunTTLSecs = *runTTLSecs
 	}
 	return &v, nil
+}
+
+// GetJobVersionByVersionID looks up a specific version by its nanoid version_id.
+func (q *Queries) GetJobVersionByVersionID(ctx context.Context, versionID string) (*domain.JobVersion, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobVersionByVersionID")
+	defer span.End()
+
+	query := `
+		SELECT id, job_id, version, version_id, backwards_compatible,
+		       name, slug, description, cron, payload_schema,
+		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs, created_at
+		FROM job_versions
+		WHERE version_id = $1`
+
+	v, err := scanJobVersion(q.db.QueryRow(ctx, query, versionID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrJobNotFound
+		}
+		return nil, fmt.Errorf("get job version by version_id: %w", err)
+	}
+	return v, nil
 }

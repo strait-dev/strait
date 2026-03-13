@@ -1,0 +1,183 @@
+name: Load Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      volume_tier:
+        description: "Volume tier for integration load tests"
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - large
+          - extreme
+      vegeta_duration:
+        description: "Vegeta test duration override (e.g. 5s, 10s, 30s)"
+        required: false
+        default: "10s"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loadtest-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Vegeta HTTP load tests — split by domain, run in parallel via matrix
+  # ---------------------------------------------------------------------------
+  vegeta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - domain: jobs-triggers
+            run_filter: "^(TestJobs_|TestTriggers_)"
+            label: "Jobs and Triggers"
+          - domain: runs-workflows
+            run_filter: "^(TestRuns_|TestWorkflows_|TestWorkflowRuns_)"
+            label: "Runs and Workflows"
+          - domain: sdk-webhooks
+            run_filter: "^(TestSDK_|TestWebhook)"
+            label: "SDK and Webhooks"
+          - domain: rbac-envs-secrets
+            run_filter: "^(TestRBAC_|TestEnvironments_|TestSecrets_)"
+            label: "RBAC, Environments, and Secrets"
+          - domain: events-groups
+            run_filter: "^(TestEvents_|TestJobGroups_)"
+            label: "Events and Job Groups"
+          - domain: mixed-edge
+            run_filter: "^(TestMixed_|TestEdge_)"
+            label: "Mixed Workloads and Edge Cases"
+
+    name: "vegeta / ${{ matrix.label }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Run ${{ matrix.label }} load tests
+        run: |
+          set -o pipefail
+          go test -json -tags "loadtest,integration" \
+            -timeout=25m -count=1 \
+            -run '${{ matrix.run_filter }}' \
+            ./test/loadtest/... 2>&1 | tee vegeta-${{ matrix.domain }}.jsonl
+
+      - name: Generate summary
+        if: always()
+        run: go run ./test/loadtest/cmd/summary -input vegeta-${{ matrix.domain }}.jsonl -output vegeta-${{ matrix.domain }}-summary.md -suite "vegeta-${{ matrix.domain }}"
+
+      - name: Publish summary
+        if: always()
+        run: cat vegeta-${{ matrix.domain }}-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vegeta-${{ matrix.domain }}
+          if-no-files-found: ignore
+          path: |
+            vegeta-${{ matrix.domain }}.jsonl
+            vegeta-${{ matrix.domain }}-summary.md
+
+  # ---------------------------------------------------------------------------
+  # Integration load tests — split into two parallel jobs
+  # ---------------------------------------------------------------------------
+  integration-queue-store:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: "integration / Queue, Store, Rate Limit"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Run queue, store, and rate limit load tests
+        env:
+          LOADTEST_VOLUME_TIER: ${{ inputs.volume_tier }}
+        run: |
+          set -o pipefail
+          go test -json -tags=integration \
+            -run "^(TestLoadQueue_|TestLoadStore_|TestLoadRateLimit_)" \
+            -timeout=20m -count=1 \
+            ./internal/e2e/... 2>&1 | tee integration-queue-store.jsonl
+
+      - name: Generate summary
+        if: always()
+        run: go run ./test/loadtest/cmd/summary -input integration-queue-store.jsonl -output integration-queue-store-summary.md -suite integration-queue-store
+
+      - name: Publish summary
+        if: always()
+        run: cat integration-queue-store-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-queue-store
+          if-no-files-found: ignore
+          path: |
+            integration-queue-store.jsonl
+            integration-queue-store-summary.md
+
+  integration-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: "integration / Pipeline, Worker, Webhook, Workflow"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Run pipeline, worker, webhook, and workflow load tests
+        env:
+          LOADTEST_VOLUME_TIER: ${{ inputs.volume_tier }}
+        run: |
+          set -o pipefail
+          go test -json -tags=integration \
+            -run "^(TestLoadPipeline_|TestLoadWorker_|TestLoadWebhook_|TestLoadWorkflow_)" \
+            -timeout=20m -count=1 \
+            ./internal/e2e/... 2>&1 | tee integration-pipeline.jsonl
+
+      - name: Generate summary
+        if: always()
+        run: go run ./test/loadtest/cmd/summary -input integration-pipeline.jsonl -output integration-pipeline-summary.md -suite integration-pipeline
+
+      - name: Publish summary
+        if: always()
+        run: cat integration-pipeline-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-pipeline
+          if-no-files-found: ignore
+          path: |
+            integration-pipeline.jsonl
+            integration-pipeline-summary.md

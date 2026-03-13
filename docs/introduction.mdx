@@ -1,9 +1,9 @@
 ---
 title: "Introduction"
-description: "A production-grade Go job strait for engineering teams and AI agents."
+description: "A production-grade Go job orchestration service for engineering teams and AI agents."
 ---
 
-The strait is a production-grade Go job strait designed for teams building reliable, scalable background job processing. Accept job definitions via REST API, queue runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED`—no external message broker required—and dispatch them via HTTP to your endpoints with intelligent retry strategies.
+Strait is a production-grade Go job orchestration service designed for teams building reliable, scalable background job processing. It accepts job definitions via REST API, queues runs in PostgreSQL using `SELECT FOR UPDATE SKIP LOCKED` (no external message broker required), and dispatches them via HTTP to your endpoints with intelligent retry strategies.
 
 **Everything you need in one binary.** Single Go executable. No runtime dependencies. Deploy and scale horizontally.
 
@@ -17,7 +17,7 @@ Engineering teams face challenges with background job processing:
 - **Orchestration**: Coordinating multi-step workflows with dependencies and conditions
 - **Infrastructure**: Managing message brokers, queues, and job state stores separately
 
-The strait combines queue, state, scheduler, and executor in one system—eliminating operational complexity while providing production-grade features.
+Strait combines queue, state, scheduler, and executor in one system—eliminating operational complexity while providing production-grade features.
 
 ## Key Capabilities
 
@@ -26,7 +26,7 @@ The strait combines queue, state, scheduler, and executor in one system—elimin
     Robust lifecycle management—queued, executing, completed, failed, timed_out, dead_letter—ensures every job run is tracked correctly.
   </Card>
   <Card title="Workflow DAGs" icon="diagram-project">
-    Directed Acyclic Graphs with fan-in/fan-out, step conditions, template variables, output transforms, and human approval gates.
+    Directed Acyclic Graphs with fan-in/fan-out, step conditions, template variables, output transforms, human approval gates, and durable event waits.
   </Card>
   <Card title="Smart Retry" icon="rotate">
     Exponential, linear, fixed, or custom per-attempt delays with ±20% jitter. Prevents thundering herd and handles transient failures gracefully.
@@ -37,6 +37,9 @@ The strait combines queue, state, scheduler, and executor in one system—elimin
 </CardGroup>
 
 <CardGroup cols={2}>
+  <Card title="Event Triggers" icon="bell">
+    Pause execution and wait for external events—approvals, webhooks, third-party callbacks—for days or weeks without holding goroutines. Durable, database-backed waits with timeout support.
+  </Card>
   <Card title="Real-Time CDC" icon="zap">
     Postgres WAL change capture via Sequin. No polling required—your applications react instantly when jobs, workflows, or runs change.
   </Card>
@@ -63,6 +66,7 @@ The strait combines queue, state, scheduler, and executor in one system—elimin
                     │  /v1/workflow-runs/* ── Run mgmt   │
                     │  /v1/jobs/{id}/trigger ── Enqueue  │
                     │  /v1/runs/* ── Run mgmt + DLQ     │
+                    │  /v1/events/* ── Event triggers    │
                     │  /sdk/v1/* ── SDK (JWT auth)      │
                     │  /metrics ── Prometheus            │
                     └──────────┬───────────────────────┘
@@ -75,6 +79,7 @@ The strait combines queue, state, scheduler, and executor in one system—elimin
                     │  job_runs ── run state + queue     │
                     │  workflows ── DAG definitions      │
                     │  workflow_runs ── workflow state   │
+                    │  event_triggers ── durable waits   │
                     │  run_events ── log entries         │
                     │  run_usage ── AI cost tracking     │
                     │  environments ── endpoint config   │
@@ -114,7 +119,7 @@ The strait combines queue, state, scheduler, and executor in one system—elimin
                     └──────────────────────────────────┘
 ```
 
-The strait runs in three modes:
+Strait runs in three modes:
 
 <Info>
 **api**: Handles HTTP requests, job management, and triggering. Scale horizontally for API throughput.
@@ -151,7 +156,7 @@ The strait runs in three modes:
 
 ## Use Cases
 
-The strait fits these patterns:
+Strait fits these patterns:
 
 **Background Jobs**: Scheduled data imports, report generation, cache warming, cleanup tasks, and recurring maintenance operations.
 
@@ -197,7 +202,10 @@ Core domain concepts you'll encounter:
     Runs represent a single execution of a job. Tracked through a 13-state FSM—queued, dequeued, executing, completed, failed, timed_out, dead_letter—with events, logs, and usage data.
   </Tab>
   <Tab title="Workflows">
-    Workflows orchestrate multiple jobs into DAGs. Steps can depend on outputs from parent steps, have conditional execution based on step status, and include human approval gates.
+    Workflows orchestrate multiple jobs into DAGs. Steps can depend on outputs from parent steps, have conditional execution based on step status, include human approval gates, and wait for external events.
+  </Tab>
+  <Tab title="Event Triggers">
+    Event triggers pause workflow steps or job runs until an external event arrives via API. Waits are durable — stored as database rows, not goroutines — and can last days or weeks. Supports timeouts, webhook notifications, event chaining, and real-time SSE streaming.
   </Tab>
   <Tab title="Environments">
     Environments provide per-project, named configurations with key-value variables. Jobs can link to environments, enabling endpoint URL overrides for staging vs. production routing.
@@ -225,7 +233,7 @@ Step-by-step guides for common tasks:
 
 ## Development
 
-Contributing to the strait or running it locally:
+Contributing to Strait or running it locally:
 
 <CardGroup cols={2}>
   <Card title="Contributing" icon="users" href="/docs/development/contributing">
@@ -247,6 +255,7 @@ Ready to dive deeper?
 - Understand the **[workflow engine](/docs/architecture#workflow-engine) and DAG execution
 - Explore **[retry strategies](/docs/concepts/retry-strategies) — exponential, linear, fixed, and custom
 - Set up **[webhooks](/docs/concepts/webhooks) with HMAC signing for event delivery
+- Build durable workflows with **[event triggers](/docs/concepts/event-triggers)** — wait for external events without holding goroutines
 - Configure **[cost budgets](/docs/concepts/cost-budgets) for AI workloads
 
 Or jump straight into the **[Quick Start Guide](/docs/quickstart)** and run your first job in 5 minutes.

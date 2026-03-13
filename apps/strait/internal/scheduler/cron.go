@@ -9,9 +9,12 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/telemetry"
 
 	"github.com/robfig/cron/v3"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // CronStore is the subset of store operations needed by CronScheduler.
@@ -22,24 +25,32 @@ type CronStore interface {
 }
 
 type WorkflowTrigger interface {
-	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
+	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
 }
 
 type CronScheduler struct {
+	ctx             context.Context
 	cron            *cron.Cron
 	store           CronStore
 	queue           queue.Queue
 	workflowTrigger WorkflowTrigger
+	metrics         *telemetry.Metrics
 }
 
 // NewCronScheduler creates a new cron-based job and workflow scheduler.
-func NewCronScheduler(s CronStore, q queue.Queue, workflowTrigger WorkflowTrigger) *CronScheduler {
+func NewCronScheduler(ctx context.Context, s CronStore, q queue.Queue, workflowTrigger WorkflowTrigger) *CronScheduler {
 	return &CronScheduler{
+		ctx:             ctx,
 		cron:            cron.New(),
 		store:           s,
 		queue:           q,
 		workflowTrigger: workflowTrigger,
 	}
+}
+
+func (cs *CronScheduler) WithMetrics(m *telemetry.Metrics) *CronScheduler {
+	cs.metrics = m
+	return cs
 }
 
 func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
@@ -58,7 +69,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 	for _, j := range jobs {
 		job := j
 		_, err := cs.cron.AddFunc(job.Cron, func() {
-			cs.triggerJob(ctx, job)
+			cs.triggerJob(cs.ctx, job)
 		})
 		if err != nil {
 			return fmt.Errorf("register cron job %s: %w", job.ID, err)
@@ -73,7 +84,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 				expr = fmt.Sprintf("CRON_TZ=%s %s", workflow.CronTimezone, workflow.Cron)
 			}
 			_, err := cs.cron.AddFunc(expr, func() {
-				cs.triggerWorkflow(ctx, workflow)
+				cs.triggerWorkflow(cs.ctx, workflow)
 			})
 			if err != nil {
 				return fmt.Errorf("register cron workflow %s: %w", workflow.ID, err)
@@ -90,9 +101,13 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	defer span.End()
 
 	run := domain.JobRun{
-		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
-		TriggeredBy: domain.TriggerCron,
+		JobID:        job.ID,
+		ProjectID:    job.ProjectID,
+		Tags:         job.Tags,
+		TriggeredBy:  domain.TriggerCron,
+		JobVersion:   job.Version,
+		JobVersionID: job.VersionID,
+		CreatedBy:    "system:cron",
 	}
 
 	if job.RunTTLSecs > 0 {
@@ -102,7 +117,13 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 
 	if err := cs.queue.Enqueue(ctx, &run); err != nil {
 		slog.Error("failed to enqueue cron run", "job_id", job.ID, "project_id", job.ProjectID, "error", err)
+		if cs.metrics != nil {
+			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+		}
 		return
+	}
+	if cs.metrics != nil {
+		cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
 	}
 
 	slog.Info("cron run enqueued", "job_id", job.ID, "project_id", job.ProjectID, "run_id", run.ID)
@@ -116,17 +137,29 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 		running, err := cs.store.CountRunningWorkflowRuns(ctx, workflow.ID)
 		if err != nil {
 			slog.Error("failed to count running workflow runs", "workflow_id", workflow.ID, "error", err)
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+			}
 			return
 		}
 		if running > 0 {
 			slog.Info("skipping cron workflow trigger because run is active", "workflow_id", workflow.ID, "running", running)
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
+			}
 			return
 		}
 	}
 
-	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil); err != nil {
+	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil, nil); err != nil {
 		slog.Error("failed to trigger cron workflow", "workflow_id", workflow.ID, "project_id", workflow.ProjectID, "error", err)
+		if cs.metrics != nil {
+			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+		}
 		return
+	}
+	if cs.metrics != nil {
+		cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
 	}
 
 	slog.Info("cron workflow triggered", "workflow_id", workflow.ID, "project_id", workflow.ProjectID)

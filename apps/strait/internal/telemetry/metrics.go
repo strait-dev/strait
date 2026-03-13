@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -13,16 +14,43 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 )
 
 type Metrics struct {
-	RunTransitions          metric.Int64Counter
-	DequeueDuration         metric.Float64Histogram
-	DispatchDuration        metric.Float64Histogram
-	DispatchErrors          metric.Int64Counter
-	ExecutionTraceDispatch  metric.Float64Histogram
-	ExecutionTraceQueueWait metric.Float64Histogram
+	RunTransitions           metric.Int64Counter
+	DequeueDuration          metric.Float64Histogram
+	DispatchDuration         metric.Float64Histogram
+	DispatchErrors           metric.Int64Counter
+	ReaperOperations         metric.Int64Counter
+	ReaperRecordsDeleted     metric.Int64Counter
+	CronTriggers             metric.Int64Counter
+	PollerRunsQueued         metric.Int64Counter
+	WorkflowTriggers         metric.Int64Counter
+	WorkflowStepProgressions metric.Int64Counter
+	QueueDepth               metric.Int64ObservableGauge
+	ExecutionTraceDispatch   metric.Float64Histogram
+	ExecutionTraceQueueWait  metric.Float64Histogram
+	WebhookDeliveriesTotal   metric.Int64Counter
+	WebhookDeliveryDuration  metric.Float64Histogram
+	WebhookDeliveryAttempts  metric.Int64Counter
+	WebhookRetryAttempts     metric.Int64Counter
+	WebhookCircuitBreaker    metric.Int64Gauge
+	WebhookPayloadBytes      metric.Int64Histogram
+	AnalyticsQueryDuration   metric.Float64Histogram
+	BulkOperationsTotal      metric.Int64Counter
+	BulkItemsProcessed       metric.Int64Counter
+	ChildCancellationsTotal  metric.Int64Counter
+
+	// Event trigger metrics.
+	EventTriggersCreated     metric.Int64Counter
+	EventTriggersReceived    metric.Int64Counter
+	EventTriggersTimedOut    metric.Int64Counter
+	EventTriggerWaitDuration metric.Float64Histogram
+
+	WorkflowDependencyWaits  metric.Int64Counter
+	WorkflowStepWaitDuration metric.Float64Histogram
+	WorkflowStalledRuns      metric.Int64Counter
 
 	// Worker pool gauges (reported via ObservePool callback).
 	PoolRunningWorkers metric.Int64ObservableGauge
@@ -34,6 +62,7 @@ type Metrics struct {
 	PoolSuccessfulTasks metric.Int64ObservableCounter
 	PoolFailedTasks     metric.Int64ObservableCounter
 	PoolDroppedTasks    metric.Int64ObservableCounter
+	ShutdownTotal       metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -75,6 +104,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		"strait.dequeue.duration",
 		metric.WithDescription("Duration of dequeue operations"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create dequeue duration histogram: %w", err)
@@ -84,6 +114,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		"strait.dispatch.duration",
 		metric.WithDescription("Duration of HTTP dispatch operations"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create dispatch duration histogram: %w", err)
@@ -98,10 +129,74 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create dispatch errors counter: %w", err)
 	}
 
+	reaperOperations, err := meter.Int64Counter(
+		"strait.reaper.operations",
+		metric.WithDescription("Total reaper operations by operation and status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create reaper operations counter: %w", err)
+	}
+
+	reaperRecordsDeleted, err := meter.Int64Counter(
+		"strait.reaper.records_deleted",
+		metric.WithDescription("Total records deleted by reaper retention operations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create reaper records deleted counter: %w", err)
+	}
+
+	cronTriggers, err := meter.Int64Counter(
+		"strait.scheduler.cron_triggers",
+		metric.WithDescription("Total cron trigger attempts by status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create cron triggers counter: %w", err)
+	}
+
+	pollerRunsQueued, err := meter.Int64Counter(
+		"strait.scheduler.poller_runs_queued",
+		metric.WithDescription("Total delayed runs queued by poller"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create poller runs queued counter: %w", err)
+	}
+
+	workflowTriggers, err := meter.Int64Counter(
+		"strait.workflow.triggers",
+		metric.WithDescription("Total workflow trigger attempts by status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow triggers counter: %w", err)
+	}
+
+	workflowStepProgressions, err := meter.Int64Counter(
+		"strait.workflow.step_progressions",
+		metric.WithDescription("Total workflow step progressions by step type and status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow step progressions counter: %w", err)
+	}
+
+	queueDepth, err := meter.Int64ObservableGauge(
+		"strait.queue.depth",
+		metric.WithDescription("Current queue depth by status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create queue depth gauge: %w", err)
+	}
+
 	executionTraceDispatch, err := meter.Float64Histogram(
 		"strait.execution.trace.dispatch_duration",
 		metric.WithDescription("HTTP dispatch roundtrip duration from execution trace"),
 		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create execution trace dispatch histogram: %w", err)
@@ -111,9 +206,165 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		"strait.execution.trace.queue_wait_duration",
 		metric.WithDescription("Queue wait duration from execution trace"),
 		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create execution trace queue wait histogram: %w", err)
+	}
+
+	webhookDeliveriesTotal, err := meter.Int64Counter(
+		"strait_webhook_deliveries_total",
+		metric.WithDescription("Total webhook deliveries by delivery status and retry policy"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook deliveries counter: %w", err)
+	}
+
+	webhookDeliveryDuration, err := meter.Float64Histogram(
+		"strait_webhook_delivery_duration_seconds",
+		metric.WithDescription("Webhook delivery HTTP request duration in seconds"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook delivery duration histogram: %w", err)
+	}
+
+	webhookDeliveryAttempts, err := meter.Int64Counter(
+		"strait_webhook_delivery_attempts_total",
+		metric.WithDescription("Total webhook delivery attempts"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook delivery attempts counter: %w", err)
+	}
+
+	webhookRetryAttempts, err := meter.Int64Counter(
+		"strait.webhook.retry_attempts_total",
+		metric.WithDescription("Total webhook delivery retry attempts"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook retry attempts counter: %w", err)
+	}
+
+	webhookCircuitBreaker, err := meter.Int64Gauge(
+		"strait_webhook_circuit_breaker_state",
+		metric.WithDescription("Webhook circuit breaker state (1=current state, 0=other states)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook circuit breaker gauge: %w", err)
+	}
+
+	webhookPayloadBytes, err := meter.Int64Histogram(
+		"strait_webhook_payload_bytes",
+		metric.WithDescription("Webhook payload size in bytes"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create webhook payload bytes histogram: %w", err)
+	}
+
+	eventTriggersCreated, err := meter.Int64Counter(
+		"strait.event_triggers.created",
+		metric.WithDescription("Total event triggers created"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event triggers created counter: %w", err)
+	}
+
+	eventTriggersReceived, err := meter.Int64Counter(
+		"strait.event_triggers.received",
+		metric.WithDescription("Total events received (triggers completed)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event triggers received counter: %w", err)
+	}
+
+	eventTriggersTimedOut, err := meter.Int64Counter(
+		"strait.event_triggers.timed_out",
+		metric.WithDescription("Total event triggers that expired"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event triggers timed out counter: %w", err)
+	}
+
+	eventTriggerWaitDuration, err := meter.Float64Histogram(
+		"strait.event_triggers.wait_duration",
+		metric.WithDescription("Duration between trigger creation and event receipt"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create event trigger wait duration histogram: %w", err)
+	}
+
+	analyticsQueryDuration, err := meter.Float64Histogram(
+		"strait.analytics.query_duration_seconds",
+		metric.WithDescription("Duration of analytics query operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create analytics query duration histogram: %w", err)
+	}
+
+	bulkOperationsTotal, err := meter.Int64Counter(
+		"strait.bulk.operations_total",
+		metric.WithDescription("Total bulk operations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create bulk operations total counter: %w", err)
+	}
+
+	bulkItemsProcessed, err := meter.Int64Counter(
+		"strait.bulk.items_processed_total",
+		metric.WithDescription("Total items processed in bulk operations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create bulk items processed counter: %w", err)
+	}
+
+	childCancellationsTotal, err := meter.Int64Counter(
+		"strait.bulk.child_cancellations_total",
+		metric.WithDescription("Total cascading child run cancellations"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create child cancellations total counter: %w", err)
+	}
+
+	workflowDependencyWaits, err := meter.Int64Counter(
+		"strait.workflow.dependency_waits",
+		metric.WithDescription("Total runs created in waiting state due to unsatisfied dependencies"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow dependency waits counter: %w", err)
+	}
+
+	workflowStepWaitDuration, err := meter.Float64Histogram(
+		"strait.workflow.step_wait_duration",
+		metric.WithDescription("Time a workflow step spent waiting before running"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow step wait duration histogram: %w", err)
+	}
+
+	workflowStalledRuns, err := meter.Int64Counter(
+		"strait.workflow.stalled_runs",
+		metric.WithDescription("Total stalled workflow runs detected by reaper"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create workflow stalled runs counter: %w", err)
 	}
 
 	poolRunning, err := meter.Int64ObservableGauge(
@@ -179,24 +430,66 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create pool dropped tasks counter: %w", err)
 	}
 
+	shutdownTotal, err := meter.Int64Counter(
+		"strait_shutdown_total",
+		metric.WithDescription("Total worker shutdown attempts by reason"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create shutdown total counter: %w", err)
+	}
+
 	m := &Metrics{
-		RunTransitions:          runTransitions,
-		DequeueDuration:         dequeueDuration,
-		DispatchDuration:        dispatchDuration,
-		DispatchErrors:          dispatchErrors,
-		ExecutionTraceDispatch:  executionTraceDispatch,
-		ExecutionTraceQueueWait: executionTraceQueueWait,
-		PoolRunningWorkers:      poolRunning,
-		PoolWaitingTasks:        poolWaiting,
-		PoolSubmittedTasks:      poolSubmitted,
-		PoolCompletedTasks:      poolCompleted,
-		PoolSuccessfulTasks:     poolSuccessful,
-		PoolFailedTasks:         poolFailed,
-		PoolDroppedTasks:        poolDropped,
+		RunTransitions:           runTransitions,
+		DequeueDuration:          dequeueDuration,
+		DispatchDuration:         dispatchDuration,
+		DispatchErrors:           dispatchErrors,
+		ReaperOperations:         reaperOperations,
+		ReaperRecordsDeleted:     reaperRecordsDeleted,
+		CronTriggers:             cronTriggers,
+		PollerRunsQueued:         pollerRunsQueued,
+		WorkflowTriggers:         workflowTriggers,
+		WorkflowStepProgressions: workflowStepProgressions,
+		QueueDepth:               queueDepth,
+		ExecutionTraceDispatch:   executionTraceDispatch,
+		ExecutionTraceQueueWait:  executionTraceQueueWait,
+		WebhookDeliveriesTotal:   webhookDeliveriesTotal,
+		WebhookDeliveryDuration:  webhookDeliveryDuration,
+		WebhookDeliveryAttempts:  webhookDeliveryAttempts,
+		WebhookRetryAttempts:     webhookRetryAttempts,
+		WebhookCircuitBreaker:    webhookCircuitBreaker,
+		WebhookPayloadBytes:      webhookPayloadBytes,
+		EventTriggersCreated:     eventTriggersCreated,
+		EventTriggersReceived:    eventTriggersReceived,
+		EventTriggersTimedOut:    eventTriggersTimedOut,
+		EventTriggerWaitDuration: eventTriggerWaitDuration,
+		AnalyticsQueryDuration:   analyticsQueryDuration,
+		BulkOperationsTotal:      bulkOperationsTotal,
+		BulkItemsProcessed:       bulkItemsProcessed,
+		ChildCancellationsTotal:  childCancellationsTotal,
+		WorkflowDependencyWaits:  workflowDependencyWaits,
+		WorkflowStepWaitDuration: workflowStepWaitDuration,
+		WorkflowStalledRuns:      workflowStalledRuns,
+		PoolRunningWorkers:       poolRunning,
+		PoolWaitingTasks:         poolWaiting,
+		PoolSubmittedTasks:       poolSubmitted,
+		PoolCompletedTasks:       poolCompleted,
+		PoolSuccessfulTasks:      poolSuccessful,
+		PoolFailedTasks:          poolFailed,
+		PoolDroppedTasks:         poolDropped,
+		ShutdownTotal:            shutdownTotal,
 	}
 
 	slog.Info("prometheus metrics enabled")
-	return m, promhttp.Handler(), provider.Shutdown, nil
+	var shutdownOnce sync.Once
+	var shutdownErr error
+	shutdown := func(ctx context.Context) error {
+		shutdownOnce.Do(func() {
+			shutdownErr = provider.Shutdown(ctx)
+		})
+		return shutdownErr
+	}
+	return m, promhttp.Handler(), shutdown, nil
 }
 
 // PoolStatsProvider exposes pool counters for observable metric callbacks.

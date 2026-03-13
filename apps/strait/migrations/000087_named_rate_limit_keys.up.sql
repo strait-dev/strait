@@ -1,0 +1,5 @@
+ALTER TABLE jobs
+    ADD COLUMN IF NOT EXISTS rate_limit_keys JSONB NOT NULL DEFAULT '[]';
+
+ALTER TABLE job_versions
+    ADD COLUMN IF NOT EXISTS rate_limit_keys JSONB NOT NULL DEFAULT '[]';

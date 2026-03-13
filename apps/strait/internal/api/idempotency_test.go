@@ -613,7 +613,6 @@ func TestIdempotency_HitBypassesProjectQuotaCheck(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFProjectQuotas = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
@@ -1026,7 +1025,6 @@ func TestIdempotency_ReplayDoesNotCopyIdempotencyKey(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunReplay = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-original/replay", ""))
@@ -1064,7 +1062,6 @@ func TestIdempotency_PayloadValidationFailsBeforeIdempotencyCheck(t *testing.T) 
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFPayloadValidation = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"age":12}}`)
@@ -1173,7 +1170,6 @@ func TestIdempotency_ExecutionWindowDoesNotApplyOnHit(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFExecutionWindows = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
@@ -1207,7 +1203,6 @@ func TestIdempotency_DryRunDoesNotCheckIdempotency(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFDryRun = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"dry_run": true}`)
@@ -1249,7 +1244,6 @@ func TestIdempotency_HitBypassesCostBudgetCheck(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	srv.config.FFCostBudgets = true
 
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
@@ -1605,7 +1599,6 @@ func TestIdempotency_ReplayGeneratesNewRunID(t *testing.T) {
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
-	srv.config.FFRunReplay = true
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-active/replay", ""))
@@ -2443,7 +2436,7 @@ type mockWorkflowEngineForIdem struct {
 	triggerFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 }
 
-func (m *mockWorkflowEngineForIdem) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
+func (m *mockWorkflowEngineForIdem) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error) {
 	if m.triggerFn != nil {
 		return m.triggerFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
 	}
@@ -2457,15 +2450,18 @@ func (m *mockWorkflowEngineForIdem) RetryWorkflowRun(_ context.Context, _ string
 func newTestServerWithWorkflowEngine(t *testing.T, s APIStore, q *mockQueue, wf WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "01234567890123456789012345678901",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
 	}
-	return NewServer(ServerDeps{
+	srv := NewServer(ServerDeps{
 		Config:         cfg,
 		Store:          s,
 		Queue:          q,
 		WorkflowEngine: wf,
 	})
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func TestIdempotency_WorkflowTriggerIgnoresIdempotencyHeader(t *testing.T) {

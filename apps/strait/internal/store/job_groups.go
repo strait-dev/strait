@@ -90,7 +90,7 @@ func (q *Queries) ListJobGroups(ctx context.Context, projectID string, limit int
 	}
 	defer rows.Close()
 
-	groups := make([]domain.JobGroup, 0)
+	groups := make([]domain.JobGroup, 0, limit)
 	for rows.Next() {
 		group, scanErr := scanJobGroup(rows)
 		if scanErr != nil {
@@ -164,7 +164,8 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata
 		FROM jobs
 		WHERE group_id = $1`
 
@@ -186,7 +187,7 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int
 	}
 	defer rows.Close()
 
-	jobs := make([]domain.Job, 0)
+	jobs := make([]domain.Job, 0, limit)
 	for rows.Next() {
 		job, scanErr := scanJob(rows)
 		if scanErr != nil {
@@ -200,6 +201,76 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int
 	}
 
 	return jobs, nil
+}
+
+func (q *Queries) PauseJobsByGroup(ctx context.Context, groupID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.PauseJobsByGroup")
+	defer span.End()
+
+	if _, err := q.GetJobGroup(ctx, groupID); err != nil {
+		return err
+	}
+
+	query := `UPDATE jobs SET enabled = FALSE, updated_at = NOW() WHERE group_id = $1`
+	if _, err := q.db.Exec(ctx, query, groupID); err != nil {
+		return fmt.Errorf("pause jobs by group: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) ResumeJobsByGroup(ctx context.Context, groupID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResumeJobsByGroup")
+	defer span.End()
+
+	if _, err := q.GetJobGroup(ctx, groupID); err != nil {
+		return err
+	}
+
+	query := `UPDATE jobs SET enabled = TRUE, updated_at = NOW() WHERE group_id = $1`
+	if _, err := q.db.Exec(ctx, query, groupID); err != nil {
+		return fmt.Errorf("resume jobs by group: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) GetJobGroupStats(ctx context.Context, groupID string) (*JobGroupStats, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobGroupStats")
+	defer span.End()
+
+	if _, err := q.GetJobGroup(ctx, groupID); err != nil {
+		return nil, err
+	}
+
+	query := `
+		SELECT jr.status, COUNT(*)
+		FROM job_runs jr
+		JOIN jobs j ON j.id = jr.job_id
+		WHERE j.group_id = $1
+		GROUP BY jr.status`
+
+	rows, err := q.db.Query(ctx, query, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("get job group stats: %w", err)
+	}
+	defer rows.Close()
+
+	stats := &JobGroupStats{GroupID: groupID, RunCounts: make(map[string]int)}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("get job group stats scan: %w", err)
+		}
+		stats.RunCounts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get job group stats rows: %w", err)
+	}
+
+	return stats, nil
 }
 
 func scanJobGroup(scanner scanTarget) (*domain.JobGroup, error) {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 )
@@ -15,15 +16,22 @@ func (q *Queries) CreateWorkflowRunLabels(ctx context.Context, workflowRunID str
 		return nil
 	}
 
+	var sb strings.Builder
+	sb.WriteString(`INSERT INTO workflow_run_labels (workflow_run_id, label_key, label_value) VALUES `)
+	args := make([]any, 0, len(labels)*3)
+	i := 0
 	for k, v := range labels {
-		if _, err := q.db.Exec(ctx,
-			`INSERT INTO workflow_run_labels (workflow_run_id, label_key, label_value)
-			 VALUES ($1, $2, $3)
-			 ON CONFLICT (workflow_run_id, label_key) DO UPDATE SET label_value = EXCLUDED.label_value`,
-			workflowRunID, k, v,
-		); err != nil {
-			return fmt.Errorf("insert workflow run label %s: %w", k, err)
+		if i > 0 {
+			sb.WriteString(", ")
 		}
+		fmt.Fprintf(&sb, "($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3)
+		args = append(args, workflowRunID, k, v)
+		i++
+	}
+	sb.WriteString(` ON CONFLICT (workflow_run_id, label_key) DO UPDATE SET label_value = EXCLUDED.label_value`)
+
+	if _, err := q.db.Exec(ctx, sb.String(), args...); err != nil {
+		return fmt.Errorf("batch insert workflow run labels: %w", err)
 	}
 
 	return nil

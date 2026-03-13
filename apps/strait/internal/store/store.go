@@ -15,16 +15,19 @@ import (
 )
 
 var (
-	ErrJobNotFound             = errors.New("job not found")
-	ErrJobGroupNotFound        = errors.New("job group not found")
-	ErrEnvironmentNotFound     = errors.New("environment not found")
-	ErrJobSecretNotFound       = errors.New("job secret not found")
-	ErrRunNotFound             = errors.New("run not found")
-	ErrRunConflict             = errors.New("run status update conflict")
-	ErrWorkflowNotFound        = errors.New("workflow not found")
-	ErrWorkflowStepNotFound    = errors.New("workflow step not found")
-	ErrWorkflowRunNotFound     = errors.New("workflow run not found")
-	ErrWorkflowStepRunNotFound = errors.New("workflow step run not found")
+	ErrJobNotFound                 = errors.New("job not found")
+	ErrJobGroupNotFound            = errors.New("job group not found")
+	ErrWebhookSubscriptionNotFound = errors.New("webhook subscription not found")
+	ErrEnvironmentNotFound         = errors.New("environment not found")
+	ErrJobSecretNotFound           = errors.New("job secret not found")
+	ErrRunNotFound                 = errors.New("run not found")
+	ErrRunConflict                 = errors.New("run status update conflict")
+	ErrWorkflowNotFound            = errors.New("workflow not found")
+	ErrWorkflowStepNotFound        = errors.New("workflow step not found")
+	ErrWorkflowRunNotFound         = errors.New("workflow run not found")
+	ErrWorkflowStepRunNotFound     = errors.New("workflow step run not found")
+	ErrEventKeyConflict            = errors.New("event key conflict")
+	ErrWorkflowVersionNotFound     = errors.New("workflow version not found")
 )
 
 type DBTX interface {
@@ -53,6 +56,14 @@ type JobGroupStore interface {
 	UpdateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	DeleteJobGroup(ctx context.Context, id string) error
 	ListJobsByGroup(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	PauseJobsByGroup(ctx context.Context, groupID string) error
+	ResumeJobsByGroup(ctx context.Context, groupID string) error
+	GetJobGroupStats(ctx context.Context, groupID string) (*JobGroupStats, error)
+}
+
+type JobGroupStats struct {
+	GroupID   string         `json:"group_id"`
+	RunCounts map[string]int `json:"run_counts"`
 }
 
 type EnvironmentStore interface {
@@ -77,12 +88,15 @@ type RunStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	UpdateRunStatusReturningOld(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) (domain.RunStatus, error)
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
+	BatchUpdateHeartbeat(ctx context.Context, ids []string) error
 	ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error)
 	ListDueRuns(ctx context.Context) ([]domain.JobRun, error)
 	ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error)
@@ -109,16 +123,23 @@ type RunStore interface {
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]BulkCancelResult, error)
+	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+	BulkCancelByFilter(ctx context.Context, projectID string, f BulkCancelFilter, now time.Time, reason string) ([]string, error)
 }
 
 type ProjectQuota struct {
-	ProjectID             string
-	MaxQueuedRuns         int
-	MaxExecutingRuns      int
-	MaxJobs               int
-	Timezone              string
-	MaxCostPerRunMicrousd int64
-	MaxDailyCostMicrousd  int64
+	ProjectID              string
+	MaxQueuedRuns          int
+	MaxExecutingRuns       int
+	MaxJobs                int
+	Timezone               string
+	MaxCostPerRunMicrousd  int64
+	MaxDailyCostMicrousd   int64
+	MaxActiveEventTriggers int // 0 = unlimited
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -144,10 +165,21 @@ type EventStore interface {
 
 type WebhookDeliveryStore interface {
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun, maxAttempts int) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
+	ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain.WebhookDelivery, error)
+	DeleteOldWebhookDeliveries(ctx context.Context, before time.Time, limit int) (int, error)
+}
+
+type WebhookSubscriptionStore interface {
+	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
+	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
+	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	DeleteWebhookSubscription(ctx context.Context, id string) error
 }
 
 type APIKeyStore interface {
@@ -207,6 +239,7 @@ type WorkflowRunStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
 }
 
 type WorkflowStepRunStore interface {
@@ -215,6 +248,9 @@ type WorkflowStepRunStore interface {
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]StepDepResult, error)
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
@@ -223,6 +259,52 @@ type WorkflowStepRunStore interface {
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error)
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
+	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
+	ListWorkflowStepDecisions(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error)
+}
+
+type EventTriggerStore interface {
+	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
+	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
+	GetEventTriggerByJobRunID(ctx context.Context, jobRunID string) (*domain.EventTrigger, error)
+	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
+	ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
+	CancelEventTriggerByJobRun(ctx context.Context, jobRunID string) error
+	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
+	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
+	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
+	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
+}
+
+type BatchOperationStore interface {
+	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error
+	FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error
+	GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
+	ListBatchOperations(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
+}
+
+type LogDrainStore interface {
+	CreateLogDrain(ctx context.Context, drain *domain.LogDrain) error
+	GetLogDrain(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error)
+	ListLogDrains(ctx context.Context, projectID string) ([]domain.LogDrain, error)
+	UpdateLogDrain(ctx context.Context, drainID, projectID string, patch map[string]any) error
+	DeleteLogDrain(ctx context.Context, drainID, projectID string) error
+}
+
+type EventSourceStore interface {
+	CreateEventSource(ctx context.Context, src *domain.EventSource) error
+	GetEventSource(ctx context.Context, sourceID, projectID string) (*domain.EventSource, error)
+	GetEventSourceByName(ctx context.Context, projectID, name string) (*domain.EventSource, error)
+	ListEventSources(ctx context.Context, projectID string) ([]domain.EventSource, error)
+	UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error
+	DeleteEventSource(ctx context.Context, sourceID, projectID string) error
+	CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error
+	ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
+	DeleteEventSubscription(ctx context.Context, subID string) error
 }
 
 type Store interface {
@@ -233,12 +315,17 @@ type Store interface {
 	RunStore
 	EventStore
 	WebhookDeliveryStore
+	WebhookSubscriptionStore
 	APIKeyStore
 	JobVersionStore
 	WorkflowStore
 	WorkflowStepStore
 	WorkflowRunStore
 	WorkflowStepRunStore
+	EventTriggerStore
+	BatchOperationStore
+	LogDrainStore
+	EventSourceStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 
@@ -284,5 +371,33 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 	}
 	committed = true
 
+	return nil
+}
+
+// TryAdvisoryLock attempts to acquire a PostgreSQL session-level advisory lock.
+// Returns true if the lock was acquired, false if held by another session.
+func (q *Queries) TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error) {
+	var acquired bool
+	err := q.db.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired)
+	if err != nil {
+		return false, fmt.Errorf("pg_try_advisory_lock: %w", err)
+	}
+	return acquired, nil
+}
+
+// ReleaseAdvisoryLock releases a PostgreSQL session-level advisory lock.
+func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
+	_, err := q.db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID)
+	if err != nil {
+		return fmt.Errorf("pg_advisory_unlock: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) AdvisoryXactLock(ctx context.Context, lockID int64) error {
+	_, err := q.db.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockID)
+	if err != nil {
+		return fmt.Errorf("pg_advisory_xact_lock: %w", err)
+	}
 	return nil
 }

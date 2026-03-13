@@ -23,7 +23,7 @@ The `Environment` struct (defined in `internal/domain/types.go`) includes:
 Environments support a hierarchical structure via the `parent_id` field.
 - **Inheritance**: An environment inherits all variables from its parent.
 - **Overrides**: If an environment defines a variable with the same key as its parent, the local value takes precedence.
-- **Resolution**: The strait recursively resolves variables up the parent chain to provide a final, flattened set of variables at execution time.
+- **Resolution**: Strait recursively resolves variables up the parent chain to provide a final, flattened set of variables at execution time.
 
 ## Endpoint URL Overrides
 
@@ -44,6 +44,4 @@ Environments allow you to maintain a single job definition (e.g., `process-order
 - **Staging Environment**: `ENDPOINT_URL=https://staging.api.myapp.com/jobs`
 - **Production Environment**: `ENDPOINT_URL=https://api.myapp.com/jobs`
 
-## Feature Flag
-
-The environment system is gated behind the `FF_ENVIRONMENTS` feature flag. When disabled, environment links on jobs are ignored, and no variable resolution or URL overrides occur.
+The environment system resolves variables and URL overrides for jobs with an assigned environment.

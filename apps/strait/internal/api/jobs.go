@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -15,53 +16,60 @@ import (
 )
 
 type CreateJobRequest struct {
-	ProjectID           string            `json:"project_id" validate:"required"`
-	GroupID             string            `json:"group_id,omitempty"`
-	Name                string            `json:"name" validate:"required"`
-	Slug                string            `json:"slug" validate:"required"`
-	Description         string            `json:"description,omitempty"`
-	Cron                string            `json:"cron,omitempty"`
-	PayloadSchema       json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	EndpointURL         string            `json:"endpoint_url" validate:"required,url"`
-	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts         int               `json:"max_attempts" validate:"omitempty,min=1"`
-	TimeoutSecs         int               `json:"timeout_secs" validate:"omitempty,min=1"`
-	MaxConcurrency      int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
-	ExecutionWindowCron string            `json:"execution_window_cron,omitempty"`
-	Timezone            string            `json:"timezone,omitempty"`
-	RateLimitMax        int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
-	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
-	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
-	RunTTLSecs          int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
-	RetryStrategy       string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
-	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
-	EnvironmentID       string            `json:"environment_id,omitempty"`
+	ProjectID            string            `json:"project_id" validate:"required"`
+	GroupID              string            `json:"group_id,omitempty"`
+	Name                 string            `json:"name" validate:"required"`
+	Slug                 string            `json:"slug" validate:"required"`
+	Description          string            `json:"description,omitempty"`
+	Cron                 string            `json:"cron,omitempty"`
+	PayloadSchema        json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	EndpointURL          string            `json:"endpoint_url" validate:"required,url"`
+	FallbackEndpointURL  string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts          int               `json:"max_attempts" validate:"omitempty,min=1"`
+	TimeoutSecs          int               `json:"timeout_secs" validate:"omitempty,min=1"`
+	MaxConcurrency       int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
+	MaxConcurrencyPerKey int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
+	ExecutionWindowCron  string            `json:"execution_window_cron,omitempty"`
+	Timezone             string            `json:"timezone,omitempty"`
+	RateLimitMax         int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs  int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs      int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs           int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy        string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
+	RetryDelaysSecs      []int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID        string            `json:"environment_id,omitempty"`
+	VersionPolicy        string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
 }
 
 type UpdateJobRequest struct {
-	Name                *string            `json:"name,omitempty"`
-	Slug                *string            `json:"slug,omitempty"`
-	GroupID             *string            `json:"group_id,omitempty"`
-	Description         *string            `json:"description,omitempty"`
-	Cron                *string            `json:"cron,omitempty"`
-	PayloadSchema       *json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                *map[string]string `json:"tags,omitempty"`
-	EndpointURL         *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
-	FallbackEndpointURL *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts         *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
-	TimeoutSecs         *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
-	MaxConcurrency      *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
-	ExecutionWindowCron *string            `json:"execution_window_cron,omitempty"`
-	Timezone            *string            `json:"timezone,omitempty"`
-	RateLimitMax        *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
-	RateLimitWindowSecs *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
-	DedupWindowSecs     *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
-	RunTTLSecs          *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
-	RetryStrategy       *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
-	RetryDelaysSecs     *[]int             `json:"retry_delays_secs,omitempty"`
-	EnvironmentID       *string            `json:"environment_id,omitempty"`
-	Enabled             *bool              `json:"enabled,omitempty"`
+	Name                 *string            `json:"name,omitempty"`
+	Slug                 *string            `json:"slug,omitempty"`
+	GroupID              *string            `json:"group_id,omitempty"`
+	Description          *string            `json:"description,omitempty"`
+	Cron                 *string            `json:"cron,omitempty"`
+	PayloadSchema        *json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                 *map[string]string `json:"tags,omitempty"`
+	EndpointURL          *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
+	FallbackEndpointURL  *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts          *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
+	TimeoutSecs          *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
+	MaxConcurrency       *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
+	MaxConcurrencyPerKey *int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
+	ExecutionWindowCron  *string            `json:"execution_window_cron,omitempty"`
+	Timezone             *string            `json:"timezone,omitempty"`
+	RateLimitMax         *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs  *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs      *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs           *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy        *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
+	RetryDelaysSecs      *[]int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID        *string            `json:"environment_id,omitempty"`
+	Enabled              *bool              `json:"enabled,omitempty"`
+	VersionPolicy        *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	BackwardsCompatible  *bool              `json:"backwards_compatible,omitempty"`
+	DefaultRunMetadata   *map[string]string `json:"default_run_metadata,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +80,18 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.validateRequest(w, r, &req) {
+		return
+	}
+	if err := validateJobName(req.Name); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateJobSlug(req.Slug); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -115,10 +135,6 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Tags) > 0 {
-		if !s.config.FFJobTags {
-			respondError(w, r, http.StatusNotFound, "job tags feature is not enabled")
-			return
-		}
 		if err := validateTags(req.Tags); err != nil {
 			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
@@ -126,29 +142,38 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := &domain.Job{
-		ProjectID:           req.ProjectID,
-		GroupID:             req.GroupID,
-		Name:                req.Name,
-		Slug:                req.Slug,
-		Description:         req.Description,
-		Cron:                req.Cron,
-		PayloadSchema:       req.PayloadSchema,
-		Tags:                req.Tags,
-		EndpointURL:         req.EndpointURL,
-		FallbackEndpointURL: req.FallbackEndpointURL,
-		MaxAttempts:         req.MaxAttempts,
-		TimeoutSecs:         req.TimeoutSecs,
-		MaxConcurrency:      req.MaxConcurrency,
-		ExecutionWindowCron: req.ExecutionWindowCron,
-		Timezone:            req.Timezone,
-		RateLimitMax:        req.RateLimitMax,
-		RateLimitWindowSecs: req.RateLimitWindowSecs,
-		DedupWindowSecs:     req.DedupWindowSecs,
-		RunTTLSecs:          req.RunTTLSecs,
-		RetryStrategy:       req.RetryStrategy,
-		RetryDelaysSecs:     req.RetryDelaysSecs,
-		EnvironmentID:       req.EnvironmentID,
-		Enabled:             true,
+		ProjectID:            req.ProjectID,
+		GroupID:              req.GroupID,
+		Name:                 req.Name,
+		Slug:                 req.Slug,
+		Description:          req.Description,
+		Cron:                 req.Cron,
+		PayloadSchema:        req.PayloadSchema,
+		Tags:                 req.Tags,
+		EndpointURL:          req.EndpointURL,
+		FallbackEndpointURL:  req.FallbackEndpointURL,
+		MaxAttempts:          req.MaxAttempts,
+		TimeoutSecs:          req.TimeoutSecs,
+		MaxConcurrency:       req.MaxConcurrency,
+		MaxConcurrencyPerKey: req.MaxConcurrencyPerKey,
+		ExecutionWindowCron:  req.ExecutionWindowCron,
+		Timezone:             req.Timezone,
+		RateLimitMax:         req.RateLimitMax,
+		RateLimitWindowSecs:  req.RateLimitWindowSecs,
+		DedupWindowSecs:      req.DedupWindowSecs,
+		RunTTLSecs:           req.RunTTLSecs,
+		RetryStrategy:        req.RetryStrategy,
+		RetryDelaysSecs:      req.RetryDelaysSecs,
+		EnvironmentID:        req.EnvironmentID,
+		DefaultRunMetadata:   req.DefaultRunMetadata,
+		Enabled:              true,
+		VersionPolicy:        domain.VersionPolicyPin,
+		CreatedBy:            actorFromContext(r.Context()),
+		UpdatedBy:            actorFromContext(r.Context()),
+	}
+
+	if req.VersionPolicy != "" {
+		job.VersionPolicy = domain.VersionPolicy(req.VersionPolicy)
 	}
 
 	if err := s.store.CreateJob(r.Context(), job); err != nil {
@@ -199,10 +224,6 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		listErr error
 	)
 	if tagKey != "" {
-		if !s.config.FFJobTags {
-			respondError(w, r, http.StatusNotFound, "job tags feature is not enabled")
-			return
-		}
 		jobs, listErr = s.store.ListJobsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
 	} else {
 		jobs, listErr = s.store.ListJobs(r.Context(), projectID, limit+1, cursor)
@@ -238,6 +259,25 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 	if !s.validateRequest(w, r, &req) {
 		return
+	}
+
+	if req.Name != nil {
+		if err := validateJobName(*req.Name); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Slug != nil {
+		if err := validateJobSlug(*req.Slug); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.EndpointURL != nil {
+		if err := validateEndpointNotEmpty(*req.EndpointURL); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	if req.Cron != nil && *req.Cron != "" {
@@ -288,10 +328,6 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		job.PayloadSchema = *req.PayloadSchema
 	}
 	if req.Tags != nil {
-		if !s.config.FFJobTags {
-			respondError(w, r, http.StatusNotFound, "job tags feature is not enabled")
-			return
-		}
 		if err := validateTags(*req.Tags); err != nil {
 			respondError(w, r, http.StatusBadRequest, err.Error())
 			return
@@ -316,6 +352,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MaxConcurrency != nil {
 		job.MaxConcurrency = *req.MaxConcurrency
+	}
+	if req.MaxConcurrencyPerKey != nil {
+		job.MaxConcurrencyPerKey = *req.MaxConcurrencyPerKey
 	}
 	if req.ExecutionWindowCron != nil {
 		job.ExecutionWindowCron = *req.ExecutionWindowCron
@@ -347,6 +386,15 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled
 	}
+	if req.VersionPolicy != nil {
+		job.VersionPolicy = domain.VersionPolicy(*req.VersionPolicy)
+	}
+	if req.BackwardsCompatible != nil {
+		job.BackwardsCompatible = *req.BackwardsCompatible
+	}
+	if req.DefaultRunMetadata != nil {
+		job.DefaultRunMetadata = *req.DefaultRunMetadata
+	}
 
 	if job.FallbackEndpointURL != "" {
 		if err := validateURL(job.FallbackEndpointURL); err != nil {
@@ -354,6 +402,8 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	job.UpdatedBy = actorFromContext(r.Context())
 
 	if err := s.store.UpdateJob(r.Context(), job); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to update job")
@@ -365,23 +415,27 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
-	job, err := s.store.GetJob(r.Context(), jobID)
-	if err != nil {
+
+	if err := s.store.DeleteJob(r.Context(), jobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			respondError(w, r, http.StatusNotFound, "job not found")
 			return
 		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get job")
-		return
-	}
-
-	job.Enabled = false
-	if err := s.store.UpdateJob(r.Context(), job); err != nil {
+		if errors.Is(err, store.ErrJobHasActiveRuns) {
+			respondError(w, r, http.StatusConflict, "job has active runs — cancel them first or wait for completion")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to delete job")
 		return
 	}
 
-	respondJSON(w, http.StatusNoContent, nil)
+	slog.Info("job deleted",
+		"job_id", jobID,
+		"actor", actorFromContext(r.Context()),
+		"project_id", projectIDFromContext(r.Context()))
+	s.emitAuditEvent(r.Context(), "job.delete", "job", jobID, nil)
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type CloneJobRequest struct {
@@ -411,33 +465,47 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "name and slug are required")
 		return
 	}
+	if err := validateJobName(req.Name); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateJobSlug(req.Slug); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	clone := &domain.Job{
-		ProjectID:           source.ProjectID,
-		GroupID:             source.GroupID,
-		Name:                req.Name,
-		Slug:                req.Slug,
-		Description:         source.Description,
-		Cron:                source.Cron,
-		PayloadSchema:       source.PayloadSchema,
-		Tags:                source.Tags,
-		EndpointURL:         source.EndpointURL,
-		FallbackEndpointURL: source.FallbackEndpointURL,
-		MaxAttempts:         source.MaxAttempts,
-		TimeoutSecs:         source.TimeoutSecs,
-		MaxConcurrency:      source.MaxConcurrency,
-		ExecutionWindowCron: source.ExecutionWindowCron,
-		Timezone:            source.Timezone,
-		RateLimitMax:        source.RateLimitMax,
-		RateLimitWindowSecs: source.RateLimitWindowSecs,
-		DedupWindowSecs:     source.DedupWindowSecs,
-		WebhookURL:          source.WebhookURL,
-		WebhookSecret:       source.WebhookSecret,
-		RunTTLSecs:          source.RunTTLSecs,
-		RetryStrategy:       source.RetryStrategy,
-		RetryDelaysSecs:     source.RetryDelaysSecs,
-		EnvironmentID:       source.EnvironmentID,
-		Enabled:             true,
+		ProjectID:            source.ProjectID,
+		GroupID:              source.GroupID,
+		Name:                 req.Name,
+		Slug:                 req.Slug,
+		Description:          source.Description,
+		Cron:                 source.Cron,
+		PayloadSchema:        source.PayloadSchema,
+		Tags:                 source.Tags,
+		EndpointURL:          source.EndpointURL,
+		FallbackEndpointURL:  source.FallbackEndpointURL,
+		MaxAttempts:          source.MaxAttempts,
+		TimeoutSecs:          source.TimeoutSecs,
+		MaxConcurrency:       source.MaxConcurrency,
+		MaxConcurrencyPerKey: source.MaxConcurrencyPerKey,
+		ExecutionWindowCron:  source.ExecutionWindowCron,
+		Timezone:             source.Timezone,
+		RateLimitMax:         source.RateLimitMax,
+		RateLimitWindowSecs:  source.RateLimitWindowSecs,
+		DedupWindowSecs:      source.DedupWindowSecs,
+		WebhookURL:           source.WebhookURL,
+		WebhookSecret:        source.WebhookSecret,
+		RunTTLSecs:           source.RunTTLSecs,
+		RetryStrategy:        source.RetryStrategy,
+		RetryDelaysSecs:      source.RetryDelaysSecs,
+		EnvironmentID:        source.EnvironmentID,
+		DefaultRunMetadata:   source.DefaultRunMetadata,
+		Enabled:              true,
+		VersionPolicy:        source.VersionPolicy,
+		BackwardsCompatible:  source.BackwardsCompatible,
+		CreatedBy:            actorFromContext(r.Context()),
+		UpdatedBy:            actorFromContext(r.Context()),
 	}
 
 	if err := s.store.CreateJob(r.Context(), clone); err != nil {
@@ -525,11 +593,6 @@ type BatchUpdateResult struct {
 }
 
 func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFBatchJobOps {
-		respondError(w, r, http.StatusNotFound, "batch job operations feature is not enabled")
-		return
-	}
-
 	var req BatchCreateJobsRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -551,6 +614,18 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "validation failed"})
 			continue
 		}
+		if err := validateJobName(jobReq.Name); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+			continue
+		}
+		if err := validateJobSlug(jobReq.Slug); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+			continue
+		}
+		if err := validateEndpointNotEmpty(jobReq.EndpointURL); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+			continue
+		}
 
 		if err := validateURL(jobReq.EndpointURL); err != nil {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid endpoint_url: " + err.Error()})
@@ -569,10 +644,6 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
 		}
 
-		if len(jobReq.Tags) > 0 && !s.config.FFJobTags {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "job tags feature is not enabled"})
-			continue
-		}
 		if len(jobReq.Tags) > 0 {
 			if err := validateTags(jobReq.Tags); err != nil {
 				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
@@ -623,11 +694,6 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFBatchJobOps {
-		respondError(w, r, http.StatusNotFound, "batch job operations feature is not enabled")
-		return
-	}
-
 	var req BatchJobIDsRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -653,11 +719,6 @@ func (s *Server) handleBatchEnableJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBatchDisableJobs(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFBatchJobOps {
-		respondError(w, r, http.StatusNotFound, "batch job operations feature is not enabled")
-		return
-	}
-
 	var req BatchJobIDsRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -691,11 +752,6 @@ type JobHealthResponse struct {
 }
 
 func (s *Server) handleGetJobHealth(w http.ResponseWriter, r *http.Request) {
-	if !s.config.FFJobHealthScoring {
-		respondError(w, r, http.StatusNotFound, "job health scoring feature is not enabled")
-		return
-	}
-
 	jobID := chi.URLParam(r, "jobID")
 
 	_, err := s.store.GetJob(r.Context(), jobID)
