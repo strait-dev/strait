@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -480,7 +481,15 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	}
 
 	slog.Info("prometheus metrics enabled")
-	return m, promhttp.Handler(), provider.Shutdown, nil
+	var shutdownOnce sync.Once
+	var shutdownErr error
+	shutdown := func(ctx context.Context) error {
+		shutdownOnce.Do(func() {
+			shutdownErr = provider.Shutdown(ctx)
+		})
+		return shutdownErr
+	}
+	return m, promhttp.Handler(), shutdown, nil
 }
 
 // PoolStatsProvider exposes pool counters for observable metric callbacks.
