@@ -23,7 +23,7 @@ function BreadcrumbList({ className, ...props }: React.ComponentProps<"ol">) {
   return (
     <ol
       className={cn(
-        "wrap-break-word flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs/relaxed",
+        "wrap-break-word flex flex-wrap items-center gap-1.5 text-muted-foreground text-sm",
         className
       )}
       data-slot="breadcrumb-list"
@@ -101,7 +101,7 @@ function BreadcrumbEllipsis({
     <span
       aria-hidden="true"
       className={cn(
-        "flex size-4 items-center justify-center [&>svg]:size-3.5",
+        "flex size-5 items-center justify-center [&>svg]:size-4",
         className
       )}
       data-slot="breadcrumb-ellipsis"

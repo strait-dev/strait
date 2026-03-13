@@ -16,74 +16,6 @@ import {
 import { cn } from "../utils/index.ts";
 import { Button, buttonVariants } from "./button.tsx";
 
-function CalendarRoot({
-  className,
-  rootRef,
-  ...props
-}: {
-  className?: string;
-  rootRef?: React.Ref<HTMLDivElement>;
-} & React.ComponentProps<"div">) {
-  return (
-    <div
-      className={cn(className)}
-      data-slot="calendar"
-      ref={rootRef}
-      {...props}
-    />
-  );
-}
-
-function CalendarChevron({
-  className,
-  orientation,
-  ...props
-}: { className?: string; orientation?: string } & Record<string, unknown>) {
-  if (orientation === "left") {
-    return (
-      <HugeiconsIcon
-        className={cn("size-4", className)}
-        icon={ArrowLeftIcon}
-        strokeWidth={2}
-        {...props}
-      />
-    );
-  }
-
-  if (orientation === "right") {
-    return (
-      <HugeiconsIcon
-        className={cn("size-4", className)}
-        icon={ArrowRightIcon}
-        strokeWidth={2}
-        {...props}
-      />
-    );
-  }
-
-  return (
-    <HugeiconsIcon
-      className={cn("size-4", className)}
-      icon={ArrowDownIcon}
-      strokeWidth={2}
-      {...props}
-    />
-  );
-}
-
-function CalendarWeekNumber({
-  children,
-  ...props
-}: { children?: React.ReactNode } & React.ComponentProps<"td">) {
-  return (
-    <td {...props}>
-      <div className="flex size-(--cell-size) items-center justify-center text-center">
-        {children}
-      </div>
-    </td>
-  );
-}
-
 function Calendar({
   className,
   classNames,
@@ -103,7 +35,7 @@ function Calendar({
     <DayPicker
       captionLayout={captionLayout}
       className={cn(
-        "group/calendar bg-background in-data-[slot=card-content]:bg-transparent in-data-[slot=popover-content]:bg-transparent p-3 [--cell-radius:var(--radius-md)] [--cell-size:--spacing(6)]",
+        "group/calendar bg-background in-data-[slot=card-content]:bg-transparent in-data-[slot=popover-content]:bg-transparent p-2 [--cell-radius:var(--radius-md)] [--cell-size:--spacing(7)]",
         String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
         String.raw`rtl:**:[.rdp-button\_previous>svg]:rotate-180`,
         className
@@ -199,12 +131,60 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Root: CalendarRoot,
-        Chevron: CalendarChevron,
-        DayButton: (dayButtonProps) => (
-          <CalendarDayButton locale={locale} {...dayButtonProps} />
+        Root: ({ className, rootRef, ...props }) => {
+          return (
+            <div
+              className={cn(className)}
+              data-slot="calendar"
+              ref={rootRef}
+              {...props}
+            />
+          );
+        },
+        Chevron: ({ className, orientation, ...props }) => {
+          if (orientation === "left") {
+            return (
+              <HugeiconsIcon
+                className={cn("size-4", className)}
+                icon={ArrowLeftIcon}
+                strokeWidth={2}
+                {...props}
+              />
+            );
+          }
+
+          if (orientation === "right") {
+            return (
+              <HugeiconsIcon
+                className={cn("size-4", className)}
+                icon={ArrowRightIcon}
+                strokeWidth={2}
+                {...props}
+              />
+            );
+          }
+
+          return (
+            <HugeiconsIcon
+              className={cn("size-4", className)}
+              icon={ArrowDownIcon}
+              strokeWidth={2}
+              {...props}
+            />
+          );
+        },
+        DayButton: ({ ...props }) => (
+          <CalendarDayButton locale={locale} {...props} />
         ),
-        WeekNumber: CalendarWeekNumber,
+        WeekNumber: ({ children, ...props }) => {
+          return (
+            <td {...props}>
+              <div className="flex size-(--cell-size) items-center justify-center text-center">
+                {children}
+              </div>
+            </td>
+          );
+        },
         ...components,
       }}
       formatters={{

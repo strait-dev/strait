@@ -8,7 +8,7 @@ import { cn } from "../utils/index.ts";
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props) {
   return (
     <RadioGroupPrimitive
-      className={cn("grid w-full gap-3", className)}
+      className={cn("grid w-full gap-2", className)}
       data-slot="radio-group"
       {...props}
     />

@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../utils/index.ts";
 
 const badgeVariants = cva(
-  "relative inline-flex w-fit shrink-0 items-center justify-center whitespace-nowrap rounded-sm border border-transparent font-medium outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg:not([class*=size-])]:size-3 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "relative inline-flex w-fit shrink-0 items-center justify-center whitespace-nowrap rounded-4xl border border-transparent font-medium outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg:not([class*=size-])]:size-3 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -19,8 +19,6 @@ const badgeVariants = cva(
         invert: "bg-invert text-invert-foreground",
         "primary-light":
           "border-none bg-primary/10 text-primary dark:bg-primary/20",
-        "secondary-light":
-          "border-none bg-muted text-muted-foreground dark:bg-muted/80",
         "warning-light":
           "border-none bg-warning/10 text-warning dark:bg-warning/20",
         "success-light":
@@ -30,6 +28,8 @@ const badgeVariants = cva(
           "border-none bg-destructive/10 text-destructive dark:bg-destructive/20",
         "invert-light":
           "border-none bg-invert/10 text-foreground dark:bg-invert/20",
+        "secondary-light":
+          "border-none bg-secondary/50 text-secondary-foreground dark:bg-secondary/30",
         "primary-outline":
           "border-border bg-background text-primary dark:bg-input/30",
         "warning-outline":
@@ -41,7 +41,10 @@ const badgeVariants = cva(
         "destructive-outline":
           "border-border bg-background text-destructive dark:bg-input/30",
         "invert-outline":
-          "border-border bg-background text-foreground dark:bg-input/30",
+          "border-border bg-background text-invert-foreground dark:bg-input/30",
+        ghost:
+          "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
+        link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
         xs: "h-4 min-w-4 gap-1 px-1 py-0.25 text-[0.6rem] leading-none",
