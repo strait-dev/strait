@@ -46,12 +46,19 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  render,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  // When render overrides the element (e.g. <a>, <Link>), disable
+  // nativeButton so Base UI doesn't warn about non-<button> semantics.
+  const nativeButton = render == null;
+
   return (
     <ButtonPrimitive
       className={cn(buttonVariants({ variant, size, className }))}
       data-slot="button"
+      nativeButton={nativeButton}
+      render={render}
       {...props}
     />
   );
