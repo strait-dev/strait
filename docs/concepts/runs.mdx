@@ -31,6 +31,11 @@ The `JobRun` struct (defined in `internal/domain/types.go`) contains the followi
 | `priority` | `int` | Scheduling priority (higher numbers are dequeued first). |
 | `idempotency_key` | `string` | Key used to prevent duplicate executions. |
 | `job_version` | `int` | The version of the job configuration used for this run. |
+| `job_version_id` | `string` | The specific version ID of the job configuration used. |
+| `batch_id` | `string` | Reference to the batch operation that created this run (if bulk triggered). |
+| `concurrency_key` | `string` | Key used for per-key concurrency limiting. Runs with the same key on the same job are limited by `max_concurrency_per_key`. |
+| `created_by` | `string` | Actor ID who created the run (user ID or `apikey:<id>`). |
+| `tags` | `map[string]string` | Key-value pairs for filtering and metadata on the run. |
 | `workflow_step_run_id` | `string` | Reference to the workflow step run if part of a workflow. |
 | `max_attempts_override` | `int` | Optional override for the job's `max_attempts`. |
 | `timeout_secs_override` | `int` | Optional override for the job's `timeout_secs`. |

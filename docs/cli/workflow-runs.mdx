@@ -53,16 +53,3 @@ Watch workflow run status and step progression.
 ```bash
 strait workflow-runs watch <run-id> --interval 1s
 ```
-
-## workflow-runs approve
-
-Approve a workflow step.
-
-| Flag | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| --step | string | | Step ID to approve (required) |
-| --approver | string | | Name of the approver (required) |
-
-```bash
-strait workflow-runs approve <run-id> --step step-1 --approver "John Doe"
-```

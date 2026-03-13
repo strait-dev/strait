@@ -29,6 +29,9 @@ The `Job` struct (defined in `internal/domain/types.go`) contains the following 
 | `timezone` | `string` | Timezone for cron scheduling (e.g., "UTC", "America/New_York"). |
 | `rate_limit_max` | `int` | Maximum number of runs allowed in the rate limit window. |
 | `rate_limit_window_secs` | `int` | The window size for rate limiting in seconds. |
+| `max_concurrency_per_key` | `int` | Per-key concurrency limit. When set with a run's `concurrency_key`, limits concurrent active runs sharing the same key. |
+| `rate_limit_keys` | `[]RateLimitKey` | Named rate limit configurations. Each entry has `name`, `max`, and `window_secs`. |
+| `default_run_metadata` | `map[string]string` | Default metadata key-value pairs applied to every run created for this job. |
 | `dedup_window_secs` | `int` | Window for deduplicating identical trigger requests. |
 | `enabled` | `bool` | Whether the job is active and can be triggered. |
 | `webhook_url` | `string` | URL to notify when a run reaches a terminal state. |
@@ -73,6 +76,21 @@ Jobs are scoped to a `project_id`. The `slug` must be unique within that project
 - **Max Concurrency**: Limits the number of parallel executions for a single job definition.
 - **Rate Limiting**: Prevents thundering herds by capping the number of runs over a sliding window.
 - **Deduplication**: Uses `dedup_window_secs` and an idempotency key to ignore duplicate trigger requests within a short timeframe.
+
+### Per-Key Concurrency
+
+When `max_concurrency_per_key` is set on a job, each run must provide a `concurrency_key`. Runs sharing the same key are limited to `max_concurrency_per_key` concurrent active executions. This is useful for per-tenant or per-resource throttling.
+
+For example, setting `max_concurrency_per_key: 1` ensures only one run per key executes at a time, creating a per-key serial queue.
+
+### Named Rate Limit Keys
+
+The `rate_limit_keys` field allows defining multiple named rate limits on a single job. Each entry specifies:
+- `name`: identifier for the rate limit
+- `max`: maximum runs in the window
+- `window_secs`: window duration in seconds
+
+This extends the flat `rate_limit_max`/`rate_limit_window_secs` to support more granular control.
 
 ## Job Versioning
 
