@@ -67,9 +67,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: |
-            go.sum
+            apps/strait/go.sum
 
       - name: Run ${{ matrix.label }} load tests
+        working-directory: apps/strait
         run: |
           set -o pipefail
           go test -json -tags "loadtest,integration" \
@@ -79,10 +80,12 @@ jobs:
 
       - name: Generate summary
         if: always()
+        working-directory: apps/strait
         run: go run ./test/loadtest/cmd/summary -input vegeta-${{ matrix.domain }}.jsonl -output vegeta-${{ matrix.domain }}-summary.md -suite "vegeta-${{ matrix.domain }}"
 
       - name: Publish summary
         if: always()
+        working-directory: apps/strait
         run: cat vegeta-${{ matrix.domain }}-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
@@ -92,8 +95,8 @@ jobs:
           name: vegeta-${{ matrix.domain }}
           if-no-files-found: ignore
           path: |
-            vegeta-${{ matrix.domain }}.jsonl
-            vegeta-${{ matrix.domain }}-summary.md
+            apps/strait/vegeta-${{ matrix.domain }}.jsonl
+            apps/strait/vegeta-${{ matrix.domain }}-summary.md
 
   # ---------------------------------------------------------------------------
   # Integration load tests — split into two parallel jobs
@@ -110,9 +113,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: |
-            go.sum
+            apps/strait/go.sum
 
       - name: Run queue, store, and rate limit load tests
+        working-directory: apps/strait
         env:
           LOADTEST_VOLUME_TIER: ${{ inputs.volume_tier }}
         run: |
@@ -124,10 +128,12 @@ jobs:
 
       - name: Generate summary
         if: always()
+        working-directory: apps/strait
         run: go run ./test/loadtest/cmd/summary -input integration-queue-store.jsonl -output integration-queue-store-summary.md -suite integration-queue-store
 
       - name: Publish summary
         if: always()
+        working-directory: apps/strait
         run: cat integration-queue-store-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
@@ -137,8 +143,8 @@ jobs:
           name: integration-queue-store
           if-no-files-found: ignore
           path: |
-            integration-queue-store.jsonl
-            integration-queue-store-summary.md
+            apps/strait/integration-queue-store.jsonl
+            apps/strait/integration-queue-store-summary.md
 
   integration-pipeline:
     runs-on: ubuntu-latest
@@ -152,9 +158,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: |
-            go.sum
+            apps/strait/go.sum
 
       - name: Run pipeline, worker, webhook, and workflow load tests
+        working-directory: apps/strait
         env:
           LOADTEST_VOLUME_TIER: ${{ inputs.volume_tier }}
         run: |
@@ -166,10 +173,12 @@ jobs:
 
       - name: Generate summary
         if: always()
+        working-directory: apps/strait
         run: go run ./test/loadtest/cmd/summary -input integration-pipeline.jsonl -output integration-pipeline-summary.md -suite integration-pipeline
 
       - name: Publish summary
         if: always()
+        working-directory: apps/strait
         run: cat integration-pipeline-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
@@ -179,5 +188,5 @@ jobs:
           name: integration-pipeline
           if-no-files-found: ignore
           path: |
-            integration-pipeline.jsonl
-            integration-pipeline-summary.md
+            apps/strait/integration-pipeline.jsonl
+            apps/strait/integration-pipeline-summary.md

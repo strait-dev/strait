@@ -25,15 +25,17 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: |
-            go.sum
+            apps/strait/go.sum
 
       - name: Run benchmarks
+        working-directory: apps/strait
         run: |
           set -o pipefail
           go test -bench . -benchmem -run=^$ -count=3 ./internal/... | tee benchmark-results.txt
 
       - name: Format benchmark summary
-        if: always() && hashFiles('benchmark-results.txt') != ''
+        if: always() && hashFiles('apps/strait/benchmark-results.txt') != ''
+        working-directory: apps/strait
         run: go run ./scripts/format-benchmarks benchmark-results.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload raw benchmark results
@@ -43,4 +45,4 @@ jobs:
           name: benchmark-results
           if-no-files-found: ignore
           path: |
-            benchmark-results.txt
+            apps/strait/benchmark-results.txt

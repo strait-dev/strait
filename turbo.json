@@ -1,0 +1,129 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "globalPassThroughEnv": [
+    "AXIOM_DATASET",
+    "AXIOM_TOKEN",
+
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_API_TOKEN",
+    "DB_HOST",
+    "DB_NAME",
+    "DB_PASSWORD",
+    "DB_USER",
+    "GOOGLE_CLIENT_ID",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GOOGLE_CLIENT_SECRET",
+    "INFISICAL_CLIENT_ID",
+    "INFISICAL_CLIENT_SECRET",
+    "INFISICAL_PROJECT_ID",
+    "NGROK_AUTHTOKEN",
+    "NGROK_DOMAIN",
+    "NEXT_PUBLIC_DASHBOARD_URL",
+    "NEXT_PUBLIC_DOCS_URL",
+    "NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID",
+    "NEXT_PUBLIC_POSTHOG_HOST",
+    "NEXT_PUBLIC_POSTHOG_KEY",
+    "NEXT_PUBLIC_WEBSITE_URL",
+    "OPENAI_API_KEY",
+    "POLAR_ACCESS_TOKEN",
+    "POLAR_ENTERPRISE_MONTHLY_ID",
+    "POLAR_ENTERPRISE_YEARLY_ID",
+    "POLAR_GROWTH_MONTHLY_ID",
+    "POLAR_GROWTH_YEARLY_ID",
+    "POLAR_NGROK_URL",
+    "POLAR_ORGANIZATION_ID",
+    "POLAR_ORGANIZATION_SLUG",
+    "POLAR_PROFESSIONAL_MONTHLY_ID",
+    "POLAR_PROFESSIONAL_YEARLY_ID",
+    "POLAR_STARTER_MONTHLY_ID",
+    "POLAR_STARTER_YEARLY_ID",
+    "POLAR_WEBHOOK_SECRET",
+    "REDIS_URL",
+    "POSTHOG_HOST",
+    "POSTHOG_KEY",
+    "RESEND_API_KEY",
+    "RESEND_HELLO_EMAIL",
+    "RESEND_LEO_EMAIL",
+    "RESEND_SUPPORT_EMAIL",
+    "RESEND_USERS_AUDIENCE_ID",
+    "SENTRY_AUTH_TOKEN",
+    "SENTRY_DSN",
+    "SENTRY_ORG",
+    "SENTRY_PROJECT",
+    "TURBO_TEAM",
+    "TURBO_TOKEN",
+    "UPSTASH_REDIS_REST_TOKEN",
+    "UPSTASH_REDIS_REST_URL",
+    "VERCEL_ORG_ID",
+    "VERCEL_PROJECT_ID",
+    "VITE_BASE_URL",
+    "AUTH_DATABASE_URL",
+    "STRAIT_API_URL",
+    "STRAIT_INTERNAL_SECRET",
+    "VITE_GOOGLE_CLIENT_ID",
+    "VITE_POSTHOG_HOST",
+    "VITE_POSTHOG_KEY",
+    "VITE_SENTRY_DSN",
+    "VITE_SENTRY_ENVIRONMENT"
+  ],
+  "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", ".env"],
+      "dependsOn": ["^build"],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "next-env.d.ts",
+        ".expo/**",
+        ".output/**",
+        ".vercel/output/**",
+        "dist/**"
+      ]
+    },
+    "start": {
+      "cache": false
+    },
+    "test": {
+      "outputs": ["coverage/**"],
+      "cache": true
+    },
+    "test:unit": {
+      "outputs": ["coverage/**"],
+      "cache": true
+    },
+    "test:e2e": {
+      "outputs": ["playwright-report/**", "test-results/**"],
+      "cache": false
+    },
+    "dev": {
+      "inputs": ["$TURBO_DEFAULT$", ".env"],
+      "persistent": true,
+      "cache": false
+    },
+    "lint": {
+      "outputs": []
+    },
+    "typecheck": {
+      "outputs": []
+    },
+    "biome:format": {
+      "outputs": []
+    },
+    "biome:write": {
+      "outputs": []
+    },
+    "biome:fix:unsafe": {
+      "outputs": []
+    },
+    "biome:lint": {
+      "outputs": []
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

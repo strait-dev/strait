@@ -10,11 +10,11 @@ The Strait CLI is a powerful tool for managing jobs, runs, workflows, and server
 Build from source or install to your GOPATH:
 
 ```bash
-# Build from source
-go build -o strait ./cmd/strait
+# Build from source (from repo root)
+go build -o strait ./apps/strait/cmd/strait
 
-# Or install to GOPATH/bin
-go install ./cmd/strait
+# Or install from the app directory
+cd apps/strait && go install ./cmd/strait
 ```
 
 ## Configuration

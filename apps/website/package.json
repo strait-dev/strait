@@ -1,0 +1,48 @@
+{
+  "name": "@strait/website",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "biome lint ./src",
+    "basehub": "basehub",
+    "biome:lint": "biome lint ./src",
+    "biome:format": "biome format --write ./src",
+    "biome:write": "biome check --write ./src",
+    "biome:fix:unsafe": "biome check --fix --unsafe ./src",
+    "typecheck": "tsc --noEmit",
+    "clean": "git clean -xdf .next .turbo node_modules",
+    "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck"
+  },
+  "dependencies": {
+    "@hugeicons/core-free-icons": "^4.0.0",
+    "@hugeicons/react": "^1.1.6",
+    "@next/third-parties": "^16.1.6",
+    "@strait/billing": "workspace:*",
+    "@strait/ui": "workspace:*",
+    "@tailwindcss/postcss": "^4.2.1",
+    "basehub": "^9.5.3",
+    "clsx": "^2.1.1",
+    "geist": "^1.7.0",
+    "next": "^16.1.6",
+    "next-themes": "^0.4.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "sonner": "^2.0.7",
+    "tailwindcss": "^4.2.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "postcss": "^8.5.8",
+    "postcss-load-config": "^6.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.0"
+  }
+}

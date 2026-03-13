@@ -1,0 +1,6 @@
+{
+  "extends": "../config/base.json",
+  "display": "@strait/utils",
+  "include": ["."],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@strait/billing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./products": "./src/products.ts"
+  },
+  "scripts": {
+    "build": "echo 'No build step for @strait/billing'",
+    "typecheck": "echo 'No typecheck step for @strait/billing'",
+    "clean": "git clean -xdf .turbo node_modules"
+  }
+}

@@ -1,0 +1,151 @@
+package webhook
+
+import (
+	"context"
+	"fmt"
+	"hash/fnv"
+	"strconv"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+const (
+	defaultWebhookFailureThreshold = 5
+	defaultWebhookFailureWindow    = time.Minute
+	defaultWebhookOpenDuration     = time.Minute
+)
+
+type WebhookCircuitBreaker interface {
+	CanDeliver(ctx context.Context, url string) (bool, error)
+	RecordSuccess(ctx context.Context, url string)
+	RecordFailure(ctx context.Context, url string)
+}
+
+type RedisWebhookCircuitBreaker struct {
+	client           *redis.Client
+	enabled          bool
+	failureThreshold int
+	failureWindow    time.Duration
+	openDuration     time.Duration
+	now              func() time.Time
+}
+
+type RedisWebhookCircuitBreakerOption func(*RedisWebhookCircuitBreaker)
+
+func WithWebhookCircuitBreakerThreshold(threshold int) RedisWebhookCircuitBreakerOption {
+	return func(cb *RedisWebhookCircuitBreaker) {
+		if threshold > 0 {
+			cb.failureThreshold = threshold
+		}
+	}
+}
+
+func WithWebhookCircuitBreakerWindow(window time.Duration) RedisWebhookCircuitBreakerOption {
+	return func(cb *RedisWebhookCircuitBreaker) {
+		if window > 0 {
+			cb.failureWindow = window
+		}
+	}
+}
+
+func WithWebhookCircuitBreakerOpenDuration(openDuration time.Duration) RedisWebhookCircuitBreakerOption {
+	return func(cb *RedisWebhookCircuitBreaker) {
+		if openDuration > 0 {
+			cb.openDuration = openDuration
+		}
+	}
+}
+
+func NewRedisWebhookCircuitBreaker(client *redis.Client, enabled bool, opts ...RedisWebhookCircuitBreakerOption) *RedisWebhookCircuitBreaker {
+	cb := &RedisWebhookCircuitBreaker{
+		client:           client,
+		enabled:          enabled,
+		failureThreshold: defaultWebhookFailureThreshold,
+		failureWindow:    defaultWebhookFailureWindow,
+		openDuration:     defaultWebhookOpenDuration,
+		now:              time.Now,
+	}
+	for _, opt := range opts {
+		opt(cb)
+	}
+	return cb
+}
+
+func (cb *RedisWebhookCircuitBreaker) CanDeliver(ctx context.Context, url string) (bool, error) {
+	if !cb.enabled || cb.client == nil || url == "" {
+		return true, nil
+	}
+
+	openKey := cb.openKey(url)
+	open, err := cb.client.Exists(ctx, openKey).Result()
+	if err != nil {
+		return false, fmt.Errorf("circuit breaker exists: %w", err)
+	}
+	if open > 0 {
+		return false, nil
+	}
+
+	failureKey := cb.failureKey(url)
+	cutoff := strconv.FormatInt(cb.now().Add(-cb.failureWindow).UnixMilli(), 10)
+	if err := cb.client.ZRemRangeByScore(ctx, failureKey, "-inf", cutoff).Err(); err != nil {
+		return false, fmt.Errorf("circuit breaker cleanup: %w", err)
+	}
+
+	failures, err := cb.client.ZCard(ctx, failureKey).Result()
+	if err != nil {
+		return false, fmt.Errorf("circuit breaker count failures: %w", err)
+	}
+
+	if failures >= int64(cb.failureThreshold) {
+		if err := cb.client.Set(ctx, openKey, "1", cb.openDuration).Err(); err != nil {
+			return false, fmt.Errorf("circuit breaker set open: %w", err)
+		}
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (cb *RedisWebhookCircuitBreaker) RecordSuccess(ctx context.Context, url string) {
+	if !cb.enabled || cb.client == nil || url == "" {
+		return
+	}
+
+	_ = cb.client.Del(ctx, cb.failureKey(url), cb.openKey(url)).Err()
+}
+
+func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url string) {
+	if !cb.enabled || cb.client == nil || url == "" {
+		return
+	}
+
+	now := cb.now()
+	failureKey := cb.failureKey(url)
+	openKey := cb.openKey(url)
+
+	_ = cb.client.ZAdd(ctx, failureKey, redis.Z{
+		Score:  float64(now.UnixMilli()),
+		Member: strconv.FormatInt(now.UnixNano(), 10),
+	}).Err()
+	_ = cb.client.Expire(ctx, failureKey, cb.failureWindow).Err()
+
+	failures, err := cb.client.ZCard(ctx, failureKey).Result()
+	if err == nil && failures >= int64(cb.failureThreshold) {
+		_ = cb.client.Set(ctx, openKey, "1", cb.openDuration).Err()
+	}
+}
+
+func (cb *RedisWebhookCircuitBreaker) failureKey(url string) string {
+	return "webhook:circuit:failures:" + hashURL(url)
+}
+
+func (cb *RedisWebhookCircuitBreaker) openKey(url string) string {
+	return "webhook:circuit:open:" + hashURL(url)
+}
+
+func hashURL(url string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(url))
+	return strconv.FormatUint(h.Sum64(), 10)
+}

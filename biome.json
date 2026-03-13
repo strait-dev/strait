@@ -1,0 +1,160 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/core", "ultracite/react"],
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**/*.{ts,tsx,js,jsx,json,css}",
+      "**/convex/**/*.ts",
+      "!node_modules",
+      "!.next",
+      "!.turbo",
+      "!tanstack",
+      "!dist",
+      "!build",
+      "!**/_generated",
+      "!**/routeTree.gen.ts"
+    ]
+  },
+  "css": {
+    "parser": {
+      "cssModules": false,
+      "tailwindDirectives": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "correctness": {
+        "noUnusedVariables": {
+          "level": "error",
+          "fix": "none"
+        },
+        "noUnresolvedImports": "off"
+      },
+      "style": {
+        "useFilenamingConvention": "off",
+        "useConsistentTypeDefinitions": "off"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "off"
+      },
+      "performance": {
+        "noBarrelFile": "off",
+        "noNamespaceImport": "off",
+        "noImgElement": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noUnknownAtRules": "off"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/routeTree.gen.ts",
+        "**/_generated/**",
+        "**/basehub-types.d.ts"
+      ],
+      "linter": {
+        "enabled": false
+      }
+    },
+    {
+      "includes": ["**/packages/ui/src/components/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useSemanticElements": "off",
+            "useFocusableInteractive": "off",
+            "noLabelWithoutControl": "off",
+            "useKeyWithClickEvents": "off",
+            "noNoninteractiveElementInteractions": "off",
+            "noRedundantRoles": "off",
+            "useAriaPropsForRole": "off"
+          },
+          "correctness": {
+            "noNestedComponentDefinitions": "off",
+            "useExhaustiveDependencies": "off"
+          },
+          "security": {
+            "noDangerouslySetInnerHtml": "off"
+          },
+          "suspicious": {
+            "noDoubleEquals": "off",
+            "noArrayIndexKey": "off",
+            "noDocumentCookie": "off"
+          },
+          "style": {
+            "noNestedTernary": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/hooks/**/*.ts", "**/hooks/**/*.tsx"]
+    },
+    {
+      "includes": ["**/lib/export/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noMagicNumbers": "off",
+            "noNestedTernary": "off",
+            "useDefaultSwitchClause": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/workflows/**/*.ts", "**/convex/**/*.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          },
+          "style": {
+            "noMagicNumbers": "off"
+          },
+          "suspicious": {
+            "noImplicitAnyLet": "off",
+            "noEvolvingTypes": "off"
+          },
+          "nursery": {
+            "noShadow": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/lib/editor/**/*.ts",
+        "**/lib/editor/**/*.tsx",
+        "**/components/editor/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.scss"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnknownTypeSelector": "off"
+          }
+        }
+      }
+    }
+  ]
+}

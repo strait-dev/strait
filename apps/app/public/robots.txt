@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /
+
+# Strait ERP Application
+# This is an authenticated application - crawling is not permitted.
+# For our marketing site, visit: https://getshopwyse.com

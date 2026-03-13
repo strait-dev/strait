@@ -3,12 +3,12 @@ FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache ca-certificates
 
-WORKDIR /build
+WORKDIR /build/apps/strait
 
-COPY go.mod go.sum ./
+COPY apps/strait/go.mod apps/strait/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY apps/strait ./
 
 ARG VERSION=dev
 ARG COMMIT=none

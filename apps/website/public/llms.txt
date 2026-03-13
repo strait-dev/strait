@@ -1,0 +1,83 @@
+# Strait
+
+> AI writing assistant with conversation-first drafting and style analysis.
+
+Strait is an AI-powered writing platform that replaces the blank page with a guided conversation. An AI interviewer gathers your brief — purpose, audience, key points, and tone — then a writing assistant generates multiple draft angles for you to refine. Built for writers who want to produce better content faster.
+
+Website: https://trystrait.ai
+App: https://app.trystrait.ai
+
+## Key Features
+
+1. **Conversation-first writing** — An AI interviewer guides you through a structured brief before any writing begins.
+2. **Multiple draft angles** — Get 3 distinct content approaches (e.g., Hook-First, Story-Led, Data-Driven) per session.
+3. **10 content types** — Blog posts, Twitter threads, LinkedIn posts, emails, newsletters, press releases, product descriptions, ad copy, articles, and custom freeform.
+4. **Style profiles** — Define your voice with formality and energy scales, upload samples for AI analysis, and apply profiles to any session.
+5. **Style analysis** — Upload PDFs, text files, Markdown, or provide a URL to analyze writing style automatically.
+6. **Rich text editor** — Tiptap-powered editor with 20+ extensions including formatting, headings, lists, code blocks, images, and links.
+7. **Workspaces and folders** — Organize projects into color-coded workspaces with nested folders and custom tags.
+8. **Multi-format export** — Download finished work as PDF, DOCX, Markdown, or plain text.
+9. **Real-time sync** — Changes propagate instantly across all devices via Convex reactive queries.
+10. **50+ languages** — Write and get AI assistance in over 50 languages with automatic detection.
+
+## Pricing
+
+| Feature | Personal ($30/mo) | Pro ($50/mo) |
+|---------|-------------------|--------------|
+| Sessions | 50/month | 150/month |
+| Messages per session | Unlimited | Unlimited |
+| Style profiles | 5 | Unlimited |
+| Workspaces | 3 | Unlimited |
+| Drafts per session | 3 | 5 |
+| Languages | All 50+ | All 50+ |
+| Support | Email (48h) | Priority (12h) |
+| Early access | — | ✓ |
+
+Yearly billing: $24/mo (Personal), $40/mo (Pro).
+
+## AI Capabilities
+
+- **Interviewer agent**: Gathers purpose, audience, key points, and tone through structured conversation.
+- **Writing assistant agent**: Generates 3 draft angles based on the interview brief, then refines through chat.
+- **Session lifecycle**: Full state machine managing interview → drafts → refinement → completion.
+- **Style matching**: AI adapts output to match your style profile's formality, energy, and voice characteristics.
+
+## Content Types
+
+1. Blog Post
+2. Twitter Thread
+3. LinkedIn Post
+4. Follow-Up Email
+5. Article
+6. Newsletter
+7. Product Description
+8. Ad Copy
+9. Press Release
+10. Custom (freeform)
+
+## Use Cases
+
+- **Content creators**: Produce blog posts, social media content, and newsletters faster with AI-guided drafting.
+- **Marketing teams**: Generate ad copy, product descriptions, and press releases with consistent brand voice.
+- **Freelance writers**: Manage multiple client projects with workspaces and apply different style profiles per client.
+- **Non-native speakers**: Write confidently in 50+ languages with AI assistance that understands grammar rules and cultural context.
+
+## Competitive Position
+
+- **vs. blank page**: Strait replaces the blank page with a conversation that builds your brief before writing.
+- **vs. ChatGPT**: Purpose-built for writing with structured interviews, multiple draft angles, and style profiles — not a general chatbot.
+- **vs. Grammarly**: Goes beyond corrections to generate full drafts from a guided conversation.
+- **vs. Jasper**: Conversation-first approach with style analysis instead of template-based generation.
+
+## Links
+
+- Website: https://trystrait.ai
+- Pricing: https://trystrait.ai/pricing
+- Blog: https://trystrait.ai/blog
+- Full documentation: https://trystrait.ai/llms-full.txt
+
+## Contact
+
+- Email: leonardomso11@gmail.com
+- Twitter: https://twitter.com/leonardomso
+- GitHub: https://github.com/leonardomso

@@ -1,0 +1,28 @@
+{
+  "name": "@strait/transactional",
+  "version": "1.0.0",
+  "main": "emails/index.ts",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "dev": "email dev -p 3001",
+    "export": "email export",
+    "clean": "rm -rf .turbo node_modules",
+    "biome:lint": "biome lint .",
+    "biome:format": "biome format --write .",
+    "biome:write": "biome check --write .",
+    "biome:fix:unsafe": "biome check --fix --unsafe .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-email/components": "1.0.9",
+    "react": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "react-email": "5.2.9",
+    "typescript": "^5.9.3"
+  }
+}

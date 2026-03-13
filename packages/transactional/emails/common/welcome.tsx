@@ -1,0 +1,154 @@
+import {
+  Body,
+  Button,
+  Container,
+  Font,
+  Head,
+  Heading,
+  Hr,
+  Html,
+  Img,
+  Link,
+  Preview,
+  Section,
+  Tailwind,
+  Text,
+} from "@react-email/components";
+
+type WelcomeEmailProps = {
+  name: string;
+};
+
+const WelcomeEmail = ({ name }: WelcomeEmailProps) => (
+  <Html>
+    <Preview>Welcome to Strait!</Preview>
+    <Tailwind>
+      <Head>
+        <Font
+          fallbackFontFamily="Helvetica"
+          fontFamily="Geist"
+          fontStyle="normal"
+          fontWeight={400}
+          webFont={{
+            url: "https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist:ital,opsz@0,14..32;1,14..32&display=swap",
+            format: "woff2",
+          }}
+        />
+        <Font
+          fallbackFontFamily="Helvetica"
+          fontFamily="Geist"
+          fontStyle="normal"
+          fontWeight={500}
+          webFont={{
+            url: "https://fonts.gstatic.com/s/Geist/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuI6fAZ9hiA.woff2",
+            format: "woff2",
+          }}
+        />
+      </Head>
+      <Body className="mx-auto my-auto bg-white font-sans">
+        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-gray-200 border-solid px-10 py-8">
+          <Section>
+            <Img
+              alt="Strait"
+              className=""
+              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+              width="150"
+            />
+          </Section>
+
+          <br />
+
+          <Heading className="m-0 p-0 text-left font-semibold text-black text-lg tracking-tight">
+            Welcome to Strait!
+          </Heading>
+
+          <br />
+
+          <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
+            {name ? `Hello ${name},` : "Hello,"} welcome to our sales management
+            platform!
+          </Text>
+
+          <br />
+
+          <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
+            We're very happy to have you with us. With Strait, you'll have
+            access to powerful tools to boost your sales, manage customers and
+            track your business performance in real time.
+          </Text>
+
+          <br />
+
+          <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
+            Here are some things you can do now:
+          </Text>
+
+          <br />
+
+          <Section>
+            <Text className="m-0 text-[#8D8D8D] text-sm leading-6">
+              • Register your first{" "}
+              <Link
+                href="https://app.usestrait.com/customers"
+                style={{ color: "#ff6b00", textDecoration: "underline" }}
+              >
+                customers
+              </Link>
+              <br />• Set up your{" "}
+              <Link
+                href="https://app.usestrait.com/settings"
+                style={{ color: "#ff6b00", textDecoration: "underline" }}
+              >
+                sales profile
+              </Link>
+              <br />• Create your first{" "}
+              <Link
+                href="https://app.usestrait.com/sales"
+                style={{ color: "#ff6b00", textDecoration: "underline" }}
+              >
+                sales order
+              </Link>
+              <br />• Explore our{" "}
+              <Link
+                href="https://app.usestrait.com/reports"
+                style={{ color: "#ff6b00", textDecoration: "underline" }}
+              >
+                reports and analytics
+              </Link>
+            </Text>
+          </Section>
+
+          <br />
+
+          <Section>
+            <Button
+              className="inline-flex h-10 items-center justify-center rounded-[0.3rem] bg-[#FF4F00] px-6 font-medium text-sm text-white no-underline transition-colors"
+              href="https://app.usestrait.com"
+            >
+              Access my account
+            </Button>
+          </Section>
+
+          <br />
+
+          <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+            If you have any questions, just reply to this email or contact our
+            support team. We're here to help you succeed!
+          </Text>
+
+          <br />
+
+          <Hr className="mx-0 w-full border-gray-200 border-t" />
+
+          <br />
+        </Container>
+      </Body>
+    </Tailwind>
+  </Html>
+);
+
+WelcomeEmail.PreviewProps = {
+  name: "Leonardo Santos",
+};
+
+export default WelcomeEmail;

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/start.ts!",
+    "src/router.tsx!",
+    "src/routes/**/*.{ts,tsx}!",
+    "postcss.config.mjs"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}!",
+    "!src/routeTree.gen.ts",
+    "!**/*.test.{ts,tsx}",
+    "!**/*.spec.{ts,tsx}"
+  ],
+  "paths": {
+    "@/*": ["./src/*"],
+    "@strait/ui/*": ["../../packages/ui/src/*"],
+    "@strait/mail": ["../../packages/mail/index.ts"],
+    "@strait/kv": ["../../packages/kv/index.ts"],
+    "@strait/transactional": ["../../packages/transactional/src/index.ts"],
+    "@strait/utils": ["../../packages/utils/src/index"]
+  },
+  "ignoreDependencies": [
+    "@strait/ui",
+    "@strait/mail",
+    "@strait/transactional",
+    "@strait/kv",
+    "@strait/utils",
+    "@tailwindcss/postcss",
+    "@radix-ui/react-accordion"
+  ],
+  "ignoreBinaries": ["biome"],
+  "includeEntryExports": false,
+  "ignoreExportsUsedInFile": {
+    "interface": true,
+    "type": true
+  },
+  "vite": true,
+  "vitest": {
+    "config": ["vitest.config.ts"]
+  }
+}

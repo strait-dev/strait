@@ -33,10 +33,10 @@ git clone https://github.com/leonardomso/strait.git
 cd strait
 
 # Start all services
-docker compose up -d
+docker compose -f apps/strait/docker-compose.yml up -d
 
 # Verify services are running
-docker compose ps
+docker compose -f apps/strait/docker-compose.yml ps
 ```
 
 Expected output:
@@ -49,9 +49,9 @@ sequin            Up
 ```
 
 <Troubleshoot>
-**Problem**: `docker compose up -d` fails with port already in use.
+**Problem**: `docker compose -f apps/strait/docker-compose.yml up -d` fails with port already in use.
 
-**Solution**: Stop the conflicting service or change port mapping in `docker-compose.yml`. Check with `lsof -i :8080` on macOS/Linux or `netstat -ano | findstr :8080` on Windows.
+**Solution**: Stop the conflicting service or change port mapping in `apps/strait/docker-compose.yml`. Check with `lsof -i :8080` on macOS/Linux or `netstat -ano | findstr :8080` on Windows.
 </Troubleshoot>
 
 <Troubleshoot>
@@ -92,7 +92,7 @@ export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
 <Troubleshoot>
 **Problem**: `DATABASE_URL` connection refused.
 
-**Solution**: Verify PostgreSQL container is running with `docker compose ps postgres`. Check logs with `docker compose logs postgres`. Ensure port 5432 is not already in use.
+**Solution**: Verify PostgreSQL container is running with `docker compose -f apps/strait/docker-compose.yml ps postgres`. Check logs with `docker compose -f apps/strait/docker-compose.yml logs postgres`. Ensure port 5432 is not already in use.
 </Troubleshoot>
 
 <Troubleshoot>
@@ -106,8 +106,8 @@ export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
 Build Strait binary and start it in `all` mode (API + worker combined).
 
 ```bash
-# Build from source
-go build -o strait ./cmd/strait
+# Build from source (from repo root)
+go build -o strait ./apps/strait/cmd/strait
 
 # Run in all mode (API + worker in one process)
 ./strait --mode all
@@ -138,7 +138,7 @@ Scheduler running
 <Troubleshoot>
 **Problem**: Build fails with import errors.
 
-**Solution**: Ensure Go 1.26+ is installed: `go version`. Run `go mod download` to fetch dependencies. Check for corporate proxy settings affecting module downloads.
+**Solution**: Ensure Go 1.26+ is installed: `go version`. Run `cd apps/strait && go mod download` to fetch dependencies. Check for corporate proxy settings affecting module downloads.
 </Troubleshoot>
 
 ## Step 4: Create a Job
@@ -294,7 +294,7 @@ curl -X POST http://localhost:8080/v1/workflows \
   <Step title="PostgreSQL Connection Issues">
     <Details>
       **Symptoms**: `connection refused`, `no such host`, or timeout errors in strait logs.
-      **Checks**: `docker compose ps postgres`, `docker compose logs postgres`, verify `DATABASE_URL` matches container credentials.
+      **Checks**: `docker compose -f apps/strait/docker-compose.yml ps postgres`, `docker compose -f apps/strait/docker-compose.yml logs postgres`, verify `DATABASE_URL` matches container credentials.
       **Fix**: Ensure PostgreSQL container is healthy, check network connectivity, verify port 5432 is not blocked by firewall.
     </Details>
   </Step>

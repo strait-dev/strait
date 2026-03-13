@@ -4,11 +4,12 @@ project_name: strait
 
 before:
   hooks:
-    - go mod tidy
-    - go generate ./...
+    - cd apps/strait && go mod tidy
+    - cd apps/strait && go generate ./...
 
 builds:
   - id: strait
+    dir: ./apps/strait
     main: ./cmd/strait
     binary: strait
     env:
@@ -79,6 +80,7 @@ dockers:
   - image_templates:
       - "ghcr.io/leonardomso/strait:{{ .Version }}-amd64"
     use: buildx
+    dockerfile: ./apps/strait/Dockerfile
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.title={{ .ProjectName }}"
@@ -88,6 +90,7 @@ dockers:
   - image_templates:
       - "ghcr.io/leonardomso/strait:{{ .Version }}-arm64"
     use: buildx
+    dockerfile: ./apps/strait/Dockerfile
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.title={{ .ProjectName }}"

@@ -1,0 +1,227 @@
+import {
+  SidebarInset,
+  SidebarMenuButton,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@strait/ui/components/sidebar.tsx";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  useNavigate,
+} from "@tanstack/react-router";
+import { zodValidator } from "@tanstack/zod-adapter";
+import { Suspense, useEffect, useRef, useState } from "react";
+import * as z from "zod";
+import ErrorComponent from "@/components/common/error-component.tsx";
+import { RequireOrganization } from "@/components/common/require-organization.tsx";
+import Sidebar from "@/components/common/sidebar.tsx";
+import { ThemeToggle } from "@/components/common/theme-toggle.tsx";
+import FeedbackDialog from "@/components/help/feedback-dialog.tsx";
+import SupportDialog from "@/components/help/support-dialog.tsx";
+import OrganizationDropdownMenu from "@/components/organization/organization-dropdown-menu.tsx";
+import { usePostHog } from "@/components/providers/posthog-provider.tsx";
+import UpgradeBanner from "@/components/subscription/trial-upgrade-banner.tsx";
+import { TrialStartedModal } from "@/components/upgrade/trial-started-modal.tsx";
+import {
+  organizationQueryOptions,
+  organizationsQueryOptions,
+} from "@/hooks/auth/use-organization.ts";
+import {
+  subscriptionQueryOptions,
+  subscriptionStateQueryOptions,
+} from "@/hooks/subscription/use-subscription.ts";
+import { ensureSession } from "@/lib/auth-server.ts";
+import { setSentryUser } from "@/lib/sentry.ts";
+import type { AuthUser, Session } from "@/routes/__root.tsx";
+
+const appSearchSchema = z.object({
+  trial_started: z.coerce.boolean().optional(),
+  checkout_success: z.coerce.boolean().optional(),
+});
+
+export const Route = createFileRoute("/app")({
+  validateSearch: zodValidator(appSearchSchema),
+  beforeLoad: async ({ context, location }) => {
+    if (!context.isAuthenticated) {
+      throw redirect({
+        to: "/login",
+        search: {
+          redirect: location.href,
+        },
+      });
+    }
+
+    const sessionData = await ensureSession().catch(() => null);
+
+    if (!sessionData) {
+      throw redirect({
+        to: "/login",
+        search: { redirect: location.href },
+      });
+    }
+
+    const session: NonNullable<Session> = {
+      user: sessionData.user as AuthUser,
+      session: sessionData.session,
+    };
+
+    return { session };
+  },
+  loader: async ({ context }) => {
+    const session = (context as unknown as { session: NonNullable<Session> })
+      .session;
+    if (!session) {
+      throw new Error("Session unexpectedly null in loader");
+    }
+
+    setSentryUser(session);
+
+    const defaultOrgId = session.user.defaultOrganizationId;
+
+    await Promise.all([
+      context.queryClient.ensureQueryData(organizationsQueryOptions()),
+      defaultOrgId
+        ? context.queryClient.ensureQueryData(
+            organizationQueryOptions(defaultOrgId)
+          )
+        : Promise.resolve(),
+      context.queryClient.ensureQueryData(subscriptionQueryOptions()),
+      context.queryClient.ensureQueryData(subscriptionStateQueryOptions()),
+    ]);
+
+    return {
+      session,
+      hasOrganization: !!defaultOrgId,
+    };
+  },
+  errorComponent: ErrorComponent,
+  component: RouteComponent,
+});
+
+type SearchParams = z.infer<typeof appSearchSchema>;
+type LoaderData = {
+  session: NonNullable<Session>;
+  hasOrganization: boolean;
+};
+
+function RouteComponent() {
+  const loaderData = Route.useLoaderData() as LoaderData;
+  const { session, hasOrganization } = loaderData;
+  const search = Route.useSearch() as SearchParams;
+  const navigate = useNavigate();
+  const posthog = usePostHog();
+  const [showTrialModal, setShowTrialModal] = useState(false);
+  const hasIdentifiedRef = useRef(false);
+
+  const { data: subscription } = useSuspenseQuery(subscriptionQueryOptions());
+  const { data: subscriptionState } = useSuspenseQuery(
+    subscriptionStateQueryOptions()
+  );
+
+  useEffect(() => {
+    if (hasIdentifiedRef.current || !posthog || !session?.user?.id) {
+      return;
+    }
+
+    const plan = subscriptionState?.planSlug ?? "none";
+    const isTrialing = subscriptionState?.isTrialing ?? false;
+    const trialEnd = subscriptionState?.trialInfo?.trialEnd ?? null;
+    const organizationId = session.user.defaultOrganizationId;
+
+    posthog.identify(session.user.id, {
+      email: session.user.email,
+      name: session.user.name || undefined,
+      plan,
+      is_trialing: isTrialing,
+      trial_ends_at: trialEnd,
+      organization_id: organizationId || undefined,
+    });
+
+    if (organizationId) {
+      posthog.group("organization", organizationId, {
+        plan,
+        is_trialing: isTrialing,
+        subscription_status: subscription?.status || "none",
+      });
+    }
+
+    hasIdentifiedRef.current = true;
+  }, [posthog, session, subscription, subscriptionState]);
+
+  useEffect(() => {
+    if (search.trial_started) {
+      setShowTrialModal(true);
+    }
+  }, [search.trial_started]);
+
+  const handleTrialModalClose = (open: boolean) => {
+    setShowTrialModal(open);
+    if (!open && search.trial_started) {
+      navigate({
+        to: "/app",
+        search: {} as SearchParams,
+        replace: true,
+      });
+    }
+  };
+
+  return (
+    <SidebarProvider>
+      <Sidebar session={session} />
+      <SidebarInset>
+        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center border-b bg-background">
+          <div className="mx-auto w-full max-w-[1800px] px-4 sm:px-8 lg:px-20">
+            <div className="flex w-full items-center justify-between">
+              <div className="flex flex-column items-center gap-2">
+                <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
+                <Suspense
+                  fallback={
+                    <SidebarMenuButton
+                      className="w-full max-w-[200px]"
+                      size="lg"
+                    >
+                      <div className="grid flex-1 text-left text-sm leading-tight">
+                        <span className="truncate font-semibold">
+                          Loading...
+                        </span>
+                      </div>
+                    </SidebarMenuButton>
+                  }
+                >
+                  <OrganizationDropdownMenu
+                    session={session}
+                    user={session.user}
+                  />
+                </Suspense>
+              </div>
+              <div className="flex flex-column items-center gap-2">
+                <ThemeToggle />
+                <FeedbackDialog user={session.user} />
+                <SupportDialog user={session.user} />
+              </div>
+            </div>
+          </div>
+        </header>
+        {session ? <UpgradeBanner /> : null}
+        <div
+          className="flex flex-1 flex-col gap-4 bg-background pt-0"
+          vaul-drawer-wrapper=""
+        >
+          <RequireOrganization
+            hasOrganization={hasOrganization}
+            organizationId={session.user?.defaultOrganizationId}
+          >
+            <Outlet />
+          </RequireOrganization>
+        </div>
+      </SidebarInset>
+
+      <TrialStartedModal
+        onOpenChange={handleTrialModalClose}
+        open={showTrialModal}
+      />
+    </SidebarProvider>
+  );
+}

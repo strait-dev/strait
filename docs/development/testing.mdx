@@ -7,7 +7,7 @@ Testing is a core part of Strait development process. We use a combination of un
 
 ## Test Infrastructure
 
-Shared testing utilities are located in `internal/testutil/`:
+Shared testing utilities are located in `apps/strait/internal/testutil/`:
 
 - `testdb.go`: Helpers for spinning up ephemeral PostgreSQL instances using `testcontainers-go`.
 - `testredis.go`: Helpers for ephemeral Redis instances.
@@ -22,7 +22,7 @@ Shared testing utilities are located in `internal/testutil/`:
 Unit tests are fast and do not require external dependencies.
 
 ```bash
-go test ./...
+cd apps/strait && go test ./...
 ```
 
 ### Integration Tests
@@ -30,7 +30,7 @@ go test ./...
 Integration tests require Docker to run `testcontainers`. They are marked with the `integration` build tag.
 
 ```bash
-go test -tags integration ./...
+cd apps/strait && go test -tags integration ./...
 ```
 
 ### End-to-End (E2E) Tests
@@ -38,7 +38,7 @@ go test -tags integration ./...
 E2E tests verify the entire system flow, from API request to job execution.
 
 ```bash
-go test -tags integration ./internal/e2e/...
+cd apps/strait && go test -tags integration ./internal/e2e/...
 ```
 
 ### Fuzz Tests
@@ -46,7 +46,7 @@ go test -tags integration ./internal/e2e/...
 We use Go's native fuzzing to test the robustness of the FSM transitions.
 
 ```bash
-go test -fuzz FuzzFSMTransition ./internal/domain/
+cd apps/strait && go test -fuzz FuzzFSMTransition ./internal/domain/
 ```
 
 ### Benchmarks
@@ -54,7 +54,7 @@ go test -fuzz FuzzFSMTransition ./internal/domain/
 Performance benchmarks for critical paths like the job queue and workflow engine.
 
 ```bash
-go test -bench . ./internal/...
+cd apps/strait && go test -bench . ./internal/...
 ```
 
 ### Event Trigger Benchmarks
@@ -148,7 +148,7 @@ gh workflow run "Load Tests" --field volume_tier=large
 Always run tests with the race detector enabled in CI and during local development of concurrent features.
 
 ```bash
-go test -race ./...
+cd apps/strait && go test -race ./...
 ```
 
 ### Code Coverage
@@ -156,6 +156,7 @@ go test -race ./...
 Generate a coverage report to identify untested paths.
 
 ```bash
+cd apps/strait
 go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```

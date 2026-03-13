@@ -13,6 +13,7 @@ To build and run Strait locally, you need:
 
 - **Go 1.26+**
 - **Docker** (for running PostgreSQL, Redis, and Sequin)
+- **Bun** (workspace package manager)
 - **golangci-lint** (for linting)
 - **lefthook** (for pre-commit hooks)
 
@@ -27,21 +28,26 @@ To build and run Strait locally, you need:
 2. **Start infrastructure**:
    Use Docker Compose to start the required services:
    ```bash
-   docker compose up -d
+   docker compose -f apps/strait/docker-compose.yml up -d
    ```
 
-3. **Install pre-commit hooks**:
+3. **Install workspace dependencies**:
+   ```bash
+   bun install
+   ```
+
+4. **Install pre-commit hooks**:
    ```bash
    lefthook install
    ```
 
-4. **Run the application**:
+5. **Run the application**:
    ```bash
    export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
    export REDIS_URL=redis://localhost:6379
    export INTERNAL_SECRET=your-secret
    export JWT_SIGNING_KEY=your-jwt-key-at-least-32-chars-long
-   go run ./cmd/strait --mode all
+   go run ./apps/strait/cmd/strait --mode all
    ```
 
 ## Code Style
@@ -59,11 +65,11 @@ We follow idiomatic Go patterns and specific project conventions:
 
 ## Linting
 
-We use `golangci-lint` with a strict set of 18+ linters configured in `.golangci.yml`.
+We use `golangci-lint` with a strict set of 18+ linters configured in `apps/strait/.golangci.yml`.
 
 To run the linter manually:
 ```bash
-golangci-lint run ./...
+cd apps/strait && golangci-lint run ./...
 ```
 
 The linter checks for code duplication, unhandled errors, security vulnerabilities, and style consistency.
@@ -93,12 +99,13 @@ If `lefthook` fails, you must fix the issues before you can commit your changes.
 
 ## Project Structure
 
-- `cmd/strait/`: Entry point for the CLI and server. Contains command definitions.
-- `internal/`: Private application code.
+- `apps/strait/cmd/strait/`: Entry point for the CLI and server. Contains command definitions.
+- `apps/strait/internal/`: Private application code.
   - `api/`: HTTP handlers and routing.
   - `domain/`: Core business logic and FSM definitions.
   - `store/`: Database access layer (raw SQL).
   - `worker/`: Job execution and pond/v2 worker pool with backpressure and OTel metrics.
   - `scheduler/`: Background tasks and polling (uses conc for structured concurrency).
   - `testutil/`: Shared testing helpers, go-cmp assertion utilities, and data factories.
-- `migrations/`: SQL migration files embedded into the binary.
+- `apps/strait/migrations/`: SQL migration files embedded into the binary.
+- `packages/`: Shared workspace packages (UI, SDKs, utilities, etc.).
