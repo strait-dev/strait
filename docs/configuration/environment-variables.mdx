@@ -48,6 +48,7 @@ This page documents all environment variables available for configuring Strait.
 | `POLLER_INTERVAL` | Duration | `5s` | Interval for the job poller to check for new work. |
 | `INDEX_MAINTENANCE_INTERVAL` | Duration | `24h` | Interval for partial index maintenance (`REINDEX INDEX CONCURRENTLY`). Set to `0` or negative to disable. |
 | `REAPER_DELETE_BATCH_SIZE` | Integer | `100` | Number of records to delete in a single reaper batch. |
+| `LOG_DRAIN_WORKER_INTERVAL` | Duration | `60s` | Interval for the log drain delivery worker. |
 
 ## Database Pool
 
@@ -55,8 +56,8 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `DB_MAX_CONNS` | Integer | `25` | Maximum number of open connections to the database. |
 | `DB_MIN_CONNS` | Integer | `5` | Minimum number of idle connections in the pool. |
-| `DB_MAX_CONN_LIFETIME` | Duration | `1h` | Maximum amount of time a connection may be reused. |
-| `DB_MAX_CONN_IDLE_TIME` | Duration | `30m` | Maximum amount of time a connection may be idle. |
+| `DB_MAX_CONN_LIFETIME` | Duration | `30m` | Maximum amount of time a connection may be reused. |
+| `DB_MAX_CONN_IDLE_TIME` | Duration | `5m` | Maximum amount of time a connection may be idle. |
 | `DB_PGBOUNCER_MODE` | Boolean | `false` | Enable PgBouncer-compatible connection handling. Disables features incompatible with connection poolers. |
 
 ## Rate Limiting
@@ -74,6 +75,7 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `REQUEST_TIMEOUT` | Duration | `30s` | Timeout for incoming HTTP requests. |
 | `MAX_REQUEST_BODY_SIZE` | Integer | `1MB` | Maximum size of the request body in bytes. |
+| `MAX_BULK_TRIGGER_ITEMS` | Integer | `500` | Maximum number of items in a single bulk trigger request. |
 
 ## Sequin CDC
 
@@ -139,6 +141,9 @@ This page documents all environment variables available for configuring Strait.
 | `MAX_WORKFLOW_NESTING_DEPTH` | Integer | `10` | Maximum allowed depth for nested workflows. |
 | `WF_STALL_THRESHOLD` | Duration | `15m` | Max time without workflow progression before run is considered stalled by reaper. |
 | `WF_STALL_ACTION` | String | `log_only` | Action when stalled run is detected: `log_only`, `reconcile`, or `fail_workflow`. |
+| `WF_MAX_STEP_CAP` | Integer | `0` | Maximum number of steps allowed in a single workflow. `0` means unlimited. |
+| `WF_STEP_CONCURRENCY_LIMIT` | Integer | `0` | Maximum concurrent step executions per workflow run. `0` means unlimited. |
+| `DEPENDENCY_STATUS_CACHE_TTL` | Duration | `5s` | TTL for the job dependency status cache. |
 
 ## SSE Configuration
 
@@ -160,21 +165,7 @@ This page documents all environment variables available for configuring Strait.
 | `ENCRYPTION_KEY` | String | - | Primary key used for data encryption. |
 | `ENCRYPTION_KEY_OLD` | String List | - | List of previous encryption keys used for rotation. |
 
-## OIDC Authentication
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `OIDC_ENABLED` | Boolean | `false` | Enable OIDC authentication. |
-| `OIDC_ISSUER` | String | - | OIDC issuer URL. |
-| `OIDC_AUDIENCE` | String | - | OIDC audience. |
-| `OIDC_PUBLIC_KEY_PEM` | String | - | OIDC public key in PEM format. |
-
-## CDC Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `CDC_BATCH_SIZE` | Integer | `10` | Number of events to process in a single CDC batch. Overrides `SEQUIN_BATCH_SIZE`. |
-| `CDC_WAIT_TIME_MS` | Integer | `5000` | Wait time in milliseconds for CDC polling. Overrides `SEQUIN_WAIT_TIME_MS`. |
 
 ## Shutdown
 
@@ -182,18 +173,12 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `WORKER_DRAIN_TIMEOUT` | Duration | `30s` | Maximum time to wait for workers to finish in-flight jobs during shutdown. |
 
-## RBAC
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `PERMISSION_CACHE_TTL` | Duration | `30s` | Time-to-live for the RBAC permission cache. |
 
 ## Webhook Delivery
 
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `WEBHOOK_MAX_PAYLOAD_BYTES` | Integer | `1MB` | Maximum size of webhook payloads in bytes. |
-| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
 
 ## Adaptive Concurrency
 

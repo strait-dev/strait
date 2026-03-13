@@ -222,3 +222,19 @@ func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
 		t.Fatalf("EncryptionKeyOld = %#v, want [old-key-1 old-key-2 old-key-3]", cfg.EncryptionKeyOld)
 	}
 }
+
+func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxBulkTriggerItems != 500 {
+		t.Errorf("MaxBulkTriggerItems = %d, want 500", cfg.MaxBulkTriggerItems)
+	}
+}

@@ -34,6 +34,12 @@ tags:
     description: External event trigger management for durable waits
   - name: SDK
     description: Endpoints called by job executors using run tokens
+  - name: BatchOperations
+    description: Batch operation tracking for bulk triggers
+  - name: LogDrains
+    description: External log drain configuration and management
+  - name: EventSources
+    description: Inbound event source and subscription management
 
 paths:
   /health:
@@ -822,6 +828,21 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: triggered_by
+          in: query
+          schema:
+            type: string
+          description: Filter by trigger source (manual, cron, spawn, workflow, retry, event)
+        - name: batch_id
+          in: query
+          schema:
+            type: string
+          description: Filter runs by batch operation ID
+        - name: payload_contains
+          in: query
+          schema:
+            type: string
+          description: JSON object for JSONB containment filter on run payload
       responses:
         '200':
           description: List of runs
@@ -990,6 +1011,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/runs/bulk-cancel-all:
+    post:
+      tags:
+        - Runs
+      summary: Cancel all runs matching filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkCancelAllRequest'
+      responses:
+        '200':
+          description: Bulk cancel results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkCancelResponse'
+
+  /v1/runs/bulk-replay:
+    post:
+      tags:
+        - Runs
+      summary: Replay multiple runs by ID
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - run_ids
+              properties:
+                run_ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Replayed runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobRun'
 
   /v1/runs/{runID}/stream:
     get:
@@ -1249,6 +1327,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RunDependencyStatusResponse'
+
+  /v1/runs/{runID}/idempotency-key:
+    delete:
+      tags:
+        - Runs
+      summary: Reset idempotency key for a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Idempotency key reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  run_id:
+                    type: string
+
+  /v1/runs/{runID}/reschedule:
+    post:
+      tags:
+        - Runs
+      summary: Reschedule a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - scheduled_at
+              properties:
+                scheduled_at:
+                  type: string
+                  format: date-time
+                payload:
+                  type: object
+      responses:
+        '200':
+          description: Run rescheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRun'
 
   /v1/workflows:
     get:
@@ -2404,6 +2543,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReplayWorkflowSubtreeResponse'
 
+  /v1/workflow-runs/bulk-cancel:
+    post:
+      tags:
+        - WorkflowRuns
+      summary: Bulk cancel workflow runs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkWorkflowRunRequest'
+      responses:
+        '200':
+          description: Bulk cancel results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  canceled:
+                    type: integer
+                  failed:
+                    type: integer
+
+  /v1/workflow-runs/bulk-replay:
+    post:
+      tags:
+        - WorkflowRuns
+      summary: Bulk replay workflow runs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkWorkflowRunRequest'
+      responses:
+        '200':
+          description: Bulk replay results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  replayed:
+                    type: integer
+                  failed:
+                    type: integer
+
   /v1/workflows/{workflowID}/simulate:
     parameters:
       - name: workflowID
@@ -3099,6 +3290,389 @@ paths:
         '204':
           description: Webhook subscription deleted
 
+  /v1/batch-operations:
+    get:
+      tags:
+        - BatchOperations
+      summary: List batch operations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of batch operations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BatchOperation'
+
+  /v1/batch-operations/{batchID}:
+    get:
+      tags:
+        - BatchOperations
+      summary: Get a batch operation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: batchID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Batch operation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchOperation'
+
+  /v1/log-drains:
+    get:
+      tags:
+        - LogDrains
+      summary: List log drains
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of log drains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LogDrain'
+    post:
+      tags:
+        - LogDrains
+      summary: Create a log drain
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLogDrainRequest'
+      responses:
+        '201':
+          description: Log drain created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogDrain'
+
+  /v1/log-drains/{drainID}:
+    get:
+      tags:
+        - LogDrains
+      summary: Get a log drain
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: drainID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Log drain details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogDrain'
+    patch:
+      tags:
+        - LogDrains
+      summary: Update a log drain
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: drainID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLogDrainRequest'
+      responses:
+        '200':
+          description: Log drain updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogDrain'
+    delete:
+      tags:
+        - LogDrains
+      summary: Delete a log drain
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: drainID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Log drain deleted
+
+  /v1/event-sources:
+    get:
+      tags:
+        - EventSources
+      summary: List event sources
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of event sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventSource'
+    post:
+      tags:
+        - EventSources
+      summary: Create an event source
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventSourceRequest'
+      responses:
+        '201':
+          description: Event source created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSource'
+
+  /v1/event-sources/{sourceID}:
+    get:
+      tags:
+        - EventSources
+      summary: Get an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event source details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSource'
+    patch:
+      tags:
+        - EventSources
+      summary: Update an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventSourceRequest'
+      responses:
+        '204':
+          description: Event source updated
+    delete:
+      tags:
+        - EventSources
+      summary: Delete an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Event source deleted
+
+  /v1/event-sources/{sourceID}/subscriptions:
+    get:
+      tags:
+        - EventSources
+      summary: List subscriptions for an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventSubscription'
+
+  /v1/event-sources/{sourceID}/subscribe:
+    post:
+      tags:
+        - EventSources
+      summary: Subscribe to an event source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscribeToEventSourceRequest'
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSubscription'
+
+  /v1/event-sources/{sourceID}/subscriptions/{subID}:
+    delete:
+      tags:
+        - EventSources
+      summary: Delete a subscription
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: subID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Subscription deleted
+
+  /v1/events/dispatch:
+    post:
+      tags:
+        - EventSources
+      summary: Dispatch an event
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchEventRequest'
+      responses:
+        '200':
+          description: Event dispatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchEventResponse'
+
   /sdk/v1/runs/{runID}/wait-for-event:
     post:
       tags:
@@ -3607,6 +4181,18 @@ components:
           type: integer
         rate_limit_window_secs:
           type: integer
+        max_concurrency_per_key:
+          type: integer
+          description: Per-key concurrency limit for runs with matching concurrency_key
+        rate_limit_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateLimitKey'
+        default_run_metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Default metadata applied to every run created for this job
         dedup_window_secs:
           type: integer
         enabled:
@@ -3766,6 +4352,12 @@ components:
           type: string
         created_by:
           type: string
+        batch_id:
+          type: string
+          description: Reference to the batch operation that created this run
+        concurrency_key:
+          type: string
+          description: Key used for per-key concurrency limiting
         created_at:
           type: string
           format: date-time
@@ -5534,3 +6126,265 @@ components:
               type: string
         dot:
           type: string
+
+    RateLimitKey:
+      type: object
+      properties:
+        name:
+          type: string
+        max:
+          type: integer
+        window_secs:
+          type: integer
+
+    BatchOperation:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        job_id:
+          type: string
+        item_count:
+          type: integer
+        created_count:
+          type: integer
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    LogDrain:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        drain_type:
+          type: string
+        endpoint_url:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        level_filter:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateLogDrainRequest:
+      type: object
+      required:
+        - project_id
+        - name
+        - drain_type
+        - endpoint_url
+        - auth_type
+      properties:
+        project_id:
+          type: string
+        name:
+          type: string
+        drain_type:
+          type: string
+        endpoint_url:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        level_filter:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    UpdateLogDrainRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        endpoint_url:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        level_filter:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    EventSource:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+          description: Optional JSON Schema for event payload validation
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateEventSourceRequest:
+      type: object
+      required:
+        - project_id
+        - name
+      properties:
+        project_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+        enabled:
+          type: boolean
+
+    UpdateEventSourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+        enabled:
+          type: boolean
+
+    EventSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+        source_id:
+          type: string
+        target_type:
+          type: string
+          enum: [job, workflow]
+        target_id:
+          type: string
+        filter_expr:
+          type: object
+          description: Filter expression evaluated against event payload
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    SubscribeToEventSourceRequest:
+      type: object
+      required:
+        - target_type
+        - target_id
+      properties:
+        target_type:
+          type: string
+          enum: [job, workflow]
+        target_id:
+          type: string
+        filter_expr:
+          type: object
+        enabled:
+          type: boolean
+
+    DispatchEventRequest:
+      type: object
+      required:
+        - source
+        - project_id
+      properties:
+        source:
+          type: string
+          description: Event source name
+        project_id:
+          type: string
+        payload:
+          type: object
+
+    DispatchEventResponse:
+      type: object
+      properties:
+        dispatched:
+          type: integer
+        source:
+          type: string
+
+    BulkCancelAllRequest:
+      type: object
+      properties:
+        job_id:
+          type: string
+        batch_id:
+          type: string
+        triggered_by:
+          type: string
+        status:
+          $ref: '#/components/schemas/RunStatus'
+
+    BulkReplayRequest:
+      type: object
+      required:
+        - run_ids
+      properties:
+        run_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 100
+
+    BulkWorkflowRunRequest:
+      type: object
+      required:
+        - workflow_run_ids
+      properties:
+        workflow_run_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 100

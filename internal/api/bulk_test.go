@@ -161,7 +161,7 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 	ms := &mockAPIStore{getJobFn: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	items := make([]map[string]any, 101)
+	items := make([]map[string]any, 501)
 	for i := range items {
 		items[i] = map[string]any{}
 	}
@@ -176,7 +176,7 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "maximum 100 items") {
+	if !strings.Contains(w.Body.String(), "maximum 500 items") {
 		t.Fatalf("expected maximum items error, got %s", w.Body.String())
 	}
 }

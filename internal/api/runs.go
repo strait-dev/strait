@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -82,6 +83,21 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		metadataValue = &metadataValueRaw
 	}
 
+	var triggeredBy *string
+	if tb := query.Get("triggered_by"); tb != "" {
+		triggeredBy = &tb
+	}
+
+	var batchID *string
+	if bid := query.Get("batch_id"); bid != "" {
+		batchID = &bid
+	}
+
+	var payloadContains json.RawMessage
+	if pc := query.Get("payload_contains"); pc != "" {
+		payloadContains = json.RawMessage(pc)
+	}
+
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
@@ -92,7 +108,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	if tagKey != "" {
 		runs, err = s.store.ListRunsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
 	} else {
-		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, limit+1, cursor)
+		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, limit+1, cursor)
 	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list runs")
@@ -497,4 +513,127 @@ func (s *Server) handleListRunLineage(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, paginatedResult(runs, limit, func(run domain.JobRun) string {
 		return run.CreatedAt.Format(time.RFC3339Nano)
 	}))
+}
+
+func (s *Server) handleResetIdempotencyKey(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+
+	if err := s.store.ResetRunIdempotencyKey(r.Context(), runID); err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found or not eligible for idempotency reset")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to reset idempotency key")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "reset", "run_id": runID})
+}
+
+type RescheduleRunRequest struct {
+	ScheduledAt time.Time       `json:"scheduled_at" validate:"required"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+}
+
+func (s *Server) handleRescheduleRun(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+
+	var req RescheduleRunRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+
+	if err := s.store.RescheduleRun(r.Context(), runID, req.ScheduledAt, req.Payload); err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found or not eligible for rescheduling")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to reschedule run")
+		return
+	}
+
+	updatedRun, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to fetch rescheduled run")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
+func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunIDs []string `json:"run_ids" validate:"required,min=1,max=100"`
+	}
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+
+	type replayResult struct {
+		OriginalRunID string `json:"original_run_id"`
+		NewRunID      string `json:"new_run_id,omitempty"`
+		Status        string `json:"status"`
+		Error         string `json:"error,omitempty"`
+	}
+
+	results := make([]replayResult, 0, len(req.RunIDs))
+	replayed := 0
+
+	for _, runID := range req.RunIDs {
+		original, err := s.store.GetRun(r.Context(), runID)
+		if err != nil {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
+			continue
+		}
+		if !isReplayableRunStatus(original.Status) {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "skipped", Error: "run is not replayable"})
+			continue
+		}
+
+		job, err := s.store.GetJob(r.Context(), original.JobID)
+		if err != nil || !job.Enabled {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "job not found or disabled"})
+			continue
+		}
+
+		now := time.Now()
+		var expiresAt time.Time
+		if job.RunTTLSecs > 0 {
+			expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+		} else {
+			expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		}
+
+		replayRun := &domain.JobRun{
+			JobID:        original.JobID,
+			ProjectID:    original.ProjectID,
+			Attempt:      1,
+			Payload:      original.Payload,
+			TriggeredBy:  domain.TriggerManual,
+			Priority:     original.Priority,
+			JobVersion:   original.JobVersion,
+			JobVersionID: job.VersionID,
+			Tags:         original.Tags,
+			CreatedBy:    actorFromContext(r.Context()),
+			ExpiresAt:    &expiresAt,
+		}
+
+		if err := s.queue.Enqueue(r.Context(), replayRun); err != nil {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "enqueue failed"})
+			continue
+		}
+
+		results = append(results, replayResult{OriginalRunID: runID, NewRunID: replayRun.ID, Status: "replayed"})
+		replayed++
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(req.RunIDs), "replayed": replayed})
 }

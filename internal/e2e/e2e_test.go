@@ -55,6 +55,7 @@ func TestMain(m *testing.M) {
 			TriggerRateLimitWindow:   time.Minute,
 			CORSAllowedOrigins:       []string{"*"},
 			CORSAllowCredentials:     false,
+			MaxBulkTriggerItems:     500,
 		},
 		Store: testStore,
 		Queue: testQueue,

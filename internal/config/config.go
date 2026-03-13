@@ -50,8 +50,9 @@ type Config struct {
 	TriggerRateLimitRequests int           `mapstructure:"TRIGGER_RATE_LIMIT_REQUESTS"`
 	TriggerRateLimitWindow   time.Duration `mapstructure:"TRIGGER_RATE_LIMIT_WINDOW"`
 
-	RequestTimeout     time.Duration `mapstructure:"REQUEST_TIMEOUT"`
-	MaxRequestBodySize int64         `mapstructure:"MAX_REQUEST_BODY_SIZE"`
+	RequestTimeout      time.Duration `mapstructure:"REQUEST_TIMEOUT"`
+	MaxRequestBodySize  int64         `mapstructure:"MAX_REQUEST_BODY_SIZE"`
+	MaxBulkTriggerItems int           `mapstructure:"MAX_BULK_TRIGGER_ITEMS"`
 
 	// Sequin CDC settings
 	SequinBaseURL      string `mapstructure:"SEQUIN_BASE_URL"`
@@ -108,6 +109,9 @@ type Config struct {
 
 	// SSE settings
 	SSEKeepaliveInterval time.Duration `mapstructure:"SSE_KEEPALIVE_INTERVAL"`
+
+	// Log drain settings
+	LogDrainWorkerInterval time.Duration `mapstructure:"LOG_DRAIN_WORKER_INTERVAL"`
 }
 
 func setDefaults() {
@@ -132,6 +136,7 @@ func setDefaults() {
 	viper.SetDefault("TRIGGER_RATE_LIMIT_WINDOW", time.Minute)
 	viper.SetDefault("REQUEST_TIMEOUT", 30*time.Second)
 	viper.SetDefault("MAX_REQUEST_BODY_SIZE", int64(1<<20))
+	viper.SetDefault("MAX_BULK_TRIGGER_ITEMS", 500)
 	viper.SetDefault("OIDC_ENABLED", false)
 	viper.SetDefault("OIDC_ISSUER", "")
 	viper.SetDefault("OIDC_AUDIENCE", "")
@@ -172,6 +177,7 @@ func setDefaults() {
 	viper.SetDefault("CDC_BATCH_SIZE", 10)
 	viper.SetDefault("CDC_WAIT_TIME_MS", 5000)
 	viper.SetDefault("SSE_KEEPALIVE_INTERVAL", 15*time.Second)
+	viper.SetDefault("LOG_DRAIN_WORKER_INTERVAL", 60*time.Second)
 }
 
 func BindEnv() error {
@@ -183,7 +189,7 @@ func BindEnv() error {
 		"OTEL_EXPORTER_OTLP_ENDPOINT", "WORKFLOW_RUN_RETENTION_DAYS", "DB_MAX_CONNS",
 		"DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME", "RATE_LIMIT_REQUESTS",
 		"RATE_LIMIT_WINDOW", "TRIGGER_RATE_LIMIT_REQUESTS", "TRIGGER_RATE_LIMIT_WINDOW",
-		"REQUEST_TIMEOUT", "MAX_REQUEST_BODY_SIZE", "SEQUIN_BASE_URL", "SEQUIN_CONSUMER_NAME",
+		"REQUEST_TIMEOUT", "MAX_REQUEST_BODY_SIZE", "MAX_BULK_TRIGGER_ITEMS", "SEQUIN_BASE_URL", "SEQUIN_CONSUMER_NAME",
 		"SEQUIN_API_TOKEN", "SEQUIN_BATCH_SIZE", "SEQUIN_WAIT_TIME_MS", "CORS_ALLOWED_ORIGINS",
 		"CORS_ALLOW_CREDENTIALS", "WORKER_PARTITIONS", "WORKER_PARTITION_WEIGHTS",
 		"ADAPTIVE_CONCURRENCY_MIN", "ADAPTIVE_CONCURRENCY_MAX", "DB_PGBOUNCER_MODE",
@@ -197,6 +203,7 @@ func BindEnv() error {
 		"CDC_WAIT_TIME_MS", "SSE_KEEPALIVE_INTERVAL",
 		"PERMISSION_CACHE_TTL",
 		"EVENT_TRIGGER_RETENTION", "EVENT_TRIGGER_RETENTION_DAYS",
+		"LOG_DRAIN_WORKER_INTERVAL",
 	}
 
 	for _, key := range keys {
@@ -269,6 +276,7 @@ func Load() (*Config, error) {
 	cfg.CDCWaitTimeMs = viper.GetInt("CDC_WAIT_TIME_MS")
 	cfg.SSEKeepaliveInterval = viper.GetDuration("SSE_KEEPALIVE_INTERVAL")
 	cfg.WorkerDrainTimeout = viper.GetDuration("WORKER_DRAIN_TIMEOUT")
+	cfg.LogDrainWorkerInterval = viper.GetDuration("LOG_DRAIN_WORKER_INTERVAL")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")

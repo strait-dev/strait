@@ -20,8 +20,9 @@ import (
 
 func benchmarkConfig() *config.Config {
 	return &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "01234567890123456789012345678901",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
 	}
 }
 
@@ -466,7 +467,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 		listChildRunsFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			return nil, nil
 		},
-		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, _, _ *string, limit int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, projectID string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, limit int, _ *time.Time) ([]domain.JobRun, error) {
 			out := make([]domain.JobRun, 0, limit)
 			for i := range limit {
 				out = append(out, domain.JobRun{ID: fmt.Sprintf("list-%d", i), ProjectID: projectID, Status: domain.StatusQueued})

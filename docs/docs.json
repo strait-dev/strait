@@ -40,7 +40,10 @@
               "concepts/cdc",
               "concepts/adaptive-concurrency",
               "concepts/audit-logging",
-              "concepts/webhook-subscriptions"
+              "concepts/webhook-subscriptions",
+              "concepts/log-drains",
+              "concepts/event-sources",
+              "concepts/batch-operations"
             ]
           },
           {
@@ -123,7 +126,6 @@
               "cli/events",
               "cli/api-keys",
               "cli/secrets",
-              "cli/environments",
               "cli/stats",
               "cli/backup",
               "cli/server",

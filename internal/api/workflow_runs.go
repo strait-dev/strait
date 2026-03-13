@@ -783,3 +783,81 @@ func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Requ
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"reset_steps": reset})
 }
+
+func (s *Server) handleBulkCancelWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkflowRunIDs []string `json:"workflow_run_ids" validate:"required,min=1,max=100"`
+	}
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+
+	projectID := r.URL.Query().Get("project_id")
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id query parameter is required")
+		return
+	}
+
+	now := time.Now()
+	canceled, err := s.store.BulkCancelWorkflowRuns(r.Context(), projectID, req.WorkflowRunIDs, now)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to cancel workflow runs")
+		return
+	}
+
+	// Cancel associated step runs and job runs for each canceled workflow run.
+	for _, wrID := range canceled {
+		if _, err := s.store.CancelNonTerminalStepRuns(r.Context(), wrID, now, "parent workflow canceled (bulk)"); err != nil {
+			slog.Error("failed to cancel step runs", "workflow_run_id", wrID, "error", err)
+		}
+		if _, err := s.store.CancelJobRunsByWorkflowRun(r.Context(), wrID, now, "parent workflow canceled (bulk)"); err != nil {
+			slog.Error("failed to cancel job runs", "workflow_run_id", wrID, "error", err)
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"canceled": len(canceled), "workflow_run_ids": canceled})
+}
+
+func (s *Server) handleBulkReplayWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkflowRunIDs []string `json:"workflow_run_ids" validate:"required,min=1,max=100"`
+	}
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !s.validateRequest(w, r, &req) {
+		return
+	}
+
+	if s.workflowEngine == nil {
+		respondError(w, r, http.StatusServiceUnavailable, "workflow engine not available")
+		return
+	}
+
+	type replayResult struct {
+		OriginalRunID string `json:"original_run_id"`
+		NewRunID      string `json:"new_run_id,omitempty"`
+		Status        string `json:"status"`
+		Error         string `json:"error,omitempty"`
+	}
+
+	results := make([]replayResult, 0, len(req.WorkflowRunIDs))
+	replayed := 0
+
+	for _, wrID := range req.WorkflowRunIDs {
+		newRun, err := s.workflowEngine.RetryWorkflowRun(r.Context(), wrID)
+		if err != nil {
+			results = append(results, replayResult{OriginalRunID: wrID, Status: "failed", Error: err.Error()})
+			continue
+		}
+		results = append(results, replayResult{OriginalRunID: wrID, NewRunID: newRun.ID, Status: "replayed"})
+		replayed++
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(req.WorkflowRunIDs), "replayed": replayed})
+}

@@ -24,8 +24,9 @@ func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCal
 func newEventTriggersTestServerWithPubSub(t *testing.T, s APIStore, wfCallback WorkflowCallback, ps pubsub.Publisher) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret: "test-secret",
-		JWTSigningKey:  "test-jwt-key-must-be-32-chars-long",
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
 	}
 	srv := NewServer(ServerDeps{
 		Config:           cfg,

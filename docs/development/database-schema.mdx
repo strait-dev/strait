@@ -3,7 +3,7 @@ title: "Database Schema"
 description: "Detailed reference of the PostgreSQL database schema and migration system."
 ---
 
-Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000073_*` series) that run automatically on startup.
+Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7 stored as `TEXT`. Schema is managed by versioned SQL migrations (currently through the `000089_*` series) that run automatically on startup.
 
 ## Core Tables
 
@@ -15,7 +15,7 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `job_versions` | Auto-snapshot of job config on every update |
 | `api_keys` | Per-project API keys (SHA-256 hashed, revocable, rotatable with grace windows) |
 | `audit_events` | Immutable audit trail for security-sensitive and control-plane actions |
-| `roles` / `project_members` | RBAC role definitions and project user-role bindings |
+| `project_roles` / `project_member_roles` | RBAC role definitions and project user-role bindings |
 | `resource_policies` / `tag_policies` | Fine-grained policy grants by resource and by tag match |
 | `known_actors` | Synced actor identities used for attribution and audit context |
 | `webhook_deliveries` | Webhook delivery tracking and dead letter queue (job runs + event triggers) |
@@ -47,14 +47,17 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `run_checkpoints` | SDK-driven run state checkpoints |
 | `run_tool_calls` | Tool call recording with input/output and duration |
 | `run_outputs` | Structured outputs with optional schema validation |
-| `environments` | Environment definitions with key-value variables per project |
-| `environment_variables` | Environment variable key-value pairs with inheritance |
+| `environments` | Named execution environments with JSONB variable storage |
 | `endpoint_circuit_state` | Circuit breaker state per endpoint URL (state, failures, opened_at, last_failure_at) |
 | `pricing_catalog` | Static pricing table for AI model cost calculation |
 | `job_secrets` | Encrypted secrets scoped to job and environment |
 | `job_groups` | Logical grouping of jobs (full CRUD with name, description, project scope) |
 | `job_dependencies` | Inter-job dependency definitions |
 | `audit_events` | Immutable audit trail for security-sensitive operations (migration 000057) |
+| `batch_operations` | Tracks bulk trigger and bulk cancel batch operation status and results |
+| `log_drains` | External log drain endpoint configuration for streaming run events |
+| `event_sources` | Inbound event source definitions with type and configuration |
+| `event_subscriptions` | Bindings between event sources and jobs with optional filter expressions |
 
 ## Key Columns
 
@@ -215,23 +218,6 @@ We use `golang-migrate` for schema evolution.
 Migrations follow a sequential 6-digit numbering scheme:
 `000001_*.up.sql` through the latest migration in the repository.
 
-### Recent Workflow/DAG Migrations
-
-| Migration | Description |
-| :--- | :--- |
-| `000061_event_trigger_support` | Event trigger schema + webhook delivery extensions. |
-| `000062_workflow_parent_step_run_id` | Adds `workflow_runs.parent_step_run_id` + index for sub-workflow lineage. |
-| `000063_workflow_step_concurrency_key` | Adds `concurrency_key` to `workflow_steps` and `workflow_version_steps`. |
-| `000064_workflow_step_decisions` | Adds explainability decision log table + run/step indexes. |
-| `000065_workflow_step_resource_class` | Adds `resource_class` scheduling bucket to workflow step tables. |
-| `000066_workflow_policies` | Adds per-project DAG governance policy table. |
-| `000067_add_performance_indexes` | Adds reaper/poller/step-run indexes for `workflow_runs`, `workflow_step_runs`, and `workflow_step_decisions`. |
-| `000068_dequeue_active_runs_index` | Adds partial index on `job_runs` for active run counting during dequeue. |
-
-<Note>
-The event trigger schema was developed across 7 incremental migrations during development. These were squashed into `000061_event_trigger_support` before merge to reduce startup time and rollback complexity.
-</Note>
-
 ### Recent Migrations
 
 | Migration | Description |
@@ -241,16 +227,34 @@ The event trigger schema was developed across 7 incremental migrations during de
 | `000064_uuidv7_defaults` | Adds native uuidv7() defaults for primary keys using the pg_uuidv7 extension. |
 | `000065_job_run_idempotency` | Introduces a dedicated table for global job run idempotency tracking across partitions. |
 | `000066_job_runs_partitioning` | Converts job_runs to a range-partitioned table by created_at with automated partition management. |
-| `000067_queue_notify_trigger` | Adds a pg_notify trigger to wake up queue workers immediately on new job insertion. |
+| `000067_add_performance_indexes` | Adds workflow_runs and workflow_step_runs performance indexes. |
 | `000068_covering_indexes` | Adds covering indexes (INCLUDE clause) to job_runs and webhook_deliveries for index-only scans. |
 | `000069_audit_events_extend` | Extends audit events with resource context, changes, and client metadata (IP, User-Agent). |
 | `000070_webhook_subscriptions` | Adds webhook subscriptions table for multi-event project-level webhook management. |
+| `000071_performance_indexes_phase2` | Phase 2 performance indexes for job_runs and workflows. |
+| `000072_add_webhook_retry_policy` | Adds retry policy configuration to webhook deliveries. |
+| `000073_recreate_idempotency_index` | Recreates idempotency index with corrected partial filter. |
+| `000074_workflow_parent_step_run_id` | Adds `parent_step_run_id` to workflow_runs for sub-workflow lineage. |
+| `000075_workflow_step_concurrency_key` | Adds `concurrency_key` to workflow_steps and workflow_version_steps. |
+| `000076_workflow_step_decisions` | Adds explainability decision log table for DAG runtime. |
+| `000077_workflow_step_resource_class` | Adds `resource_class` scheduling bucket to workflow step tables. |
+| `000078_workflow_policies` | Adds per-project DAG governance policy table. |
+| `000079_queue_notify_trigger` | Adds pg_notify trigger to wake queue workers on new job insertion. |
+| `000080_dequeue_active_runs_index` | Adds partial index on job_runs for active run counting during dequeue. |
+| `000081_step_decisions_index` | Adds indexes on workflow step decisions table. |
+| `000082_batch_tracking` | Creates batch_operations table; adds `batch_id` to job_runs. |
+| `000083_job_default_run_metadata` | Adds `default_run_metadata` JSONB to jobs and job_versions. |
+| `000084_payload_gin_index` | Adds GIN index on `job_runs.payload` for JSONB containment queries. |
+| `000086_job_run_concurrency_key` | Adds `max_concurrency_per_key` to jobs; `concurrency_key` to job_runs with partial index. |
+| `000087_named_rate_limit_keys` | Adds `rate_limit_keys` JSONB to jobs and job_versions. |
+| `000088_log_drains` | Creates log_drains table with auth config and level filtering. |
+| `000089_event_sources_v2` | Creates event_sources and event_subscriptions tables. |
 
 ### Adding New Migrations
 
 1. Create a new pair of SQL files in the `migrations/` directory using the next sequence number:
-   - `000074_your_feature.up.sql`
-   - `000074_your_feature.down.sql`
+   - `000090_your_feature.up.sql`
+   - `000090_your_feature.down.sql`
 2. Ensure the migration is idempotent.
 3. The application will automatically detect and apply the new migration on the next startup.
 

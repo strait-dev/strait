@@ -88,7 +88,7 @@ type RunStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
@@ -126,6 +126,9 @@ type RunStore interface {
 	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]BulkCancelResult, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+	BulkCancelByFilter(ctx context.Context, projectID string, f BulkCancelFilter, now time.Time, reason string) ([]string, error)
 }
 
 type ProjectQuota struct {
@@ -236,6 +239,7 @@ type WorkflowRunStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.WorkflowRun, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
 }
 
 type WorkflowStepRunStore interface {
@@ -276,6 +280,33 @@ type EventTriggerStore interface {
 	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
 }
 
+type BatchOperationStore interface {
+	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error
+	FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error
+	GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
+	ListBatchOperations(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
+}
+
+type LogDrainStore interface {
+	CreateLogDrain(ctx context.Context, drain *domain.LogDrain) error
+	GetLogDrain(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error)
+	ListLogDrains(ctx context.Context, projectID string) ([]domain.LogDrain, error)
+	UpdateLogDrain(ctx context.Context, drainID, projectID string, patch map[string]any) error
+	DeleteLogDrain(ctx context.Context, drainID, projectID string) error
+}
+
+type EventSourceStore interface {
+	CreateEventSource(ctx context.Context, src *domain.EventSource) error
+	GetEventSource(ctx context.Context, sourceID, projectID string) (*domain.EventSource, error)
+	GetEventSourceByName(ctx context.Context, projectID, name string) (*domain.EventSource, error)
+	ListEventSources(ctx context.Context, projectID string) ([]domain.EventSource, error)
+	UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error
+	DeleteEventSource(ctx context.Context, sourceID, projectID string) error
+	CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error
+	ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
+	DeleteEventSubscription(ctx context.Context, subID string) error
+}
+
 type Store interface {
 	JobStore
 	JobGroupStore
@@ -292,6 +323,9 @@ type Store interface {
 	WorkflowRunStore
 	WorkflowStepRunStore
 	EventTriggerStore
+	BatchOperationStore
+	LogDrainStore
+	EventSourceStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

@@ -16,56 +16,60 @@ import (
 )
 
 type CreateJobRequest struct {
-	ProjectID           string            `json:"project_id" validate:"required"`
-	GroupID             string            `json:"group_id,omitempty"`
-	Name                string            `json:"name" validate:"required"`
-	Slug                string            `json:"slug" validate:"required"`
-	Description         string            `json:"description,omitempty"`
-	Cron                string            `json:"cron,omitempty"`
-	PayloadSchema       json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	EndpointURL         string            `json:"endpoint_url" validate:"required,url"`
-	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts         int               `json:"max_attempts" validate:"omitempty,min=1"`
-	TimeoutSecs         int               `json:"timeout_secs" validate:"omitempty,min=1"`
-	MaxConcurrency      int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
-	ExecutionWindowCron string            `json:"execution_window_cron,omitempty"`
-	Timezone            string            `json:"timezone,omitempty"`
-	RateLimitMax        int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
-	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
-	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
-	RunTTLSecs          int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
-	RetryStrategy       string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
-	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
-	EnvironmentID       string            `json:"environment_id,omitempty"`
-	VersionPolicy       string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	ProjectID            string            `json:"project_id" validate:"required"`
+	GroupID              string            `json:"group_id,omitempty"`
+	Name                 string            `json:"name" validate:"required"`
+	Slug                 string            `json:"slug" validate:"required"`
+	Description          string            `json:"description,omitempty"`
+	Cron                 string            `json:"cron,omitempty"`
+	PayloadSchema        json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	EndpointURL          string            `json:"endpoint_url" validate:"required,url"`
+	FallbackEndpointURL  string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts          int               `json:"max_attempts" validate:"omitempty,min=1"`
+	TimeoutSecs          int               `json:"timeout_secs" validate:"omitempty,min=1"`
+	MaxConcurrency       int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
+	MaxConcurrencyPerKey int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
+	ExecutionWindowCron  string            `json:"execution_window_cron,omitempty"`
+	Timezone             string            `json:"timezone,omitempty"`
+	RateLimitMax         int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs  int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs      int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs           int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy        string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
+	RetryDelaysSecs      []int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID        string            `json:"environment_id,omitempty"`
+	VersionPolicy        string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
 }
 
 type UpdateJobRequest struct {
-	Name                *string            `json:"name,omitempty"`
-	Slug                *string            `json:"slug,omitempty"`
-	GroupID             *string            `json:"group_id,omitempty"`
-	Description         *string            `json:"description,omitempty"`
-	Cron                *string            `json:"cron,omitempty"`
-	PayloadSchema       *json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                *map[string]string `json:"tags,omitempty"`
-	EndpointURL         *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
-	FallbackEndpointURL *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts         *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
-	TimeoutSecs         *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
-	MaxConcurrency      *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
-	ExecutionWindowCron *string            `json:"execution_window_cron,omitempty"`
-	Timezone            *string            `json:"timezone,omitempty"`
-	RateLimitMax        *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
-	RateLimitWindowSecs *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
-	DedupWindowSecs     *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
-	RunTTLSecs          *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
-	RetryStrategy       *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
-	RetryDelaysSecs     *[]int             `json:"retry_delays_secs,omitempty"`
-	EnvironmentID       *string            `json:"environment_id,omitempty"`
-	Enabled             *bool              `json:"enabled,omitempty"`
-	VersionPolicy       *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
-	BackwardsCompatible *bool              `json:"backwards_compatible,omitempty"`
+	Name                 *string            `json:"name,omitempty"`
+	Slug                 *string            `json:"slug,omitempty"`
+	GroupID              *string            `json:"group_id,omitempty"`
+	Description          *string            `json:"description,omitempty"`
+	Cron                 *string            `json:"cron,omitempty"`
+	PayloadSchema        *json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                 *map[string]string `json:"tags,omitempty"`
+	EndpointURL          *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
+	FallbackEndpointURL  *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts          *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1"`
+	TimeoutSecs          *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
+	MaxConcurrency       *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
+	MaxConcurrencyPerKey *int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
+	ExecutionWindowCron  *string            `json:"execution_window_cron,omitempty"`
+	Timezone             *string            `json:"timezone,omitempty"`
+	RateLimitMax         *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs  *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs      *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs           *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy        *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
+	RetryDelaysSecs      *[]int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID        *string            `json:"environment_id,omitempty"`
+	Enabled              *bool              `json:"enabled,omitempty"`
+	VersionPolicy        *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	BackwardsCompatible  *bool              `json:"backwards_compatible,omitempty"`
+	DefaultRunMetadata   *map[string]string `json:"default_run_metadata,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -138,32 +142,34 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := &domain.Job{
-		ProjectID:           req.ProjectID,
-		GroupID:             req.GroupID,
-		Name:                req.Name,
-		Slug:                req.Slug,
-		Description:         req.Description,
-		Cron:                req.Cron,
-		PayloadSchema:       req.PayloadSchema,
-		Tags:                req.Tags,
-		EndpointURL:         req.EndpointURL,
-		FallbackEndpointURL: req.FallbackEndpointURL,
-		MaxAttempts:         req.MaxAttempts,
-		TimeoutSecs:         req.TimeoutSecs,
-		MaxConcurrency:      req.MaxConcurrency,
-		ExecutionWindowCron: req.ExecutionWindowCron,
-		Timezone:            req.Timezone,
-		RateLimitMax:        req.RateLimitMax,
-		RateLimitWindowSecs: req.RateLimitWindowSecs,
-		DedupWindowSecs:     req.DedupWindowSecs,
-		RunTTLSecs:          req.RunTTLSecs,
-		RetryStrategy:       req.RetryStrategy,
-		RetryDelaysSecs:     req.RetryDelaysSecs,
-		EnvironmentID:       req.EnvironmentID,
-		Enabled:             true,
-		VersionPolicy:       domain.VersionPolicyPin,
-		CreatedBy:           actorFromContext(r.Context()),
-		UpdatedBy:           actorFromContext(r.Context()),
+		ProjectID:            req.ProjectID,
+		GroupID:              req.GroupID,
+		Name:                 req.Name,
+		Slug:                 req.Slug,
+		Description:          req.Description,
+		Cron:                 req.Cron,
+		PayloadSchema:        req.PayloadSchema,
+		Tags:                 req.Tags,
+		EndpointURL:          req.EndpointURL,
+		FallbackEndpointURL:  req.FallbackEndpointURL,
+		MaxAttempts:          req.MaxAttempts,
+		TimeoutSecs:          req.TimeoutSecs,
+		MaxConcurrency:       req.MaxConcurrency,
+		MaxConcurrencyPerKey: req.MaxConcurrencyPerKey,
+		ExecutionWindowCron:  req.ExecutionWindowCron,
+		Timezone:             req.Timezone,
+		RateLimitMax:         req.RateLimitMax,
+		RateLimitWindowSecs:  req.RateLimitWindowSecs,
+		DedupWindowSecs:      req.DedupWindowSecs,
+		RunTTLSecs:           req.RunTTLSecs,
+		RetryStrategy:        req.RetryStrategy,
+		RetryDelaysSecs:      req.RetryDelaysSecs,
+		EnvironmentID:        req.EnvironmentID,
+		DefaultRunMetadata:   req.DefaultRunMetadata,
+		Enabled:              true,
+		VersionPolicy:        domain.VersionPolicyPin,
+		CreatedBy:            actorFromContext(r.Context()),
+		UpdatedBy:            actorFromContext(r.Context()),
 	}
 
 	if req.VersionPolicy != "" {
@@ -347,6 +353,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	if req.MaxConcurrency != nil {
 		job.MaxConcurrency = *req.MaxConcurrency
 	}
+	if req.MaxConcurrencyPerKey != nil {
+		job.MaxConcurrencyPerKey = *req.MaxConcurrencyPerKey
+	}
 	if req.ExecutionWindowCron != nil {
 		job.ExecutionWindowCron = *req.ExecutionWindowCron
 	}
@@ -382,6 +391,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BackwardsCompatible != nil {
 		job.BackwardsCompatible = *req.BackwardsCompatible
+	}
+	if req.DefaultRunMetadata != nil {
+		job.DefaultRunMetadata = *req.DefaultRunMetadata
 	}
 
 	if job.FallbackEndpointURL != "" {
@@ -463,35 +475,37 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clone := &domain.Job{
-		ProjectID:           source.ProjectID,
-		GroupID:             source.GroupID,
-		Name:                req.Name,
-		Slug:                req.Slug,
-		Description:         source.Description,
-		Cron:                source.Cron,
-		PayloadSchema:       source.PayloadSchema,
-		Tags:                source.Tags,
-		EndpointURL:         source.EndpointURL,
-		FallbackEndpointURL: source.FallbackEndpointURL,
-		MaxAttempts:         source.MaxAttempts,
-		TimeoutSecs:         source.TimeoutSecs,
-		MaxConcurrency:      source.MaxConcurrency,
-		ExecutionWindowCron: source.ExecutionWindowCron,
-		Timezone:            source.Timezone,
-		RateLimitMax:        source.RateLimitMax,
-		RateLimitWindowSecs: source.RateLimitWindowSecs,
-		DedupWindowSecs:     source.DedupWindowSecs,
-		WebhookURL:          source.WebhookURL,
-		WebhookSecret:       source.WebhookSecret,
-		RunTTLSecs:          source.RunTTLSecs,
-		RetryStrategy:       source.RetryStrategy,
-		RetryDelaysSecs:     source.RetryDelaysSecs,
-		EnvironmentID:       source.EnvironmentID,
-		Enabled:             true,
-		VersionPolicy:       source.VersionPolicy,
-		BackwardsCompatible: source.BackwardsCompatible,
-		CreatedBy:           actorFromContext(r.Context()),
-		UpdatedBy:           actorFromContext(r.Context()),
+		ProjectID:            source.ProjectID,
+		GroupID:              source.GroupID,
+		Name:                 req.Name,
+		Slug:                 req.Slug,
+		Description:          source.Description,
+		Cron:                 source.Cron,
+		PayloadSchema:        source.PayloadSchema,
+		Tags:                 source.Tags,
+		EndpointURL:          source.EndpointURL,
+		FallbackEndpointURL:  source.FallbackEndpointURL,
+		MaxAttempts:          source.MaxAttempts,
+		TimeoutSecs:          source.TimeoutSecs,
+		MaxConcurrency:       source.MaxConcurrency,
+		MaxConcurrencyPerKey: source.MaxConcurrencyPerKey,
+		ExecutionWindowCron:  source.ExecutionWindowCron,
+		Timezone:             source.Timezone,
+		RateLimitMax:         source.RateLimitMax,
+		RateLimitWindowSecs:  source.RateLimitWindowSecs,
+		DedupWindowSecs:      source.DedupWindowSecs,
+		WebhookURL:           source.WebhookURL,
+		WebhookSecret:        source.WebhookSecret,
+		RunTTLSecs:           source.RunTTLSecs,
+		RetryStrategy:        source.RetryStrategy,
+		RetryDelaysSecs:      source.RetryDelaysSecs,
+		EnvironmentID:        source.EnvironmentID,
+		DefaultRunMetadata:   source.DefaultRunMetadata,
+		Enabled:              true,
+		VersionPolicy:        source.VersionPolicy,
+		BackwardsCompatible:  source.BackwardsCompatible,
+		CreatedBy:            actorFromContext(r.Context()),
+		UpdatedBy:            actorFromContext(r.Context()),
 	}
 
 	if err := s.store.CreateJob(r.Context(), clone); err != nil {

@@ -44,3 +44,19 @@ description: "Recent platform and API updates in Strait."
 - Added 8 queue integration tests for concurrent dequeue (SKIP LOCKED), idempotency conflict handling, context cancellation, and edge cases.
 - Increased CLI client test coverage from 40% to 84% and CLI auth from 44% to 94%.
 - Added 7 E2E tests for analytics endpoint, bulk cancel with children, SDK heartbeat/log/progress, and debug mode.
+
+
+### Sprint 1-4 Feature Releases
+
+- **Batch Operations**: Added batch_operations table and tracking for bulk trigger requests. Batch status queryable via `GET /v1/batch-operations`.
+- **Log Drains**: Added external log streaming via configurable HTTP drain endpoints. Full CRUD at `/v1/log-drains`.
+- **Event Sources v2**: Added inbound event management with subscriptions and filter expressions. Events dispatched to jobs or workflows via `POST /v1/events/dispatch`.
+- **Per-Key Concurrency**: Added `max_concurrency_per_key` to jobs and `concurrency_key` to runs for per-tenant/per-resource throttling.
+- **Named Rate Limit Keys**: Added `rate_limit_keys` for multiple named rate limits per job, extending the flat `rate_limit_max`/`rate_limit_window_secs`.
+- **Default Run Metadata**: Added `default_run_metadata` on jobs, automatically applied to every new run.
+- **Payload Containment Filter**: Added `payload_contains` query parameter on run listings for JSONB containment queries.
+- **New Run Fields**: Added `batch_id`, `concurrency_key`, `created_by`, `tags`, and `job_version_id` to job runs.
+- **Run Sub-resources**: Added endpoints for run checkpoints, usage, tool calls, and outputs.
+- **Bulk Run Operations**: Added `POST /v1/runs/bulk-cancel`, `POST /v1/runs/bulk-replay`, `POST /v1/runs/bulk-dlq-replay`, `POST /v1/runs/bulk-cancel-all`.
+- **Workflow Enhancements**: Added bulk cancel, individual retry, and step retry for workflow runs.
+- Removed 5 remaining dead feature flag environment variables (`FF_PAYLOAD_FILTER`, `FF_CONCURRENCY_KEY`, `FF_LOG_DRAINS`, `FF_WEBHOOK_SUBSCRIPTIONS`, `FF_EVENT_SOURCES_V2`). All sprint 1-4 features are unconditionally active.

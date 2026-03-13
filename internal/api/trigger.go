@@ -28,11 +28,13 @@ import (
 const maxIdempotencyKeyLength = 256
 
 type TriggerRequest struct {
-	Payload     json.RawMessage   `json:"payload,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	ScheduledAt *time.Time        `json:"scheduled_at,omitempty"`
-	Priority    int               `json:"priority,omitempty" validate:"min=0,max=10"`
-	DryRun      bool              `json:"dry_run,omitempty"`
+	Payload        json.RawMessage   `json:"payload,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	ScheduledAt    *time.Time        `json:"scheduled_at,omitempty"`
+	Priority       int               `json:"priority,omitempty" validate:"min=0,max=10"`
+	DryRun         bool              `json:"dry_run,omitempty"`
+	TTLSecs        *int              `json:"ttl_secs,omitempty"`
+	ConcurrencyKey string            `json:"concurrency_key,omitempty"`
 }
 
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +225,9 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var expiresAt time.Time
-	if job.RunTTLSecs > 0 {
+	if req.TTLSecs != nil && *req.TTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
+	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
@@ -273,6 +277,19 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	if dependencyKey != "" {
 		run.Metadata = map[string]string{"dependency_key": dependencyKey}
 	}
+
+	// Merge default run metadata from job. Caller metadata wins on conflicts.
+	if len(job.DefaultRunMetadata) > 0 {
+		if run.Metadata == nil {
+			run.Metadata = make(map[string]string, len(job.DefaultRunMetadata))
+		}
+		for k, v := range job.DefaultRunMetadata {
+			if _, exists := run.Metadata[k]; !exists {
+				run.Metadata[k] = v
+			}
+		}
+	}
+	run.ConcurrencyKey = req.ConcurrencyKey
 
 	if status == domain.StatusQueued {
 		satisfied, depErr := s.store.AreJobDependenciesSatisfied(r.Context(), run)
@@ -549,7 +566,9 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 	}
 
 	var expiresAt time.Time
-	if job.RunTTLSecs > 0 {
+	if req.TTLSecs != nil && *req.TTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
+	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)

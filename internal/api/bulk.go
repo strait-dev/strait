@@ -27,6 +27,8 @@ type BulkTriggerItem struct {
 	Priority       int               `json:"priority,omitempty"`
 	IdempotencyKey string            `json:"idempotency_key,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
+	TTLSecs        *int              `json:"ttl_secs,omitempty"`
+	ConcurrencyKey string            `json:"concurrency_key,omitempty"`
 }
 
 type BulkTriggerResult struct {
@@ -37,6 +39,7 @@ type BulkTriggerResult struct {
 }
 
 type BulkTriggerResponse struct {
+	BatchID string              `json:"batch_id"`
 	Results []BulkTriggerResult `json:"results"`
 	Total   int                 `json:"total"`
 	Created int                 `json:"created"`
@@ -87,9 +90,20 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Items) > 100 {
-		respondError(w, r, http.StatusBadRequest, "maximum 100 items per bulk trigger request")
+	if len(req.Items) > s.config.MaxBulkTriggerItems {
+		respondError(w, r, http.StatusBadRequest, fmt.Sprintf("maximum %d items per bulk trigger request", s.config.MaxBulkTriggerItems))
 		return
+	}
+
+	batchID := uuid.Must(uuid.NewV7()).String()
+	if err := s.store.CreateBatchOperation(r.Context(), &domain.BatchOperation{
+		ID:        batchID,
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		ItemCount: len(req.Items),
+		CreatedBy: actorFromContext(r.Context()),
+	}); err != nil {
+		slog.Error("failed to create batch operation", "error", err)
 	}
 
 	now := time.Now()
@@ -219,7 +233,9 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		runID := uuid.Must(uuid.NewV7()).String()
 
 		var expiresAt time.Time
-		if job.RunTTLSecs > 0 {
+		if item.TTLSecs != nil && *item.TTLSecs > 0 {
+			expiresAt = now.Add(time.Duration(*item.TTLSecs) * time.Second)
+		} else if job.RunTTLSecs > 0 {
 			expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
 		} else {
 			expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
@@ -276,8 +292,22 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 			JobVersion:     job.Version,
 			JobVersionID:   job.VersionID,
 			CreatedBy:      actorFromContext(r.Context()),
+			BatchID:        batchID,
 			ExpiresAt:      &expiresAt,
 		}
+
+		// Merge default run metadata from job. Caller metadata wins on conflicts.
+		if len(job.DefaultRunMetadata) > 0 {
+			if run.Metadata == nil {
+				run.Metadata = make(map[string]string, len(job.DefaultRunMetadata))
+			}
+			for k, v := range job.DefaultRunMetadata {
+				if _, exists := run.Metadata[k]; !exists {
+					run.Metadata[k] = v
+				}
+			}
+		}
+		run.ConcurrencyKey = item.ConcurrencyKey
 
 		if err := s.queue.Enqueue(r.Context(), run); err != nil {
 			// Handle race: concurrent bulk request with the same idempotency key.
@@ -324,7 +354,12 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		enqueuedInBatch++
 	}
 
+	if err := s.store.FinalizeBatchOperation(r.Context(), batchID, created); err != nil {
+		slog.Error("failed to finalize batch operation", "batch_id", batchID, "error", err)
+	}
+
 	respondJSON(w, http.StatusCreated, BulkTriggerResponse{
+		BatchID: batchID,
 		Results: results,
 		Total:   len(req.Items),
 		Created: created,
@@ -410,4 +445,41 @@ func (s *Server) handleBulkCancelRuns(w http.ResponseWriter, r *http.Request) {
 		Canceled: canceled,
 		Failed:   failed,
 	})
+}
+
+type BulkCancelAllRequest struct {
+	JobID       string           `json:"job_id,omitempty"`
+	BatchID     string           `json:"batch_id,omitempty"`
+	TriggeredBy string           `json:"triggered_by,omitempty"`
+	Status      domain.RunStatus `json:"status,omitempty"`
+}
+
+func (s *Server) handleBulkCancelAll(w http.ResponseWriter, r *http.Request) {
+	var req BulkCancelAllRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	projectID := r.URL.Query().Get("project_id")
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id query parameter is required")
+		return
+	}
+
+	if req.JobID == "" && req.BatchID == "" && req.TriggeredBy == "" && req.Status == "" {
+		respondError(w, r, http.StatusBadRequest, "at least one filter is required")
+		return
+	}
+
+	now := time.Now()
+	ids, err := s.store.BulkCancelByFilter(r.Context(), projectID, store.BulkCancelFilter{
+		JobID: req.JobID, BatchID: req.BatchID, TriggeredBy: req.TriggeredBy, Status: req.Status,
+	}, now, "canceled by user (bulk filter)")
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to cancel runs")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"canceled": len(ids), "run_ids": ids})
 }

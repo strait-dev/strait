@@ -57,12 +57,13 @@ type mockAPIStore struct {
 	getProjectQuotaFn                   func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	countProjectQueuedRunsFn            func(ctx context.Context, projectID string) (int, error)
 	countProjectActiveRunsFn            func(ctx context.Context, projectID string) (int, error)
-	listRunsByProjectFn                 func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listRunsByProjectFn                 func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	listDeadLetterRunsFn                func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	bulkReplayDeadLetterRunsFn          func(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	updateRunStatusFn                   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	replayDeadLetterRunFn               func(ctx context.Context, runID string) (*domain.JobRun, error)
 	updateRunMetadataFn                 func(ctx context.Context, id string, annotations map[string]string) error
+	resetRunIdempotencyKeyFn            func(ctx context.Context, runID string) error
 	listChildRunsFn                     func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	insertEventFn                       func(ctx context.Context, event *domain.RunEvent) error
 	listEventsByRunFilteredFn           func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
@@ -157,6 +158,27 @@ type mockAPIStore struct {
 	getRunsByIDsFn                      func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	bulkCancelRunsFn                    func(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
 	cancelChildRunsByParentIDsFn        func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	rescheduleRunFn                     func(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+	createBatchOperationFn              func(ctx context.Context, op *domain.BatchOperation) error
+	finalizeBatchOperationFn            func(ctx context.Context, batchID string, createdCount int) error
+	getBatchOperationFn                 func(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
+	listBatchOperationsFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
+	bulkCancelByFilterFn                func(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error)
+	bulkCancelWorkflowRunsFn            func(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
+	createLogDrainFn                    func(ctx context.Context, drain *domain.LogDrain) error
+	getLogDrainFn                       func(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error)
+	listLogDrainsFn                     func(ctx context.Context, projectID string) ([]domain.LogDrain, error)
+	updateLogDrainFn                    func(ctx context.Context, drainID, projectID string, patch map[string]any) error
+	deleteLogDrainFn                    func(ctx context.Context, drainID, projectID string) error
+	createEventSourceFn                 func(ctx context.Context, src *domain.EventSource) error
+	getEventSourceFn                    func(ctx context.Context, sourceID, projectID string) (*domain.EventSource, error)
+	getEventSourceByNameFn              func(ctx context.Context, projectID, name string) (*domain.EventSource, error)
+	listEventSourcesFn                  func(ctx context.Context, projectID string) ([]domain.EventSource, error)
+	updateEventSourceFn                 func(ctx context.Context, sourceID, projectID string, patch map[string]any) error
+	deleteEventSourceFn                 func(ctx context.Context, sourceID, projectID string) error
+	createEventSubscriptionFn           func(ctx context.Context, sub *domain.EventSubscription) error
+	listEventSubscriptionsBySourceFn    func(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
+	deleteEventSubscriptionFn           func(ctx context.Context, subID string) error
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -467,9 +489,9 @@ func (m *mockAPIStore) CountProjectActiveRuns(ctx context.Context, projectID str
 	return 0, nil
 }
 
-func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listRunsByProjectFn != nil {
-		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, limit, cursor)
+		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, limit, cursor)
 	}
 	return nil, nil
 }
@@ -504,6 +526,13 @@ func (m *mockAPIStore) ReplayDeadLetterRun(ctx context.Context, runID string) (*
 		return m.replayDeadLetterRunFn(ctx, runID)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) ResetRunIdempotencyKey(ctx context.Context, runID string) error {
+	if m.resetRunIdempotencyKeyFn != nil {
+		return m.resetRunIdempotencyKeyFn(ctx, runID)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error {
@@ -1272,4 +1301,151 @@ func (m *mockAPIStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs
 		return m.cancelChildRunsByParentIDsFn(ctx, parentIDs, finishedAt, reason)
 	}
 	return 0, nil
+}
+
+func (m *mockAPIStore) CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error {
+	if m.createBatchOperationFn != nil {
+		return m.createBatchOperationFn(ctx, op)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error {
+	if m.finalizeBatchOperationFn != nil {
+		return m.finalizeBatchOperationFn(ctx, batchID, createdCount)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error) {
+	if m.getBatchOperationFn != nil {
+		return m.getBatchOperationFn(ctx, batchID, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListBatchOperations(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error) {
+	if m.listBatchOperationsFn != nil {
+		return m.listBatchOperationsFn(ctx, projectID, limit, cursor)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error {
+	if m.rescheduleRunFn != nil {
+		return m.rescheduleRunFn(ctx, runID, scheduledAt, payload)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) BulkCancelByFilter(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error) {
+	if m.bulkCancelByFilterFn != nil {
+		return m.bulkCancelByFilterFn(ctx, projectID, f, now, reason)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error) {
+	if m.bulkCancelWorkflowRunsFn != nil {
+		return m.bulkCancelWorkflowRunsFn(ctx, projectID, ids, now)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) CreateLogDrain(ctx context.Context, drain *domain.LogDrain) error {
+	if m.createLogDrainFn != nil {
+		return m.createLogDrainFn(ctx, drain)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetLogDrain(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error) {
+	if m.getLogDrainFn != nil {
+		return m.getLogDrainFn(ctx, drainID, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListLogDrains(ctx context.Context, projectID string) ([]domain.LogDrain, error) {
+	if m.listLogDrainsFn != nil {
+		return m.listLogDrainsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateLogDrain(ctx context.Context, drainID, projectID string, patch map[string]any) error {
+	if m.updateLogDrainFn != nil {
+		return m.updateLogDrainFn(ctx, drainID, projectID, patch)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteLogDrain(ctx context.Context, drainID, projectID string) error {
+	if m.deleteLogDrainFn != nil {
+		return m.deleteLogDrainFn(ctx, drainID, projectID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) CreateEventSource(ctx context.Context, src *domain.EventSource) error {
+	if m.createEventSourceFn != nil {
+		return m.createEventSourceFn(ctx, src)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetEventSource(ctx context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+	if m.getEventSourceFn != nil {
+		return m.getEventSourceFn(ctx, sourceID, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetEventSourceByName(ctx context.Context, projectID, name string) (*domain.EventSource, error) {
+	if m.getEventSourceByNameFn != nil {
+		return m.getEventSourceByNameFn(ctx, projectID, name)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListEventSources(ctx context.Context, projectID string) ([]domain.EventSource, error) {
+	if m.listEventSourcesFn != nil {
+		return m.listEventSourcesFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error {
+	if m.updateEventSourceFn != nil {
+		return m.updateEventSourceFn(ctx, sourceID, projectID, patch)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteEventSource(ctx context.Context, sourceID, projectID string) error {
+	if m.deleteEventSourceFn != nil {
+		return m.deleteEventSourceFn(ctx, sourceID, projectID)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error {
+	if m.createEventSubscriptionFn != nil {
+		return m.createEventSubscriptionFn(ctx, sub)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error) {
+	if m.listEventSubscriptionsBySourceFn != nil {
+		return m.listEventSubscriptionsBySourceFn(ctx, sourceID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteEventSubscription(ctx context.Context, subID string) error {
+	if m.deleteEventSubscriptionFn != nil {
+		return m.deleteEventSubscriptionFn(ctx, subID)
+	}
+	return nil
 }

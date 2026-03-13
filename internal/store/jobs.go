@@ -37,10 +37,12 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
 			webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version,
-			version_id, version_policy, backwards_compatible, created_by, updated_by
+			version_id, version_policy, backwards_compatible, created_by, updated_by,
+			max_concurrency_per_key, rate_limit_keys, default_run_metadata
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1,
-			$27, $28, $29, $30, $31)
+			$27, $28, $29, $30, $31,
+			$32, $33::jsonb, $34::jsonb)
 		RETURNING created_at, updated_at, version`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -87,6 +89,9 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.BackwardsCompatible,
 		dbscan.NilIfEmptyString(job.CreatedBy),
 		dbscan.NilIfEmptyString(job.UpdatedBy),
+		dbscan.NilIfZeroInt(job.MaxConcurrencyPerKey),
+		marshalJSONBOrDefault(job.RateLimitKeys, "[]"),
+		marshalJSONBOrDefault(job.DefaultRunMetadata, "{}"),
 	).Scan(&job.CreatedAt, &job.UpdatedAt, &job.Version)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
@@ -103,7 +108,8 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata
 		FROM jobs
 		WHERE id = $1`
 
@@ -126,7 +132,8 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -149,7 +156,8 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata
 		FROM jobs
 		WHERE project_id = $1`
 
@@ -235,6 +243,9 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    updated_by = $27,
 		    version_policy = $28,
 		    backwards_compatible = $30,
+		    max_concurrency_per_key = $31,
+		    rate_limit_keys = $32::jsonb,
+		    default_run_metadata = $33::jsonb,
 		    updated_at = NOW()
 		WHERE id = $25
 		RETURNING updated_at, version, version_id`
@@ -282,6 +293,9 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		string(job.VersionPolicy),
 		uuid.Must(uuid.NewV7()).String(),
 		job.BackwardsCompatible,
+		dbscan.NilIfZeroInt(job.MaxConcurrencyPerKey),
+		marshalJSONBOrDefault(job.RateLimitKeys, "[]"),
+		marshalJSONBOrDefault(job.DefaultRunMetadata, "{}"),
 	).Scan(&job.UpdatedAt, &job.Version, &job.VersionID)
 	if err != nil {
 		return fmt.Errorf("update job: %w", err)
@@ -380,7 +394,8 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -523,6 +538,9 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var versionPolicy *string
 	var createdBy *string
 	var updatedBy *string
+	var maxConcurrencyPerKey *int
+	var rateLimitKeysJSON []byte
+	var defaultRunMetadataJSON []byte
 
 	err := scanner.Scan(
 		&job.ID,
@@ -559,6 +577,9 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&updatedBy,
 		&job.CreatedAt,
 		&job.UpdatedAt,
+		&maxConcurrencyPerKey,
+		&rateLimitKeysJSON,
+		&defaultRunMetadataJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -634,6 +655,19 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	if updatedBy != nil {
 		job.UpdatedBy = *updatedBy
 	}
+	if maxConcurrencyPerKey != nil {
+		job.MaxConcurrencyPerKey = *maxConcurrencyPerKey
+	}
+	if len(rateLimitKeysJSON) > 0 && string(rateLimitKeysJSON) != "[]" && string(rateLimitKeysJSON) != "null" {
+		if err := json.Unmarshal(rateLimitKeysJSON, &job.RateLimitKeys); err != nil {
+			return nil, fmt.Errorf("unmarshal rate_limit_keys: %w", err)
+		}
+	}
+	if len(defaultRunMetadataJSON) > 0 && string(defaultRunMetadataJSON) != "{}" && string(defaultRunMetadataJSON) != "null" {
+		if err := json.Unmarshal(defaultRunMetadataJSON, &job.DefaultRunMetadata); err != nil {
+			return nil, fmt.Errorf("unmarshal default_run_metadata: %w", err)
+		}
+	}
 
 	return &job, nil
 }
@@ -646,7 +680,8 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		SELECT id, project_id, group_id, name, slug, description, cron, payload_schema,
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
-		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata
 		FROM jobs
 		WHERE project_id = $1`
 
@@ -716,4 +751,26 @@ func unmarshalTags(raw []byte) (map[string]string, error) {
 		return nil, nil
 	}
 	return tags, nil
+}
+
+// marshalJSONBOrDefault marshals v as JSON for a JSONB column.
+// Returns defaultVal when v is nil or empty.
+func marshalJSONBOrDefault(v any, defaultVal string) []byte {
+	switch val := v.(type) {
+	case nil:
+		return []byte(defaultVal)
+	case []domain.RateLimitKey:
+		if len(val) == 0 {
+			return []byte(defaultVal)
+		}
+	case map[string]string:
+		if len(val) == 0 {
+			return []byte(defaultVal)
+		}
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte(defaultVal)
+	}
+	return b
 }

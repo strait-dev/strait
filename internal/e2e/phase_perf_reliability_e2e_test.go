@@ -117,11 +117,13 @@ func TestE2E_WebhookCircuitBreakerBlocksDelivery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_ = worker.RunWorker(ctx, 20*time.Millisecond)
 	}()
 
-	<-ctx.Done()
+	<-done
 	if breaker.calls.Load() == 0 {
 		t.Fatal("expected circuit breaker to be consulted")
 	}

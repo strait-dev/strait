@@ -32,6 +32,15 @@ const (
 	TriggerRetry    = "retry"
 )
 
+const (
+	WebhookEventRunCompleted      = "run.completed"
+	WebhookEventRunFailed         = "run.failed"
+	WebhookEventRunTimedOut       = "run.timed_out"
+	WebhookEventRunCanceled       = "run.canceled"
+	WebhookEventWorkflowCompleted = "workflow.completed"
+	WebhookEventWorkflowFailed    = "workflow.failed"
+)
+
 type EventType string
 
 const (
@@ -130,40 +139,43 @@ type AuditEvent struct {
 }
 
 type Job struct {
-	ID                  string            `json:"id"`
-	ProjectID           string            `json:"project_id"`
-	GroupID             string            `json:"group_id,omitempty"`
-	Name                string            `json:"name"`
-	Slug                string            `json:"slug"`
-	Description         string            `json:"description,omitempty"`
-	Cron                string            `json:"cron,omitempty"`
-	PayloadSchema       json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	EndpointURL         string            `json:"endpoint_url"`
-	FallbackEndpointURL string            `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts         int               `json:"max_attempts"`
-	TimeoutSecs         int               `json:"timeout_secs"`
-	MaxConcurrency      int               `json:"max_concurrency,omitempty"`
-	ExecutionWindowCron string            `json:"execution_window_cron,omitempty"`
-	Timezone            string            `json:"timezone,omitempty"`
-	RateLimitMax        int               `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs int               `json:"rate_limit_window_secs,omitempty"`
-	DedupWindowSecs     int               `json:"dedup_window_secs,omitempty"`
-	Enabled             bool              `json:"enabled"`
-	WebhookURL          string            `json:"webhook_url,omitempty"`
-	WebhookSecret       string            `json:"webhook_secret,omitempty"`
-	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
-	RetryStrategy       string            `json:"retry_strategy,omitempty"`
-	RetryDelaysSecs     []int             `json:"retry_delays_secs,omitempty"`
-	EnvironmentID       string            `json:"environment_id,omitempty"`
-	Version             int               `json:"version"`
-	VersionID           string            `json:"version_id,omitempty"`
-	VersionPolicy       VersionPolicy     `json:"version_policy,omitempty"`
-	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
-	CreatedBy           string            `json:"created_by,omitempty"`
-	UpdatedBy           string            `json:"updated_by,omitempty"`
-	CreatedAt           time.Time         `json:"created_at"`
-	UpdatedAt           time.Time         `json:"updated_at"`
+	ID                   string            `json:"id"`
+	ProjectID            string            `json:"project_id"`
+	GroupID              string            `json:"group_id,omitempty"`
+	Name                 string            `json:"name"`
+	Slug                 string            `json:"slug"`
+	Description          string            `json:"description,omitempty"`
+	Cron                 string            `json:"cron,omitempty"`
+	PayloadSchema        json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	EndpointURL          string            `json:"endpoint_url"`
+	FallbackEndpointURL  string            `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts          int               `json:"max_attempts"`
+	TimeoutSecs          int               `json:"timeout_secs"`
+	MaxConcurrency       int               `json:"max_concurrency,omitempty"`
+	MaxConcurrencyPerKey int               `json:"max_concurrency_per_key,omitempty"`
+	ExecutionWindowCron  string            `json:"execution_window_cron,omitempty"`
+	Timezone             string            `json:"timezone,omitempty"`
+	RateLimitMax         int               `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs  int               `json:"rate_limit_window_secs,omitempty"`
+	RateLimitKeys        []RateLimitKey    `json:"rate_limit_keys,omitempty"`
+	DedupWindowSecs      int               `json:"dedup_window_secs,omitempty"`
+	Enabled              bool              `json:"enabled"`
+	WebhookURL           string            `json:"webhook_url,omitempty"`
+	WebhookSecret        string            `json:"webhook_secret,omitempty"`
+	RunTTLSecs           int               `json:"run_ttl_secs,omitempty"`
+	RetryStrategy        string            `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs      []int             `json:"retry_delays_secs,omitempty"`
+	EnvironmentID        string            `json:"environment_id,omitempty"`
+	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
+	Version              int               `json:"version"`
+	VersionID            string            `json:"version_id,omitempty"`
+	VersionPolicy        VersionPolicy     `json:"version_policy,omitempty"`
+	BackwardsCompatible  bool              `json:"backwards_compatible,omitempty"`
+	CreatedBy            string            `json:"created_by,omitempty"`
+	UpdatedBy            string            `json:"updated_by,omitempty"`
+	CreatedAt            time.Time         `json:"created_at"`
+	UpdatedAt            time.Time         `json:"updated_at"`
 }
 
 type JobGroup struct {
@@ -241,7 +253,61 @@ type JobRun struct {
 	ContinuationOf        string            `json:"continuation_of,omitempty"`
 	LineageDepth          int               `json:"lineage_depth"`
 	CreatedBy             string            `json:"created_by,omitempty"`
+	BatchID               string            `json:"batch_id,omitempty"`
+	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
 	CreatedAt             time.Time         `json:"created_at"`
+}
+
+type BatchOperation struct {
+	ID           string     `json:"id"`
+	ProjectID    string     `json:"project_id"`
+	JobID        string     `json:"job_id"`
+	ItemCount    int        `json:"item_count"`
+	CreatedCount int        `json:"created_count"`
+	CreatedBy    string     `json:"created_by,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+}
+
+type RateLimitKey struct {
+	Name       string `json:"name"`
+	Max        int    `json:"max"`
+	WindowSecs int    `json:"window_secs"`
+}
+
+type LogDrain struct {
+	ID          string            `json:"id"`
+	ProjectID   string            `json:"project_id"`
+	Name        string            `json:"name"`
+	DrainType   string            `json:"drain_type"`
+	EndpointURL string            `json:"endpoint_url"`
+	AuthType    string            `json:"auth_type"`
+	AuthConfig  map[string]string `json:"auth_config,omitempty"`
+	LevelFilter []string          `json:"level_filter,omitempty"`
+	Enabled     bool              `json:"enabled"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+}
+
+type EventSource struct {
+	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Schema      json.RawMessage `json:"schema,omitempty"`
+	Enabled     bool            `json:"enabled"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+type EventSubscription struct {
+	ID         string          `json:"id"`
+	SourceID   string          `json:"source_id"`
+	TargetType string          `json:"target_type"`
+	TargetID   string          `json:"target_id"`
+	FilterExpr json.RawMessage `json:"filter_expr,omitempty"`
+	Enabled    bool            `json:"enabled"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 type RunEvent struct {

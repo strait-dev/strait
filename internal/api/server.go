@@ -45,6 +45,8 @@ type APIStore interface {
 	EventTriggerStore
 	AuthStore
 	RBACStore
+	LogDrainStore
+	EventSourceStore
 }
 
 // JobStore handles job CRUD, groups, environments, secrets, and dependencies.
@@ -91,7 +93,7 @@ type RunStore interface {
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -132,6 +134,34 @@ type RunStore interface {
 	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error
+	FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error
+	GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
+	ListBatchOperations(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
+	BulkCancelByFilter(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error)
+}
+
+type LogDrainStore interface {
+	CreateLogDrain(ctx context.Context, drain *domain.LogDrain) error
+	GetLogDrain(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error)
+	ListLogDrains(ctx context.Context, projectID string) ([]domain.LogDrain, error)
+	UpdateLogDrain(ctx context.Context, drainID, projectID string, patch map[string]any) error
+	DeleteLogDrain(ctx context.Context, drainID, projectID string) error
+}
+
+// EventSourceStore handles event source and subscription operations.
+type EventSourceStore interface {
+	CreateEventSource(ctx context.Context, src *domain.EventSource) error
+	GetEventSource(ctx context.Context, sourceID, projectID string) (*domain.EventSource, error)
+	GetEventSourceByName(ctx context.Context, projectID, name string) (*domain.EventSource, error)
+	ListEventSources(ctx context.Context, projectID string) ([]domain.EventSource, error)
+	UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error
+	DeleteEventSource(ctx context.Context, sourceID, projectID string) error
+	CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error
+	ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
+	DeleteEventSubscription(ctx context.Context, subID string) error
 }
 
 // WorkflowStore handles workflows, steps, runs, and approvals.
@@ -167,6 +197,7 @@ type WorkflowStore interface {
 	GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
 }
 
 // EventTriggerStore handles event trigger operations.
