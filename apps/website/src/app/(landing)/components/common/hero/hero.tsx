@@ -36,7 +36,7 @@ const Hero = () => (
 
         <div className="mt-10 flex animate-delay-300 animate-fade-in-up flex-col items-center gap-4 sm:flex-row">
           <Button
-            className="gradient-warm text-white shadow-sm transition-shadow duration-300 hover:shadow-md"
+            className="gradient-warm text-primary-foreground shadow-sm transition-shadow duration-300 hover:shadow-md"
             render={<Link href={dashboardHref("/login")} />}
             size="lg"
           >

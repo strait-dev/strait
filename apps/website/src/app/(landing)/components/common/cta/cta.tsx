@@ -19,7 +19,7 @@ const CTA = () => {
   return (
     <section
       aria-labelledby={headingId}
-      className="relative border-border/40 border-y bg-primary/10 py-20 sm:py-28"
+      className="relative border-border/40 border-y bg-muted py-20 sm:py-28"
     >
       <div className="orchestration-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
       <div className="showcase-dots pointer-events-none absolute inset-0 opacity-15" />
@@ -46,7 +46,7 @@ const CTA = () => {
 
           <div className="mt-10 flex flex-col items-center gap-4">
             <Button
-              className="border border-primary/30 bg-primary/12 text-foreground transition-colors duration-300 hover:bg-primary/18"
+              className="border border-foreground/10 bg-muted text-foreground transition-colors duration-300 hover:bg-muted/80"
               render={<Link href={dashboardHref(buttonHref)} />}
               size="lg"
               variant="outline"

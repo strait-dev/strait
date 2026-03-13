@@ -97,9 +97,9 @@ const ComparisonSection = () => {
             </ul>
           </div>
 
-          <div className="rounded-2xl border border-primary/30 bg-card p-6 sm:p-8">
+          <div className="rounded-2xl border border-foreground/10 bg-card p-6 sm:p-8">
             <div className="mb-6 flex items-center gap-3">
-              <span className="icon-chip text-primary">
+              <span className="icon-chip text-foreground">
                 <HugeiconsIcon
                   className="size-4"
                   icon={CheckmarkCircle02Icon}
@@ -113,7 +113,7 @@ const ComparisonSection = () => {
             <ul className="space-y-3">
               {STRAIT_STEPS.map((step) => (
                 <li className="flex items-start gap-3" key={step}>
-                  <span className="mt-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <span className="mt-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
                     <HugeiconsIcon
                       className="size-3"
                       icon={CheckmarkCircle02Icon}

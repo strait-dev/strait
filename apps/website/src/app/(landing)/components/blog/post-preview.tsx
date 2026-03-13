@@ -24,7 +24,7 @@ const PostPreview = ({
         className="group block h-full"
         href={`/blog/${_slug}`}
       >
-        <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-card transition-colors hover:border-primary hover:shadow-md">
+        <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-card transition-colors hover:border-foreground/20 hover:shadow-md">
           {/* Image section */}
           <figure className="relative aspect-[16/9] overflow-hidden">
             {ogImage?.url ? (
@@ -66,7 +66,7 @@ const PostPreview = ({
             </div>
 
             <h2
-              className="font-semibold text-xl tracking-tight transition-colors group-hover:text-primary sm:text-2xl"
+              className="font-semibold text-xl tracking-tight transition-colors group-hover:text-foreground sm:text-2xl"
               id={`article-${_slug}`}
             >
               {_title}
@@ -77,7 +77,7 @@ const PostPreview = ({
             </p>
 
             <div className="mt-auto pt-2">
-              <span className="inline-flex items-center gap-1 font-medium text-primary text-sm transition-colors group-hover:underline">
+              <span className="inline-flex items-center gap-1 font-medium text-foreground text-sm transition-colors group-hover:underline">
                 Read article
                 <HugeiconsIcon
                   className="size-4 transition-transform group-hover:translate-x-0.5"

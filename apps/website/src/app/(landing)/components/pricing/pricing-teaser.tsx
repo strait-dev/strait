@@ -73,7 +73,7 @@ const PricingTeaser = () => (
           <div
             className={`relative flex flex-col overflow-hidden rounded-2xl border ${
               plan.highlighted
-                ? "border-primary/30"
+                ? "border-foreground/10"
                 : "border-border/60 bg-card"
             }`}
             key={plan.name}
@@ -128,7 +128,7 @@ const PricingTeaser = () => (
                     key={feature}
                   >
                     <HugeiconsIcon
-                      className="mt-0.5 size-4 shrink-0 text-primary"
+                      className="mt-0.5 size-4 shrink-0 text-foreground"
                       icon={CheckmarkCircle02Icon}
                     />
                     <span className="text-pretty text-muted-foreground">

@@ -79,9 +79,9 @@ const InteractiveDemo = () => {
         </div>
 
         {/* Primary background wrapper — matches feature showcase style */}
-        <div className="min-h-[800px] rounded-2xl bg-primary/20 p-3 sm:p-4">
+        <div className="min-h-[800px] rounded-2xl bg-muted p-3 sm:p-4">
           <div
-            className="paper-texture flex min-h-[calc(800px-2rem)] flex-col overflow-hidden rounded-xl border border-primary/15 bg-card shadow-lg"
+            className="paper-texture flex min-h-[calc(800px-2rem)] flex-col overflow-hidden rounded-xl border border-foreground/8 bg-card shadow-lg"
             ref={sectionRef}
           >
             {/* Window chrome */}
@@ -136,7 +136,7 @@ const InteractiveDemo = () => {
                             } as React.CSSProperties
                           }
                         >
-                          <p className="border-primary/30 border-l-2 pl-4 text-foreground text-lg italic leading-relaxed">
+                          <p className="border-foreground/10 border-l-2 pl-4 text-foreground text-lg italic leading-relaxed">
                             {line.text}
                           </p>
                         </div>
@@ -172,7 +172,7 @@ const InteractiveDemo = () => {
               <div className="flex flex-col border-border/50 border-t bg-muted/30 lg:border-t-0">
                 <div className="border-border/50 border-b px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <div className="size-2 rounded-full bg-primary/60" />
+                    <div className="size-2 rounded-full bg-foreground/20" />
                     <span className="font-medium text-foreground text-xs">
                       AI Assistant
                     </span>
@@ -192,7 +192,7 @@ const InteractiveDemo = () => {
                     >
                       {msg.role === "user" ? (
                         <div className="flex justify-end">
-                          <div className="max-w-[85%] rounded-xl rounded-br-sm bg-primary/10 px-3 py-2">
+                          <div className="max-w-[85%] rounded-xl rounded-br-sm bg-muted px-3 py-2">
                             <p className="text-foreground text-sm">
                               {msg.text}
                             </p>

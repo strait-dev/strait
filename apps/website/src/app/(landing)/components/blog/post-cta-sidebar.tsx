@@ -57,7 +57,7 @@ const PostCtaSidebar = async () => {
   return (
     <div className="sticky top-24">
       <div className="rounded-2xl border border-border/60 bg-gradient-to-b from-muted/50 to-background p-6">
-        <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 font-medium text-primary text-xs">
+        <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 font-medium text-foreground text-xs">
           {badge}
         </span>
 

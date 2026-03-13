@@ -43,7 +43,7 @@ const PageHero = ({
           <h1 className="mt-6 text-balance font-semibold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
             {title}{" "}
             {highlightedTitle ? (
-              <span className="mt-2 block text-primary sm:mt-0 sm:inline sm:whitespace-nowrap">
+              <span className="mt-2 block text-foreground sm:mt-0 sm:inline sm:whitespace-nowrap">
                 {highlightedTitle}
               </span>
             ) : null}

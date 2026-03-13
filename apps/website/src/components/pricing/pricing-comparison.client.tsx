@@ -30,7 +30,7 @@ const renderTableCellContent = (
   if (value) {
     return (
       <HugeiconsIcon
-        className="mx-auto size-5 text-primary"
+        className="mx-auto size-5 text-foreground"
         icon={Tick01Icon}
       />
     );
@@ -140,11 +140,11 @@ const PricingComparisonClient = ({
                       >
                         {plan.highlight ? (
                           <HugeiconsIcon
-                            className="relative z-10 size-5 text-primary"
+                            className="relative z-10 size-5 text-foreground"
                             icon={Tick01Icon}
                           />
                         ) : (
-                          <span className="relative z-10 font-semibold text-primary text-sm">
+                          <span className="relative z-10 font-semibold text-foreground text-sm">
                             {index + 1}
                           </span>
                         )}
@@ -259,7 +259,7 @@ const PricingComparisonClient = ({
                           className={cn(
                             "p-6 text-left align-top font-normal",
                             !isLast && "border-border/50 border-r",
-                            plan.highlight && "bg-primary/5"
+                            plan.highlight && "bg-muted/50"
                           )}
                           id={`desktop-${plan.key}`}
                           key={plan.key}
@@ -352,7 +352,7 @@ const PricingComparisonClient = ({
                                   className={cn(
                                     "px-6 py-4 text-center text-muted-foreground text-sm",
                                     !isLast && "border-border/50 border-r",
-                                    plan.highlight && "bg-primary/5"
+                                    plan.highlight && "bg-muted/50"
                                   )}
                                   key={`${plan.key}-${row.label}`}
                                 >

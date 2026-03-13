@@ -13,7 +13,7 @@ export const StylesVisual1 = () => (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <span className="font-medium text-foreground text-sm">Formality</span>
-        <span className="rounded-md bg-primary/10 px-2 py-0.5 font-semibold text-primary text-xs">
+        <span className="rounded-md bg-muted px-2 py-0.5 font-semibold text-foreground text-xs">
           3/5
         </span>
       </div>
@@ -37,7 +37,7 @@ export const StylesVisual1 = () => (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <span className="font-medium text-foreground text-sm">Energy</span>
-        <span className="rounded-md bg-primary/10 px-2 py-0.5 font-semibold text-primary text-xs">
+        <span className="rounded-md bg-muted px-2 py-0.5 font-semibold text-foreground text-xs">
           4/5
         </span>
       </div>
@@ -77,9 +77,9 @@ export const StylesVisual2 = () => (
 
     {/* Drop zone */}
     <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-border/50 border-dashed bg-muted/10 p-6">
-      <div className="rounded-full bg-primary/10 p-2">
+      <div className="rounded-full bg-muted p-2">
         <svg
-          className="size-5 text-primary"
+          className="size-5 text-foreground"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
@@ -101,8 +101,8 @@ export const StylesVisual2 = () => (
     <div className="rounded-lg border border-border/40 bg-background p-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="rounded-md bg-primary/10 p-1.5">
-            <span className="font-bold text-primary text-xs">PDF</span>
+          <div className="rounded-md bg-muted p-1.5">
+            <span className="font-bold text-foreground text-xs">PDF</span>
           </div>
           <div>
             <p className="font-medium text-foreground text-sm">
@@ -111,7 +111,9 @@ export const StylesVisual2 = () => (
             <p className="text-muted-foreground text-xs">128 KB</p>
           </div>
         </div>
-        <span className="font-medium text-primary text-xs">Analyzing...</span>
+        <span className="font-medium text-foreground text-xs">
+          Analyzing...
+        </span>
       </div>
       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div
@@ -153,7 +155,7 @@ export const StylesVisual3 = () => (
       <span className="flex-1 text-foreground text-sm">
         https://example.com/blog/scaling-tips
       </span>
-      <span className="rounded-md bg-primary/10 px-2 py-0.5 font-medium text-primary text-xs">
+      <span className="rounded-md bg-muted px-2 py-0.5 font-medium text-foreground text-xs">
         ✓ Done
       </span>
     </div>
@@ -184,7 +186,7 @@ export const StylesVisual4 = () => (
     </p>
 
     {/* Style profile card */}
-    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+    <div className="rounded-lg border border-foreground/8 bg-muted/50 p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="size-3 rounded-full bg-primary" />
@@ -192,7 +194,7 @@ export const StylesVisual4 = () => (
             Professional Voice
           </span>
         </div>
-        <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary text-xs">
+        <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-foreground text-xs">
           Active
         </span>
       </div>
@@ -226,7 +228,7 @@ export const StylesVisual4 = () => (
         <span className="font-medium text-foreground text-sm">
           Blog Post: Scaling Content
         </span>
-        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-primary text-xs">
+        <span className="rounded-md bg-muted px-2 py-0.5 text-foreground text-xs">
           Writing
         </span>
       </div>

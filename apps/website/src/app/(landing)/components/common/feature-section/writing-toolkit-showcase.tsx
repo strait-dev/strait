@@ -47,11 +47,11 @@ const ExportVisual = () => {
         {formats.map((fmt, i) => (
           <div
             className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
-              i === 0 ? "bg-primary/5" : "hover:bg-muted/50"
+              i === 0 ? "bg-muted/50" : "hover:bg-muted/50"
             }`}
             key={fmt.ext}
           >
-            <span className="flex size-8 items-center justify-center rounded-md bg-primary/10 font-bold text-primary text-xs">
+            <span className="flex size-8 items-center justify-center rounded-md bg-muted font-bold text-foreground text-xs">
               {fmt.abbr}
             </span>
             <div className="flex-1">

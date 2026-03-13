@@ -117,7 +117,7 @@ const MobileNav = () => {
                 Sign in
               </Button>
               <Button
-                className="gradient-warm text-white shadow-sm"
+                className="gradient-warm text-primary-foreground shadow-sm"
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
               >

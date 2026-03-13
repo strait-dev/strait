@@ -54,7 +54,7 @@ const PostAuthorCompact = ({ authors }: PostAuthorCompactProps) => {
             <span key={author._id}>
               {index > 0 && ", "}
               <Link
-                className="hover:text-primary hover:underline"
+                className="hover:text-foreground hover:underline"
                 href={`/blog/author/${author._slug}`}
               >
                 {author._title}

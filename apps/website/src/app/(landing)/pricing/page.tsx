@@ -72,7 +72,7 @@ export default function PricingPage() {
               <span className="rounded-full border border-border/60 bg-card px-4 py-1.5 text-muted-foreground text-xs sm:text-sm">
                 Pro from {proYearly}/mo
               </span>
-              <span className="rounded-full border border-primary/30 bg-primary/8 px-4 py-1.5 font-medium text-primary text-xs sm:text-sm">
+              <span className="rounded-full border border-foreground/10 bg-muted/60 px-4 py-1.5 font-medium text-foreground text-xs sm:text-sm">
                 Save 20% yearly
               </span>
             </div>

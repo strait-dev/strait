@@ -7,7 +7,7 @@ export const InterviewVisual1 = () => (
   <div className="flex flex-col gap-4 p-6">
     {/* AI message */}
     <div className="flex items-start gap-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary text-xs">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-foreground text-xs">
         AI
       </div>
       <div className="space-y-2">
@@ -27,7 +27,7 @@ export const InterviewVisual1 = () => (
 
     {/* User reply */}
     <div className="flex items-start justify-end gap-3">
-      <div className="rounded-lg rounded-tr-none bg-primary/10 px-4 py-2.5">
+      <div className="rounded-lg rounded-tr-none bg-muted px-4 py-2.5">
         <p className="text-foreground text-sm">
           I&apos;m writing a blog post for SaaS founders about scaling content
           marketing...
@@ -40,7 +40,7 @@ export const InterviewVisual1 = () => (
 
     {/* AI typing indicator */}
     <div className="flex items-start gap-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary text-xs">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-foreground text-xs">
         AI
       </div>
       <div className="rounded-lg rounded-tl-none border border-border/40 bg-muted/30 px-4 py-3">
@@ -60,12 +60,12 @@ export const InterviewVisual2 = () => {
     {
       name: "Hook-First",
       desc: "Open with a bold stat that grabs attention immediately.",
-      color: "bg-primary/10 text-primary",
+      color: "bg-muted text-foreground",
     },
     {
       name: "Story-Led",
       desc: "Start with a founder's journey to illustrate the problem.",
-      color: "bg-primary/8 text-primary/80",
+      color: "bg-muted/60 text-primary/80",
     },
     {
       name: "Data-Driven",
@@ -105,7 +105,7 @@ export const InterviewVisual2 = () => {
 export const InterviewVisual3 = () => (
   <div className="flex flex-col gap-3 p-6">
     <div className="flex items-start justify-end gap-3">
-      <div className="rounded-lg rounded-tr-none bg-primary/10 px-4 py-2.5">
+      <div className="rounded-lg rounded-tr-none bg-muted px-4 py-2.5">
         <p className="text-foreground text-sm">
           Make the intro more conversational and add a stronger hook.
         </p>
@@ -113,7 +113,7 @@ export const InterviewVisual3 = () => (
     </div>
 
     <div className="flex items-start gap-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary text-xs">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-foreground text-xs">
         AI
       </div>
       <div className="flex-1 space-y-2">
@@ -121,7 +121,7 @@ export const InterviewVisual3 = () => (
           <p className="text-foreground text-sm">
             Here&apos;s the revised intro:
           </p>
-          <div className="mt-2 rounded-md border border-primary/20 bg-primary/5 p-3">
+          <div className="mt-2 rounded-md border border-foreground/8 bg-muted/50 p-3">
             <p className="text-foreground text-sm italic">
               &quot;What if I told you that 73% of SaaS companies waste their
               content budget on posts nobody reads?&quot;
@@ -136,7 +136,7 @@ export const InterviewVisual3 = () => (
 
 const PenLineIcon = () => (
   <svg
-    className="size-5 text-primary"
+    className="size-5 text-foreground"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.5"
@@ -152,7 +152,7 @@ const PenLineIcon = () => (
 
 const ThreadIcon = () => (
   <svg
-    className="size-5 text-primary"
+    className="size-5 text-foreground"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.5"
@@ -168,7 +168,7 @@ const ThreadIcon = () => (
 
 const MailIcon = () => (
   <svg
-    className="size-5 text-primary"
+    className="size-5 text-foreground"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.5"
@@ -184,7 +184,7 @@ const MailIcon = () => (
 
 const NewspaperIcon = () => (
   <svg
-    className="size-5 text-primary"
+    className="size-5 text-foreground"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.5"
@@ -200,7 +200,7 @@ const NewspaperIcon = () => (
 
 const MegaphoneIcon = () => (
   <svg
-    className="size-5 text-primary"
+    className="size-5 text-foreground"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.5"
@@ -216,7 +216,7 @@ const MegaphoneIcon = () => (
 
 const DocumentTextIcon = () => (
   <svg
-    className="size-5 text-primary"
+    className="size-5 text-foreground"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.5"
@@ -251,8 +251,8 @@ export const InterviewVisual4 = () => {
           <button
             className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 text-center transition-all duration-200 ${
               i === 0
-                ? "border-primary/30 bg-primary/5 shadow-sm"
-                : "border-border/40 bg-background hover:border-primary/20"
+                ? "border-foreground/10 bg-muted/50 shadow-sm"
+                : "border-border/40 bg-background hover:border-foreground/20/20"
             }`}
             key={t.label}
             type="button"

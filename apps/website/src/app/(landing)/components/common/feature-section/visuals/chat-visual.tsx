@@ -41,14 +41,14 @@ export const ChatVisual1 = () => (
         <span className="font-semibold text-foreground text-xs">AI Chat</span>
       </div>
       <div className="flex-1 space-y-2 overflow-hidden p-3">
-        <div className="rounded-lg bg-primary/10 px-2.5 py-1.5 text-foreground text-xs">
+        <div className="rounded-lg bg-muted px-2.5 py-1.5 text-foreground text-xs">
           Can you make paragraph 2 more engaging?
         </div>
         <div className="rounded-lg border border-border/40 bg-background px-2.5 py-1.5 text-foreground text-xs">
           I&apos;ve rewritten paragraph 2 with a stronger opening hook and more
           vivid language.
         </div>
-        <div className="rounded-lg bg-primary/10 px-2.5 py-1.5 text-foreground text-xs">
+        <div className="rounded-lg bg-muted px-2.5 py-1.5 text-foreground text-xs">
           Add some data points to support the claim.
         </div>
         <div className="rounded-lg border border-border/40 bg-background px-2.5 py-1.5 text-foreground text-xs">
@@ -61,7 +61,7 @@ export const ChatVisual1 = () => (
           <span className="flex-1 text-muted-foreground text-xs">
             Ask anything about your draft...
           </span>
-          <div className="flex size-5 items-center justify-center rounded bg-primary text-white">
+          <div className="flex size-5 items-center justify-center rounded bg-primary text-primary-foreground">
             <span className="text-xs">↑</span>
           </div>
         </div>
@@ -87,7 +87,7 @@ export const ChatVisual2 = () => (
     </div>
 
     {/* Arrow */}
-    <div className="flex justify-center text-primary">
+    <div className="flex justify-center text-foreground">
       <svg
         className="size-5"
         fill="none"
@@ -104,11 +104,11 @@ export const ChatVisual2 = () => (
     </div>
 
     {/* After */}
-    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-      <p className="mb-1 font-medium text-primary text-xs">After</p>
+    <div className="rounded-lg border border-foreground/8 bg-muted/50 p-3">
+      <p className="mb-1 font-medium text-foreground text-xs">After</p>
       <p className="text-foreground text-sm">
         Whether you&apos;re a startup or an enterprise,{" "}
-        <span className="bg-primary/10 font-medium text-primary">
+        <span className="bg-muted font-medium text-foreground">
           every feature scales with your ambition
         </span>
         .
@@ -136,14 +136,14 @@ export const ChatVisual3 = () => (
         <div
           className={`flex items-center gap-3 rounded-md px-3 py-2 transition-colors ${
             section.active
-              ? "border border-primary/20 bg-primary/5"
+              ? "border border-foreground/8 bg-muted/50"
               : "border border-border/40 bg-background"
           }`}
           key={section.label}
         >
           <div className="flex size-5 items-center justify-center">
             {section.active ? (
-              <span className="text-primary text-xs">↕</span>
+              <span className="text-foreground text-xs">↕</span>
             ) : (
               <span className="text-muted-foreground text-xs">≡</span>
             )}
@@ -171,13 +171,13 @@ export const ChatVisual4 = () => (
 
     <div className="rounded-lg border border-border/40 bg-background p-4">
       <div className="mb-3 flex items-center gap-2">
-        <div className="flex size-6 items-center justify-center rounded-full bg-primary/10">
-          <span className="font-semibold text-primary text-xs">AI</span>
+        <div className="flex size-6 items-center justify-center rounded-full bg-muted">
+          <span className="font-semibold text-foreground text-xs">AI</span>
         </div>
         <span className="font-medium text-foreground text-xs">
           Writing assistant
         </span>
-        <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-primary text-xs">
+        <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-foreground text-xs">
           Streaming
         </span>
       </div>
@@ -190,7 +190,7 @@ export const ChatVisual4 = () => (
         </p>
         <p className="text-foreground text-sm leading-relaxed">
           Instead, successful SaaS companies are investing in{" "}
-          <span className="font-medium text-primary">
+          <span className="font-medium text-foreground">
             conversation-driven content
           </span>{" "}
           that speaks directly to

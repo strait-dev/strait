@@ -436,7 +436,7 @@
 .kicker {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--primary);
+  color: var(--muted-foreground);
   text-transform: uppercase;
   letter-spacing: 0.2em;
 }

@@ -49,7 +49,7 @@ export const ContentTypesVisual1 = () => (
             key={item.section}
           >
             <span
-              className={`font-mono text-xs ${i === 0 ? "text-primary" : "text-muted-foreground"}`}
+              className={`font-mono text-xs ${i === 0 ? "text-foreground" : "text-muted-foreground"}`}
             >
               {item.level > 0 ? "├─" : "##"}
             </span>
@@ -94,15 +94,15 @@ export const ContentTypesVisual2 = () => (
         },
       ].map((tweet, i) => (
         <div
-          className="relative border-primary/20 border-l-2 py-2 pl-4"
+          className="relative border-foreground/8 border-l-2 py-2 pl-4"
           key={tweet.num}
         >
           {i < 2 && (
-            <div className="absolute bottom-0 left-[-1px] h-2 w-0.5 bg-primary/20" />
+            <div className="absolute bottom-0 left-[-1px] h-2 w-0.5 bg-muted" />
           )}
           <div className="rounded-lg border border-border/40 bg-background p-3">
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary text-xs">
+              <span className="rounded-full bg-muted px-2 py-0.5 font-semibold text-foreground text-xs">
                 {tweet.num}/{3}
               </span>
               <span className="font-mono text-muted-foreground text-xs">
@@ -190,7 +190,7 @@ export const ContentTypesVisual4 = () => (
       {/* Body preview */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-primary text-xs">
+          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground text-xs">
             Lead
           </span>
           <div className="h-1.5 flex-1 rounded bg-foreground/8" />

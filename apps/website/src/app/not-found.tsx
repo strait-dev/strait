@@ -17,7 +17,7 @@ const NotFound = () => (
     <main className="flex min-h-[60vh] items-center justify-center py-20 sm:py-28">
       <Shell variant="wide">
         <div className="mx-auto max-w-md text-center">
-          <p className="font-bold text-7xl text-primary tracking-tight sm:text-8xl">
+          <p className="font-bold text-7xl text-foreground tracking-tight sm:text-8xl">
             404
           </p>
           <h1 className="mt-4 font-bold text-3xl text-foreground tracking-tight sm:text-4xl">

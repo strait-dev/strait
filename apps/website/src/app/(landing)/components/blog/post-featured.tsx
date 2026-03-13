@@ -23,7 +23,7 @@ const PostFeatured = ({
         className="group block cursor-default"
         href={`/blog/${_slug}`}
       >
-        <div className="grid grid-cols-1 gap-6 overflow-hidden rounded-2xl border border-border/60 bg-card transition-colors hover:border-primary hover:shadow-lg lg:grid-cols-2 lg:gap-0">
+        <div className="grid grid-cols-1 gap-6 overflow-hidden rounded-2xl border border-border/60 bg-card transition-colors hover:border-foreground/20 hover:shadow-lg lg:grid-cols-2 lg:gap-0">
           <figure className="relative aspect-[16/9] overflow-hidden lg:aspect-auto lg:h-full">
             {ogImage?.url ? (
               <Image
@@ -68,7 +68,7 @@ const PostFeatured = ({
             </div>
 
             <h2
-              className="font-semibold text-2xl tracking-tight transition-colors group-hover:text-primary sm:text-3xl lg:text-4xl"
+              className="font-semibold text-2xl tracking-tight transition-colors group-hover:text-foreground sm:text-3xl lg:text-4xl"
               id="featured-article-title"
             >
               {_title}
@@ -79,7 +79,7 @@ const PostFeatured = ({
             </p>
 
             <div className="mt-2">
-              <span className="inline-flex items-center gap-1 font-medium text-primary text-sm transition-colors group-hover:underline">
+              <span className="inline-flex items-center gap-1 font-medium text-foreground text-sm transition-colors group-hover:underline">
                 Read article
                 <HugeiconsIcon
                   className="size-4 transition-transform group-hover:translate-x-0.5"

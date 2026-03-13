@@ -62,7 +62,7 @@ const Header = () => {
                 Sign in
               </Button>
               <Button
-                className="gradient-warm text-white shadow-sm transition-shadow duration-300 hover:shadow-md"
+                className="gradient-warm text-primary-foreground shadow-sm transition-shadow duration-300 hover:shadow-md"
                 render={<Link href={dashboardHref("/login")} />}
                 size="default"
               >

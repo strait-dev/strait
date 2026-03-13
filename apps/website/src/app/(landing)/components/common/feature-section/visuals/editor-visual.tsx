@@ -64,7 +64,7 @@ export const EditorVisual1 = () => {
         <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
           The landscape of content marketing has shifted dramatically.
           Here&apos;s what SaaS founders need to know about building a{" "}
-          <span className="bg-primary/10 text-primary">
+          <span className="bg-muted text-foreground">
             sustainable content engine
           </span>{" "}
           that drives real growth.
@@ -101,9 +101,9 @@ export const EditorVisual2 = () => (
       {/* Folder tree */}
       <div className="ml-2 space-y-1 border-border/40 border-l pl-3">
         {/* Expanded folder */}
-        <div className="flex items-center gap-2 rounded-md bg-primary/5 px-2 py-1">
+        <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1">
           <svg
-            className="size-3.5 text-primary"
+            className="size-3.5 text-foreground"
             fill="none"
             stroke="currentColor"
             strokeWidth="1.5"
@@ -196,7 +196,7 @@ export const EditorVisual2 = () => (
     {/* Second workspace */}
     <div className="rounded-lg border border-border/40 bg-background p-3 opacity-60">
       <div className="flex items-center gap-2">
-        <div className="size-3 rounded-sm bg-primary/60" />
+        <div className="size-3 rounded-sm bg-foreground/20" />
         <span className="font-medium text-foreground text-sm">
           Product Docs
         </span>
@@ -239,13 +239,13 @@ export const EditorVisual3 = () => (
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <span
-          className="animate-fade-in-up rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary text-xs"
+          className="animate-fade-in-up rounded-full bg-muted px-2.5 py-0.5 font-medium text-foreground text-xs"
           style={{ animationDelay: "0ms", animationFillMode: "both" }}
         >
           Marketing
         </span>
         <span
-          className="animate-fade-in-up rounded-full bg-primary/8 px-2.5 py-0.5 font-medium text-primary/80 text-xs"
+          className="animate-fade-in-up rounded-full bg-muted/60 px-2.5 py-0.5 font-medium text-primary/80 text-xs"
           style={{ animationDelay: "100ms", animationFillMode: "both" }}
         >
           Blog
@@ -317,12 +317,12 @@ export const EditorVisual4 = () => {
         {formats.map((fmt, i) => (
           <button
             className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
-              i === 0 ? "bg-primary/5" : "hover:bg-muted/50"
+              i === 0 ? "bg-muted/50" : "hover:bg-muted/50"
             }`}
             key={fmt.ext}
             type="button"
           >
-            <span className="flex size-8 items-center justify-center rounded-md bg-primary/10 font-bold text-primary text-xs">
+            <span className="flex size-8 items-center justify-center rounded-md bg-muted font-bold text-foreground text-xs">
               {fmt.abbr}
             </span>
             <div className="flex-1">

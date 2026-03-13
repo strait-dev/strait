@@ -92,7 +92,7 @@ const FeatureShowcase = ({
                     className={cn(
                       "group relative flex min-h-11 items-start gap-3 overflow-hidden rounded-lg border border-transparent px-4 py-3 text-left transition-all duration-200 before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary before:transition-opacity focus-visible:ring-2 focus-visible:ring-primary/40",
                       activeIndex === index
-                        ? "border-primary/30 bg-primary/5 before:opacity-100"
+                        ? "border-foreground/10 bg-muted/50 before:opacity-100"
                         : "before:opacity-0 hover:bg-muted/50"
                     )}
                     id={tabId}
@@ -105,7 +105,7 @@ const FeatureShowcase = ({
                       className={cn(
                         "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md transition-colors duration-200",
                         activeIndex === index
-                          ? "bg-primary/10 text-primary"
+                          ? "bg-muted text-foreground"
                           : "bg-muted text-muted-foreground group-hover:text-foreground"
                       )}
                     >
@@ -141,7 +141,7 @@ const FeatureShowcase = ({
             {!!cta && (
               <div className="mt-2">
                 <Link
-                  className="inline-flex items-center gap-2 font-semibold text-primary text-sm transition-colors hover:text-primary/80"
+                  className="inline-flex items-center gap-2 font-semibold text-foreground text-sm transition-colors hover:text-primary/80"
                   href={cta.href}
                 >
                   {cta.label}
@@ -156,8 +156,8 @@ const FeatureShowcase = ({
               className="order-1 flex flex-col lg:sticky lg:top-32 lg:order-none"
               ref={visualRef}
             >
-              <div className="flex flex-1 flex-col rounded-2xl bg-primary/20 p-3 sm:p-4">
-                <div className="paper-texture relative flex-1 overflow-hidden rounded-xl border border-primary/15 bg-card shadow-lg">
+              <div className="flex flex-1 flex-col rounded-2xl bg-muted p-3 sm:p-4">
+                <div className="paper-texture relative flex-1 overflow-hidden rounded-xl border border-foreground/8 bg-card shadow-lg">
                   {visuals.map((visual, index) => (
                     <div
                       aria-hidden={activeIndex !== index}

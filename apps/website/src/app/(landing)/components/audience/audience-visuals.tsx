@@ -222,7 +222,7 @@ const AudienceVisuals = ({ audiences, iconMap }: AudienceVisualsProps) => {
               <div className="flex items-center gap-3">
                 <div className="icon-chip">
                   <HugeiconsIcon
-                    className="size-4 text-primary"
+                    className="size-4 text-foreground"
                     icon={IconComponent}
                   />
                 </div>
@@ -238,7 +238,7 @@ const AudienceVisuals = ({ audiences, iconMap }: AudienceVisualsProps) => {
                 <div className="mt-4 flex flex-wrap gap-2">
                   {examples.map((example) => (
                     <span
-                      className="rounded-md bg-primary/8 px-2.5 py-1 text-primary text-xs"
+                      className="rounded-md bg-muted/60 px-2.5 py-1 text-foreground text-xs"
                       key={example._id}
                     >
                       {example.text}

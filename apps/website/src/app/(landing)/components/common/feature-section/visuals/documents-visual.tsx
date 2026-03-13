@@ -48,7 +48,7 @@ export const DocumentsVisual1 = () => {
           >
             {doc.pinned ? (
               <svg
-                className="size-4 text-primary"
+                className="size-4 text-foreground"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
@@ -106,10 +106,10 @@ export const DocumentsVisual2 = () => (
         </span>
         <div className="flex items-center gap-1.5">
           <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/60 opacity-75" />
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-foreground/20 opacity-75" />
             <span className="relative inline-flex size-2 rounded-full bg-primary" />
           </span>
-          <span className="text-primary text-xs">Saved</span>
+          <span className="text-foreground text-xs">Saved</span>
         </div>
       </div>
       <div className="space-y-2 p-4">
@@ -131,7 +131,7 @@ export const DocumentsVisual2 = () => (
           key={entry.time}
         >
           <span className="text-muted-foreground">{entry.time}</span>
-          <span className="flex items-center gap-1 text-primary">
+          <span className="flex items-center gap-1 text-foreground">
             <svg
               className="size-3"
               fill="none"
@@ -168,7 +168,7 @@ export const DocumentsVisual3 = () => (
             <div className="space-y-1">
               <div className="h-1 w-full rounded bg-foreground/10" />
               <div className="h-1 w-9/12 rounded bg-foreground/10" />
-              <div className="h-1 w-11/12 rounded bg-primary/30" />
+              <div className="h-1 w-11/12 rounded bg-foreground/10" />
             </div>
           </div>
         </div>
@@ -185,7 +185,7 @@ export const DocumentsVisual3 = () => (
           </span>
           <span className="h-px w-4 bg-primary/40" />
         </div>
-        <span className="font-medium text-primary text-xs">Synced</span>
+        <span className="font-medium text-foreground text-xs">Synced</span>
       </div>
 
       {/* Mobile device */}
@@ -195,7 +195,7 @@ export const DocumentsVisual3 = () => (
             <div className="space-y-0.5">
               <div className="h-0.5 w-full rounded bg-foreground/10" />
               <div className="h-0.5 w-9/12 rounded bg-foreground/10" />
-              <div className="h-0.5 w-11/12 rounded bg-primary/30" />
+              <div className="h-0.5 w-11/12 rounded bg-foreground/10" />
             </div>
           </div>
         </div>
@@ -217,9 +217,9 @@ export const DocumentsVisual4 = () => (
     </p>
 
     {/* Search input */}
-    <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-background px-3 py-2 shadow-sm">
+    <div className="flex items-center gap-2 rounded-lg border border-foreground/10 bg-background px-3 py-2 shadow-sm">
       <svg
-        className="size-4 text-primary"
+        className="size-4 text-foreground"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
@@ -262,7 +262,7 @@ export const DocumentsVisual4 = () => (
               i < arr.length - 1 ? (
                 <span key={`${result.title}-${part}`}>
                   {part}
-                  <mark className="bg-primary/20 text-foreground">content</mark>
+                  <mark className="bg-muted text-foreground">content</mark>
                 </span>
               ) : (
                 <span key={`${result.title}-${part}`}>{part}</span>

@@ -249,7 +249,7 @@ const HowItWorks = () => {
                   <div className="flex items-center gap-3">
                     <div className="icon-chip">
                       <HugeiconsIcon
-                        className="size-4 text-primary"
+                        className="size-4 text-foreground"
                         icon={IconComponent}
                       />
                     </div>

@@ -88,10 +88,10 @@ const PostTocClient = ({ headings }: PostTocClientProps) => {
                 <li key={heading.id}>
                   <a
                     className={cn(
-                      "block text-sm transition-colors hover:text-primary",
+                      "block text-sm transition-colors hover:text-foreground",
                       heading.level === 3 && "pl-4",
                       activeId === heading.id
-                        ? "font-medium text-primary"
+                        ? "font-medium text-foreground"
                         : "text-muted-foreground"
                     )}
                     href={`#${heading.id}`}
@@ -118,10 +118,10 @@ const PostTocClient = ({ headings }: PostTocClientProps) => {
             <li key={heading.id}>
               <a
                 className={cn(
-                  "-ml-px block border-l-2 py-1 pl-4 text-sm transition-colors hover:border-primary hover:text-primary",
+                  "-ml-px block border-l-2 py-1 pl-4 text-sm transition-colors hover:border-foreground/20 hover:text-foreground",
                   heading.level === 3 && "pl-8",
                   activeId === heading.id
-                    ? "border-primary font-medium text-primary"
+                    ? "border-foreground font-medium text-foreground"
                     : "border-transparent text-muted-foreground"
                 )}
                 href={`#${heading.id}`}

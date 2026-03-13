@@ -83,7 +83,7 @@ export function StaticPricingTable() {
           >
             Yearly
           </button>
-          <span className="mr-2 ml-1 rounded-full bg-primary/10 px-3 py-1 font-medium text-primary text-xs">
+          <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground text-xs">
             Save {savingsPercent}%
           </span>
         </div>
@@ -156,7 +156,7 @@ export function StaticPricingTable() {
                       key={feature}
                     >
                       <HugeiconsIcon
-                        className="mt-0.5 size-4 shrink-0 text-primary"
+                        className="mt-0.5 size-4 shrink-0 text-foreground"
                         icon={CheckmarkCircle02Icon}
                       />
                       <span className="text-pretty text-muted-foreground">

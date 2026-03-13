@@ -80,7 +80,7 @@ const Testimonial = ({
               width={36}
             />
           ) : (
-            <span className="relative z-10 font-semibold text-primary text-sm">
+            <span className="relative z-10 font-semibold text-foreground text-sm">
               {initials || "SW"}
             </span>
           )}

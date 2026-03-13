@@ -3,7 +3,6 @@
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
-// biome-ignore lint/suspicious/noExplicitAny: recharts injects payload/label at runtime with loosely typed generics
 type TooltipPayloadItem = Record<string, any>;
 type LegendPayloadItem = Record<string, any>;
 
@@ -150,7 +149,6 @@ function ChartTooltipContent({
     if (labelFormatter) {
       return (
         <div className={cn("font-medium", labelClassName)}>
-          {/* biome-ignore lint/suspicious/noExplicitAny: recharts runtime payload */}
           {labelFormatter(value, payload as any)}
         </div>
       );
