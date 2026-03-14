@@ -2,7 +2,7 @@ import { Polar } from "@polar-sh/sdk";
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth.ts";
+import { auth } from "@/lib/auth";
 
 type SubscriptionData = {
   id: string;
@@ -94,7 +94,9 @@ const toTitleCase = (value: string) =>
 const getSubscriptionByEmail = async (
   email: string
 ): Promise<NormalizedSubscription | null> => {
-  if (!polarClient) return null;
+  if (!polarClient) {
+    return null;
+  }
 
   const { result: customersResult } = await polarClient.customers.list({
     email,
