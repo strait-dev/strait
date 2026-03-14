@@ -38,40 +38,37 @@ const getAuthUserFn = createServerFn({ method: "GET" }).handler(async () => {
 const FINAL_STEP = 2;
 
 /**
- * Validates and tracks the business needs step (Step 1)
+ * Validates and tracks the use cases step (Step 1)
  */
-function validateBusinessNeedsStep(
+function validateUseCasesStep(
   formValues: OnboardingFormData,
   analytics: ReturnType<typeof useOnboardingAnalytics>
 ): boolean {
-  const businessNeeds = formValues.businessNeeds;
-  const isValid = businessNeeds && businessNeeds.length >= 1;
+  const useCases = formValues.useCases;
+  const isValid = useCases && useCases.length >= 1;
   if (isValid) {
-    analytics.trackBusinessNeedsCompleted(businessNeeds);
+    analytics.trackBusinessNeedsCompleted(useCases);
   }
   return isValid;
 }
 
 /**
- * Validates and tracks the company info step (Step 2)
+ * Validates and tracks the workspace setup step (Step 2)
  */
-function validateCompanyInfoStep(
+function validateWorkspaceSetupStep(
   formValues: OnboardingFormData,
   analytics: ReturnType<typeof useOnboardingAnalytics>
 ): boolean {
   const isValid = !!(
-    formValues.companyName &&
-    formValues.companyName.length >= 2 &&
-    formValues.industry &&
-    formValues.companySize &&
-    formValues.businessType &&
-    formValues.country
+    formValues.workspaceName &&
+    formValues.workspaceName.length >= 2 &&
+    formValues.teamSize &&
+    formValues.environment
   );
   if (isValid) {
     analytics.trackCompanyInfoCompleted({
-      organizationName: formValues.companyName,
-      organizationCountry: formValues.country,
-      numberOfEmployees: formValues.companySize,
+      organizationName: formValues.workspaceName,
+      numberOfEmployees: formValues.teamSize,
     });
   }
   return isValid;
@@ -107,15 +104,10 @@ function OnboardingFlow() {
 
   const defaultValues = useMemo(
     (): OnboardingFormData => ({
-      businessNeeds: [],
-      companyName: "",
-      companyPhone: "",
-      industry: "",
-      companySize: "",
-      businessType: "",
-      annualRevenue: undefined,
-      country: "United States",
-      website: "",
+      useCases: [],
+      workspaceName: "",
+      teamSize: "",
+      environment: "",
       primaryGoals: "",
     }),
     []
@@ -132,16 +124,14 @@ function OnboardingFlow() {
   const getIsStepValid = useCallback(() => {
     const values = form.state.values;
     if (currentStep === 1) {
-      return values.businessNeeds && values.businessNeeds.length >= 1;
+      return values.useCases && values.useCases.length >= 1;
     }
     if (currentStep === 2) {
       return !!(
-        values.companyName &&
-        values.companyName.length >= 2 &&
-        values.industry &&
-        values.companySize &&
-        values.businessType &&
-        values.country
+        values.workspaceName &&
+        values.workspaceName.length >= 2 &&
+        values.teamSize &&
+        values.environment
       );
     }
     return true;
@@ -155,7 +145,7 @@ function OnboardingFlow() {
             className="h-4 w-4 animate-spin"
             icon={Loading03Icon}
           />
-          <span>Creating your store...</span>
+          <span>Setting up...</span>
         </>
       );
     }
@@ -205,10 +195,10 @@ function OnboardingFlow() {
   const validateCurrentStep = useCallback((): boolean => {
     const values = form.state.values;
     if (currentStep === 1) {
-      return validateBusinessNeedsStep(values, analytics);
+      return validateUseCasesStep(values, analytics);
     }
     if (currentStep === 2) {
-      return validateCompanyInfoStep(values, analytics);
+      return validateWorkspaceSetupStep(values, analytics);
     }
     return false;
   }, [currentStep, form, analytics]);
@@ -217,21 +207,20 @@ function OnboardingFlow() {
     const formData = form.state.values;
 
     analytics.trackOnboardingCompleted({
-      businessNeeds: formData.businessNeeds,
-      organizationName: formData.companyName,
-      organizationCountry: formData.country,
+      useCases: formData.useCases,
+      organizationName: formData.workspaceName,
     });
 
     toast.promise(completeOnboarding.mutateAsync(formData), {
-      loading: "Creating your store...",
-      success: "Store created! Let's choose your plan.",
+      loading: "Setting up your workspace...",
+      success: "Workspace created! Let's get started.",
       error: (error: unknown) => {
         captureException(error);
         analytics.trackOnboardingError(
           error instanceof Error ? error.message : "Unknown error",
           currentStep
         );
-        return "Failed to create store. Please try again.";
+        return "Failed to create workspace. Please try again.";
       },
     });
   }, [form, analytics, completeOnboarding, currentStep]);

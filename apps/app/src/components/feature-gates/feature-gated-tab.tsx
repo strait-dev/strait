@@ -161,7 +161,7 @@ export const FeatureGatedTabContent = ({
             icon={SquareLock02Icon}
           />
         </div>
-        <h3 className="mb-2 font-semibold text-lg">Premium Feature</h3>
+        <h3 className="mb-2 font-normal text-lg">Premium Feature</h3>
         <p className="mb-4 max-w-md text-muted-foreground text-sm">
           This report requires a higher subscription tier. Upgrade your plan to
           access advanced analytics and insights.

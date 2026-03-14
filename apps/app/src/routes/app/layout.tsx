@@ -187,9 +187,7 @@ function RouteComponent() {
                       size="lg"
                     >
                       <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-semibold">
-                          Loading...
-                        </span>
+                        <span className="truncate font-normal">Loading...</span>
                       </div>
                     </SidebarMenuButton>
                   }

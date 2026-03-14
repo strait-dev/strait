@@ -227,7 +227,7 @@ const EntityViewError = ({ error, backHref }: EntityViewErrorProps) => {
     <div className="w-full">
       <div className="flex flex-col items-center justify-center py-12">
         <div className="space-y-4 text-center">
-          <h2 className="font-heading font-semibold text-lg text-secondary-foreground">
+          <h2 className="font-heading font-normal text-lg text-secondary-foreground">
             Error loading data
           </h2>
           <p className="max-w-md text-muted-foreground text-sm">

@@ -65,7 +65,7 @@ export const OrganizationsLayout = ({
                 width={32}
               />
             </div>
-            <h1 className="font-semibold text-2xl tracking-tight">{title}</h1>
+            <h1 className="font-normal text-2xl tracking-tight">{title}</h1>
           </div>
           {children}
         </div>

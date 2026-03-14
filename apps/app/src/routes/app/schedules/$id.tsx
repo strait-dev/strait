@@ -100,9 +100,7 @@ function ScheduleDetailPage() {
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <h1 className="font-semibold text-2xl tracking-tight">
-              {job.name}
-            </h1>
+            <h1 className="font-normal text-2xl tracking-tight">{job.name}</h1>
             <StatusBadge
               showDot
               status={job.enabled ? "completed" : "paused"}
@@ -140,7 +138,7 @@ function ScheduleDetailPage() {
             <p className="font-medium text-muted-foreground text-xs uppercase">
               Cron Schedule
             </p>
-            <code className="font-semibold text-sm">
+            <code className="font-normal text-sm">
               {job.cron || "No schedule"}
             </code>
           </div>

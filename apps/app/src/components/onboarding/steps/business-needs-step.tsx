@@ -5,7 +5,7 @@ import {
 import { FieldError } from "@strait/ui/components/field";
 import { useCallback } from "react";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
-import { businessNeedsOptions } from "../data/business-needs-options";
+import { useCaseOptions } from "../data/business-needs-options";
 import type { OnboardingStepProps } from "../types";
 
 export const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
@@ -38,20 +38,19 @@ export const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="font-semibold text-secondary-foreground text-xl tracking-tight">
-          What brings you to Strait?
+        <h2 className="font-normal text-secondary-foreground text-xl tracking-tight">
+          What will you use Strait for?
         </h2>
         <p className="whitespace-normal text-muted-foreground text-sm">
-          Select your business priorities below and we'll help you achieve them
-          in Strait.
+          Select your primary use cases and we'll tailor your experience.
         </p>
       </div>
 
-      <form.Field name="businessNeeds">
+      <form.Field name="useCases">
         {(field) => (
           <div>
             <CardCheckboxGroup>
-              {businessNeedsOptions.map((option) => (
+              {useCaseOptions.map((option) => (
                 <CardCheckboxItem
                   checked={field.state.value?.includes(option.id)}
                   id={option.id}

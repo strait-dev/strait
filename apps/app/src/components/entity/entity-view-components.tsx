@@ -94,9 +94,7 @@ export function StatCard({
         ) : null}
         <div className="min-w-0 flex-1">
           <p className="truncate text-muted-foreground text-sm">{label}</p>
-          <p className="truncate font-semibold text-xl tracking-tight">
-            {value}
-          </p>
+          <p className="truncate font-normal text-xl tracking-tight">{value}</p>
           {description ? (
             <p className="truncate text-muted-foreground text-xs">
               {description}
@@ -187,7 +185,7 @@ export function EmptyTabContent({
         </div>
       ) : null}
       <div className="space-y-1">
-        <h3 className="font-semibold text-base">{title}</h3>
+        <h3 className="font-normal text-base">{title}</h3>
         <p className="max-w-sm text-muted-foreground text-sm">{description}</p>
       </div>
       {action ? <div className="mt-2">{action}</div> : null}

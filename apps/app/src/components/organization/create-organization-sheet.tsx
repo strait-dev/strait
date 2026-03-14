@@ -323,7 +323,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col justify-between gap-2 lg:flex-row">
                   <div className="flex flex-col gap-1">
-                    <h3 className="font-semibold text-base text-secondary-foreground tracking-normal">
+                    <h3 className="font-normal text-base text-secondary-foreground tracking-normal">
                       Tax Information
                     </h3>
                     <p className="text-muted-foreground text-sm">
@@ -604,7 +604,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col justify-between gap-2 lg:flex-row">
                   <div className="flex flex-col gap-1">
-                    <h3 className="font-semibold text-base text-secondary-foreground tracking-normal">
+                    <h3 className="font-normal text-base text-secondary-foreground tracking-normal">
                       Address
                     </h3>
                     <p className="text-muted-foreground text-sm">

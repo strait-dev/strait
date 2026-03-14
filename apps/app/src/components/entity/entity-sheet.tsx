@@ -239,7 +239,7 @@ export type EntitySheetMetricProps = {
 export const EntitySheetMetric = memo<EntitySheetMetricProps>(
   ({ label, value, className = "" }) => (
     <div className={`text-center ${className}`}>
-      <div className="font-semibold text-lg text-secondary-foreground">
+      <div className="font-normal text-lg text-secondary-foreground">
         {value}
       </div>
       <div className="text-muted-foreground text-sm">{label}</div>

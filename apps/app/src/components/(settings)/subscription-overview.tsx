@@ -232,7 +232,7 @@ const SubscriptionOverview = () => {
                 <div className="font-medium text-muted-foreground text-sm">
                   Billing Cycle
                 </div>
-                <p className="font-semibold">{planInfo.intervalName}</p>
+                <p className="font-normal">{planInfo.intervalName}</p>
               </div>
 
               {subscription?.currentPeriodEnd ? (
@@ -240,7 +240,7 @@ const SubscriptionOverview = () => {
                   <div className="font-medium text-muted-foreground text-sm">
                     {planInfo.isCanceled ? "Cancels On" : "Next Billing"}
                   </div>
-                  <p className="font-semibold">
+                  <p className="font-normal">
                     {new Date(subscription.currentPeriodEnd).toLocaleDateString(
                       "en-US",
                       {

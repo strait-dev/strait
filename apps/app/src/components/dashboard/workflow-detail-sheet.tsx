@@ -34,7 +34,7 @@ const STEP_TYPE_COLORS: Record<WorkflowStepType, string> = {
 function StatCell({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-md border p-3 text-center">
-      <p className="font-bold text-lg">{value}</p>
+      <p className="font-normal text-lg">{value}</p>
       <p className="text-[11px] text-muted-foreground">{label}</p>
     </div>
   );

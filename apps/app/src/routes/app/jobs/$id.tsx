@@ -76,9 +76,7 @@ function JobDetailPage() {
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <h1 className="font-semibold text-2xl tracking-tight">
-              {job.name}
-            </h1>
+            <h1 className="font-normal text-2xl tracking-tight">{job.name}</h1>
             <StatusBadge
               showDot
               status={job.enabled ? "completed" : "paused"}
@@ -207,7 +205,7 @@ function JobDetailPage() {
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border p-4 text-center">
-      <p className="font-bold text-2xl">{value}</p>
+      <p className="font-normal text-2xl">{value}</p>
       <p className="text-muted-foreground text-xs">{label}</p>
     </div>
   );

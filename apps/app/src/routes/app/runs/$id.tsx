@@ -92,7 +92,7 @@ function RunDetailPage() {
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <h1 className="font-mono font-semibold text-xl tracking-tight">
+            <h1 className="font-mono font-normal text-xl tracking-tight">
               {run.id}
             </h1>
             <StatusBadge showDot status={run.status} />

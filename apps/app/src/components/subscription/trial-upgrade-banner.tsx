@@ -144,7 +144,7 @@ const UpgradeBanner = () => {
         bg: "bg-destructive/15",
         border: "border-destructive/30",
         text: "text-destructive dark:text-red-400",
-        titleText: "text-destructive dark:text-red-300 font-semibold",
+        titleText: "text-destructive dark:text-red-300 font-normal",
         icon: "bg-destructive/20 text-destructive",
         buttonVariant: "destructive" as const,
         buttonClass: "",

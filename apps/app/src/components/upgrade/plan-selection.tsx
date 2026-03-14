@@ -176,7 +176,7 @@ const PricingCardBadges = ({
           variant="success-light"
         >
           <HugeiconsIcon className="h-3 w-3" icon={Tick02Icon} />
-          <span className="font-semibold text-xs">Current plan</span>
+          <span className="font-normal text-xs">Current plan</span>
         </Badge>
       );
     }
@@ -187,7 +187,7 @@ const PricingCardBadges = ({
           variant="info-light"
         >
           <HugeiconsIcon className="h-3 w-3" icon={StarIcon} />
-          <span className="font-semibold text-xs">Most Popular</span>
+          <span className="font-normal text-xs">Most Popular</span>
         </Badge>
       );
     }
@@ -202,7 +202,7 @@ const PricingCardBadges = ({
           variant="success-light"
         >
           <HugeiconsIcon className="h-3 w-3" icon={Tick02Icon} />
-          <span className="font-semibold text-xs">
+          <span className="font-normal text-xs">
             Save{" "}
             {Math.round(
               ((plan.prices.monthly * MONTHS_IN_A_YEAR - plan.prices.yearly) /
@@ -355,7 +355,7 @@ const PricingCard = ({
             </div>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="font-semibold text-2xl text-foreground tracking-tighter">
+            <span className="font-normal text-2xl text-foreground tracking-tighter">
               <span className="tabular-nums">
                 {formatCurrency(currentPrice / CENTS_TO_DOLLARS)}
               </span>
@@ -440,7 +440,7 @@ export const PlanSelection = ({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="font-semibold text-secondary-foreground text-xl tracking-tight">
+        <h1 className="font-normal text-secondary-foreground text-xl tracking-tight">
           {messaging.title}
         </h1>
         <p className="whitespace-normal text-muted-foreground text-sm">
@@ -454,7 +454,7 @@ export const PlanSelection = ({
           {BILLING_INTERVALS.map((option) => (
             <button
               className={cn(
-                "relative flex items-center gap-2 rounded-custom px-3 py-1.5 font-semibold text-sm transition-colors",
+                "relative flex items-center gap-2 rounded-custom px-3 py-1.5 font-normal text-sm transition-colors",
                 billingInterval === option.value
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-foreground/80 hover:bg-muted-foreground/10"

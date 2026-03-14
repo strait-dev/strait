@@ -117,7 +117,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
             </AvatarFallback>
           </Avatar>
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">
+            <span className="truncate font-normal">
               Create first organization
             </span>
             <span className="truncate text-muted-foreground text-xs">
@@ -163,7 +163,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
           </Avatar>
 
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">
+            <span className="truncate font-normal">
               {activeOrganization.name}
             </span>
             <span className="truncate text-muted-foreground text-xs">
@@ -192,7 +192,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
                 </Avatar>
 
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">
+                  <span className="truncate font-normal">
                     {activeOrganization.name}
                   </span>
                   <span className="truncate text-muted-foreground text-xs">

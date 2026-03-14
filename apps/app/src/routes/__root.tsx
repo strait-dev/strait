@@ -120,10 +120,10 @@ function RootComponent() {
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="light"
+      defaultTheme="dark"
       disableTransitionOnChange
       enableColorScheme={false}
-      enableSystem
+      enableSystem={false}
       themes={["light", "dark"]}
     >
       <RootDocument>
@@ -151,7 +151,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                const theme = localStorage.getItem('theme') || 'light';
+                const theme = localStorage.getItem('theme') || 'dark';
                 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
                 const effectiveTheme = theme === 'system' ? systemTheme : theme;
                 document.documentElement.classList.add(effectiveTheme);

@@ -542,7 +542,7 @@ const DeleteOrganizationDialog = ({
                 </p>
                 <p className="text-destructive text-sm opacity-90">
                   Deleting your only organization will{" "}
-                  <strong>permanently delete ALL data</strong> including:
+                  <span>permanently delete ALL data</span> including:
                 </p>
                 <ul className="mt-2 ml-4 list-disc text-destructive text-sm opacity-90">
                   <li>All products and inventory</li>

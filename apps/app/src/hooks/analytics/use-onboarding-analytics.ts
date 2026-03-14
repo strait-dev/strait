@@ -97,14 +97,9 @@ export const useOnboardingAnalytics = () => {
    * Track when company info step is completed
    */
   const trackCompanyInfoCompleted = useCallback(
-    (companyInfo: {
-      organizationName: string;
-      organizationCountry: string;
-      numberOfEmployees?: string;
-    }) => {
+    (companyInfo: { organizationName: string; numberOfEmployees?: string }) => {
       posthog?.capture(ONBOARDING_EVENTS.COMPANY_INFO_COMPLETED, {
         organization_name: companyInfo.organizationName,
-        organization_country: companyInfo.organizationCountry,
         number_of_employees: companyInfo.numberOfEmployees,
         timestamp: new Date().toISOString(),
       });
@@ -130,11 +125,7 @@ export const useOnboardingAnalytics = () => {
    * Track onboarding completion
    */
   const trackOnboardingCompleted = useCallback(
-    (properties: {
-      businessNeeds?: string[];
-      organizationName?: string;
-      organizationCountry?: string;
-    }) => {
+    (properties: { useCases?: string[]; organizationName?: string }) => {
       const timeOnOnboarding = onboardingStartTimeRef.current
         ? Date.now() - onboardingStartTimeRef.current
         : undefined;

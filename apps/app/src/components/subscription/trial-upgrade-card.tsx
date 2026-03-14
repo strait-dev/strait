@@ -139,7 +139,7 @@ const TrialUpgradeCard = () => {
       red: {
         container:
           "bg-destructive/15 border-destructive/30 dark:bg-red-950/30 dark:border-red-800",
-        title: "text-destructive dark:text-red-300 font-semibold",
+        title: "text-destructive dark:text-red-300 font-normal",
         message: "text-destructive/80 dark:text-red-400",
         buttonVariant: "destructive" as const,
         buttonClass: "",
