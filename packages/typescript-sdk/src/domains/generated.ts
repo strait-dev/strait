@@ -71,7 +71,19 @@ const invokeOperation = <ReqBody = unknown, RespBody = unknown>(
   Effect.flatMap(
     resolvePath(operation.path, input?.pathParams),
     (resolvedPath) => {
-      const generatedSchemas = generatedOperationSchemas[operation.id];
+      const generatedSchemas =
+        generatedOperationSchemas[
+          operation.id as keyof typeof generatedOperationSchemas
+        ];
+
+      const generatedRequestSchema =
+        generatedSchemas && "request" in generatedSchemas
+          ? (generatedSchemas.request as Schema.Schema<ReqBody>)
+          : undefined;
+      const generatedResponseSchema =
+        generatedSchemas && "response" in generatedSchemas
+          ? (generatedSchemas.response as Schema.Schema<RespBody>)
+          : undefined;
 
       return request<ReqBody, RespBody>({
         method: operation.method,
@@ -80,12 +92,8 @@ const invokeOperation = <ReqBody = unknown, RespBody = unknown>(
         headers: input?.headers,
         body: input?.body,
         successStatus: input?.successStatus,
-        requestSchema:
-          input?.requestSchema ??
-          (generatedSchemas?.request as Schema.Schema<ReqBody> | undefined),
-        responseSchema:
-          input?.responseSchema ??
-          (generatedSchemas?.response as Schema.Schema<RespBody> | undefined),
+        requestSchema: input?.requestSchema ?? generatedRequestSchema,
+        responseSchema: input?.responseSchema ?? generatedResponseSchema,
       });
     }
   );
@@ -142,4 +150,7 @@ export const domains = Object.fromEntries(
 
 export const getOperation = (
   operationId: string
-): GeneratedOperation | undefined => generatedOperationMap[operationId];
+): GeneratedOperation | undefined =>
+  operationId in generatedOperationMap
+    ? generatedOperationMap[operationId as keyof typeof generatedOperationMap]
+    : undefined;

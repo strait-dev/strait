@@ -3,6 +3,8 @@
 
 import { Schema } from "effect";
 
+import type { GeneratedOperationId } from "../../contracts/_generated/contracts";
+
 export type GeneratedOperationSchema = {
   readonly request?: Schema.Schema.AnyNoContext;
   readonly response?: Schema.Schema.AnyNoContext;
@@ -111,7 +113,7 @@ componentSchemas["BulkCancelAllRequest"] = Schema.Struct({ "job_id": Schema.opti
 componentSchemas["BulkReplayRequest"] = Schema.Struct({ "run_ids": Schema.Array(Schema.String) });
 componentSchemas["BulkWorkflowRunRequest"] = Schema.Struct({ "workflow_run_ids": Schema.Array(Schema.String) });
 
-export const generatedOperationSchemas: Readonly<Record<string, GeneratedOperationSchema>> = {
+export const generatedOperationSchemas = {
   "getHealth": { response: Schema.Struct({ "status": Schema.optional(Schema.String) }) },
   "getHealthReady": { response: Schema.Struct({ "status": Schema.optional(Schema.String) }) },
   "getMetrics": {},
@@ -277,4 +279,38 @@ export const generatedOperationSchemas: Readonly<Record<string, GeneratedOperati
   "getV1WorkflowsByWorkflowIDVersionsByVersionID": { response: Schema.suspend(() => componentSchemas["WorkflowVersion"] ?? Schema.Unknown) },
   "getV1WorkflowsByWorkflowIDVersionsByVersionIDImpact": { response: Schema.suspend(() => componentSchemas["WorkflowVersionImpactResponse"] ?? Schema.Unknown) },
   "getV1WorkflowsByWorkflowIDVersionsByVersionIDSteps": { response: Schema.Array(Schema.suspend(() => componentSchemas["WorkflowStep"] ?? Schema.Unknown)) },
+} as const satisfies {
+  readonly [K in GeneratedOperationId]: GeneratedOperationSchema;
 };
+
+type InferRequestBody<TOperationSchema extends GeneratedOperationSchema> =
+  TOperationSchema extends { readonly request: infer TRequestSchema }
+    ? TRequestSchema extends Schema.Schema.AnyNoContext
+      ? Schema.Schema.Type<TRequestSchema>
+      : undefined
+    : undefined;
+
+type InferResponseBody<TOperationSchema extends GeneratedOperationSchema> =
+  TOperationSchema extends { readonly response: infer TResponseSchema }
+    ? TResponseSchema extends Schema.Schema.AnyNoContext
+      ? Schema.Schema.Type<TResponseSchema>
+      : unknown
+    : unknown;
+
+export type OperationRequestBodyById = {
+  readonly [K in GeneratedOperationId]: InferRequestBody<
+    (typeof generatedOperationSchemas)[K]
+  >;
+};
+
+export type OperationResponseBodyById = {
+  readonly [K in GeneratedOperationId]: InferResponseBody<
+    (typeof generatedOperationSchemas)[K]
+  >;
+};
+
+export type OperationRequestBody<TOperationId extends GeneratedOperationId> =
+  OperationRequestBodyById[TOperationId];
+
+export type OperationResponseBody<TOperationId extends GeneratedOperationId> =
+  OperationResponseBodyById[TOperationId];
