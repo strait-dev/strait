@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	docsPaths, err := extractOpenAPIPaths("docs/openapi.yaml")
+	docsPaths, err := extractOpenAPIPaths("../../docs/openapi.yaml")
 	if err != nil {
 		fatal(err)
 	}
@@ -34,7 +34,7 @@ func main() {
 		fatal(err)
 	}
 
-	if fail := compare("docs/openapi.yaml", routePaths, docsPaths); fail {
+	if fail := compare("../../docs/openapi.yaml", routePaths, docsPaths); fail {
 		os.Exit(1)
 	}
 	if fail := compare("internal/api/openapi.yaml", routePaths, internalPaths); fail {
@@ -80,7 +80,7 @@ func diff(a, b map[string]struct{}) []string {
 
 var allowedFiles = map[string]struct{}{
 	"internal/api/routes.go":    {},
-	"docs/openapi.yaml":         {},
+	"../../docs/openapi.yaml":   {},
 	"internal/api/openapi.yaml": {},
 }
 

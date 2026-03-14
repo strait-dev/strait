@@ -15,7 +15,7 @@ When a run reaches a terminal state, the executor checks if the parent Job has a
 
 ### Event Trigger Webhooks
 
-Event trigger webhooks (configured via `notify_url` on wait-for-event steps) use a **durable delivery** model. Deliveries are persisted to the `webhook_deliveries` table and processed by a background polling worker (`internal/webhook/event_notify.go`). This survives process restarts -- pending deliveries are picked up on the next poll cycle.
+Event trigger webhooks (configured via `notify_url` on wait-for-event steps) use a **durable delivery** model. Deliveries are persisted to the `webhook_deliveries` table and processed by a background polling worker (`apps/strait/internal/webhook/event_notify.go`). This survives process restarts -- pending deliveries are picked up on the next poll cycle.
 
 ## Delivery Lifecycle
 
@@ -28,7 +28,7 @@ Event trigger webhooks (configured via `notify_url` on wait-for-event steps) use
 
 ## Webhook Payload
 
-The payload sent to your endpoint (defined in `internal/worker/webhook.go`) includes:
+The payload sent to your endpoint (defined in `apps/strait/internal/worker/webhook.go`) includes:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |

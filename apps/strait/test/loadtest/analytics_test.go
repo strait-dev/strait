@@ -4,8 +4,6 @@ package loadtest
 
 import (
 	"testing"
-
-	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
 func TestAnalytics_GetPerformance(t *testing.T) {

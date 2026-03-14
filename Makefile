@@ -34,52 +34,52 @@ help:
 	@echo "  make clean              Clean test cache and stop Docker containers"
 
 setup:
-	go mod download
-	go mod tidy
+	cd apps/strait && go mod download
+	cd apps/strait && go mod tidy
 	lefthook install
 
 dev:
 	docker compose up -d
-	go run ./cmd/strait --mode all
+	cd apps/strait && go run ./cmd/strait --mode all
 
 build:
-	go build ./...
+	cd apps/strait && go build ./...
 
 test:
-	go test ./...
+	cd apps/strait && go test ./...
 
 test-race:
-	go test -race ./...
+	cd apps/strait && go test -race ./...
 
 test-int:
-	go test -tags integration ./...
+	cd apps/strait && go test -tags integration ./...
 
 test-load:
-	go test -tags loadtest -v -timeout=30m ./test/loadtest/...
+	cd apps/strait && go test -tags loadtest,integration -v -timeout=30m ./test/loadtest/...
 
 lint:
-	golangci-lint run --timeout=5m ./...
+	cd apps/strait && golangci-lint run --timeout=5m ./...
 
 vet:
-	go vet ./...
+	cd apps/strait && go vet ./...
 
 bench:
-	go test -bench . -benchmem -run=^$$ ./internal/...
+	cd apps/strait && go test -bench . -benchmem -run=^$$ ./internal/...
 
 migrate-up:
-	go run ./cmd/strait migrate up
+	cd apps/strait && go run ./cmd/strait migrate up
 
 migrate-down:
-	go run ./cmd/strait migrate down
+	cd apps/strait && go run ./cmd/strait migrate down
 
 migrate-status:
-	go run ./cmd/strait migrate status
+	cd apps/strait && go run ./cmd/strait migrate status
 
 migrate-create:
-	go run ./cmd/strait migrate create $(NAME)
+	cd apps/strait && go run ./cmd/strait migrate create $(NAME)
 
 clean:
-	go clean -testcache
+	cd apps/strait && go clean -testcache
 	docker compose down -v
 
 check: build vet test lint

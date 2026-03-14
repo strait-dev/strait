@@ -25,9 +25,9 @@ description: "Recent platform and API updates in Strait."
 
 ### Docs / Tooling
 
-- Synced and expanded OpenAPI specs (`docs/openapi.yaml`, `internal/api/openapi.yaml`).
+- Synced and expanded OpenAPI specs (`docs/openapi.yaml`, `apps/strait/internal/api/openapi.yaml`).
 - Added pre-commit OpenAPI parity enforcement via lefthook:
-  - `go run ./scripts/check_openapi_parity.go`
+  - `cd apps/strait && go run ./scripts/check-openapi-parity`
 - Added operations docs for monitoring, rollouts, and authz incident response.
 
 ### Performance & Observability

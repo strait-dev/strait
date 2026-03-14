@@ -9,8 +9,8 @@ pre-commit:
       glob: "*.go"
       fail_text: "golangci-lint failed — fix lint errors before committing"
     openapi_parity:
-      run: go run ./scripts/check-openapi-parity
-      glob: "{internal/api/routes.go,internal/api/openapi.yaml,docs/openapi.yaml,scripts/check-openapi-parity/main.go}"
+      run: cd apps/strait && go run ./scripts/check-openapi-parity
+      glob: "{apps/strait/internal/api/routes.go,apps/strait/internal/api/openapi.yaml,docs/openapi.yaml,apps/strait/scripts/check-openapi-parity/main.go}"
       fail_text: "OpenAPI parity check failed — sync routes.go with both OpenAPI specs before committing"
 
 commit-msg:
