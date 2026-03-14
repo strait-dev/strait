@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { generatedOperations } from "../src/internal/contracts/generated.ts";
+import { generatedOperations } from "../src/internal/contracts/_generated/contracts";
 
 const lineBreakPattern = /\r?\n/;
 const pathDeclarationPattern = /^ {2}(\/[^:]+):\s*$/;

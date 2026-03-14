@@ -1,9 +1,9 @@
 import {
   domains as generatedDomains,
   operations as generatedOperations,
-} from "./generated.ts";
+} from "./generated";
 
-export type { OperationInput } from "./generated.ts";
+export type { OperationInput } from "./generated";
 
 export const domains = generatedDomains;
 export const operations = generatedOperations;

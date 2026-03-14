@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
 
-import { createClient } from "../src/client.ts";
-import type { FetchLike } from "../src/runtime.ts";
+import { createClient } from "../src/client";
+import type { FetchLike } from "../src/runtime";
 
 const makeJsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), {

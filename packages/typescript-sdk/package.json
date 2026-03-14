@@ -6,16 +6,16 @@
   "sideEffects": false,
   "scripts": {
     "clean": "rm -rf .turbo node_modules dist",
-    "biome:lint": "biome lint src/config.ts src/runtime.ts src/errors.ts src/index.ts src/client.ts src/domains/index.ts src/domains/generated.ts src/internal/http/types.ts src/internal/http/client.ts test/client-behavior.test.ts test/openapi-coverage.test.ts",
-    "biome:format": "biome format --write .",
-    "biome:write": "biome check --write .",
-    "biome:fix:unsafe": "biome check --fix --unsafe .",
+    "biome:lint": "biome lint src test scripts",
+    "biome:format": "biome format --write src test scripts",
+    "biome:write": "biome check --write src test scripts",
+    "biome:fix:unsafe": "biome check --fix --unsafe src test scripts",
     "lint": "bun run biome:lint",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsgo --noEmit",
+    "build": "tsgo -p tsconfig.json",
     "test": "bun test",
     "generate:contracts": "bun run ./scripts/generate-contracts.ts",
-    "run-all": "bun run generate:contracts && bun run lint && bun run typecheck && bun run test"
+    "run-all": "bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck"
   },
   "exports": {
     ".": "./src/index.ts"
@@ -23,12 +23,12 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^25.5.0",
-    "typescript": "^5.9.3"
+    "@typescript/native-preview": "^7.0.0-dev.20260314.1"
   },
   "dependencies": {
-    "@effect/platform": "^0.84.0",
-    "@effect/platform-node": "^0.84.0",
-    "effect": "^3.19.5",
-    "yaml": "^2.8.1"
+    "@effect/platform": "^0.94.5",
+    "@effect/platform-node": "^0.104.1",
+    "effect": "^3.19.19",
+    "yaml": "^2.8.2"
   }
 }

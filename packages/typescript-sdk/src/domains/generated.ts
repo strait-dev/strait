@@ -1,15 +1,15 @@
 import { Effect, type Schema } from "effect";
 
-import { type StraitSdkError, ValidationError } from "../errors.ts";
+import { type StraitSdkError, ValidationError } from "../errors";
 import {
   type GeneratedOperation,
   generatedOperationMap,
   generatedOperations,
   generatedOperationsByTag,
-} from "../internal/contracts/generated.ts";
-import { request } from "../internal/http/client.ts";
-import { generatedOperationSchemas } from "../internal/schema/generated.ts";
-import type { StraitRuntimeTag } from "../runtime.ts";
+} from "../internal/contracts/_generated/contracts";
+import { request } from "../internal/http/client";
+import { generatedOperationSchemas } from "../internal/schema/_generated/schema";
+import type { StraitRuntimeTag } from "../runtime";
 
 export type PathParams = Readonly<Record<string, number | string>>;
 export type QueryParams = Readonly<

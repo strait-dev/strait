@@ -11,13 +11,13 @@ type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type OpenApiSchema = {
   readonly $ref?: string;
   readonly type?: string;
-  readonly enum?: ReadonlyArray<Json>;
-  readonly oneOf?: ReadonlyArray<OpenApiSchema>;
-  readonly anyOf?: ReadonlyArray<OpenApiSchema>;
-  readonly allOf?: ReadonlyArray<OpenApiSchema>;
+  readonly enum?: readonly Json[];
+  readonly oneOf?: readonly OpenApiSchema[];
+  readonly anyOf?: readonly OpenApiSchema[];
+  readonly allOf?: readonly OpenApiSchema[];
   readonly items?: OpenApiSchema;
   readonly properties?: Readonly<Record<string, OpenApiSchema>>;
-  readonly required?: ReadonlyArray<string>;
+  readonly required?: readonly string[];
   readonly nullable?: boolean;
   readonly additionalProperties?: boolean | OpenApiSchema;
 };
@@ -37,7 +37,7 @@ type OpenApiResponse = {
 };
 
 type OpenApiOperation = {
-  readonly tags?: ReadonlyArray<string>;
+  readonly tags?: readonly string[];
   readonly summary?: string;
   readonly requestBody?: OpenApiRequestBody;
   readonly responses?: Readonly<Record<string, OpenApiResponse>>;
@@ -75,6 +75,10 @@ const methodOrder: Record<Method, number> = {
 };
 
 const supportedMethods = ["delete", "get", "patch", "post", "put"] as const;
+const nonAlphaNumericPattern = /[^a-zA-Z0-9]+/g;
+const whitespacePattern = /\s+/;
+const refPrefixPattern = /^#\//;
+const successStatusPattern = /^2\d\d$/;
 
 const toMethod = (value: string): Method => value.toUpperCase() as Method;
 
@@ -82,9 +86,9 @@ const sanitizeToken = (value: string): string =>
   value
     .replaceAll("{", "")
     .replaceAll("}", "")
-    .replaceAll(/[^a-zA-Z0-9]+/g, " ")
+    .replaceAll(nonAlphaNumericPattern, " ")
     .trim()
-    .split(/\s+/)
+    .split(whitespacePattern)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join("");
@@ -108,7 +112,7 @@ const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const resolveRef = (doc: OpenApiDocument, ref: string): unknown => {
-  const refPath = ref.replace(/^#\//, "").split("/");
+  const refPath = ref.replace(refPrefixPattern, "").split("/");
 
   let current: unknown = doc;
   for (const token of refPath) {
@@ -202,6 +206,74 @@ const schemaExprFromRef = (ref: string): string => {
   return "Schema.Unknown";
 };
 
+const scalarEnumExpr = (values: readonly Json[]): string | undefined => {
+  const scalarEnum = values.filter((value) => {
+    const valueType = typeof value;
+    return (
+      valueType === "string" ||
+      valueType === "number" ||
+      valueType === "boolean" ||
+      value === null
+    );
+  });
+
+  if (scalarEnum.length === 0) {
+    return undefined;
+  }
+
+  return `Schema.Literal(${scalarEnum.map((value) => JSON.stringify(value)).join(", ")})`;
+};
+
+const objectSchemaExpr = (
+  doc: OpenApiDocument,
+  schema: OpenApiSchema
+): string => {
+  const properties = schema.properties ?? {};
+  const required = new Set(schema.required ?? []);
+
+  if (Object.keys(properties).length > 0) {
+    const fields = Object.entries(properties).map(
+      ([propertyName, propertySchema]) => {
+        const propertyExpr = schemaExpr(doc, propertySchema);
+        const expr = required.has(propertyName)
+          ? propertyExpr
+          : `Schema.optional(${propertyExpr})`;
+        return `${JSON.stringify(propertyName)}: ${expr}`;
+      }
+    );
+
+    return `Schema.Struct({ ${fields.join(", ")} })`;
+  }
+
+  if (
+    schema.additionalProperties &&
+    typeof schema.additionalProperties === "object"
+  ) {
+    return `Schema.Record({ key: Schema.String, value: ${schemaExpr(doc, schema.additionalProperties)} })`;
+  }
+
+  return "Schema.Record({ key: Schema.String, value: Schema.Unknown })";
+};
+
+const primitiveSchemaExpr = (
+  baseType: string | undefined
+): string | undefined => {
+  switch (baseType) {
+    case "array":
+      return undefined;
+    case "boolean":
+      return "Schema.Boolean";
+    case "integer":
+      return "Schema.Number.pipe(Schema.int())";
+    case "number":
+      return "Schema.Number";
+    case "string":
+      return "Schema.String";
+    default:
+      return undefined;
+  }
+};
+
 const schemaExpr = (
   doc: OpenApiDocument,
   schema: OpenApiSchema | undefined
@@ -214,85 +286,39 @@ const schemaExpr = (
     return schemaExprFromRef(schema.$ref);
   }
 
-  if (schema.oneOf && schema.oneOf.length > 0) {
-    return `Schema.Union(${schema.oneOf.map((item) => schemaExpr(doc, item)).join(", ")})`;
-  }
-
-  if (schema.anyOf && schema.anyOf.length > 0) {
-    return `Schema.Union(${schema.anyOf.map((item) => schemaExpr(doc, item)).join(", ")})`;
+  const unionSchemas = schema.oneOf ?? schema.anyOf;
+  if (unionSchemas && unionSchemas.length > 0) {
+    return `Schema.Union(${unionSchemas.map((item) => schemaExpr(doc, item)).join(", ")})`;
   }
 
   if (schema.allOf && schema.allOf.length > 0) {
     return "Schema.Unknown";
   }
 
-  if (schema.enum && schema.enum.length > 0) {
-    const scalarEnum = schema.enum.filter((value) => {
-      const valueType = typeof value;
-      return (
-        valueType === "string" ||
-        valueType === "number" ||
-        valueType === "boolean" ||
-        value === null
-      );
-    });
-
-    if (scalarEnum.length > 0) {
-      return `Schema.Literal(${scalarEnum.map((value) => JSON.stringify(value)).join(", ")})`;
-    }
-
-    return "Schema.Unknown";
+  const enumExpr = schema.enum ? scalarEnumExpr(schema.enum) : undefined;
+  if (enumExpr) {
+    return enumExpr;
   }
 
-  const baseType = schema.type;
-
-  let baseExpr = "Schema.Unknown";
-
-  if (baseType === "array") {
+  let baseExpr: string;
+  if (schema.type === "array") {
     baseExpr = `Schema.Array(${schemaExpr(doc, schema.items)})`;
-  } else if (baseType === "boolean") {
-    baseExpr = "Schema.Boolean";
-  } else if (baseType === "integer") {
-    baseExpr = "Schema.Number.pipe(Schema.int())";
-  } else if (baseType === "number") {
-    baseExpr = "Schema.Number";
-  } else if (baseType === "string") {
-    baseExpr = "Schema.String";
-  } else if (
-    baseType === "object" ||
-    schema.properties ||
-    schema.additionalProperties !== undefined
-  ) {
-    const properties = schema.properties ?? {};
-    const required = new Set(schema.required ?? []);
-
-    if (Object.keys(properties).length > 0) {
-      const fields = Object.entries(properties).map(
-        ([propertyName, propertySchema]) => {
-          const propertyExpr = schemaExpr(doc, propertySchema);
-          const expr = required.has(propertyName)
-            ? propertyExpr
-            : `Schema.optional(${propertyExpr})`;
-          return `${JSON.stringify(propertyName)}: ${expr}`;
-        }
-      );
-
-      baseExpr = `Schema.Struct({ ${fields.join(", ")} })`;
+  } else {
+    const primitiveExpr = primitiveSchemaExpr(schema.type);
+    if (primitiveExpr) {
+      baseExpr = primitiveExpr;
     } else if (
-      schema.additionalProperties &&
-      typeof schema.additionalProperties === "object"
+      schema.type === "object" ||
+      schema.properties ||
+      schema.additionalProperties !== undefined
     ) {
-      baseExpr = `Schema.Record({ key: Schema.String, value: ${schemaExpr(doc, schema.additionalProperties)} })`;
+      baseExpr = objectSchemaExpr(doc, schema);
     } else {
-      baseExpr = "Schema.Record({ key: Schema.String, value: Schema.Unknown })";
+      baseExpr = "Schema.Unknown";
     }
   }
 
-  if (schema.nullable) {
-    return `Schema.NullOr(${baseExpr})`;
-  }
-
-  return baseExpr;
+  return schema.nullable ? `Schema.NullOr(${baseExpr})` : baseExpr;
 };
 
 const pickRequestSchemaExpr = (
@@ -320,7 +346,7 @@ const pickResponseSchemaExpr = (
   }
 
   const successStatusCode = Object.keys(responses)
-    .filter((code) => /^2\d\d$/.test(code))
+    .filter((code) => successStatusPattern.test(code))
     .sort((a, b) => Number(a) - Number(b))[0];
 
   if (!successStatusCode) {
@@ -371,7 +397,7 @@ const parseOpenApiOperations = (doc: OpenApiDocument): ParsedOperation[] => {
 };
 
 const renderOperationsFile = (
-  operations: ReadonlyArray<ParsedOperation>
+  operations: readonly ParsedOperation[]
 ): string => {
   const operationsLiteral = operations
     .map((operation) => {
@@ -414,7 +440,7 @@ export const generatedOperationsByTag = generatedOperations.reduce<Record<string
 
 const renderSchemaFile = (
   doc: OpenApiDocument,
-  operations: ReadonlyArray<ParsedOperation>
+  operations: readonly ParsedOperation[]
 ): string => {
   const componentAssignments = Object.entries(doc.components?.schemas ?? {})
     .map(
@@ -471,6 +497,8 @@ const schemaDir = resolve(packageRoot, "src/internal/schema");
 
 mkdirSync(contractsDir, { recursive: true });
 mkdirSync(schemaDir, { recursive: true });
+mkdirSync(resolve(contractsDir, "_generated"), { recursive: true });
+mkdirSync(resolve(schemaDir, "_generated"), { recursive: true });
 
 const source = readFileSync(openApiPath, "utf-8");
 const openApiDocument = parseDocument(source, {
@@ -479,12 +507,12 @@ const openApiDocument = parseDocument(source, {
 const operations = parseOpenApiOperations(openApiDocument);
 
 writeFileSync(
-  resolve(contractsDir, "generated.ts"),
+  resolve(contractsDir, "_generated/contracts.ts"),
   renderOperationsFile(operations),
   "utf-8"
 );
 writeFileSync(
-  resolve(schemaDir, "generated.ts"),
+  resolve(schemaDir, "_generated/schema.ts"),
   renderSchemaFile(openApiDocument, operations),
   "utf-8"
 );

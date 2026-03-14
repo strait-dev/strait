@@ -1,14 +1,14 @@
 import { Effect, Schema } from "effect";
 
-import { getAuthorizationHeader } from "../../config.ts";
+import { getAuthorizationHeader } from "../../config";
 import {
   DecodeError,
   mapHttpError,
   type StraitSdkError,
   TransportError,
-} from "../../errors.ts";
-import { StraitRuntimeTag } from "../../runtime.ts";
-import type { HttpRequestOptions } from "./types.ts";
+} from "../../errors";
+import { StraitRuntimeTag } from "../../runtime";
+import type { HttpRequestOptions } from "./types";
 
 const successStatusesDefault = [200, 201, 202, 204] as const;
 

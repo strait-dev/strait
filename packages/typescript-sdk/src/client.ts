@@ -1,7 +1,7 @@
 import { Effect, Either } from "effect";
-import { domains, type OperationInput, operations } from "./domains/index.ts";
-import type { StraitSdkError, ValidationError } from "./errors.ts";
-import { type FetchLike, provideRuntime } from "./runtime.ts";
+import { domains, type OperationInput, operations } from "./domains/index";
+import type { StraitSdkError, ValidationError } from "./errors";
+import { type FetchLike, provideRuntime } from "./runtime";
 
 type EffectOperation = <ReqBody = unknown, RespBody = unknown>(
   input?: OperationInput<ReqBody, RespBody>

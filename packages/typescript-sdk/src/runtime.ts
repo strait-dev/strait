@@ -4,8 +4,8 @@ import {
   normalizeBaseUrl,
   type StraitClientConfig,
   StraitClientConfigSchema,
-} from "./config.ts";
-import { ValidationError } from "./errors.ts";
+} from "./config";
+import { ValidationError } from "./errors";
 
 export type FetchLike = (
   input: RequestInfo | URL,

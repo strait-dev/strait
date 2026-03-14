@@ -1,0 +1,21 @@
+{
+  "name": "@strait/mail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "build": "echo 'No build step for @strait/mail'",
+    "typecheck": "tsgo --noEmit",
+    "clean": "git clean -xdf .turbo node_modules"
+  },
+  "dependencies": {
+    "resend": "^6.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260314.1"
+  }
+}
