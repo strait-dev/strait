@@ -41,12 +41,11 @@
     "@commitlint/config-conventional": "^20.4.4",
     "@manypkg/cli": "^0.25.1",
     "@typescript/native-preview": "^7.0.0-dev.20260314.1",
-    "baseline-browser-mapping": "^2.10.7",
+    "baseline-browser-mapping": "^2.10.8",
     "better-auth": "^1.5.5",
     "knip": "^5.86.0",
     "lefthook": "^2.1.4",
     "turbo": "^2.8.17",
-    "typescript": "^5.9.3",
     "ultracite": "7.3.0"
   }
 }

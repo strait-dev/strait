@@ -10,11 +10,11 @@
     "biome:format": "biome format --write .",
     "biome:write": "biome check --write .",
     "biome:fix:unsafe": "biome check --fix --unsafe .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "typescript": "^5.9.3"
+    "@typescript/native-preview": "^7.0.0-dev.20260314.1"
   },
   "exports": {
     "./chart": "./src/chart.ts",
