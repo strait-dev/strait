@@ -8,7 +8,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import type z from "zod/v4";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { auth } from "@/lib/auth";
 import {
   deleteLastOrganizationWithTokenServerFn,
   deleteOrganizationWithTokenServerFn,
@@ -111,6 +110,7 @@ interface UpdateOrganizationParams {
 
 const listOrganizationsServerFn = createServerFn({ method: "GET" }).handler(
   async () => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const organizations = await auth.api.listOrganizations({ headers });
     return (organizations ?? []).map(mapOrganization);
@@ -120,6 +120,7 @@ const listOrganizationsServerFn = createServerFn({ method: "GET" }).handler(
 const getOrganizationServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { organizationId: string }) => data)
   .handler(async ({ data }) => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const organization = await auth.api.getFullOrganization({
       query: { organizationId: data.organizationId },
@@ -136,6 +137,7 @@ const getOrganizationServerFn = createServerFn({ method: "GET" })
 const createOrganizationServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { name: string; slug?: string | null }) => data)
   .handler(async ({ data }) => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const slug =
       data.slug ??
@@ -159,6 +161,7 @@ const createOrganizationServerFn = createServerFn({ method: "POST" })
 const updateOrganizationServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpdateOrganizationParams) => data)
   .handler(async ({ data }) => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const organizationId = data.organizationId ?? data.id;
 

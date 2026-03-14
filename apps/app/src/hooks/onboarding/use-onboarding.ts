@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth";
 import { createOrganizationServerFn } from "@/lib/organization-server";
 import { type OnboardingFormData, onboardingSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
@@ -27,6 +26,7 @@ const completeOnboardingServerFn = createServerFn({ method: "POST" })
         throw new Error("Failed to create organization during onboarding");
       }
 
+      const { auth } = await import("@/lib/auth");
       const headers = getRequestHeaders();
       await auth.api.updateUser({
         body: {

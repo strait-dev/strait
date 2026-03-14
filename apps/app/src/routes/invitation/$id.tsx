@@ -13,13 +13,13 @@ import {
   getPublicInvitationServerFn,
   type PublicInvitationData,
 } from "@/hooks/auth/use-invitation";
-import { auth } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { captureException, captureSentryAuthError } from "@/lib/sentry";
 
 const getSessionServerFn = createServerFn({ method: "GET" }).handler(
   async () => {
     try {
+      const { auth } = await import("@/lib/auth");
       const headers = getRequestHeaders();
       const session = await auth.api.getSession({ headers });
       return session ?? null;

@@ -1,12 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "./auth";
 
 /**
  * Better Auth handler for the API route.
  * Processes all /api/auth/* requests.
  */
-export const handler = (request: Request) => auth.handler(request);
+export const handler = async (request: Request) => {
+  const { auth } = await import("./auth");
+  return auth.handler(request);
+};
 
 /**
  * Retrieves the current user session from request headers.
@@ -14,6 +16,7 @@ export const handler = (request: Request) => auth.handler(request);
  */
 export const getSession = createServerFn({ method: "GET" }).handler(
   async () => {
+    const { auth } = await import("./auth");
     const headers = getRequestHeaders();
     const session = await auth.api.getSession({ headers });
     return session ?? null;
@@ -26,6 +29,7 @@ export const getSession = createServerFn({ method: "GET" }).handler(
  */
 export const ensureSession = createServerFn({ method: "GET" }).handler(
   async () => {
+    const { auth } = await import("./auth");
     const headers = getRequestHeaders();
     const session = await auth.api.getSession({ headers });
 

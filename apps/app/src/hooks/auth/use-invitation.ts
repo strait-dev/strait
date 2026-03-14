@@ -6,7 +6,6 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { auth } from "@/lib/auth";
 
 type InvitationData = {
   id: string;
@@ -66,6 +65,7 @@ const mapInvitation = (invitation: {
 const listInvitationsServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: InvitationParams) => data)
   .handler(async ({ data }) => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const invitations = await auth.api.listInvitations({
       query: { organizationId: data.organizationId },
@@ -78,6 +78,7 @@ const listInvitationsServerFn = createServerFn({ method: "GET" })
 const getInvitationServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .handler(async ({ data }) => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const invitation = await auth.api.getInvitation({
       query: { id: data.id },
@@ -97,6 +98,7 @@ const createInvitationServerFn = createServerFn({ method: "POST" })
       data
   )
   .handler(async ({ data }) => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const invitation = await auth.api.createInvitation({
       body: {
@@ -113,6 +115,7 @@ const createInvitationServerFn = createServerFn({ method: "POST" })
 const cancelInvitationServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { invitationId: string }) => data)
   .handler(async ({ data }) => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     await auth.api.cancelInvitation({
       body: { invitationId: data.invitationId },
@@ -154,6 +157,7 @@ export type PublicInvitationData = {
 export const getPublicInvitationServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<PublicInvitationData | null> => {
+    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const invitation = await auth.api.getInvitation({
       query: { id: data.id },
