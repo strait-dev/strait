@@ -20,13 +20,13 @@ The strait solves the complexity of background job processing by combining queue
 
 | Documentation | Description |
 |---------------|-------------|
-| [Introduction](docs/introduction) | Product overview, key features, and getting started |
-| [Quick Start](docs/quickstart) | Set up and run your first job in 10 minutes |
-| [Architecture](docs/architecture) | Deep dive into internals, queue mechanics, and technology choices |
-| [CLI Reference](docs/cli/overview) | 48+ commands, TUI dashboard, and shell completion |
-| [API Reference](docs/api-reference/overview) | REST API endpoints for job and workflow management |
-| [Concepts](docs/concepts/jobs) | Jobs, runs, workflows, scheduling, retry strategies, and cost budgets |
-| [Guides](docs/guides/authentication) | Authentication, deployment, security, and production patterns |
+| [Introduction](docs/introduction.mdx) | Product overview, key features, and getting started |
+| [Quick Start](docs/quickstart.mdx) | Set up and run your first job in 10 minutes |
+| [Architecture](docs/architecture.mdx) | Deep dive into internals, queue mechanics, and technology choices |
+| [CLI Reference](docs/cli/overview.mdx) | 48+ commands, TUI dashboard, and shell completion |
+| [API Reference](docs/api-reference/overview.mdx) | REST API endpoints for job and workflow management |
+| [Concepts](docs/concepts/jobs.mdx) | Jobs, runs, workflows, scheduling, retry strategies, and cost budgets |
+| [Guides](docs/guides/authentication.mdx) | Authentication, deployment, security, and production patterns |
 
 ## Monorepo Layout
 
@@ -66,7 +66,7 @@ bun run build
 Run OpenAPI route parity manually before committing docs/API changes:
 
 ```bash
-go run ./scripts/check-openapi-parity
+cd apps/strait && go run ./scripts/check-openapi-parity
 ```
 
 Then run hooks/checks:
@@ -86,4 +86,4 @@ lefthook run pre-commit
 
 ---
 
-**Ready to get started?** Follow the [Quick Start Guide](docs/quickstart) and have a production-grade job strait running in minutes.
+**Ready to get started?** Follow the [Quick Start Guide](docs/quickstart.mdx) and have a production-grade job strait running in minutes.
