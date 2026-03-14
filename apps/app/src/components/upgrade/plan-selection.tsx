@@ -1,15 +1,14 @@
 import { StarIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckIcon } from "@radix-ui/react-icons";
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { CardCheckboxItem } from "@strait/ui/components/card-checkbox.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import { CardCheckboxItem } from "@strait/ui/components/card-checkbox";
+import { cn } from "@strait/ui/utils/index";
 import { formatCurrency } from "@strait/utils/money";
 import { useCallback, useState } from "react";
-import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
-import { useUpgradeStore } from "@/stores/upgrade.ts";
-import { PERCENTAGE_MULTIPLIER } from "@/utils/constants.ts";
+import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;
@@ -39,6 +38,8 @@ type PricingPlan = {
 
 type UpgradeMode = "new_user" | "trial_ended" | "checkout_recovery";
 type PlanSlug = "starter" | "growth" | "professional" | "enterprise";
+
+type BillingInterval = "monthly" | "yearly";
 
 const PRICING_PLANS: PricingPlan[] = [
   {
@@ -122,7 +123,11 @@ type PlanSelectionProps = {
   mode: UpgradeMode;
   isLoading?: boolean;
   onStartCheckout?: () => void;
-  currentPlanSlug?: PlanSlug; // User's current subscription plan (if any)
+  currentPlanSlug?: PlanSlug;
+  selectedPlan: PlanType;
+  billingInterval: BillingInterval;
+  onPlanChange: (plan: PlanType) => void;
+  onBillingIntervalChange: (interval: BillingInterval) => void;
 };
 
 const BILLING_INTERVALS = [
@@ -401,9 +406,11 @@ export const PlanSelection = ({
   isLoading,
   onStartCheckout,
   currentPlanSlug,
+  selectedPlan,
+  billingInterval,
+  onPlanChange,
+  onBillingIntervalChange,
 }: PlanSelectionProps) => {
-  const { selectedPlan, billingInterval, setSelectedPlan, setBillingInterval } =
-    useUpgradeStore();
   const { trackSubscription } = useAnalytics();
 
   const [trialReminderOptIn, setTrialReminderOptIn] = useState(true);
@@ -411,11 +418,11 @@ export const PlanSelection = ({
   const messaging = MESSAGING[mode];
 
   const handleBillingIntervalChange = useCallback(
-    (interval: "monthly" | "yearly") => {
-      setBillingInterval(interval);
+    (interval: BillingInterval) => {
+      onBillingIntervalChange(interval);
       trackSubscription("BILLING_INTERVAL_CHANGED", { interval });
     },
-    [setBillingInterval, trackSubscription]
+    [onBillingIntervalChange, trackSubscription]
   );
 
   // Check if user already has a subscription
@@ -424,10 +431,10 @@ export const PlanSelection = ({
   const handlePlanSelect = useCallback(
     (planSlug: PlanType) => {
       if (!isLoading) {
-        setSelectedPlan(planSlug);
+        onPlanChange(planSlug);
       }
     },
-    [isLoading, setSelectedPlan]
+    [isLoading, onPlanChange]
   );
 
   return (
@@ -500,4 +507,4 @@ export const PlanSelection = ({
   );
 };
 
-export type { UpgradeMode };
+export type { BillingInterval, PlanType, UpgradeMode };

@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as UpgradeRouteImport } from './routes/upgrade'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppLayoutRouteImport } from './routes/app/layout'
 import { Route as IndexRouteImport } from './routes/index'
@@ -32,11 +31,6 @@ import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
-const UpgradeRoute = UpgradeRouteImport.update({
-  id: '/upgrade',
-  path: '/upgrade',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -147,7 +141,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppLayoutRouteWithChildren
   '/login': typeof LoginRoute
-  '/upgrade': typeof UpgradeRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -170,7 +163,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/upgrade': typeof UpgradeRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app': typeof AppIndexRoute
@@ -195,7 +187,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppLayoutRouteWithChildren
   '/login': typeof LoginRoute
-  '/upgrade': typeof UpgradeRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -221,7 +212,6 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
-    | '/upgrade'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -244,7 +234,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
-    | '/upgrade'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app'
@@ -268,7 +257,6 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
-    | '/upgrade'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -293,7 +281,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppLayoutRoute: typeof AppLayoutRouteWithChildren
   LoginRoute: typeof LoginRoute
-  UpgradeRoute: typeof UpgradeRoute
   InvitationIdRoute: typeof InvitationIdRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -301,13 +288,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/upgrade': {
-      id: '/upgrade'
-      path: '/upgrade'
-      fullPath: '/upgrade'
-      preLoaderRoute: typeof UpgradeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -502,7 +482,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppLayoutRoute: AppLayoutRouteWithChildren,
   LoginRoute: LoginRoute,
-  UpgradeRoute: UpgradeRoute,
   InvitationIdRoute: InvitationIdRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
-import type { OnboardingFormData } from "../lib/schema.ts";
-import { MAX_SLUG_LENGTH, ORGANIZATION_SLUG_LENGTH } from "./constants.ts";
+import type { OnboardingFormData } from "../lib/schema";
+import { MAX_SLUG_LENGTH, ORGANIZATION_SLUG_LENGTH } from "./constants";
 
 /**
  * Regex for removing trailing hyphens from slugs

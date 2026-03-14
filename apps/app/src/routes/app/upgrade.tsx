@@ -1,29 +1,28 @@
 import { AlertCircleIcon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert, AlertDescription } from "@strait/ui/components/alert.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/card";
+import { Shell } from "@strait/ui/components/shell";
+import { toast } from "@strait/ui/components/toast/index";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import PageHeader from "@/components/common/page-header.tsx";
-import { PlanSelection } from "@/components/upgrade/plan-selection.tsx";
-import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
-import { getCustomerPortalUrlServerFn } from "@/lib/subscription.ts";
-import { authMiddleware } from "@/middlewares/auth.ts";
-import { useUpgradeStore } from "@/stores/upgrade.ts";
+import PageHeader from "@/components/common/page-header";
+import { PlanSelection } from "@/components/upgrade/plan-selection";
+import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
+import { authMiddleware } from "@/middlewares/auth";
 
 const PLAN_SLUGS: Record<string, string> = {
   "starter-monthly": "starter-monthly",
@@ -81,7 +80,12 @@ export const Route = createFileRoute("/app/upgrade")({
 
 function RouteComponent() {
   const search = Route.useSearch();
-  const { selectedPlan, billingInterval, setSelectedPlan } = useUpgradeStore();
+  const [selectedPlan, setSelectedPlan] = useState<
+    "starter" | "growth" | "professional" | "enterprise"
+  >("growth");
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">(
+    "monthly"
+  );
   const { data: subscriptionState } = useSuspenseQuery(
     subscriptionStateQueryOptions()
   );
@@ -111,7 +115,7 @@ function RouteComponent() {
     if (currentPlan) {
       setSelectedPlan(currentPlan);
     }
-  }, [currentPlan, setSelectedPlan]);
+  }, [currentPlan]);
 
   const startCheckout = useMutation({
     mutationFn: () =>
@@ -221,10 +225,14 @@ function RouteComponent() {
 
         {/* Plan Selection */}
         <PlanSelection
+          billingInterval={billingInterval}
           currentPlanSlug={currentPlan}
           isLoading={startCheckout.isPending}
           mode="trial_ended"
+          onBillingIntervalChange={setBillingInterval}
+          onPlanChange={setSelectedPlan}
           onStartCheckout={handleStartCheckout}
+          selectedPlan={selectedPlan}
         />
       </div>
     </Shell>
