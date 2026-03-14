@@ -92,7 +92,7 @@ function LoginPage() {
         <div className="space-y-2 text-center">
           <h1 className="text-3xl">Welcome to Strait</h1>
           <p className="text-muted-foreground">
-            Sign in to continue to your AI writing assistant
+            Sign in to manage your jobs and workflows
           </p>
         </div>
 
