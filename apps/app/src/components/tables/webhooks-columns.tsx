@@ -1,7 +1,7 @@
-import { Badge } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import type { WebhookSubscription } from "@/hooks/api/types.ts";
+import type { WebhookSubscription } from "@/hooks/api/types";
 
 export const webhookColumns: ColumnDef<WebhookSubscription>[] = [
   {

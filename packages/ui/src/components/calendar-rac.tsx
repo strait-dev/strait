@@ -16,7 +16,7 @@ import {
   Heading as HeadingRac,
   RangeCalendar as RangeCalendarRac,
 } from "react-aria-components";
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 
 type BaseCalendarProps = {
   className?: string;

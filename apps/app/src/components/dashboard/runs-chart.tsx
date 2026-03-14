@@ -3,7 +3,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
+} from "@strait/ui/components/card";
 import {
   Area,
   AreaChart,

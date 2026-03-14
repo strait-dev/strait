@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -7,15 +7,15 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+} from "@strait/ui/components/breadcrumb";
+import { Button } from "@strait/ui/components/button";
+import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@strait/ui/components/tabs.tsx";
+} from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -27,22 +27,22 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
-import { StatusBadge } from "@/components/dashboard/status-badge.tsx";
-import { WorkflowDAG } from "@/components/dashboard/workflow-dag.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type { WorkflowRun, WorkflowStep } from "@/hooks/api/types.ts";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import { WorkflowDAG } from "@/components/dashboard/workflow-dag";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { WorkflowRun, WorkflowStep } from "@/hooks/api/types";
 import {
   workflowQueryOptions,
   workflowRunsQueryOptions,
   workflowStepsQueryOptions,
-} from "@/hooks/api/use-workflows.ts";
+} from "@/hooks/api/use-workflows";
 import {
   ClockIcon,
   PauseActionIcon,
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
-} from "@/lib/icons.ts";
+} from "@/lib/icons";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   loader: async ({ context, params }) => {

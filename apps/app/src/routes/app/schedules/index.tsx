@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Input } from "@strait/ui/components/input.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+import { Input } from "@strait/ui/components/input";
+import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -11,12 +11,12 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import PageHeader from "@/components/common/page-header.tsx";
-import { scheduleColumns } from "@/components/tables/schedules-columns.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type { Job, PaginatedResponse } from "@/hooks/api/types.ts";
-import { schedulesQueryOptions } from "@/hooks/api/use-schedules.ts";
-import { SearchIcon } from "@/lib/icons.ts";
+import PageHeader from "@/components/common/page-header";
+import { scheduleColumns } from "@/components/tables/schedules-columns";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { Job, PaginatedResponse } from "@/hooks/api/types";
+import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
+import { SearchIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/schedules/")({
   loader: async ({ context }) => {

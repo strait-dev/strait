@@ -1,8 +1,8 @@
 import { ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Checkbox } from "@strait/ui/components/checkbox.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+import { Button } from "@strait/ui/components/button";
+import { Checkbox } from "@strait/ui/components/checkbox";
+import { cn } from "@strait/ui/utils/index";
 import { useCallback } from "react";
 
 interface DataTableColumnHeaderProps

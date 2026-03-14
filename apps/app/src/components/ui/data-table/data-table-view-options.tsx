@@ -1,6 +1,6 @@
 import { Settings05Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu.tsx";
+} from "@strait/ui/components/dropdown-menu";
 import type { Table } from "@tanstack/react-table";
 
 const CAMEL_CASE_BOUNDARY = /([A-Z])/g;

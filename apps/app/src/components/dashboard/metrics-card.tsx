@@ -4,9 +4,9 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
-import { ArrowDownRightIcon, ArrowUpRightIcon } from "@/lib/icons.ts";
+} from "@strait/ui/components/card";
+import { cn } from "@strait/ui/utils/index";
+import { ArrowDownRightIcon, ArrowUpRightIcon } from "@/lib/icons";
 
 type MetricsCardProps = {
   title: string;

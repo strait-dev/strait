@@ -19,14 +19,9 @@
       "@strait/ui/*": ["../../packages/ui/src/*"],
       "@strait/db/*": ["../../packages/db/src/*"],
       "@strait/utils": ["../../packages/utils/src/index"],
-      "@strait/mail": ["../../packages/mail/index.ts"],
-      "@strait/kv": ["../../packages/kv/index.ts"],
-      "@strait/mail/*": ["../../packages/mail/*"],
-      "@strait/kv/*": ["../../packages/kv/*"],
       "@strait/transactional": ["../../packages/transactional/src/index.ts"]
     },
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo.json",
-    "allowImportingTsExtensions": true,
     "noEmit": true
   },
   "include": [

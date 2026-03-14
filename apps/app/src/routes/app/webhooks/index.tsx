@@ -1,13 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from "@strait/ui/components/sheet.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+} from "@strait/ui/components/sheet";
+import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -21,12 +21,12 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header.tsx";
-import { webhookColumns } from "@/components/tables/webhooks-columns.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type { WebhookSubscription } from "@/hooks/api/types.ts";
-import { webhooksQueryOptions } from "@/hooks/api/use-webhooks.ts";
-import { GlobeIcon, PlusIcon, WebhookIcon } from "@/lib/icons.ts";
+import PageHeader from "@/components/common/page-header";
+import { webhookColumns } from "@/components/tables/webhooks-columns";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { WebhookSubscription } from "@/hooks/api/types";
+import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
+import { GlobeIcon, PlusIcon, WebhookIcon } from "@/lib/icons";
 
 const searchSchema = z.object({
   query: z.string().optional(),

@@ -13,17 +13,17 @@ import RPNInput, {
   getCountryCallingCode,
   type Value,
 } from "react-phone-number-input";
-import { cn } from "../utils/index.ts";
-import { Button } from "./button.tsx";
+import { cn } from "../utils/index";
+import { Button } from "./button";
 import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandItem,
   CommandList,
-} from "./command.tsx";
-import { Input } from "./input.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
+} from "./command";
+import { Input } from "./input";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 
 type CountryEntry = { label: string; value: Country | undefined };
 

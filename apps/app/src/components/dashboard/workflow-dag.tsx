@@ -1,5 +1,5 @@
-import { cn } from "@strait/ui/utils/index.ts";
-import type { StepRunStatus, WorkflowStepType } from "@/hooks/api/types.ts";
+import { cn } from "@strait/ui/utils/index";
+import type { StepRunStatus, WorkflowStepType } from "@/hooks/api/types";
 
 type WorkflowStep = {
   id: string;

@@ -7,13 +7,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@strait/ui/components/table.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/table";
+import { cn } from "@strait/ui/utils/index";
 import { flexRender, type Table as TanstackTable } from "@tanstack/react-table";
 import type * as React from "react";
-import FiltersEmptyState from "@/components/common/filters-empty-state.tsx";
-import TableEmptyState from "@/components/common/table-empty-state.tsx";
-import { DataTablePagination } from "./data-table-pagination.tsx";
+import FiltersEmptyState from "@/components/common/filters-empty-state";
+import TableEmptyState from "@/components/common/table-empty-state";
+import { DataTablePagination } from "./data-table-pagination";
 
 const DEFAULT_EMPTY_FILTER_STATE = (
   <FiltersEmptyState

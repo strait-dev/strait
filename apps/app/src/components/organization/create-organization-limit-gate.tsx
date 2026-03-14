@@ -1,8 +1,8 @@
 import { Crown03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert, AlertDescription } from "@strait/ui/components/alert.tsx";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import type React from "react";
-import { AddMoreGate } from "../feature-gates/limit-gate.tsx";
+import { AddMoreGate } from "../feature-gates/limit-gate";
 
 type CreateOrganizationLimitGateProps = {
   currentCount: number;

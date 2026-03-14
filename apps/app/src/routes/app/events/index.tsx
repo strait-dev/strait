@@ -1,15 +1,15 @@
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import { Shell } from "@strait/ui/components/shell";
+import { cn } from "@strait/ui/utils/index";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header.tsx";
-import type { RunEvent } from "@/hooks/api/types.ts";
-import { eventsQueryOptions } from "@/hooks/api/use-events.ts";
+import PageHeader from "@/components/common/page-header";
+import type { RunEvent } from "@/hooks/api/types";
+import { eventsQueryOptions } from "@/hooks/api/use-events";
 
 const EVENT_TYPES = ["log", "state_change", "error", "progress"] as const;
 

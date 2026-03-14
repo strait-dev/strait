@@ -3,13 +3,13 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@strait/ui/components/collapsible.tsx";
+} from "@strait/ui/components/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu.tsx";
+} from "@strait/ui/components/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -22,11 +22,11 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-} from "@strait/ui/components/sidebar.tsx";
+} from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -38,11 +38,11 @@ import {
   PlayActionIcon,
   WebhookIcon,
   WorkflowIcon,
-} from "@/lib/icons.ts";
-import type { Session } from "@/routes/__root.tsx";
-import PaymentPendingCard from "../subscription/payment-pending-card.tsx";
-import TrialUpgradeCard from "../subscription/trial-upgrade-card.tsx";
-import UserDropdownMenu from "./user-dropdown-menu.tsx";
+} from "@/lib/icons";
+import type { Session } from "@/routes/__root";
+import PaymentPendingCard from "../subscription/payment-pending-card";
+import TrialUpgradeCard from "../subscription/trial-upgrade-card";
+import UserDropdownMenu from "./user-dropdown-menu";
 
 // ---------------------------------------------------------------------------
 // Navigation data

@@ -1,13 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from "@strait/ui/components/sheet.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/sheet";
+import { cn } from "@strait/ui/utils/index";
 import { useState } from "react";
 import {
   AlertIcon,
@@ -17,7 +17,7 @@ import {
   InfoIcon,
   TrashIcon,
   XCircleIcon,
-} from "@/lib/icons.ts";
+} from "@/lib/icons";
 
 type NotificationType = "success" | "error" | "warning" | "info";
 

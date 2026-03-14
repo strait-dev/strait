@@ -3,8 +3,8 @@ import {
   queryOptions,
   useMutation,
 } from "@tanstack/react-query";
-import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils.ts";
-import type { Job, ListParams } from "./types.ts";
+import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import type { Job, ListParams } from "./types";
 
 // ---------------------------------------------------------------------------
 // Mock data — schedules are jobs with non-empty cron fields

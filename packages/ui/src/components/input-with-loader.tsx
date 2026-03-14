@@ -2,8 +2,8 @@
 
 import { Loading01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { cn } from "../utils/index.ts";
-import { Input } from "./input.tsx";
+import { cn } from "../utils/index";
+import { Input } from "./input";
 
 export type InputWithLoaderProps =
   React.InputHTMLAttributes<HTMLInputElement> & {

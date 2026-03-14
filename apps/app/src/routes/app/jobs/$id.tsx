@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -7,21 +7,21 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+} from "@strait/ui/components/breadcrumb";
+import { Button } from "@strait/ui/components/button";
+import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@strait/ui/components/tabs.tsx";
+} from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { StatusBadge } from "@/components/dashboard/status-badge.tsx";
-import type { Job } from "@/hooks/api/types.ts";
-import { jobQueryOptions } from "@/hooks/api/use-jobs.ts";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import type { Job } from "@/hooks/api/types";
+import { jobQueryOptions } from "@/hooks/api/use-jobs";
 import {
   ClockIcon,
   GlobeIcon,
@@ -29,7 +29,7 @@ import {
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
-} from "@/lib/icons.ts";
+} from "@/lib/icons";
 
 export const Route = createFileRoute("/app/jobs/$id")({
   loader: async ({ context, params }) => {

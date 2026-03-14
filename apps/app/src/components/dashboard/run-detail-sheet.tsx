@@ -1,14 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from "@strait/ui/components/sheet.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/sheet";
+import { cn } from "@strait/ui/utils/index";
 import { useState } from "react";
-import type { JobRun } from "@/hooks/api/types.ts";
+import type { JobRun } from "@/hooks/api/types";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -16,8 +16,8 @@ import {
   ClockIcon,
   RefreshIcon,
   XCircleIcon,
-} from "@/lib/icons.ts";
-import { StatusBadge } from "./status-badge.tsx";
+} from "@/lib/icons";
+import { StatusBadge } from "./status-badge";
 
 type RunDetailSheetProps = {
   run: JobRun | null;

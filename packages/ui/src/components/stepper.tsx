@@ -6,7 +6,7 @@ import { Loading01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
 import { createContext, useCallback, useContext, useState } from "react";
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 
 // Types
 type StepperContextValue = {

@@ -1,5 +1,5 @@
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+import { Badge } from "@strait/ui/components/badge";
+import { cn } from "@strait/ui/utils/index";
 
 type TabProps = {
   text: string;

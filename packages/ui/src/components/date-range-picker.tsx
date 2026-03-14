@@ -18,8 +18,8 @@ import {
 } from "react-aria-components";
 import type { DateRange } from "react-day-picker";
 
-import { cn } from "../utils/index.ts";
-import { Calendar } from "./calendar.tsx";
+import { cn } from "../utils/index";
+import { Calendar } from "./calendar";
 
 type DateRangePickerProps = {
   /**

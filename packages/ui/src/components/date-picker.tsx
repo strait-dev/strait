@@ -4,10 +4,10 @@ import { Calendar03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useId } from "react";
 
-import { cn } from "../utils/index.ts";
-import { Button } from "./button.tsx";
-import { Calendar } from "./calendar.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
+import { cn } from "../utils/index";
+import { Button } from "./button";
+import { Calendar } from "./calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 
 type DatePickerProps = {
   value?: Date;

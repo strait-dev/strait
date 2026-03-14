@@ -1,16 +1,16 @@
-import { Shell } from "@strait/ui/components/shell.tsx";
+import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
-import PageHeader from "@/components/common/page-header.tsx";
-import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed.tsx";
-import { MetricsCard } from "@/components/dashboard/metrics-card.tsx";
-import { RecentRunsTable } from "@/components/dashboard/recent-runs-table.tsx";
-import { RunsChart } from "@/components/dashboard/runs-chart.tsx";
-import { StatusDistributionChart } from "@/components/dashboard/status-distribution-chart.tsx";
-import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog.tsx";
-import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import PageHeader from "@/components/common/page-header";
+import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
+import { MetricsCard } from "@/components/dashboard/metrics-card";
+import { RecentRunsTable } from "@/components/dashboard/recent-runs-table";
+import { RunsChart } from "@/components/dashboard/runs-chart";
+import { StatusDistributionChart } from "@/components/dashboard/status-distribution-chart";
+import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
+import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription";
 import {
   ActivityIcon,
   AlertIcon,
@@ -20,8 +20,8 @@ import {
   ClockIcon,
   WorkflowIcon,
   ZapIcon,
-} from "@/lib/icons.ts";
-import type { Session } from "@/routes/__root.tsx";
+} from "@/lib/icons";
+import type { Session } from "@/routes/__root";
 
 const subscriptionSearchSchema = z.object({
   subscription: z.string().optional(),

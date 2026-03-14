@@ -1,19 +1,19 @@
 import { Crown03Icon, SquareLock02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
+} from "@strait/ui/components/card";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useMemo } from "react";
-import { FEATURE_FLAGS, type FeatureFlagKey } from "@/hooks/posthog/flags.ts";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag.ts";
-import type { Session } from "@/routes/__root.tsx";
+import { FEATURE_FLAGS, type FeatureFlagKey } from "@/hooks/posthog/flags";
+import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
+import type { Session } from "@/routes/__root";
 
 /**
  * Feature keys that can be used with FeatureProtectedRoute.

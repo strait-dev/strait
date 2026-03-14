@@ -1,12 +1,12 @@
 import { Add01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
+} from "@strait/ui/components/card";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 

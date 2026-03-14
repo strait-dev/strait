@@ -4,8 +4,8 @@ import type {
   Workflow,
   WorkflowRun,
   WorkflowStep,
-} from "@/hooks/api/types.ts";
-import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils.ts";
+} from "@/hooks/api/types";
+import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
 // ---------------------------------------------------------------------------
 // Mock data

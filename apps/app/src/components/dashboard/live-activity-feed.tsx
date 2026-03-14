@@ -1,14 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/card";
+import { cn } from "@strait/ui/utils/index";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PauseActionIcon, PlayActionIcon } from "@/lib/icons.ts";
+import { PauseActionIcon, PlayActionIcon } from "@/lib/icons";
 
 type ActivityEventType =
   | "job_started"

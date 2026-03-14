@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { handler } from "@/lib/auth-server.ts";
+import { handler } from "@/lib/auth-server";
 
 /**
  * Better Auth route handler for authentication endpoints.

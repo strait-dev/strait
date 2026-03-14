@@ -1,21 +1,21 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from "@strait/ui/components/sheet.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
-import type { Workflow, WorkflowStepType } from "@/hooks/api/types.ts";
+} from "@strait/ui/components/sheet";
+import { cn } from "@strait/ui/utils/index";
+import type { Workflow, WorkflowStepType } from "@/hooks/api/types";
 import {
   ClockIcon,
   PauseActionIcon,
   PlayActionIcon,
   TagIcon,
-} from "@/lib/icons.ts";
-import { StatusBadge } from "./status-badge.tsx";
+} from "@/lib/icons";
+import { StatusBadge } from "./status-badge";
 
 type WorkflowDetailSheetProps = {
   workflow: Workflow | null;

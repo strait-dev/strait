@@ -1,4 +1,4 @@
-import { moneyFormatter } from "./money.ts";
+import { moneyFormatter } from "./money";
 
 /**
  * Format a percentage to the Brazilian format.

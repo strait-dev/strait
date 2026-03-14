@@ -1,5 +1,5 @@
-import { cn } from "@strait/ui/utils/index.ts";
-import type { DisplayStatus, StepRunStatus } from "@/hooks/api/types.ts";
+import { cn } from "@strait/ui/utils/index";
+import type { DisplayStatus, StepRunStatus } from "@/hooks/api/types";
 
 type StatusBadgeStatus = DisplayStatus | StepRunStatus;
 

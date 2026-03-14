@@ -14,8 +14,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@strait/ui/components/alert-dialog.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+} from "@strait/ui/components/alert-dialog";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -23,17 +23,17 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { Checkbox } from "@strait/ui/components/checkbox.tsx";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { InputWithShowHidePassword } from "@strait/ui/components/input-with-show-hide-password.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/card";
+import { Checkbox } from "@strait/ui/components/checkbox";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Input } from "@strait/ui/components/input";
+import { InputWithShowHidePassword } from "@strait/ui/components/input-with-show-hide-password";
+import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useState, useTransition } from "react";
 import * as z from "zod";
-import { authClient } from "@/lib/auth-client.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
+import { authClient } from "@/lib/auth-client";
+import type { AuthUser } from "@/routes/__root";
 
 type Props = {
   user: AuthUser;

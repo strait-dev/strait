@@ -1,9 +1,9 @@
-import { Badge } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { StatusBadge } from "@/components/dashboard/status-badge.tsx";
-import type { JobRun } from "@/hooks/api/types.ts";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import type { JobRun } from "@/hooks/api/types";
 
 /** Compute human-readable duration between two ISO timestamps. */
 function formatDuration(

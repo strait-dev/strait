@@ -1,13 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from "@strait/ui/components/sheet.tsx";
-import type { Job } from "@/hooks/api/types.ts";
+} from "@strait/ui/components/sheet";
+import type { Job } from "@/hooks/api/types";
 import {
   ClockIcon,
   GlobeIcon,
@@ -15,8 +15,8 @@ import {
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
-} from "@/lib/icons.ts";
-import { StatusBadge } from "./status-badge.tsx";
+} from "@/lib/icons";
+import { StatusBadge } from "./status-badge";
 
 type JobDetailSheetProps = {
   job: Job | null;

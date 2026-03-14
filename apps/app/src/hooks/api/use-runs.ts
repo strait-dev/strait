@@ -5,8 +5,8 @@ import type {
   PaginatedResponse,
   RunEvent,
   RunStatus,
-} from "@/hooks/api/types.ts";
-import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils.ts";
+} from "@/hooks/api/types";
+import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
 type RunsSearchParams = ListParams & { status?: RunStatus[] };
 

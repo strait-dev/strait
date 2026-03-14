@@ -1,12 +1,12 @@
-import type { BadgeProps } from "@strait/ui/components/badge.tsx";
-import { Badge } from "@strait/ui/components/badge.tsx";
+import type { BadgeProps } from "@strait/ui/components/badge";
+import { Badge } from "@strait/ui/components/badge";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/card";
+import { cn } from "@strait/ui/utils/index";
 import type { ReactNode } from "react";
 
 // ---------------------------------------------------------------------------

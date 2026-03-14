@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -7,15 +7,15 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+} from "@strait/ui/components/breadcrumb";
+import { Button } from "@strait/ui/components/button";
+import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@strait/ui/components/tabs.tsx";
+} from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -25,12 +25,12 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import { StatusBadge } from "@/components/dashboard/status-badge.tsx";
-import { runColumns } from "@/components/tables/runs-columns.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types.ts";
-import { jobQueryOptions } from "@/hooks/api/use-jobs.ts";
-import { runsQueryOptions } from "@/hooks/api/use-runs.ts";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import { runColumns } from "@/components/tables/runs-columns";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
+import { jobQueryOptions } from "@/hooks/api/use-jobs";
+import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
   CalendarIcon,
   ClockIcon,
@@ -39,7 +39,7 @@ import {
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
-} from "@/lib/icons.ts";
+} from "@/lib/icons";
 
 export const Route = createFileRoute("/app/schedules/$id")({
   loader: async ({ context, params }) => {

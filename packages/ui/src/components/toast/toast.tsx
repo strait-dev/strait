@@ -1,11 +1,11 @@
 import { toast as sonnerToast } from "sonner";
-import { ToastConfirm } from "./toast-confirm.tsx";
-import { ToastError } from "./toast-error.tsx";
-import { ToastInfo } from "./toast-info.tsx";
-import { ToastLoading } from "./toast-loading.tsx";
-import { ToastSuccess } from "./toast-success.tsx";
-import { ToastWarning } from "./toast-warning.tsx";
-import type { PromiseToastOptions, Toast } from "./types.ts";
+import { ToastConfirm } from "./toast-confirm";
+import { ToastError } from "./toast-error";
+import { ToastInfo } from "./toast-info";
+import { ToastLoading } from "./toast-loading";
+import { ToastSuccess } from "./toast-success";
+import { ToastWarning } from "./toast-warning";
+import type { PromiseToastOptions, Toast } from "./types";
 
 const DEFAULT_SUCCESS_DURATION = 4000;
 const DEFAULT_ERROR_DURATION = 5000;

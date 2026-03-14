@@ -1,12 +1,12 @@
 import {
   CardCheckboxGroup,
   CardCheckboxItem,
-} from "@strait/ui/components/card-checkbox.tsx";
-import { FieldError } from "@strait/ui/components/field.tsx";
+} from "@strait/ui/components/card-checkbox";
+import { FieldError } from "@strait/ui/components/field";
 import { useCallback } from "react";
-import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics.ts";
-import { businessNeedsOptions } from "../data/business-needs-options.ts";
-import type { OnboardingStepProps } from "../types.ts";
+import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
+import { businessNeedsOptions } from "../data/business-needs-options";
+import type { OnboardingStepProps } from "../types";
 
 export const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
   const { trackBusinessNeedSelected, trackBusinessNeedDeselected } =

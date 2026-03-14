@@ -3,7 +3,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
+} from "@strait/ui/components/card";
 import {
   Table,
   TableBody,
@@ -11,10 +11,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@strait/ui/components/table.tsx";
+} from "@strait/ui/components/table";
 import { Link } from "@tanstack/react-router";
-import type { DisplayStatus } from "@/hooks/api/types.ts";
-import { StatusBadge } from "./status-badge.tsx";
+import type { DisplayStatus } from "@/hooks/api/types";
+import { StatusBadge } from "./status-badge";
 
 type RecentRun = {
   id: string;

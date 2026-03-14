@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import type { JobRun } from "@/hooks/api/types.ts";
+import type { JobRun } from "@/hooks/api/types";
 
 export const dlqColumns: ColumnDef<JobRun>[] = [
   {

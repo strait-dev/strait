@@ -1,11 +1,11 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { FEATURE_FLAGS } from "@/hooks/posthog/flags.ts";
+import { FEATURE_FLAGS } from "@/hooks/posthog/flags";
 import {
   useCanAddMoreByPlan,
   useFeatureLimitByPlan,
-} from "@/hooks/posthog/use-feature-flag.ts";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+} from "@/hooks/posthog/use-feature-flag";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 
 type AddMoreGateProps = {
   feature: "stores" | "teamMembersPerStore" | "products";

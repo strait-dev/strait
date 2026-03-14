@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+import { Button } from "@strait/ui/components/button";
+import { Input } from "@strait/ui/components/input";
+import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -12,13 +12,13 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import PageHeader from "@/components/common/page-header.tsx";
-import { JobDetailSheet } from "@/components/dashboard/job-detail-sheet.tsx";
-import { jobColumns } from "@/components/tables/jobs-columns.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type { Job, PaginatedResponse } from "@/hooks/api/types.ts";
-import { jobsQueryOptions } from "@/hooks/api/use-jobs.ts";
-import { PlusIcon, SearchIcon } from "@/lib/icons.ts";
+import PageHeader from "@/components/common/page-header";
+import { JobDetailSheet } from "@/components/dashboard/job-detail-sheet";
+import { jobColumns } from "@/components/tables/jobs-columns";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { Job, PaginatedResponse } from "@/hooks/api/types";
+import { jobsQueryOptions } from "@/hooks/api/use-jobs";
+import { PlusIcon, SearchIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/jobs/")({
   loader: async ({ context }) => {

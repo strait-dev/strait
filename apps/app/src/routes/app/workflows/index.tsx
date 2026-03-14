@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+import { Button } from "@strait/ui/components/button";
+import { Input } from "@strait/ui/components/input";
+import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -12,13 +12,13 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import PageHeader from "@/components/common/page-header.tsx";
-import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet.tsx";
-import { workflowColumns } from "@/components/tables/workflows-columns.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type { Workflow } from "@/hooks/api/types.ts";
-import { workflowsQueryOptions } from "@/hooks/api/use-workflows.ts";
-import { PlusIcon, SearchIcon } from "@/lib/icons.ts";
+import PageHeader from "@/components/common/page-header";
+import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet";
+import { workflowColumns } from "@/components/tables/workflows-columns";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { Workflow } from "@/hooks/api/types";
+import { workflowsQueryOptions } from "@/hooks/api/use-workflows";
+import { PlusIcon, SearchIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/workflows/")({
   loader: async ({ context }) => {

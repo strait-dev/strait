@@ -9,7 +9,7 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-} from "@strait/ui/components/avatar.tsx";
+} from "@strait/ui/components/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,19 +18,19 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu.tsx";
+} from "@strait/ui/components/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@strait/ui/components/sidebar.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/sidebar";
+import { toast } from "@strait/ui/components/toast/index";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
-import { authClient } from "@/lib/auth-client.ts";
-import { captureException, clearSentryUser } from "@/lib/sentry.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
+import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { authClient } from "@/lib/auth-client";
+import { captureException, clearSentryUser } from "@/lib/sentry";
+import type { AuthUser } from "@/routes/__root";
 
 type Props = {
   user: AuthUser;

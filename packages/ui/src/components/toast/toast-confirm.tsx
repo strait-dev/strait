@@ -1,7 +1,7 @@
 import { AlertDiamondIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "../button.tsx";
-import type { ConfirmToastOptions } from "./types.ts";
+import { Button } from "../button";
+import type { ConfirmToastOptions } from "./types";
 
 interface ToastConfirmProps extends ConfirmToastOptions {
   onDismiss: () => void;

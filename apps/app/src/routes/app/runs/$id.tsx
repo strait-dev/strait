@@ -6,25 +6,22 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+} from "@strait/ui/components/breadcrumb";
+import { Button } from "@strait/ui/components/button";
+import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@strait/ui/components/tabs.tsx";
+} from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { StatusBadge } from "@/components/dashboard/status-badge.tsx";
-import type { JobRun, RunEvent, RunStatus } from "@/hooks/api/types.ts";
-import {
-  runEventsQueryOptions,
-  runQueryOptions,
-} from "@/hooks/api/use-runs.ts";
-import { AlertIcon, RefreshIcon, XCircleIcon } from "@/lib/icons.ts";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import type { JobRun, RunEvent, RunStatus } from "@/hooks/api/types";
+import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
+import { AlertIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/runs/$id")({
   loader: async ({ context, params }) => {

@@ -7,8 +7,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@strait/ui/components/alert-dialog.tsx";
-import { buttonVariants } from "@strait/ui/components/button.tsx";
+} from "@strait/ui/components/alert-dialog";
+import { buttonVariants } from "@strait/ui/components/button";
 
 type UnsavedChangesDialogProps = {
   /**

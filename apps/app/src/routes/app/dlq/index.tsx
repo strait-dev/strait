@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+import { Button } from "@strait/ui/components/button";
+import { Input } from "@strait/ui/components/input";
+import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -14,17 +14,17 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header.tsx";
-import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet.tsx";
-import { dlqColumns } from "@/components/tables/dlq-columns.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type { JobRun, PaginatedResponse } from "@/hooks/api/types.ts";
+import PageHeader from "@/components/common/page-header";
+import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
+import { dlqColumns } from "@/components/tables/dlq-columns";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
   dlqQueryOptions,
   useBulkDiscardDlq,
   useBulkRetryDlq,
-} from "@/hooks/api/use-dlq.ts";
-import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons.ts";
+} from "@/hooks/api/use-dlq";
+import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
 
 const searchSchema = z.object({
   query: z.string().optional(),

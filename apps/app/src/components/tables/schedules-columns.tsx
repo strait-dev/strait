@@ -1,7 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { StatusBadge } from "@/components/dashboard/status-badge.tsx";
-import type { Job } from "@/hooks/api/types.ts";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import type { Job } from "@/hooks/api/types";
 
 export const scheduleColumns: ColumnDef<Job>[] = [
   {

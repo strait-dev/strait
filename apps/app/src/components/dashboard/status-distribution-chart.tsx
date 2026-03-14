@@ -3,7 +3,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
+} from "@strait/ui/components/card";
 // biome-ignore lint/suspicious/noDeprecatedImports: recharts Cell is the only API for per-slice styling
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 

@@ -1,21 +1,21 @@
 import { AlertCircleIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Checkbox } from "@strait/ui/components/checkbox.tsx";
+import { Button } from "@strait/ui/components/button";
+import { Checkbox } from "@strait/ui/components/checkbox";
 import {
   CredenzaContent,
   CredenzaDescription,
   CredenzaHeader,
   CredenzaTitle,
-} from "@strait/ui/components/credenza.tsx";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
+} from "@strait/ui/components/credenza";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Input } from "@strait/ui/components/input";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
-} from "@strait/ui/components/input-otp.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/input-otp";
+import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -27,7 +27,7 @@ import {
   useTransition,
 } from "react";
 import type * as z from "zod/v4";
-import type { OrganizationsApiResponse } from "@/hooks/auth/use-organization.ts";
+import type { OrganizationsApiResponse } from "@/hooks/auth/use-organization";
 import {
   useDeleteLastOrganizationWithToken,
   useDeleteOrganizationWithToken,
@@ -35,17 +35,17 @@ import {
   useRequestOrganizationDeletion,
   useResendOrganizationDeletionCode,
   useVerifyOrganizationDeletion,
-} from "@/hooks/auth/use-organization.ts";
+} from "@/hooks/auth/use-organization";
 
 import {
   DeleteOrganizationSchema,
   VerifyCodeDeletionSchema,
-} from "@/lib/schema.ts";
+} from "@/lib/schema";
 import {
   DEFAULT_COOLDOWN_SECONDS,
   DEFAULT_MAX_WAIT,
   DEFAULT_PINCODE_LENGTH,
-} from "@/utils/constants.ts";
+} from "@/utils/constants";
 
 // Pre-generated slot identifiers to avoid using array index as key
 const OTP_SLOT_IDS = Array.from(

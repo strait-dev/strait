@@ -5,28 +5,28 @@ import {
   UserMultiple02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+} from "@strait/ui/components/card";
+import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@strait/ui/components/tabs.tsx";
+} from "@strait/ui/components/tabs";
 import { createFileRoute } from "@tanstack/react-router";
-import Account from "@/components/(settings)/account.tsx";
-import SubscriptionOverview from "@/components/(settings)/subscription-overview.tsx";
-import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary.tsx";
-import NotFound from "@/components/common/not-found.tsx";
-import PageHeader from "@/components/common/page-header.tsx";
-import type { Session } from "@/routes/__root.tsx";
+import Account from "@/components/(settings)/account";
+import SubscriptionOverview from "@/components/(settings)/subscription-overview";
+import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
+import NotFound from "@/components/common/not-found";
+import PageHeader from "@/components/common/page-header";
+import type { Session } from "@/routes/__root";
 
 export const Route = createFileRoute("/app/settings/")({
   loader: ({ context }) => {

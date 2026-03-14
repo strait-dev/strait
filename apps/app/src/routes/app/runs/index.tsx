@@ -1,13 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
+} from "@strait/ui/components/dropdown-menu";
+import { Input } from "@strait/ui/components/input";
+import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -20,18 +20,14 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header.tsx";
-import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet.tsx";
-import { StatusBadge } from "@/components/dashboard/status-badge.tsx";
-import { runColumns } from "@/components/tables/runs-columns.tsx";
-import { DataTable } from "@/components/ui/data-table/data-table.tsx";
-import type {
-  JobRun,
-  PaginatedResponse,
-  RunStatus,
-} from "@/hooks/api/types.ts";
-import { runsQueryOptions } from "@/hooks/api/use-runs.ts";
-import { CalendarIcon, FilterIcon, SearchIcon } from "@/lib/icons.ts";
+import PageHeader from "@/components/common/page-header";
+import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import { runColumns } from "@/components/tables/runs-columns";
+import { DataTable } from "@/components/ui/data-table/data-table";
+import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
+import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { CalendarIcon, FilterIcon, SearchIcon } from "@/lib/icons";
 
 const searchSchema = z.object({
   query: z.string().optional(),
