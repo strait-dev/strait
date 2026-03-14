@@ -1,5 +1,6 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { auth } from "@/lib/auth";
 
 /**
  * Auth middleware for server functions.
@@ -7,7 +8,6 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
  * Throws if the user is not authenticated.
  */
 export const authMiddleware = createMiddleware().server(async ({ next }) => {
-  const { auth } = await import("@/lib/auth");
   const headers = getRequestHeaders();
   const session = await auth.api.getSession({ headers });
 

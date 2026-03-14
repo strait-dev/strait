@@ -35,6 +35,7 @@ import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { resend } from "@/lib/resend";
 import { SupportFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AuthUser } from "@/routes/__root";
@@ -43,27 +44,27 @@ import { MILLISECONDS_PER_SECOND, TIMER_INTERVAL_MS } from "@/utils/constants";
 const supportAction = createServerFn({ method: "POST" })
   .inputValidator(SupportFormSchema)
   .middleware([authMiddleware])
-  .handler(async ({ data, context }) => {
-    const { resend } = await import("@/lib/resend");
-    return resend.emails.send({
-      from: "Support <hello@usestrait.com>",
-      to: "leo@usestrait.com",
-      subject: `Support — ${data.email}`,
-      react: Support({
-        ...data,
-        name: context.user.name,
-        date: format(new Date(), "MMMM dd, yyyy"),
-        createdAt: format(
-          new Date(context.user.createdAt as unknown as string),
-          "MMMM dd, yyyy"
-        ),
-        lastLogin: format(
-          new Date(context.user.updatedAt as unknown as string),
-          "MMMM dd, yyyy"
-        ),
-      }),
-    });
-  });
+  .handler(
+    async ({ data, context }) =>
+      await resend.emails.send({
+        from: "Support <hello@usestrait.com>",
+        to: "leo@usestrait.com",
+        subject: `Support — ${data.email}`,
+        react: Support({
+          ...data,
+          name: context.user.name,
+          date: format(new Date(), "MMMM dd, yyyy"),
+          createdAt: format(
+            new Date(context.user.createdAt as unknown as string),
+            "MMMM dd, yyyy"
+          ),
+          lastLogin: format(
+            new Date(context.user.updatedAt as unknown as string),
+            "MMMM dd, yyyy"
+          ),
+        }),
+      })
+  );
 
 type Props = {
   user: AuthUser;

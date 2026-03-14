@@ -6,6 +6,7 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { auth } from "@/lib/auth";
 
 type MemberData = {
   id: string;
@@ -66,7 +67,6 @@ const mapMember = (member: {
 const listMembersServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: MemberParams) => data)
   .handler(async ({ data }) => {
-    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const result = await auth.api.listMembers({
       query: { organizationId: data.organizationId },
@@ -79,7 +79,6 @@ const listMembersServerFn = createServerFn({ method: "GET" })
 const updateMemberRoleServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { memberId: string; role: string }) => data)
   .handler(async ({ data }) => {
-    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const member = await auth.api.updateMemberRole({
       body: {
@@ -95,7 +94,6 @@ const updateMemberRoleServerFn = createServerFn({ method: "POST" })
 const removeMemberServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { memberIdOrEmail: string }) => data)
   .handler(async ({ data }) => {
-    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     await auth.api.removeMember({
       body: {

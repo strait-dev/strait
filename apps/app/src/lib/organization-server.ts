@@ -7,6 +7,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { nanoid } from "nanoid";
 import z from "zod/v4";
+import { auth } from "@/lib/auth";
+import { kv } from "@/lib/kv";
+import { resend } from "@/lib/resend";
 import type {
   ResendOrganizationDeletionCodeResponseSchema,
   VerifyOrganizationDeletionResponseSchema,
@@ -30,7 +33,6 @@ export const createOrganizationServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: Record<string, unknown>) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    const { auth } = await import("@/lib/auth");
     try {
       const headers = getRequestHeaders();
 
@@ -76,7 +78,6 @@ const getFullOrganizationAuth = createServerFn({ method: "GET" })
     z.object({ organizationId: z.string() }).parse(data)
   )
   .handler(async ({ data }) => {
-    const { auth } = await import("@/lib/auth");
     try {
       const headers = getRequestHeaders();
 
@@ -105,7 +106,6 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
     z.object({ organizationId: z.string() }).parse(data)
   )
   .handler(async ({ data }) => {
-    const { auth } = await import("@/lib/auth");
     try {
       const headers = getRequestHeaders();
 
@@ -126,7 +126,6 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
  */
 const listOrganizationsAuth = createServerFn({ method: "GET" }).handler(
   async () => {
-    const { auth } = await import("@/lib/auth");
     try {
       const headers = getRequestHeaders();
 
@@ -188,7 +187,6 @@ export const verifyOrganizationDeletionServerFn = createServerFn({
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const { kv } = await import("@/lib/kv");
     const key = `org-deletion:${data.organizationId}:${context.user.id}`;
     const storedCode = await kv?.get(key);
 
@@ -227,9 +225,6 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const { kv } = await import("@/lib/kv");
-    const { auth } = await import("@/lib/auth");
-    const { resend } = await import("@/lib/resend");
     const { organizationId, verificationToken, nextOrganizationId } = data;
 
     const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
@@ -307,8 +302,6 @@ export const purgeOrganizationWithTokenServerFn = createServerFn({
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const { kv } = await import("@/lib/kv");
-    const { resend } = await import("@/lib/resend");
     const { organizationId, verificationToken } = data;
 
     const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
@@ -389,8 +382,6 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const { kv } = await import("@/lib/kv");
-    const { resend } = await import("@/lib/resend");
     const { organizationId } = data;
 
     const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
@@ -466,9 +457,6 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const { kv } = await import("@/lib/kv");
-    const { auth } = await import("@/lib/auth");
-    const { resend } = await import("@/lib/resend");
     const { organizationId, verificationToken } = data;
 
     const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;

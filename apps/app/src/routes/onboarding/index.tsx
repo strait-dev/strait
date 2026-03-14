@@ -18,6 +18,7 @@ import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step
 import type { OnboardingStepProps } from "@/components/onboarding/types";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
 import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding";
+import { auth } from "@/lib/auth";
 import type { OnboardingFormData } from "@/lib/schema";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
@@ -26,7 +27,6 @@ import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 
 const getAuthUserFn = createServerFn({ method: "GET" }).handler(async () => {
   try {
-    const { auth } = await import("@/lib/auth");
     const headers = getRequestHeaders();
     const session = await auth.api.getSession({ headers });
     return (session?.user as AuthUser) ?? null;
