@@ -5,6 +5,8 @@ import type {
   HighLevelDomainMap,
   HighLevelFunctionMap,
   HighLevelOperationInput,
+  HighLevelResultDomainMap,
+  HighLevelResultFunctionMap,
 } from "./high-level/generated";
 import { buildHighLevelApi } from "./high-level/generated";
 import type { GeneratedOperationId } from "./internal/contracts/_generated/contracts";
@@ -34,9 +36,13 @@ type BaseClient = {
 };
 
 type HighLevelApiSurface = HighLevelFunctionMap &
-  HighLevelDomainMap & {
+  HighLevelDomainMap &
+  HighLevelResultFunctionMap &
+  HighLevelResultDomainMap & {
     readonly functions: HighLevelFunctionMap;
-    readonly namespaces: HighLevelDomainMap;
+    readonly namespaces: HighLevelDomainMap & HighLevelResultDomainMap;
+    readonly resultFunctions: HighLevelResultFunctionMap;
+    readonly resultNamespaces: HighLevelResultDomainMap;
   };
 
 export type StraitClient = BaseClient & HighLevelApiSurface;
@@ -160,11 +166,33 @@ export const createClient = (
       ) as Promise<OperationResponseBodyById[TOperationId]>
   );
 
+  const mergedNamespaces = Object.fromEntries(
+    Object.keys({ ...highLevelApi.domains, ...highLevelApi.resultDomains }).map(
+      (domainName) => [
+        domainName,
+        {
+          ...(highLevelApi.domains as Record<string, Record<string, unknown>>)[
+            domainName
+          ],
+          ...(
+            highLevelApi.resultDomains as Record<
+              string,
+              Record<string, unknown>
+            >
+          )[domainName],
+        },
+      ]
+    )
+  ) as HighLevelDomainMap & HighLevelResultDomainMap;
+
   const highLevelSurface = {
     ...highLevelApi.functions,
-    ...highLevelApi.domains,
+    ...mergedNamespaces,
+    ...highLevelApi.resultFunctions,
     functions: highLevelApi.functions,
-    namespaces: highLevelApi.domains,
+    namespaces: mergedNamespaces,
+    resultFunctions: highLevelApi.resultFunctions,
+    resultNamespaces: highLevelApi.resultDomains,
   } as HighLevelApiSurface;
 
   return {

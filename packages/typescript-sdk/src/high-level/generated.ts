@@ -1,5 +1,6 @@
 import type { Schema } from "effect";
 
+import { fromPromise, type SdkResult } from "../composition/result";
 import {
   type GeneratedOperationFunctionName,
   type GeneratedOperationId,
@@ -73,6 +74,26 @@ export type HighLevelDomainMap = {
   };
 };
 
+export type HighLevelResultFunctionMap = {
+  readonly [TOperation in GeneratedOperationRecord as TOperation["method"] extends "GET"
+    ? never
+    : `${TOperation["functionName"]}Result`]: (
+    input: HighLevelOperationInput<TOperation["id"]>
+  ) => Promise<SdkResult<OperationResponseBodyById[TOperation["id"]], unknown>>;
+};
+
+export type HighLevelResultDomainMap = {
+  readonly [TDomain in GeneratedDomainName]: {
+    readonly [TOperation in DomainOperationRecord<TDomain> as TOperation["method"] extends "GET"
+      ? never
+      : `${TOperation["domainMethodName"]}Result`]: (
+      input: HighLevelOperationInput<TOperation["id"]>
+    ) => Promise<
+      SdkResult<OperationResponseBodyById[TOperation["id"]], unknown>
+    >;
+  };
+};
+
 export type HighLevelExecutor = <TOperationId extends GeneratedOperationId>(
   operationId: TOperationId,
   input: HighLevelOperationInput<TOperationId>
@@ -83,9 +104,13 @@ export const buildHighLevelApi = (
 ): {
   readonly functions: HighLevelFunctionMap;
   readonly domains: HighLevelDomainMap;
+  readonly resultFunctions: HighLevelResultFunctionMap;
+  readonly resultDomains: HighLevelResultDomainMap;
 } => {
   const functions: Record<string, unknown> = {};
   const domains: Record<string, Record<string, unknown>> = {};
+  const resultFunctions: Record<string, unknown> = {};
+  const resultDomains: Record<string, Record<string, unknown>> = {};
 
   for (const operation of generatedOperations) {
     const invoke = (input: unknown) =>
@@ -96,10 +121,21 @@ export const buildHighLevelApi = (
     const currentDomain = domains[operation.domainName] ?? {};
     currentDomain[operation.domainMethodName] = invoke;
     domains[operation.domainName] = currentDomain;
+
+    if (operation.method !== "GET") {
+      const invokeResult = (input: unknown) => fromPromise(() => invoke(input));
+      resultFunctions[`${operation.functionName}Result`] = invokeResult;
+
+      const currentResultDomain = resultDomains[operation.domainName] ?? {};
+      currentResultDomain[`${operation.domainMethodName}Result`] = invokeResult;
+      resultDomains[operation.domainName] = currentResultDomain;
+    }
   }
 
   return {
     functions: functions as HighLevelFunctionMap,
     domains: domains as HighLevelDomainMap,
+    resultFunctions: resultFunctions as HighLevelResultFunctionMap,
+    resultDomains: resultDomains as HighLevelResultDomainMap,
   };
 };

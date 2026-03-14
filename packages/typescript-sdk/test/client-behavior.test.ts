@@ -92,6 +92,27 @@ describe("createClient", () => {
     expect(capturedUrl).toBe("https://strait.dev/v1/jobs?project_id=proj_1");
   });
 
+  test("exposes Result variants for mutating methods", async () => {
+    const fetchImpl: FetchLike = () =>
+      Promise.resolve(makeJsonResponse(429, { error: "budget exceeded" }));
+
+    const client = createClient(
+      {
+        baseUrl: "https://strait.dev",
+        auth: { type: "runToken", token: "rt_123" },
+      },
+      { fetch: fetchImpl }
+    );
+
+    const result = await client.logRunResult({
+      pathParams: { runID: "run-123" },
+      body: { message: "hello" },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(() => result.unwrap()).toThrow();
+  });
+
   test("fails when required path params are missing", async () => {
     const client = createClient({
       baseUrl: "https://strait.dev",
