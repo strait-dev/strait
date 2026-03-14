@@ -1,0 +1,34 @@
+{
+  "name": "@strait/ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf .turbo node_modules dist",
+    "biome:lint": "biome lint src/config.ts src/runtime.ts src/errors.ts src/index.ts src/client.ts src/domains/index.ts src/domains/generated.ts src/internal/http/types.ts src/internal/http/client.ts test/client-behavior.test.ts test/openapi-coverage.test.ts",
+    "biome:format": "biome format --write .",
+    "biome:write": "biome check --write .",
+    "biome:fix:unsafe": "biome check --fix --unsafe .",
+    "lint": "bun run biome:lint",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test",
+    "generate:contracts": "bun run ./scripts/generate-contracts.ts",
+    "run-all": "bun run generate:contracts && bun run lint && bun run typecheck && bun run test"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@effect/platform": "^0.84.0",
+    "@effect/platform-node": "^0.84.0",
+    "effect": "^3.19.5",
+    "yaml": "^2.8.1"
+  }
+}

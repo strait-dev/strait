@@ -69,59 +69,57 @@ Pause the current run and wait for an external event to arrive. The run transiti
 
 ## SDK Client Libraries
 
-Official SDK clients are available for TypeScript and Python in the `sdk/` directory. These provide typed wrappers around the REST API for event trigger operations.
+Official SDK packages now live under `packages/` in this repository:
+- TypeScript: `packages/typescript-sdk` (`@strait/ts`)
+- Python scaffold: `packages/python-sdk`
+- Go scaffold: `packages/go-sdk`
 
 ### TypeScript
 
 ```typescript
-import { EventsClient } from "@strait/sdk";
+import { createClient } from "@strait/ts";
 
-const events = new EventsClient("https://strait.dev", {
-  Authorization: "Bearer strait_...",
+const runClient = createClient({
+  baseUrl: "https://strait.dev",
+  auth: { type: "runToken", token: process.env.RUN_TOKEN! },
+});
+
+const eventClient = createClient({
+  baseUrl: "https://strait.dev",
+  auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
 });
 
 // Pause a run and wait for an external event
-const trigger = await events.waitForEvent("run-123", {
-  eventKey: "approval:order-789",
-  timeoutSecs: 7200,
+const trigger = await runClient.operationsPromise.postSdkV1RunsByRunIDWaitForEvent({
+  pathParams: { runID: "run-123" },
+  body: {
+    event_key: "approval:order-789",
+    timeout_secs: 7200,
+  },
 });
 
 // Send an event to resolve the trigger
-await events.sendEvent({
-  eventKey: "approval:order-789",
-  payload: { approved: true },
+await eventClient.operationsPromise.postV1EventsByEventKeySend({
+  pathParams: { eventKey: "approval:order-789" },
+  body: { payload: { approved: true } },
 });
 
 // Get trigger status
-const status = await events.getEventTrigger("approval:order-789");
+const status = await eventClient.operationsPromise.getV1EventsByEventKey({
+  pathParams: { eventKey: "approval:order-789" },
+});
 
 // Cancel a waiting trigger
-await events.cancelEventTrigger("approval:order-789");
+await eventClient.operationsPromise.deleteV1EventsByEventKey({
+  pathParams: { eventKey: "approval:order-789" },
+});
 ```
 
 ### Python
 
 ```python
-from strait import EventsClient, WaitForEventOptions, SendEventOptions
-
-client = EventsClient(
-    "https://strait.dev",
-    {"Authorization": "Bearer strait_..."}
-)
-
-trigger = client.wait_for_event("run-123", WaitForEventOptions(
-    event_key="approval:order-789",
-    timeout_secs=7200,
-))
-
-resolved = client.send_event(SendEventOptions(
-    event_key="approval:order-789",
-    payload={"approved": True},
-))
-
-status = client.get_event_trigger("approval:order-789")
-client.cancel_event_trigger("approval:order-789")
-client.close()
+# Python SDK is scaffold-only in this phase.
+# See packages/python-sdk for current status and roadmap.
 ```
 
 ## Endpoint Availability

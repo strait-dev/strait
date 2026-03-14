@@ -1,8 +1,8 @@
-"""Strait Event Triggers SDK — Python client."""
+"""Strait Event Triggers SDK — Python client (scaffold)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
@@ -59,7 +59,6 @@ class EventsClient:
         self._client = httpx.Client(headers=headers, timeout=30.0)
 
     def wait_for_event(self, run_id: str, options: WaitForEventOptions) -> EventTrigger:
-        """Pause the current run and wait for an external event."""
         url = f"{self._base_url}/sdk/v1/runs/{run_id}/wait-for-event"
         body: dict[str, Any] = {
             "event_key": options.event_key,
@@ -73,7 +72,6 @@ class EventsClient:
         return EventTrigger(**resp.json())
 
     def send_event(self, options: SendEventOptions) -> EventTrigger:
-        """Send an event to resolve a waiting trigger."""
         url = f"{self._base_url}/v1/events/{quote(options.event_key, safe='')}/send"
         body: dict[str, Any] = {}
         if options.payload:
@@ -84,19 +82,19 @@ class EventsClient:
         return EventTrigger(**resp.json())
 
     def get_event_trigger(self, event_key: str) -> EventTrigger:
-        """Get an event trigger by its event key."""
         url = f"{self._base_url}/v1/events/{quote(event_key, safe='')}"
         resp = self._client.get(url)
         resp.raise_for_status()
         return EventTrigger(**resp.json())
 
     def cancel_event_trigger(self, event_key: str) -> EventTrigger:
-        """Cancel a waiting event trigger."""
         url = f"{self._base_url}/v1/events/{quote(event_key, safe='')}"
         resp = self._client.delete(url)
         resp.raise_for_status()
         return EventTrigger(**resp.json())
 
     def close(self) -> None:
-        """Close the underlying HTTP client."""
         self._client.close()
+
+
+# TODO: Full Python SDK parity with @strait/ts in later phase.
