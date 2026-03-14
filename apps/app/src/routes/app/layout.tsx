@@ -32,7 +32,7 @@ import {
   subscriptionQueryOptions,
   subscriptionStateQueryOptions,
 } from "@/hooks/subscription/use-subscription";
-import { ensureSession } from "@/lib/auth-server";
+import { ensureSession } from "@/lib/auth-handler.server";
 import { setSentryUser } from "@/lib/sentry";
 import type { AuthUser, Session } from "@/routes/__root";
 

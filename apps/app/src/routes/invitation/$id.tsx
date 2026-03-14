@@ -13,7 +13,7 @@ import {
   getPublicInvitationServerFn,
   type PublicInvitationData,
 } from "@/hooks/auth/use-invitation";
-import { auth } from "@/lib/auth";
+import { auth } from "@/lib/auth.server";
 import { authClient } from "@/lib/auth-client";
 import { captureException, captureSentryAuthError } from "@/lib/sentry";
 

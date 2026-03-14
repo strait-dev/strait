@@ -7,9 +7,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { nanoid } from "nanoid";
 import z from "zod/v4";
-import { auth } from "@/lib/auth";
-import { kv } from "@/lib/kv";
-import { resend } from "@/lib/resend";
+import { auth } from "@/lib/auth.server";
+import { kv } from "@/lib/kv.server";
+import { resend } from "@/lib/resend.server";
 import type {
   ResendOrganizationDeletionCodeResponseSchema,
   VerifyOrganizationDeletionResponseSchema,

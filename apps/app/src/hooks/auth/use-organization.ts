@@ -8,7 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import type z from "zod/v4";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { auth } from "@/lib/auth";
+import { auth } from "@/lib/auth.server";
 import {
   deleteLastOrganizationWithTokenServerFn,
   deleteOrganizationWithTokenServerFn,
@@ -17,7 +17,7 @@ import {
   resendOrganizationDeletionCodeServerFn,
   setActiveOrganizationAuth,
   verifyOrganizationDeletionServerFn,
-} from "@/lib/organization-server";
+} from "@/lib/organization-handler.server";
 import type {
   DeleteLastOrganizationWithTokenSchema,
   DeleteOrganizationWithTokenSchema,

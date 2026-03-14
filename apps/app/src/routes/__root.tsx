@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
-import { getSession } from "@/lib/auth-server";
+import { getSession } from "@/lib/auth-handler.server";
 
 export type AuthUser = {
   id: string;

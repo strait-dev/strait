@@ -35,7 +35,7 @@ import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
-import { resend } from "@/lib/resend";
+import { resend } from "@/lib/resend.server";
 import { SupportFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AuthUser } from "@/routes/__root";

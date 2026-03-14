@@ -18,7 +18,7 @@ import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step
 import type { OnboardingStepProps } from "@/components/onboarding/types";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
 import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding";
-import { auth } from "@/lib/auth";
+import { auth } from "@/lib/auth.server";
 import type { OnboardingFormData } from "@/lib/schema";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";

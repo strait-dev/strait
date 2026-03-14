@@ -13,7 +13,7 @@ import { magicLink, oneTap, organization } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { resend } from "@/lib/resend";
+import { resend } from "@/lib/resend.server";
 
 const db = drizzle(postgres(process.env.AUTH_DATABASE_URL ?? ""));
 
@@ -66,7 +66,7 @@ export const auth = betterAuth({
     magicLink({
       sendMagicLink: async ({ email, url }) => {
         await resend.emails.send({
-          from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.so",
+          from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.dev",
           to: email,
           subject: "Sign in to Strait",
           html: `<p>Click the link below to sign in to Strait:</p><p><a href="${url}">Sign in to Strait</a></p><p>This link expires in 5 minutes. If you didn't request this, you can safely ignore this email.</p>`,
