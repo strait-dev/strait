@@ -8,14 +8,10 @@ import {
 } from "@polar-sh/better-auth";
 import { Polar } from "@polar-sh/sdk";
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { magicLink, oneTap, organization } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { Pool } from "pg";
 import { resend } from "@/lib/resend.server";
-
-const db = drizzle(postgres(process.env.AUTH_DATABASE_URL ?? ""));
 
 const polarClient = process.env.POLAR_ACCESS_TOKEN
   ? new Polar({
@@ -42,7 +38,7 @@ const polarClient = process.env.POLAR_ACCESS_TOKEN
  * so TypeScript can infer the full plugin API types (organization methods, etc).
  */
 export const auth = betterAuth({
-  database: drizzleAdapter(db, { provider: "pg" }),
+  database: new Pool({ connectionString: process.env.AUTH_DATABASE_URL }),
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: {
