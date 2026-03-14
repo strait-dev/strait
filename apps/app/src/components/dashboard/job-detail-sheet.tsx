@@ -1,0 +1,186 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Badge } from "@strait/ui/components/badge.tsx";
+import { Button } from "@strait/ui/components/button.tsx";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@strait/ui/components/sheet.tsx";
+import type { Job } from "@/hooks/api/types.ts";
+import {
+  ClockIcon,
+  GlobeIcon,
+  PauseActionIcon,
+  PlayActionIcon,
+  RefreshIcon,
+  TagIcon,
+} from "@/lib/icons.ts";
+import { StatusBadge } from "./status-badge.tsx";
+
+type JobDetailSheetProps = {
+  job: Job | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
+function StatCell({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md border p-3 text-center">
+      <p className="font-bold text-lg">{value}</p>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function DetailRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: any;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="ml-auto font-mono text-xs">{value}</span>
+    </div>
+  );
+}
+
+export function JobDetailSheet({
+  job,
+  open,
+  onOpenChange,
+}: JobDetailSheetProps) {
+  if (!job) {
+    return null;
+  }
+
+  return (
+    <Sheet onOpenChange={onOpenChange} open={open}>
+      <SheetContent className="overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>{job.name}</SheetTitle>
+        </SheetHeader>
+
+        <div className="mt-4 space-y-6">
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <StatusBadge
+              showDot
+              size="sm"
+              status={job.enabled ? "completed" : "paused"}
+            />
+            <span className="text-muted-foreground text-xs">
+              {job.enabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex gap-2">
+            <Button className="flex-1" size="sm">
+              <HugeiconsIcon
+                className="mr-1.5"
+                icon={PlayActionIcon}
+                size={14}
+              />
+              Trigger
+            </Button>
+            <Button className="flex-1" size="sm" variant="outline">
+              <HugeiconsIcon
+                className="mr-1.5"
+                icon={PauseActionIcon}
+                size={14}
+              />
+              Pause
+            </Button>
+          </div>
+
+          {/* Stats Grid */}
+          <div className="grid grid-cols-3 gap-2">
+            <StatCell label="Success %" value="98.2%" />
+            <StatCell label="Runs" value="1,247" />
+            <StatCell label="Last Run" value="2m ago" />
+          </div>
+
+          {/* Configuration */}
+          <div>
+            <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
+              Configuration
+            </h4>
+            <div className="space-y-2.5">
+              <DetailRow
+                icon={GlobeIcon}
+                label="Endpoint"
+                value={job.endpoint_url || "-"}
+              />
+              <DetailRow
+                icon={ClockIcon}
+                label="Schedule"
+                value={job.cron || "Manual"}
+              />
+              <DetailRow
+                icon={RefreshIcon}
+                label="Retry"
+                value={`${job.max_attempts} attempts`}
+              />
+              <DetailRow
+                icon={ClockIcon}
+                label="Timeout"
+                value={`${job.timeout_secs}s`}
+              />
+            </div>
+          </div>
+
+          {/* Tags */}
+          {job.tags && Object.keys(job.tags).length > 0 && (
+            <div>
+              <h4 className="mb-2 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase">
+                <HugeiconsIcon icon={TagIcon} size={12} />
+                Tags
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(job.tags).map(([key, val]) => (
+                  <Badge className="text-xs" key={key} variant="secondary">
+                    {key}: {val}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Runs Preview */}
+          <div>
+            <h4 className="mb-2 font-medium text-muted-foreground text-xs uppercase">
+              Recent Runs
+            </h4>
+            <div className="space-y-1.5">
+              {[
+                { id: "run_1", status: "completed" as const, time: "2m ago" },
+                { id: "run_2", status: "completed" as const, time: "1h ago" },
+                { id: "run_3", status: "failed" as const, time: "3h ago" },
+              ].map((run) => (
+                <div
+                  className="flex items-center justify-between rounded-md border px-3 py-2"
+                  key={run.id}
+                >
+                  <span className="font-mono text-xs">{run.id}</span>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge size="xs" status={run.status} />
+                    <span className="text-[11px] text-muted-foreground">
+                      {run.time}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}

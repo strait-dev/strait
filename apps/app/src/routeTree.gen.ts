@@ -17,7 +17,19 @@ import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as InvitationIdRouteImport } from './routes/invitation/$id'
 import { Route as AppUpgradeRouteImport } from './routes/app/upgrade'
+import { Route as AppWorkflowsIndexRouteImport } from './routes/app/workflows/index'
+import { Route as AppWebhooksIndexRouteImport } from './routes/app/webhooks/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/app/settings/index'
+import { Route as AppSchedulesIndexRouteImport } from './routes/app/schedules/index'
+import { Route as AppRunsIndexRouteImport } from './routes/app/runs/index'
+import { Route as AppLogsIndexRouteImport } from './routes/app/logs/index'
+import { Route as AppJobsIndexRouteImport } from './routes/app/jobs/index'
+import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
+import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
+import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
+import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
+import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
+import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const UpgradeRoute = UpgradeRouteImport.update({
@@ -60,9 +72,69 @@ const AppUpgradeRoute = AppUpgradeRouteImport.update({
   path: '/upgrade',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppWorkflowsIndexRoute = AppWorkflowsIndexRouteImport.update({
+  id: '/workflows/',
+  path: '/workflows/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppWebhooksIndexRoute = AppWebhooksIndexRouteImport.update({
+  id: '/webhooks/',
+  path: '/webhooks/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppSchedulesIndexRoute = AppSchedulesIndexRouteImport.update({
+  id: '/schedules/',
+  path: '/schedules/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppRunsIndexRoute = AppRunsIndexRouteImport.update({
+  id: '/runs/',
+  path: '/runs/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppLogsIndexRoute = AppLogsIndexRouteImport.update({
+  id: '/logs/',
+  path: '/logs/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppJobsIndexRoute = AppJobsIndexRouteImport.update({
+  id: '/jobs/',
+  path: '/jobs/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppEventsIndexRoute = AppEventsIndexRouteImport.update({
+  id: '/events/',
+  path: '/events/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppDlqIndexRoute = AppDlqIndexRouteImport.update({
+  id: '/dlq/',
+  path: '/dlq/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
+  id: '/workflows/$id',
+  path: '/workflows/$id',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppSchedulesIdRoute = AppSchedulesIdRouteImport.update({
+  id: '/schedules/$id',
+  path: '/schedules/$id',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppRunsIdRoute = AppRunsIdRouteImport.update({
+  id: '/runs/$id',
+  path: '/runs/$id',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppJobsIdRoute = AppJobsIdRouteImport.update({
+  id: '/jobs/$id',
+  path: '/jobs/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -81,7 +153,19 @@ export interface FileRoutesByFullPath {
   '/app/': typeof AppIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/runs/$id': typeof AppRunsIdRoute
+  '/app/schedules/$id': typeof AppSchedulesIdRoute
+  '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/dlq/': typeof AppDlqIndexRoute
+  '/app/events/': typeof AppEventsIndexRoute
+  '/app/jobs/': typeof AppJobsIndexRoute
+  '/app/logs/': typeof AppLogsIndexRoute
+  '/app/runs/': typeof AppRunsIndexRoute
+  '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
+  '/app/webhooks/': typeof AppWebhooksIndexRoute
+  '/app/workflows/': typeof AppWorkflowsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -92,7 +176,19 @@ export interface FileRoutesByTo {
   '/app': typeof AppIndexRoute
   '/onboarding': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/runs/$id': typeof AppRunsIdRoute
+  '/app/schedules/$id': typeof AppSchedulesIdRoute
+  '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/dlq': typeof AppDlqIndexRoute
+  '/app/events': typeof AppEventsIndexRoute
+  '/app/jobs': typeof AppJobsIndexRoute
+  '/app/logs': typeof AppLogsIndexRoute
+  '/app/runs': typeof AppRunsIndexRoute
+  '/app/schedules': typeof AppSchedulesIndexRoute
   '/app/settings': typeof AppSettingsIndexRoute
+  '/app/webhooks': typeof AppWebhooksIndexRoute
+  '/app/workflows': typeof AppWorkflowsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -105,7 +201,19 @@ export interface FileRoutesById {
   '/app/': typeof AppIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/runs/$id': typeof AppRunsIdRoute
+  '/app/schedules/$id': typeof AppSchedulesIdRoute
+  '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/dlq/': typeof AppDlqIndexRoute
+  '/app/events/': typeof AppEventsIndexRoute
+  '/app/jobs/': typeof AppJobsIndexRoute
+  '/app/logs/': typeof AppLogsIndexRoute
+  '/app/runs/': typeof AppRunsIndexRoute
+  '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
+  '/app/webhooks/': typeof AppWebhooksIndexRoute
+  '/app/workflows/': typeof AppWorkflowsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -119,7 +227,19 @@ export interface FileRouteTypes {
     | '/app/'
     | '/onboarding/'
     | '/api/auth/$'
+    | '/app/jobs/$id'
+    | '/app/runs/$id'
+    | '/app/schedules/$id'
+    | '/app/workflows/$id'
+    | '/app/dlq/'
+    | '/app/events/'
+    | '/app/jobs/'
+    | '/app/logs/'
+    | '/app/runs/'
+    | '/app/schedules/'
     | '/app/settings/'
+    | '/app/webhooks/'
+    | '/app/workflows/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -130,7 +250,19 @@ export interface FileRouteTypes {
     | '/app'
     | '/onboarding'
     | '/api/auth/$'
+    | '/app/jobs/$id'
+    | '/app/runs/$id'
+    | '/app/schedules/$id'
+    | '/app/workflows/$id'
+    | '/app/dlq'
+    | '/app/events'
+    | '/app/jobs'
+    | '/app/logs'
+    | '/app/runs'
+    | '/app/schedules'
     | '/app/settings'
+    | '/app/webhooks'
+    | '/app/workflows'
   id:
     | '__root__'
     | '/'
@@ -142,7 +274,19 @@ export interface FileRouteTypes {
     | '/app/'
     | '/onboarding/'
     | '/api/auth/$'
+    | '/app/jobs/$id'
+    | '/app/runs/$id'
+    | '/app/schedules/$id'
+    | '/app/workflows/$id'
+    | '/app/dlq/'
+    | '/app/events/'
+    | '/app/jobs/'
+    | '/app/logs/'
+    | '/app/runs/'
+    | '/app/schedules/'
     | '/app/settings/'
+    | '/app/webhooks/'
+    | '/app/workflows/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -213,11 +357,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUpgradeRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/workflows/': {
+      id: '/app/workflows/'
+      path: '/workflows'
+      fullPath: '/app/workflows/'
+      preLoaderRoute: typeof AppWorkflowsIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/webhooks/': {
+      id: '/app/webhooks/'
+      path: '/webhooks'
+      fullPath: '/app/webhooks/'
+      preLoaderRoute: typeof AppWebhooksIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/settings/': {
       id: '/app/settings/'
       path: '/settings'
       fullPath: '/app/settings/'
       preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/schedules/': {
+      id: '/app/schedules/'
+      path: '/schedules'
+      fullPath: '/app/schedules/'
+      preLoaderRoute: typeof AppSchedulesIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/runs/': {
+      id: '/app/runs/'
+      path: '/runs'
+      fullPath: '/app/runs/'
+      preLoaderRoute: typeof AppRunsIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/logs/': {
+      id: '/app/logs/'
+      path: '/logs'
+      fullPath: '/app/logs/'
+      preLoaderRoute: typeof AppLogsIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/jobs/': {
+      id: '/app/jobs/'
+      path: '/jobs'
+      fullPath: '/app/jobs/'
+      preLoaderRoute: typeof AppJobsIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/events/': {
+      id: '/app/events/'
+      path: '/events'
+      fullPath: '/app/events/'
+      preLoaderRoute: typeof AppEventsIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/dlq/': {
+      id: '/app/dlq/'
+      path: '/dlq'
+      fullPath: '/app/dlq/'
+      preLoaderRoute: typeof AppDlqIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/workflows/$id': {
+      id: '/app/workflows/$id'
+      path: '/workflows/$id'
+      fullPath: '/app/workflows/$id'
+      preLoaderRoute: typeof AppWorkflowsIdRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/schedules/$id': {
+      id: '/app/schedules/$id'
+      path: '/schedules/$id'
+      fullPath: '/app/schedules/$id'
+      preLoaderRoute: typeof AppSchedulesIdRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/runs/$id': {
+      id: '/app/runs/$id'
+      path: '/runs/$id'
+      fullPath: '/app/runs/$id'
+      preLoaderRoute: typeof AppRunsIdRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/jobs/$id': {
+      id: '/app/jobs/$id'
+      path: '/jobs/$id'
+      fullPath: '/app/jobs/$id'
+      preLoaderRoute: typeof AppJobsIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/api/auth/$': {
@@ -233,13 +461,37 @@ declare module '@tanstack/react-router' {
 interface AppLayoutRouteChildren {
   AppUpgradeRoute: typeof AppUpgradeRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppJobsIdRoute: typeof AppJobsIdRoute
+  AppRunsIdRoute: typeof AppRunsIdRoute
+  AppSchedulesIdRoute: typeof AppSchedulesIdRoute
+  AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppDlqIndexRoute: typeof AppDlqIndexRoute
+  AppEventsIndexRoute: typeof AppEventsIndexRoute
+  AppJobsIndexRoute: typeof AppJobsIndexRoute
+  AppLogsIndexRoute: typeof AppLogsIndexRoute
+  AppRunsIndexRoute: typeof AppRunsIndexRoute
+  AppSchedulesIndexRoute: typeof AppSchedulesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
+  AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
 }
 
 const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppUpgradeRoute: AppUpgradeRoute,
   AppIndexRoute: AppIndexRoute,
+  AppJobsIdRoute: AppJobsIdRoute,
+  AppRunsIdRoute: AppRunsIdRoute,
+  AppSchedulesIdRoute: AppSchedulesIdRoute,
+  AppWorkflowsIdRoute: AppWorkflowsIdRoute,
+  AppDlqIndexRoute: AppDlqIndexRoute,
+  AppEventsIndexRoute: AppEventsIndexRoute,
+  AppJobsIndexRoute: AppJobsIndexRoute,
+  AppLogsIndexRoute: AppLogsIndexRoute,
+  AppRunsIndexRoute: AppRunsIndexRoute,
+  AppSchedulesIndexRoute: AppSchedulesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppWebhooksIndexRoute: AppWebhooksIndexRoute,
+  AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
 }
 
 const AppLayoutRouteWithChildren = AppLayoutRoute._addFileChildren(

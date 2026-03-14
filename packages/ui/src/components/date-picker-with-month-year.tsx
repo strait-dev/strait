@@ -168,7 +168,7 @@ function DatePickerWithMonthYear({
   );
 
   // Use either controlled value or internal state
-  const selectedDate = value !== undefined ? value : internalDate;
+  const selectedDate = value === undefined ? internalDate : value;
 
   // Format date for display
   const formattedDate = useMemo(() => {

@@ -821,9 +821,9 @@ function MultipleSelector({
   );
 
   const shouldFilterValue =
-    commandProps?.shouldFilter !== undefined
-      ? commandProps.shouldFilter
-      : !onSearch;
+    commandProps?.shouldFilter === undefined
+      ? !onSearch
+      : commandProps.shouldFilter;
 
   return (
     <Command

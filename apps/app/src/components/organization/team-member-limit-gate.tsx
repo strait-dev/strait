@@ -38,7 +38,7 @@ export const TeamMemberLimitGate = ({
               <p className="font-medium">Team member limit reached</p>
               <p className="text-sm">
                 Your current plan allows {availableLimit} team member
-                {availableLimit !== 1 ? "s" : ""}, and you already have{" "}
+                {availableLimit === 1 ? "" : "s"}, and you already have{" "}
                 {existingCount}.
                 {nextPlan ? (
                   <span>

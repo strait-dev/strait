@@ -38,7 +38,7 @@ export const CreateOrganizationLimitGate = ({
               <p className="font-medium">Store limit reached</p>
               <p className="text-sm">
                 Your current plan allows {availableLimit} store
-                {availableLimit !== 1 ? "s" : ""}, and you already have{" "}
+                {availableLimit === 1 ? "" : "s"}, and you already have{" "}
                 {existingCount}.
                 {nextPlan ? (
                   <span>

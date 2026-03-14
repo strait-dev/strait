@@ -154,7 +154,7 @@ export function captureSentryAuthError(
 
   // Get user agent for additional debugging context
   const userAgent =
-    typeof navigator !== "undefined" ? navigator.userAgent : undefined;
+    typeof navigator === "undefined" ? undefined : navigator.userAgent;
   const isMobile = userAgent
     ? ANDROID_WEBOS_IPHONE_IPAD_IPOD_BLACKBERRY_IEMOBILE_OPERA_MINI_REGEX.test(
         userAgent

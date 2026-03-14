@@ -62,5 +62,5 @@ function InputWithInlineButton({
   );
 }
 
-export { InputWithInlineButton };
 export type { InputWithInlineButtonProps };
+export { InputWithInlineButton };

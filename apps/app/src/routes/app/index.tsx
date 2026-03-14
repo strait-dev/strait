@@ -3,9 +3,24 @@ import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
-import DashboardPage from "@/components/common/dashboard-page.tsx";
+import PageHeader from "@/components/common/page-header.tsx";
+import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed.tsx";
+import { MetricsCard } from "@/components/dashboard/metrics-card.tsx";
+import { RecentRunsTable } from "@/components/dashboard/recent-runs-table.tsx";
+import { RunsChart } from "@/components/dashboard/runs-chart.tsx";
+import { StatusDistributionChart } from "@/components/dashboard/status-distribution-chart.tsx";
 import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog.tsx";
 import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import {
+  ActivityIcon,
+  AlertIcon,
+  BriefcaseIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  WorkflowIcon,
+  ZapIcon,
+} from "@/lib/icons.ts";
 import type { Session } from "@/routes/__root.tsx";
 
 const subscriptionSearchSchema = z.object({
@@ -31,7 +46,6 @@ export const Route = createFileRoute("/app/")({
 });
 
 function RouteComponent() {
-  const { session } = Route.useLoaderData();
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
 
@@ -44,7 +58,83 @@ function RouteComponent() {
 
   return (
     <Shell>
-      <DashboardPage session={session} />
+      <PageHeader
+        text="Monitor your orchestration infrastructure at a glance."
+        title="Dashboard"
+      />
+
+      {/* Metrics Row 1 */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricsCard
+          change={{ value: 12.5, label: "vs yesterday" }}
+          icon={ActivityIcon}
+          title="Total Runs (24h)"
+          value="3,847"
+        />
+        <MetricsCard
+          change={{ value: 2.1, label: "vs yesterday" }}
+          icon={CheckCircleIcon}
+          title="Success Rate"
+          value="97.4%"
+        />
+        <MetricsCard
+          change={{ value: -18, label: "vs yesterday" }}
+          icon={AlertIcon}
+          title="Failed Runs"
+          value="89"
+        />
+        <MetricsCard
+          change={{ value: -8, label: "vs yesterday" }}
+          icon={ClockIcon}
+          title="Avg Duration"
+          value="4.2s"
+        />
+      </div>
+
+      {/* Metrics Row 2 */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricsCard
+          description="Across 3 environments"
+          icon={BriefcaseIcon}
+          title="Active Jobs"
+          value={24}
+        />
+        <MetricsCard
+          description="8 active, 4 paused"
+          icon={WorkflowIcon}
+          title="Workflows"
+          value={12}
+        />
+        <MetricsCard
+          description="Awaiting review"
+          icon={ZapIcon}
+          title="Dead Letter"
+          value={7}
+        />
+        <MetricsCard
+          description="Next: 2m 34s"
+          icon={CalendarIcon}
+          title="Scheduled"
+          value={156}
+        />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <RunsChart />
+        </div>
+        <StatusDistributionChart />
+      </div>
+
+      {/* Activity */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <RecentRunsTable />
+        </div>
+        <LiveActivityFeed />
+      </div>
+
       <SubscriptionSuccessDialog
         checkoutId={search.checkout_id}
         isNewSubscription={!!search.checkout_success}

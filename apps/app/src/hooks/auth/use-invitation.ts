@@ -231,4 +231,4 @@ export const useDeleteInvitations = () => {
   });
 };
 
-export type { InvitationParams, InvitationIdParams };
+export type { InvitationIdParams, InvitationParams };

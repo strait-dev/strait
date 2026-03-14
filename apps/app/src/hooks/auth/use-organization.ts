@@ -180,9 +180,9 @@ const updateOrganizationServerFn = createServerFn({ method: "POST" })
       body: {
         organizationId,
         data: {
-          ...(name != null ? { name } : {}),
-          ...(slug != null ? { slug } : {}),
-          ...(logo != null ? { logo } : {}),
+          ...(name == null ? {} : { name }),
+          ...(slug == null ? {} : { slug }),
+          ...(logo == null ? {} : { logo }),
           ...(metadata
             ? {
                 metadata:
