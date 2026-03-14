@@ -17,13 +17,35 @@ In active implementation.
 
 ## Client creation
 
+### Inline config
+
 ```ts
 import { createClient } from "@strait/ts";
 
 const client = createClient({
   baseUrl: "http://localhost:3000",
-  apiToken: "str_live_xxx",
+  auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
 });
+```
+
+### Config file discovery (`strait.config.ts`)
+> Node/Bun environments only. Import from `@strait/ts/node`.
+
+```ts
+// strait.config.ts
+import { defineStraitConfig } from "@strait/ts/node";
+
+export default defineStraitConfig({
+  baseUrl: "http://localhost:3000",
+  auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
+});
+```
+
+```ts
+// app.ts
+import { createClientFromConfigFile } from "@strait/ts/node";
+
+const client = await createClientFromConfigFile();
 ```
 
 ## Calling generated operations
