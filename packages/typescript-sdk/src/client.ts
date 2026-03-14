@@ -1,6 +1,14 @@
 import { Effect, Either } from "effect";
 import { domains, type OperationInput, operations } from "./domains/index";
 import type { StraitSdkError, ValidationError } from "./errors";
+import type {
+  HighLevelDomainMap,
+  HighLevelFunctionMap,
+  HighLevelOperationInput,
+} from "./high-level/generated";
+import { buildHighLevelApi } from "./high-level/generated";
+import type { GeneratedOperationId } from "./internal/contracts/_generated/contracts";
+import type { OperationResponseBodyById } from "./internal/schema/_generated/schema";
 import { type FetchLike, provideRuntime } from "./runtime";
 
 type EffectOperation = <ReqBody = unknown, RespBody = unknown>(
@@ -10,6 +18,28 @@ type EffectOperation = <ReqBody = unknown, RespBody = unknown>(
 type PromiseOperation = <ReqBody = unknown, RespBody = unknown>(
   input?: OperationInput<ReqBody, RespBody>
 ) => Promise<RespBody>;
+
+type BaseClient = {
+  readonly operations: Readonly<Record<string, EffectOperation>>;
+  readonly operationsPromise: Readonly<
+    Record<GeneratedOperationId, PromiseOperation>
+  >;
+  readonly domains: Readonly<Record<string, Record<string, EffectOperation>>>;
+  readonly domainsPromise: Readonly<
+    Record<string, Record<string, PromiseOperation>>
+  >;
+  readonly run: <A>(
+    effect: Effect.Effect<A, StraitSdkError | ValidationError, never>
+  ) => Promise<A>;
+};
+
+type HighLevelApiSurface = HighLevelFunctionMap &
+  HighLevelDomainMap & {
+    readonly functions: HighLevelFunctionMap;
+    readonly namespaces: HighLevelDomainMap;
+  };
+
+export type StraitClient = BaseClient & HighLevelApiSurface;
 
 const runPromiseUnwrapped = <A, E>(
   effect: Effect.Effect<A, E, never>
@@ -41,7 +71,7 @@ const bindEffectOperations = (
 const bindPromiseOperations = (
   input: unknown,
   fetchImpl?: FetchLike
-): Readonly<Record<string, PromiseOperation>> =>
+): Readonly<Record<GeneratedOperationId, PromiseOperation>> =>
   Object.fromEntries(
     Object.entries(operations).map(([key, operation]) => [
       key,
@@ -54,7 +84,7 @@ const bindPromiseOperations = (
           })
         ),
     ])
-  ) as Readonly<Record<string, PromiseOperation>>;
+  ) as Readonly<Record<GeneratedOperationId, PromiseOperation>>;
 
 const bindEffectDomains = (
   input: unknown,
@@ -72,7 +102,9 @@ const bindEffectDomains = (
             provideRuntime(
               operation<ReqBody, RespBody>(operationInput),
               input,
-              { fetch: fetchImpl }
+              {
+                fetch: fetchImpl,
+              }
             ),
         ])
       ),
@@ -96,7 +128,9 @@ const bindPromiseDomains = (
               provideRuntime(
                 operation<ReqBody, RespBody>(operationInput),
                 input,
-                { fetch: fetchImpl }
+                {
+                  fetch: fetchImpl,
+                }
               )
             ),
         ])
@@ -109,22 +143,29 @@ export const createClient = (
   options?: {
     readonly fetch?: FetchLike;
   }
-): {
-  readonly operations: Readonly<Record<string, EffectOperation>>;
-  readonly operationsPromise: Readonly<Record<string, PromiseOperation>>;
-  readonly domains: Readonly<Record<string, Record<string, EffectOperation>>>;
-  readonly domainsPromise: Readonly<
-    Record<string, Record<string, PromiseOperation>>
-  >;
-  readonly run: <A>(
-    effect: Effect.Effect<A, StraitSdkError | ValidationError, never>
-  ) => Promise<A>;
-} => {
+): StraitClient => {
   const effectOperations = bindEffectOperations(input, options?.fetch);
   const promiseOperations = bindPromiseOperations(input, options?.fetch);
 
   const effectDomains = bindEffectDomains(input, options?.fetch);
   const promiseDomains = bindPromiseDomains(input, options?.fetch);
+
+  const highLevelApi = buildHighLevelApi(
+    <TOperationId extends GeneratedOperationId>(
+      operationId: TOperationId,
+      operationInput: HighLevelOperationInput<TOperationId>
+    ) =>
+      promiseOperations[operationId](
+        operationInput as OperationInput<unknown, unknown>
+      ) as Promise<OperationResponseBodyById[TOperationId]>
+  );
+
+  const highLevelSurface = {
+    ...highLevelApi.functions,
+    ...highLevelApi.domains,
+    functions: highLevelApi.functions,
+    namespaces: highLevelApi.domains,
+  } as HighLevelApiSurface;
 
   return {
     operations: effectOperations,
@@ -134,5 +175,8 @@ export const createClient = (
     run: <A>(
       effect: Effect.Effect<A, StraitSdkError | ValidationError, never>
     ) => runPromiseUnwrapped(effect),
+    ...highLevelSurface,
   };
 };
+
+export const createPromiseClient = createClient;

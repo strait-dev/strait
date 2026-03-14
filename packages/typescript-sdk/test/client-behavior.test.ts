@@ -44,6 +44,54 @@ describe("createClient", () => {
     ).toBe("Bearer rt_123");
   });
 
+  test("exposes top-level high-level functions", async () => {
+    let capturedUrl = "";
+
+    const fetchImpl: FetchLike = (input) => {
+      capturedUrl = String(input);
+      return Promise.resolve(makeJsonResponse(201, { ok: true }));
+    };
+
+    const client = createClient(
+      {
+        baseUrl: "https://strait.dev",
+        auth: { type: "runToken", token: "rt_123" },
+      },
+      { fetch: fetchImpl }
+    );
+
+    const result = await client.logRun({
+      pathParams: { runID: "run-123" },
+      body: { message: "hello" },
+      successStatus: [201],
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(capturedUrl).toBe("https://strait.dev/sdk/v1/runs/run-123/log");
+  });
+
+  test("exposes namespaced domain methods", async () => {
+    let capturedUrl = "";
+
+    const fetchImpl: FetchLike = (input) => {
+      capturedUrl = String(input);
+      return Promise.resolve(makeJsonResponse(200, []));
+    };
+
+    const client = createClient(
+      {
+        baseUrl: "https://strait.dev",
+        auth: { type: "bearer", token: "abc" },
+      },
+      { fetch: fetchImpl }
+    );
+
+    const result = await client.jobs.list({ query: { project_id: "proj_1" } });
+
+    expect(result).toEqual([]);
+    expect(capturedUrl).toBe("https://strait.dev/v1/jobs?project_id=proj_1");
+  });
+
   test("fails when required path params are missing", async () => {
     const client = createClient({
       baseUrl: "https://strait.dev",
