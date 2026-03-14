@@ -14,11 +14,19 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
+/**
+ * Polling policy for {@link waitForRun}.
+ */
 export type WaitForRunOptions = {
+  /** Maximum wait time before timing out. */
   readonly timeoutMs?: number;
+  /** Initial polling delay in milliseconds. */
   readonly initialDelayMs?: number;
+  /** Maximum polling delay in milliseconds. */
   readonly maxDelayMs?: number;
+  /** Exponential backoff multiplier for polling delay. */
   readonly factor?: number;
+  /** Optional custom terminal-status predicate. */
   readonly isTerminal?: (status: string | undefined) => boolean;
 };
 
@@ -30,6 +38,9 @@ type RunFetcher<TRun extends RunStatusResponse> = (input: {
   readonly pathParams: { readonly runID: string };
 }) => Promise<TRun>;
 
+/**
+ * Polls `getRun` until the run reaches a terminal status or times out.
+ */
 export const waitForRun = async <TRun extends RunStatusResponse>(
   getRun: RunFetcher<TRun>,
   runID: string,

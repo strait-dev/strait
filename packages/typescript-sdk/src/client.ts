@@ -45,6 +45,10 @@ type HighLevelApiSurface = HighLevelFunctionMap &
     readonly resultNamespaces: HighLevelResultDomainMap;
   };
 
+/**
+ * Fully bound SDK client combining low-level Effect/Promise operations and
+ * generated high-level Promise/Result helpers.
+ */
 export type StraitClient = BaseClient & HighLevelApiSurface;
 
 const runPromiseUnwrapped = <A, E>(
@@ -144,6 +148,16 @@ const bindPromiseDomains = (
     ])
   ) as Readonly<Record<string, Record<string, PromiseOperation>>>;
 
+/**
+ * Creates a Strait SDK client bound to a runtime configuration object.
+ *
+ * The returned client includes:
+ * - low-level `operations` and `domains` Effect APIs
+ * - low-level `operationsPromise` and `domainsPromise` Promise APIs
+ * - generated top-level functions (for example `client.createJob(...)`)
+ * - generated namespaced helpers (for example `client.jobs.create(...)`)
+ * - Result variants for non-GET operations
+ */
 export const createClient = (
   input: unknown,
   options?: {
@@ -207,4 +221,7 @@ export const createClient = (
   };
 };
 
+/**
+ * Alias maintained for Promise-first client naming symmetry.
+ */
 export const createPromiseClient = createClient;

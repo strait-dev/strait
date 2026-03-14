@@ -1,8 +1,16 @@
+/**
+ * Retry policy for {@link withRetry}.
+ */
 export type RetryOptions<TError = unknown> = {
+  /** Number of total attempts including the first call. */
   readonly attempts?: number;
+  /** Initial retry delay in milliseconds. */
   readonly delayMs?: number;
+  /** Exponential backoff multiplier applied after each failed attempt. */
   readonly factor?: number;
+  /** Upper bound for backoff delay in milliseconds. */
   readonly maxDelayMs?: number;
+  /** Predicate to decide whether a failure should be retried. */
   readonly shouldRetry?: (
     error: TError,
     context: { readonly attempt: number; readonly maxAttempts: number }
@@ -14,6 +22,12 @@ const wait = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
+/**
+ * Executes an async operation with exponential backoff retries.
+ *
+ * Throws the last observed error when retries are exhausted or when
+ * `shouldRetry` returns `false`.
+ */
 export const withRetry = async <TOutput, TError = unknown>(
   operation: () => Promise<TOutput>,
   options?: RetryOptions<TError>

@@ -30,15 +30,23 @@ type MaybeOptionalField<TKey extends string, TValue> = [TValue] extends [
   ? { readonly [K in TKey]?: never }
   : { readonly [K in TKey]?: TValue };
 
+/**
+ * Input shape for a generated high-level operation.
+ *
+ * Required fields become mandatory only when the operation expects them.
+ */
 export type HighLevelOperationInput<TOperationId extends GeneratedOperationId> =
   MaybeRequiredField<"pathParams", OperationPathParamsById[TOperationId]> &
     MaybeRequiredField<"query", OperationQueryParamsById[TOperationId]> &
     MaybeOptionalField<"headers", OperationHeaderParamsById[TOperationId]> &
     MaybeOptionalField<"body", OperationRequestBodyById[TOperationId]> & {
+      /** Accept additional success status codes for this call. */
       readonly successStatus?: readonly number[];
+      /** Optional request runtime schema override. */
       readonly requestSchema?: Schema.Schema<
         OperationRequestBodyById[TOperationId]
       >;
+      /** Optional response runtime schema override. */
       readonly responseSchema?: Schema.Schema<
         OperationResponseBodyById[TOperationId]
       >;
@@ -58,6 +66,9 @@ type DomainOperationRecord<TDomain extends GeneratedDomainName> = Extract<
   { readonly domainName: TDomain }
 >;
 
+/**
+ * Top-level generated Promise API grouped by operation function name.
+ */
 export type HighLevelFunctionMap = {
   readonly [TFunctionName in GeneratedOperationFunctionName]: (
     input: HighLevelOperationInput<OperationIdByFunctionName<TFunctionName>>
@@ -66,6 +77,9 @@ export type HighLevelFunctionMap = {
   >;
 };
 
+/**
+ * Namespaced generated Promise API grouped by operation domain/tag.
+ */
 export type HighLevelDomainMap = {
   readonly [TDomain in GeneratedDomainName]: {
     readonly [TOperation in DomainOperationRecord<TDomain> as TOperation["domainMethodName"]]: (
@@ -74,6 +88,9 @@ export type HighLevelDomainMap = {
   };
 };
 
+/**
+ * Top-level generated Result API for non-GET operations.
+ */
 export type HighLevelResultFunctionMap = {
   readonly [TOperation in GeneratedOperationRecord as TOperation["method"] extends "GET"
     ? never
@@ -82,6 +99,9 @@ export type HighLevelResultFunctionMap = {
   ) => Promise<SdkResult<OperationResponseBodyById[TOperation["id"]], unknown>>;
 };
 
+/**
+ * Namespaced generated Result API for non-GET operations.
+ */
 export type HighLevelResultDomainMap = {
   readonly [TDomain in GeneratedDomainName]: {
     readonly [TOperation in DomainOperationRecord<TDomain> as TOperation["method"] extends "GET"
@@ -94,11 +114,18 @@ export type HighLevelResultDomainMap = {
   };
 };
 
+/**
+ * Dispatcher used by high-level API builder to execute by operation id.
+ */
 export type HighLevelExecutor = <TOperationId extends GeneratedOperationId>(
   operationId: TOperationId,
   input: HighLevelOperationInput<TOperationId>
 ) => Promise<OperationResponseBodyById[TOperationId]>;
 
+/**
+ * Builds top-level and namespaced Promise/Result operation maps from generated
+ * operation metadata.
+ */
 export const buildHighLevelApi = (
   execute: HighLevelExecutor
 ): {

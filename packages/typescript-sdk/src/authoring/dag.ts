@@ -12,6 +12,12 @@ type DefineDagOptions<TPayload> = {
   readonly hooks?: FutureLocalExecutorHooks;
 };
 
+/**
+ * Defines a DAG-flavored workflow authoring unit.
+ *
+ * DAG definitions reuse workflow registration/trigger mechanics while branding the
+ * local definition and hook context as `dag`.
+ */
 export const defineDag = <TPayload>(options: DefineDagOptions<TPayload>) => {
   const workflowDefinition = defineWorkflow({
     ...options,

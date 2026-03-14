@@ -1,3 +1,8 @@
+/**
+ * A discriminated Result type for SDK operations that should not throw.
+ *
+ * `ok: true` carries `output`, while `ok: false` carries `error`.
+ */
 export type SdkResult<TOutput, TError = unknown> =
   | SdkSuccess<TOutput, TError>
   | SdkFailure<TOutput, TError>;
@@ -24,6 +29,9 @@ type SdkFailure<TOutput, TError> = {
   }) => A;
 };
 
+/**
+ * Creates a successful {@link SdkResult}.
+ */
 export const ok = <TOutput, TError = never>(
   output: TOutput
 ): SdkResult<TOutput, TError> => ({
@@ -34,6 +42,9 @@ export const ok = <TOutput, TError = never>(
   match: (branches) => branches.ok(output),
 });
 
+/**
+ * Creates a failed {@link SdkResult}.
+ */
 export const err = <TOutput = never, TError = unknown>(
   error: TError
 ): SdkResult<TOutput, TError> => ({
@@ -46,14 +57,23 @@ export const err = <TOutput = never, TError = unknown>(
   match: (branches) => branches.error(error),
 });
 
+/**
+ * Type guard for successful {@link SdkResult} values.
+ */
 export const isOk = <TOutput, TError>(
   value: SdkResult<TOutput, TError>
 ): value is SdkSuccess<TOutput, TError> => value.ok;
 
+/**
+ * Type guard for failed {@link SdkResult} values.
+ */
 export const isErr = <TOutput, TError>(
   value: SdkResult<TOutput, TError>
 ): value is SdkFailure<TOutput, TError> => !value.ok;
 
+/**
+ * Converts a throwing Promise-returning operation into a {@link SdkResult}.
+ */
 export const fromPromise = async <TOutput, TError = unknown>(
   operation: () => Promise<TOutput>
 ): Promise<SdkResult<TOutput, TError>> => {

@@ -1,5 +1,9 @@
-import { fromPromise, type SdkResult } from "../composition/result";
-import type { FutureLocalExecutorHooks, SchemaAdapter } from "./types";
+import { fromPromise } from "../composition/result";
+import type {
+  FutureLocalExecutorHooks,
+  SchemaAdapter,
+  TriggerResult,
+} from "./types";
 
 type JobRegistrationBody = Readonly<Record<string, unknown>> & {
   readonly project_id: string;
@@ -62,6 +66,17 @@ const extractEntityId = (value: unknown): string | undefined => {
   return undefined;
 };
 
+/**
+ * Defines a reusable job authoring unit with schema-backed payload validation.
+ *
+ * The returned definition can:
+ * - build API registration bodies via `toRegistrationBody`
+ * - register jobs via `register`
+ * - trigger jobs via `trigger` / `triggerResult`
+ *
+ * After a successful `register`, trigger calls may omit `jobID` and reuse the
+ * last registered identifier.
+ */
 export const defineJob = <TPayload>(options: DefineJobOptions<TPayload>) => {
   let lastRegisteredJobId: string | undefined;
 
@@ -145,7 +160,6 @@ export const defineJob = <TPayload>(options: DefineJobOptions<TPayload>) => {
         readonly payload: TPayload;
         readonly body?: Readonly<Record<string, unknown>>;
       }
-    ): Promise<SdkResult<unknown, unknown>> =>
-      fromPromise(() => trigger(client, input)),
+    ): TriggerResult<unknown> => fromPromise(() => trigger(client, input)),
   };
 };
