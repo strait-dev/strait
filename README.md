@@ -1,3 +1,5 @@
+<img src="github.png" alt="Strait header" width="100%" />
+
 # Strait
 
 A production-grade Go job strait for engineering teams and AI agents.
