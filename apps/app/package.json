@@ -21,7 +21,7 @@
     "clean": "git clean -xdf .next .turbo node_modules"
   },
   "dependencies": {
-    "@better-auth/passkey": "1.5.5",
+    "@better-auth/passkey": "^1.5.5",
     "@hookform/resolvers": "^5.2.2",
     "@hugeicons/core-free-icons": "^4.0.0",
     "@hugeicons/react": "^1.1.6",
@@ -43,7 +43,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/zod-adapter": "^1.166.7",
     "@upstash/redis": "^1.37.0",
-    "better-auth": "1.5.5",
+    "better-auth": "^1.5.5",
     "country-flag-icons": "^1.6.15",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.1",
@@ -74,12 +74,12 @@
     "@tanstack/react-router-devtools": "1.166.7",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@typescript/native-preview": "^7.0.0-dev.20260314.1",
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^28.1.0",
     "knip": "^5.86.0",
     "tsx": "^4.21.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260314.1",
     "vite": "^8.0.0",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.0"

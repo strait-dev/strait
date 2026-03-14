@@ -22,7 +22,7 @@
     "apps/app": {
       "name": "@strait/app",
       "dependencies": {
-        "@better-auth/passkey": "1.5.5",
+        "@better-auth/passkey": "^1.5.5",
         "@hookform/resolvers": "^5.2.2",
         "@hugeicons/core-free-icons": "^4.0.0",
         "@hugeicons/react": "^1.1.6",
@@ -44,7 +44,7 @@
         "@tanstack/react-table": "^8.21.3",
         "@tanstack/zod-adapter": "^1.166.7",
         "@upstash/redis": "^1.37.0",
-        "better-auth": "1.5.5",
+        "better-auth": "^1.5.5",
         "country-flag-icons": "^1.6.15",
         "date-fns": "^4.1.0",
         "drizzle-orm": "^0.45.1",
