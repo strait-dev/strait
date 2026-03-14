@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
-import { getSession } from "@/lib/auth-handler.server";
+import { getSession } from "@/lib/auth-handler";
 
 export type AuthUser = {
   id: string;
@@ -136,7 +136,7 @@ function RootComponent() {
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html
-      className="min-h-screen bg-background antialiased"
+      className="dark min-h-screen bg-background antialiased"
       lang="en"
       suppressHydrationWarning
     >

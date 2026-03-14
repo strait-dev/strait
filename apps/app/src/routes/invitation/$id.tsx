@@ -3,8 +3,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { toast } from "@strait/ui/components/toast/index";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useState } from "react";
 import z from "zod/v4";
@@ -13,32 +11,20 @@ import {
   getPublicInvitationServerFn,
   type PublicInvitationData,
 } from "@/hooks/auth/use-invitation";
-import { auth } from "@/lib/auth.server";
 import { authClient } from "@/lib/auth-client";
+import { getSession } from "@/lib/auth-handler";
 import { captureException, captureSentryAuthError } from "@/lib/sentry";
-
-const getSessionServerFn = createServerFn({ method: "GET" }).handler(
-  async () => {
-    try {
-      const headers = getRequestHeaders();
-      const session = await auth.api.getSession({ headers });
-      return session ?? null;
-    } catch {
-      return null;
-    }
-  }
-);
 
 const searchParamsSchema = z.object({
   error: z.string().optional(),
 });
 
-type SessionData = Awaited<ReturnType<typeof getSessionServerFn>>;
+type SessionData = Awaited<ReturnType<typeof getSession>>;
 
 export const Route = createFileRoute("/invitation/$id")({
   validateSearch: zodValidator(searchParamsSchema),
   beforeLoad: async () => {
-    const session = await getSessionServerFn();
+    const session = await getSession();
     return { session };
   },
   loader: async ({

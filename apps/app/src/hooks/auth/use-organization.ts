@@ -17,7 +17,7 @@ import {
   resendOrganizationDeletionCodeServerFn,
   setActiveOrganizationAuth,
   verifyOrganizationDeletionServerFn,
-} from "@/lib/organization-handler.server";
+} from "@/lib/organization-handler";
 import type {
   DeleteLastOrganizationWithTokenSchema,
   DeleteOrganizationWithTokenSchema,

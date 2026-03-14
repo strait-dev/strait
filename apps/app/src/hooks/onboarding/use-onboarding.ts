@@ -3,7 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { auth } from "@/lib/auth.server";
-import { createOrganizationServerFn } from "@/lib/organization-handler.server";
+import { createOrganizationServerFn } from "@/lib/organization-handler";
 import { type OnboardingFormData, onboardingSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import { transformOnboardingToOrgData } from "@/utils/onboarding";

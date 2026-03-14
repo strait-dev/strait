@@ -9,8 +9,6 @@ import { Progress } from "@strait/ui/components/progress";
 import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { BusinessNeedsStep } from "@/components/onboarding/steps/business-needs-step";
@@ -18,22 +16,12 @@ import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step
 import type { OnboardingStepProps } from "@/components/onboarding/types";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
 import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding";
-import { auth } from "@/lib/auth.server";
+import { getSession } from "@/lib/auth-handler";
 import type { OnboardingFormData } from "@/lib/schema";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
-
-const getAuthUserFn = createServerFn({ method: "GET" }).handler(async () => {
-  try {
-    const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
-    return (session?.user as AuthUser) ?? null;
-  } catch {
-    return null;
-  }
-});
 
 const FINAL_STEP = 2;
 
@@ -80,7 +68,8 @@ export const Route = createFileRoute("/onboarding/")({
       throw redirect({ to: "/login" });
     }
 
-    const authUser = await getAuthUserFn();
+    const session = await getSession();
+    const authUser = session?.user as AuthUser | undefined;
 
     if (authUser?.onboarded === true) {
       throw redirect({ to: "/app" });
