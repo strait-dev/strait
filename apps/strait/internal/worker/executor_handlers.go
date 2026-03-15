@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -30,7 +31,8 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		fields["execution_trace"] = execTrace
 	}
 
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, fields)
+	run.Status = domain.StatusCompleted
+	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, domain.StatusCompleted, fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run completed",
@@ -52,9 +54,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		"attempt", run.Attempt,
 	)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "completed"})
-	run.Status = domain.StatusCompleted
 	e.notifyWorkflowCallback(ctx, run)
-	e.submitWebhook(ctx, job, run)
 
 	// Latency anomaly detection: compare duration to job's P95.
 	if run.StartedAt != nil {
@@ -204,8 +204,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		fields["execution_trace"] = execTrace
 	}
 	targetStatus := domain.StatusDeadLetter
+	run.Status = targetStatus
 
-	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, targetStatus, fields)
+	updateErr := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, targetStatus, fields)
 	if updateErr != nil {
 		e.logger.Error(
 			"failed to mark run terminal",
@@ -217,9 +218,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	}
 	e.recordRunTransition(ctx, domain.StatusExecuting, targetStatus)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": string(targetStatus), "error": errMsg})
-	run.Status = targetStatus
 	e.notifyWorkflowCallback(ctx, run)
-	e.submitWebhook(ctx, job, run)
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
@@ -271,7 +270,8 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
 	}
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusTimedOut, fields)
+	run.Status = domain.StatusTimedOut
+	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, domain.StatusTimedOut, fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run timed_out",
@@ -283,18 +283,23 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	}
 	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusTimedOut)
 	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "timed_out"})
-	run.Status = domain.StatusTimedOut
 	e.notifyWorkflowCallback(ctx, run)
-	e.submitWebhook(ctx, job, run)
 }
 
-func (e *Executor) submitWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {
-	detached := context.WithoutCancel(ctx)
-	e.pool.Submit(detached, func() {
-		webhookCtx, wCancel := context.WithTimeout(detached, e.webhookDispatchTimeout)
-		defer wCancel()
-		SendWebhookWithClient(webhookCtx, e.webhookClient, job, run, e.webhookMaxRetry)
-	})
+// completeRunWithWebhook atomically updates run status and enqueues a webhook
+// delivery within a single database transaction. If the job has no webhook URL
+// or no txPool is configured, it falls back to a plain status update.
+func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, from, to domain.RunStatus, fields map[string]any) error {
+	if e.txPool != nil && job.WebhookURL != "" {
+		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
+			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
+				return err
+			}
+			_, err := q.EnqueueRunWebhook(ctx, job, run, e.webhookMaxRetry)
+			return err
+		})
+	}
+	return e.store.UpdateRunStatus(ctx, run.ID, from, to, fields)
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {

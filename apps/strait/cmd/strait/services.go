@@ -314,7 +314,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -355,6 +355,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Wake:                    wake,
 		ConcurrencyLimit:        adaptive,
 		Store:                   queries,
+		TxPool:                  txPool,
 		PollInterval:            cfg.PollerInterval,
 		HeartbeatInterval:       cfg.HeartbeatInterval,
 		Publisher:               pub,
@@ -364,9 +365,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		PartitionWeights:        partitionWeights,
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
-		WebhookTimeout:          cfg.WebhookTimeout,
-		WebhookIdleConnTimeout:  cfg.WebhookIdleConnTimeout,
-		WebhookDispatchTimeout:  cfg.WebhookDispatchTimeout,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 	})

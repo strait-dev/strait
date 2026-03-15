@@ -16,8 +16,6 @@ import (
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -65,6 +63,7 @@ type Executor struct {
 	queue                    queue.Queue
 	wake                     <-chan struct{}
 	store                    ExecutorStore
+	txPool                   store.TxBeginner
 	httpClient               *http.Client
 	pollInterval             time.Duration
 	heartbeat                *HeartbeatSender
@@ -78,9 +77,7 @@ type Executor struct {
 	circuitThreshold         int
 	circuitOpenFor           time.Duration
 	logger                   *slog.Logger
-	webhookClient            *http.Client
 	webhookMaxRetry          int
-	webhookDispatchTimeout   time.Duration
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
 	jobCache                 sync.Map
@@ -107,6 +104,7 @@ type ExecutorConfig struct {
 	Wake                       <-chan struct{}
 	ConcurrencyLimit           ConcurrencyLimitProvider
 	Store                      ExecutorStore
+	TxPool                     store.TxBeginner
 	Publisher                  pubsub.Publisher
 	HTTPClient                 *http.Client
 	PollInterval               time.Duration
@@ -117,9 +115,6 @@ type ExecutorConfig struct {
 	PartitionWeights           string
 	ExecutorHTTPTimeout        time.Duration
 	ExecutorIdleConnTimeout    time.Duration
-	WebhookTimeout             time.Duration
-	WebhookIdleConnTimeout     time.Duration
-	WebhookDispatchTimeout     time.Duration
 	WebhookMaxAttempts         int
 	MaxDequeueBatchSize        int
 	DefaultJobMaxConcurrency   int
@@ -155,29 +150,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		}
 	}
 
-	whTimeout := cfg.WebhookTimeout
-	if whTimeout <= 0 {
-		whTimeout = webhookTimeout
-	}
-	whIdleTimeout := cfg.WebhookIdleConnTimeout
-	if whIdleTimeout <= 0 {
-		whIdleTimeout = webhookIdleConnTimeout
-	}
-	whClient := &http.Client{
-		Timeout: whTimeout,
-		Transport: otelhttp.NewTransport(&http.Transport{
-			MaxIdleConns:        webhookMaxIdleConns,
-			MaxIdleConnsPerHost: webhookMaxIdlePerHost,
-			IdleConnTimeout:     whIdleTimeout,
-		}),
-	}
 	whMaxAttempts := cfg.WebhookMaxAttempts
 	if whMaxAttempts <= 0 {
 		whMaxAttempts = 3
-	}
-	whDispatchTimeout := cfg.WebhookDispatchTimeout
-	if whDispatchTimeout <= 0 {
-		whDispatchTimeout = 15 * time.Second
 	}
 
 	return &Executor{
@@ -186,6 +161,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		queue:                    cfg.Queue,
 		wake:                     cfg.Wake,
 		store:                    cfg.Store,
+		txPool:                   cfg.TxPool,
 		httpClient:               httpClient,
 		pollInterval:             cfg.PollInterval,
 		heartbeat:                NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
@@ -197,9 +173,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		circuitThreshold:         defaultCircuitFailureThreshold,
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
-		webhookClient:            whClient,
 		webhookMaxRetry:          whMaxAttempts,
-		webhookDispatchTimeout:   whDispatchTimeout,
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCacheTTL:              cfg.JobCacheTTL,
