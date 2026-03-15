@@ -76,21 +76,32 @@ export type DefineWorkflowOptions<TPayload> = {
   /**
    * The code that executes when the workflow runs.
    *
-   * Receives the validated payload and a {@link RunContext} for logging,
-   * progress reporting, checkpointing, and cancellation.
+   * **Important:** The SDK stores this handler but does not invoke it. Your
+   * executor is responsible for calling `workflow.run(payload, ctx)` and
+   * supplying a {@link RunContext} with concrete implementations.
    */
   readonly run?: (
     payload: TPayload,
     ctx: RunContext
   ) => Promise<unknown> | unknown;
 
-  /** Called after a successful workflow run completes. */
+  /**
+   * Called after a successful workflow run completes.
+   *
+   * **Note:** Stored but not invoked by the SDK. Your executor should call
+   * this hook after `run` returns successfully.
+   */
   readonly onSuccess?: (context: {
     readonly payload: TPayload;
     readonly output: unknown;
     readonly ctx: RunContext;
   }) => void | Promise<void>;
-  /** Called when a workflow run fails. */
+  /**
+   * Called when a workflow run fails.
+   *
+   * **Note:** Stored but not invoked by the SDK. Your executor should call
+   * this hook when `run` throws.
+   */
   readonly onFailure?: (context: {
     readonly payload: TPayload;
     readonly error: unknown;

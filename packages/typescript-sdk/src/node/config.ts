@@ -48,6 +48,18 @@ export type StraitConfigFileOptions = {
   readonly configPath?: string;
   /** Candidate file names searched under `cwd` in order. */
   readonly candidates?: readonly string[];
+  /**
+   * Whether to apply environment variable overrides on top of the config file.
+   *
+   * When `true` (default), the following env vars override file-based values:
+   * - `STRAIT_BASE_URL` → `baseUrl`
+   * - `STRAIT_API_KEY` → `auth.token` (with `auth.type` = "bearer")
+   * - `STRAIT_AUTH_TYPE` → `auth.type` ("bearer" | "apiKey" | "runToken")
+   * - `STRAIT_TIMEOUT_MS` → `timeoutMs`
+   *
+   * @default true
+   */
+  readonly envOverrides?: boolean;
 };
 
 /**
@@ -93,6 +105,56 @@ export const findStraitConfigFile = async (
 };
 
 const decodeConfig = Schema.decodeUnknown(StraitClientConfigSchema);
+
+/**
+ * Applies environment variable overrides to a raw config object.
+ *
+ * Supported env vars:
+ * - `STRAIT_BASE_URL` → `baseUrl`
+ * - `STRAIT_API_KEY` → `auth.token` (with `auth.type` defaulting to "bearer")
+ * - `STRAIT_AUTH_TYPE` → `auth.type`
+ * - `STRAIT_TIMEOUT_MS` → `timeoutMs`
+ */
+const applyEnvOverrides = (raw: unknown): unknown => {
+  if (typeof raw !== "object" || raw === null) {
+    return raw;
+  }
+
+  const config = { ...(raw as Record<string, unknown>) };
+
+  const baseUrl = process.env.STRAIT_BASE_URL;
+  if (baseUrl) {
+    config.baseUrl = baseUrl;
+  }
+
+  const apiKey = process.env.STRAIT_API_KEY;
+  const authType = process.env.STRAIT_AUTH_TYPE;
+  if (apiKey) {
+    config.auth = {
+      type: (authType as "bearer" | "apiKey" | "runToken") ?? "bearer",
+      token: apiKey,
+    };
+  } else if (
+    authType &&
+    typeof config.auth === "object" &&
+    config.auth !== null
+  ) {
+    config.auth = {
+      ...(config.auth as Record<string, unknown>),
+      type: authType,
+    };
+  }
+
+  const timeoutMs = process.env.STRAIT_TIMEOUT_MS;
+  if (timeoutMs) {
+    const parsed = Number(timeoutMs);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      config.timeoutMs = parsed;
+    }
+  }
+
+  return config;
+};
 
 const resolveExportedConfig = (
   value: StraitConfigResolvedExport | undefined
@@ -156,8 +218,11 @@ export const loadStraitConfig = async (
     );
   }
 
+  const shouldApplyEnv = options?.envOverrides !== false;
+  const finalConfig = shouldApplyEnv ? applyEnvOverrides(rawConfig) : rawConfig;
+
   try {
-    const decoded = await Effect.runPromise(decodeConfig(rawConfig));
+    const decoded = await Effect.runPromise(decodeConfig(finalConfig));
     return {
       ...decoded,
       baseUrl: normalizeBaseUrl(decoded.baseUrl),
@@ -177,4 +242,50 @@ export const createClientFromConfigFile = async (
 ): Promise<StraitClient> => {
   const config = await loadStraitConfig(options);
   return createClient(config, { fetch: options?.fetch });
+};
+
+/**
+ * Creates a fully bound SDK client from environment variables only.
+ *
+ * Requires at minimum `STRAIT_BASE_URL` and `STRAIT_API_KEY` to be set.
+ * Optionally reads `STRAIT_AUTH_TYPE` (default: "bearer") and
+ * `STRAIT_TIMEOUT_MS`.
+ *
+ * @example
+ * ```ts
+ * // With STRAIT_BASE_URL and STRAIT_API_KEY set:
+ * const client = createClientFromEnv();
+ * ```
+ */
+export const createClientFromEnv = (options?: {
+  readonly fetch?: FetchLike;
+}): StraitClient => {
+  const baseUrl = process.env.STRAIT_BASE_URL;
+  const apiKey = process.env.STRAIT_API_KEY;
+
+  if (!baseUrl) {
+    throw new Error("STRAIT_BASE_URL environment variable is required");
+  }
+  if (!apiKey) {
+    throw new Error("STRAIT_API_KEY environment variable is required");
+  }
+
+  const authType =
+    (process.env.STRAIT_AUTH_TYPE as "bearer" | "apiKey" | "runToken") ??
+    "bearer";
+
+  const timeoutMs = process.env.STRAIT_TIMEOUT_MS
+    ? Number(process.env.STRAIT_TIMEOUT_MS)
+    : undefined;
+
+  return createClient(
+    {
+      baseUrl,
+      auth: { type: authType, token: apiKey },
+      ...(timeoutMs && Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? { timeoutMs }
+        : {}),
+    },
+    { fetch: options?.fetch }
+  );
 };

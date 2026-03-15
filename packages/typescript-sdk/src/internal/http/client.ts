@@ -106,6 +106,25 @@ const readSuccessBody = <A>(
       new DecodeError({ message: "failed to decode JSON response", cause }),
   });
 
+const extractErrorMessage = (errorBody: unknown, fallback: string): string => {
+  if (typeof errorBody === "object" && errorBody !== null) {
+    if (
+      "error" in errorBody &&
+      typeof (errorBody as Record<string, unknown>).error === "string"
+    ) {
+      return (errorBody as Record<string, string>).error;
+    }
+    if (
+      "message" in errorBody &&
+      typeof (errorBody as Record<string, unknown>).message === "string"
+    ) {
+      return (errorBody as Record<string, string>).message;
+    }
+  }
+
+  return fallback || "request failed";
+};
+
 export const request = <ReqBody = unknown, RespBody = unknown>(
   options: HttpRequestOptions<ReqBody, RespBody>
 ): Effect.Effect<RespBody, StraitSdkError, StraitRuntimeTag> =>
@@ -149,12 +168,7 @@ export const request = <ReqBody = unknown, RespBody = unknown>(
 
     if (!successStatuses.includes(response.status)) {
       const errorBody = yield* readErrorBody(response);
-      const statusMessage =
-        typeof errorBody === "object" &&
-        errorBody !== null &&
-        "error" in errorBody
-          ? String((errorBody as { error: unknown }).error)
-          : response.statusText || "request failed";
+      const statusMessage = extractErrorMessage(errorBody, response.statusText);
 
       return yield* Effect.fail(
         mapHttpError(response.status, statusMessage, errorBody)

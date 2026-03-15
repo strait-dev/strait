@@ -10,19 +10,27 @@ import { extractEntityId, requireProjectId } from "./utils";
 /**
  * Context object passed to the job's `run` handler.
  *
- * Provides access to the run ID, attempt number, abort signal, and SDK
- * helper methods for logging, progress reporting, checkpointing, and more.
+ * Provides access to the run ID, attempt number, abort signal, and helper
+ * methods for logging, progress reporting, checkpointing, and heartbeats.
+ *
+ * **Important:** The SDK defines this interface but does not provide a default
+ * implementation. Your executor/worker must supply concrete implementations
+ * when calling `job.run(payload, ctx)`. The methods on this type are a
+ * contract between the job definition and the hosting runtime.
  *
  * @example
  * ```ts
- * const myJob = defineJob({
- *   // ...
- *   run: async (payload, ctx) => {
- *     ctx.logger.info("Processing", { sku: payload.sku });
- *     await ctx.checkpoint({ progress: 0.5 });
- *     return { result: "done" };
- *   },
- * });
+ * // In your executor/worker:
+ * const ctx: RunContext = {
+ *   runId: "run_123",
+ *   attempt: 1,
+ *   signal: controller.signal,
+ *   logger: createRunLogger(runId),
+ *   checkpoint: (state) => db.saveCheckpoint(runId, state),
+ *   reportProgress: (pct) => api.updateProgress(runId, pct),
+ *   heartbeat: () => api.heartbeat(runId),
+ * };
+ * await job.run(payload, ctx);
  * ```
  */
 export type RunContext = {
@@ -81,27 +89,60 @@ export type DefineJobOptions<TPayload, TOutput = unknown> = {
   /**
    * The code that executes when the job runs.
    *
-   * Receives the validated payload and a {@link RunContext} for logging,
-   * progress reporting, checkpointing, and cancellation.
+   * **Important:** The SDK stores this handler but does not invoke it. Your
+   * executor (Conductor worker, serverless function, or test harness) is
+   * responsible for calling `job.run(payload, ctx)` and supplying a
+   * {@link RunContext} with concrete implementations of `logger`,
+   * `checkpoint`, `reportProgress`, and `heartbeat`.
+   *
+   * @example
+   * ```ts
+   * // In your worker/executor:
+   * const result = await job.run(payload, {
+   *   runId: "run_123",
+   *   attempt: 1,
+   *   signal: AbortSignal.timeout(30_000),
+   *   logger: workerLogger,
+   *   checkpoint: (state) => saveCheckpoint(runId, state),
+   *   reportProgress: (pct) => updateProgress(runId, pct),
+   *   heartbeat: () => sendHeartbeat(runId),
+   * });
+   * ```
    */
   readonly run?: (
     payload: TPayload,
     ctx: RunContext
   ) => Promise<TOutput> | TOutput;
 
-  /** Called after a successful run completes. */
+  /**
+   * Called after a successful run completes.
+   *
+   * **Note:** The SDK stores this hook but does not invoke it. Your executor
+   * should call `job.onSuccess?.({ payload, output, ctx })` after `run`
+   * returns successfully.
+   */
   readonly onSuccess?: (context: {
     readonly payload: TPayload;
     readonly output: TOutput;
     readonly ctx: RunContext;
   }) => void | Promise<void>;
-  /** Called when a run fails. */
+  /**
+   * Called when a run fails.
+   *
+   * **Note:** The SDK stores this hook but does not invoke it. Your executor
+   * should call `job.onFailure?.({ payload, error, ctx })` when `run` throws.
+   */
   readonly onFailure?: (context: {
     readonly payload: TPayload;
     readonly error: unknown;
     readonly ctx: RunContext;
   }) => void | Promise<void>;
-  /** Called when a run starts executing. */
+  /**
+   * Called when a run starts executing.
+   *
+   * **Note:** The SDK stores this hook but does not invoke it. Your executor
+   * should call `job.onStart?.({ payload, ctx })` before invoking `run`.
+   */
   readonly onStart?: (context: {
     readonly payload: TPayload;
     readonly ctx: RunContext;
