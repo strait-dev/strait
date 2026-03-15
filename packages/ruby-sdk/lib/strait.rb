@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 require_relative "strait/version"
 require_relative "strait/config"
 require_relative "strait/config_file"
@@ -28,6 +30,27 @@ require_relative "strait/operations/log_drains"
 require_relative "strait/operations/sdk_runs"
 require_relative "strait/operations/rbac"
 require_relative "strait/operations/job_groups"
+
+# FSM state machines
+require_relative "strait/fsm/run"
+require_relative "strait/fsm/workflow"
+require_relative "strait/fsm/step"
+
+# Authoring DSL
+require_relative "strait/authoring/run_context"
+require_relative "strait/authoring/steps"
+require_relative "strait/authoring/dag_validation"
+require_relative "strait/authoring/job"
+require_relative "strait/authoring/workflow"
+
+# Composition helpers
+require_relative "strait/composition/result"
+require_relative "strait/composition/retry"
+require_relative "strait/composition/wait"
+require_relative "strait/composition/trigger"
+require_relative "strait/composition/paginate"
+require_relative "strait/composition/idempotency"
+require_relative "strait/composition/deployments"
 
 # Client (depends on all the above)
 require_relative "strait/client"
