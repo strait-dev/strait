@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
@@ -49,6 +50,12 @@ type ReaperStore interface {
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
 type DLQMonitorStore interface {
 	ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error)
+}
+
+// ReconciliationStore is an optional interface for orphaned step run and stuck webhook reconciliation.
+type ReconciliationStore interface {
+	ListOrphanedStepRuns(ctx context.Context) ([]store.OrphanedStepRun, error)
+	ResetStuckWebhookDeliveries(ctx context.Context) (int64, error)
 }
 
 // DLQJobDepth represents the dead-letter queue depth for a single job.
@@ -222,6 +229,8 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapOldWorkflowRuns(ctx)
 	r.reapOldEventTriggers(ctx)
 	r.monitorDLQDepth(ctx)
+	r.reapOrphanedStepRuns(ctx)
+	r.reapStuckWebhookDeliveries(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -738,5 +747,54 @@ func (r *Reaper) monitorDLQDepth(ctx context.Context) {
 			"threshold", d.DLQAlertThreshold,
 		)
 		r.dlqAlertCooldown[d.JobID] = now
+	}
+}
+
+func (r *Reaper) reapOrphanedStepRuns(ctx context.Context) {
+	reconciler, ok := r.store.(ReconciliationStore)
+	if !ok {
+		return
+	}
+
+	orphans, err := reconciler.ListOrphanedStepRuns(ctx)
+	if err != nil {
+		r.logger.Error("failed to list orphaned step runs", "error", err)
+		return
+	}
+
+	for _, o := range orphans {
+		r.logger.Warn("reconciling orphaned step run",
+			"step_run_id", o.StepRunID,
+			"workflow_run_id", o.WorkflowRunID,
+			"job_run_id", o.JobRunID,
+			"job_status", o.JobStatus,
+		)
+
+		if o.JobStatus == domain.StatusCompleted {
+			if r.workflowCallback != nil {
+				r.workflowCallback.OnStepCompleted(ctx, o.WorkflowRunID, o.StepRunID)
+			}
+		} else {
+			if r.workflowCallback != nil {
+				r.workflowCallback.OnStepFailed(ctx, o.WorkflowRunID, o.StepRunID)
+			}
+		}
+	}
+}
+
+func (r *Reaper) reapStuckWebhookDeliveries(ctx context.Context) {
+	reconciler, ok := r.store.(ReconciliationStore)
+	if !ok {
+		return
+	}
+
+	count, err := reconciler.ResetStuckWebhookDeliveries(ctx)
+	if err != nil {
+		r.logger.Error("failed to reset stuck webhook deliveries", "error", err)
+		return
+	}
+
+	if count > 0 {
+		r.logger.Info("reset stuck webhook deliveries", "count", count)
 	}
 }

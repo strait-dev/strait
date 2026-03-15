@@ -359,3 +359,18 @@ func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 	}
 	return &d, nil
 }
+
+func (q *Queries) ResetStuckWebhookDeliveries(ctx context.Context) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetStuckWebhookDeliveries")
+	defer span.End()
+
+	query := `
+		UPDATE webhook_deliveries SET next_retry_at = NOW()
+		WHERE status = 'pending' AND next_retry_at < NOW() - interval '5 minutes'`
+
+	tag, err := q.db.Exec(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("reset stuck webhook deliveries: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
