@@ -1,6 +1,9 @@
 package strait
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 // Client is the main Strait API client.
 type Client struct {
@@ -119,4 +122,15 @@ func NewClientFromEnv(opts ...Option) (*Client, error) {
 // BaseURL returns the configured base URL.
 func (c *Client) BaseURL() string {
 	return c.config.BaseURL
+}
+
+// DoRequest exposes the internal HTTP execution for domain services.
+func (c *Client) DoRequest(ctx context.Context, method, path string, query map[string]string, headers map[string]string, body any, result any) error {
+	return c.doRequest(ctx, RequestOptions{
+		Method:  method,
+		Path:    path,
+		Query:   query,
+		Headers: headers,
+		Body:    body,
+	}, result)
 }
