@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"strait/internal/dbscan"
@@ -156,6 +157,110 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	}
 
 	return nil
+}
+
+// CopyFromer is implemented by pgxpool.Pool and pgx.Conn.
+type CopyFromer interface {
+	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
+}
+
+var copyFromColumns = []string{
+	"id", "job_id", "project_id", "status", "attempt", "payload", "result", "error",
+	"triggered_by", "scheduled_at", "started_at", "finished_at", "heartbeat_at",
+	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
+	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
+	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
+}
+
+// EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
+// high throughput. Requires the underlying db to implement CopyFromer (e.g.
+// pgxpool.Pool). Sends pg_notify after insert to wake workers.
+func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueBatch")
+	defer span.End()
+
+	if len(runs) == 0 {
+		return 0, nil
+	}
+
+	copier, ok := q.db.(CopyFromer)
+	if !ok {
+		return 0, fmt.Errorf("enqueue batch: underlying db does not support CopyFrom")
+	}
+
+	for _, run := range runs {
+		if run.ID == "" {
+			run.ID = uuid.Must(uuid.NewV7()).String()
+		}
+		if run.Attempt == 0 {
+			run.Attempt = 1
+		}
+		if run.TriggeredBy == "" {
+			run.TriggeredBy = domain.TriggerManual
+		}
+		run.Status = domain.StatusQueued
+		if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
+			run.Status = domain.StatusDelayed
+		}
+	}
+
+	rows := make([][]any, len(runs))
+	for i, run := range runs {
+		tagsJSON := []byte("{}")
+		if len(run.Tags) > 0 {
+			var err error
+			tagsJSON, err = json.Marshal(run.Tags)
+			if err != nil {
+				return 0, fmt.Errorf("enqueue batch: marshal tags for run %d: %w", i, err)
+			}
+		}
+
+		rows[i] = []any{
+			run.ID,
+			run.JobID,
+			run.ProjectID,
+			run.Status,
+			run.Attempt,
+			dbscan.NilIfEmptyRawMessage(run.Payload),
+			dbscan.NilIfEmptyRawMessage(run.Result),
+			dbscan.NilIfEmptyString(run.Error),
+			run.TriggeredBy,
+			run.ScheduledAt,
+			run.StartedAt,
+			run.FinishedAt,
+			run.HeartbeatAt,
+			run.NextRetryAt,
+			run.ExpiresAt,
+			dbscan.NilIfEmptyString(run.ParentRunID),
+			run.Priority,
+			dbscan.NilIfEmptyString(run.IdempotencyKey),
+			run.JobVersion,
+			dbscan.NilIfEmptyString(run.WorkflowStepRunID),
+			run.DebugMode,
+			dbscan.NilIfEmptyString(run.ContinuationOf),
+			run.LineageDepth,
+			tagsJSON,
+			dbscan.NilIfEmptyString(run.JobVersionID),
+			dbscan.NilIfEmptyString(run.CreatedBy),
+			dbscan.NilIfEmptyString(run.ConcurrencyKey),
+			dbscan.NilIfEmptyString(run.BatchID),
+		}
+	}
+
+	n, err := copier.CopyFrom(ctx, pgx.Identifier{"job_runs"}, copyFromColumns, pgx.CopyFromRows(rows))
+	if err != nil {
+		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
+	}
+
+	// Wake workers via pg_notify.
+	if n > 0 {
+		if _, notifyErr := q.db.Exec(ctx, "SELECT pg_notify($1, $2)", QueueWakeChannel, fmt.Sprintf("%d", n)); notifyErr != nil {
+			// Non-fatal: workers will pick up via polling.
+			slog.Warn("enqueue batch: pg_notify failed", "error", notifyErr)
+		}
+	}
+
+	return n, nil
 }
 
 func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {

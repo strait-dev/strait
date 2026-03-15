@@ -97,6 +97,10 @@ func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
+func (m *mockQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
+	return int64(len(runs)), nil
+}
+
 func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	if m.dequeueFn != nil {
 		return m.dequeueFn(ctx)
