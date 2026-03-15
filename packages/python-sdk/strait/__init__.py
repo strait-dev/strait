@@ -1,7 +1,7 @@
 """Strait Python SDK."""
 
 from strait._client import AsyncClient, Client
-from strait._config import AuthMode, AuthType, Config, config_from_env
+from strait._config import AuthMode, AuthType, Config, config_from_env, config_from_file
 from strait._errors import (
     ApiError,
     ConflictError,
@@ -31,6 +31,7 @@ __all__ = [
     "AuthType",
     "Config",
     "config_from_env",
+    "config_from_file",
     "StraitError",
     "TransportError",
     "DecodeError",

@@ -78,6 +78,102 @@ describe("node config helpers", () => {
     expect(loaded.auth.type).toBe("apiKey");
   });
 
+  test("findStraitConfigFile discovers strait.json first", async () => {
+    const directory = await createTempDir();
+    await writeFile(
+      join(directory, "strait.json"),
+      JSON.stringify({ project: { id: "proj_1" }, sdk: { base_url: "https://strait.dev" } })
+    );
+    await writeFile(
+      join(directory, "strait.config.ts"),
+      'export default { baseUrl: "https://strait.dev", auth: { type: "bearer", token: "abc" } };\n'
+    );
+
+    const discovered = await findStraitConfigFile({ cwd: directory });
+    expect(discovered).toBe(join(directory, "strait.json"));
+  });
+
+  test("loadStraitConfig loads strait.json and maps sdk fields", async () => {
+    const directory = await createTempDir();
+    const env = process.env;
+    process.env = { ...env, STRAIT_API_KEY: "key_from_env" };
+
+    try {
+      await writeFile(
+        join(directory, "strait.json"),
+        JSON.stringify({
+          project: { id: "proj_1" },
+          sdk: {
+            base_url: "https://api.strait.dev/",
+            auth_type: "bearer",
+            timeout_ms: 5000,
+          },
+        })
+      );
+
+      const loaded = await loadStraitConfig({ cwd: directory, envOverrides: false });
+      expect(loaded.baseUrl).toBe("https://api.strait.dev");
+      expect(loaded.auth.type).toBe("bearer");
+      expect(loaded.auth.token).toBe("key_from_env");
+      expect(loaded.timeoutMs).toBe(5000);
+    } finally {
+      process.env = env;
+    }
+  });
+
+  test("loadStraitConfig applies env overrides on top of strait.json", async () => {
+    const directory = await createTempDir();
+    const env = process.env;
+    process.env = {
+      ...env,
+      STRAIT_BASE_URL: "https://env.example.com",
+      STRAIT_API_KEY: "env_key",
+      STRAIT_AUTH_TYPE: "runToken",
+      STRAIT_TIMEOUT_MS: "9000",
+    };
+
+    try {
+      await writeFile(
+        join(directory, "strait.json"),
+        JSON.stringify({
+          sdk: {
+            base_url: "https://file.example.com",
+            auth_type: "apiKey",
+            timeout_ms: 5000,
+          },
+        })
+      );
+
+      const loaded = await loadStraitConfig({ cwd: directory });
+      expect(loaded.baseUrl).toBe("https://env.example.com");
+      expect(loaded.auth.type).toBe("runToken");
+      expect(loaded.auth.token).toBe("env_key");
+      expect(loaded.timeoutMs).toBe(9000);
+    } finally {
+      process.env = env;
+    }
+  });
+
+  test("loadStraitConfig emits deprecation warning for .ts config", async () => {
+    const directory = await createTempDir();
+    await writeFile(
+      join(directory, "strait.config.ts"),
+      'export default { baseUrl: "https://strait.dev", auth: { type: "bearer", token: "abc" } };\n'
+    );
+
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => warns.push(String(args[0]));
+
+    try {
+      await loadStraitConfig({ cwd: directory });
+      expect(warns.length).toBeGreaterThan(0);
+      expect(warns[0]).toContain("deprecated");
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
   test("createClientFromConfigFile boots client using discovered file", async () => {
     const directory = await createTempDir();
     await writeFile(

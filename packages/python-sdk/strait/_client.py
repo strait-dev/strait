@@ -12,6 +12,7 @@ from strait._config import (
     AuthType,
     Config,
     config_from_env,
+    config_from_file,
     get_authorization_header,
     normalize_base_url,
 )
@@ -114,6 +115,21 @@ class Client:
     @classmethod
     def from_env(cls, **overrides: Any) -> Client:
         cfg = config_from_env()
+        return cls(
+            base_url=overrides.pop("base_url", cfg.base_url),
+            auth=overrides.pop("auth", cfg.auth),
+            timeout_ms=overrides.pop("timeout_ms", cfg.timeout_ms),
+            **overrides,
+        )
+
+    @classmethod
+    def from_file(
+        cls,
+        path: str | None = None,
+        search_dir: str | None = None,
+        **overrides: Any,
+    ) -> Client:
+        cfg = config_from_file(path=path, search_dir=search_dir)
         return cls(
             base_url=overrides.pop("base_url", cfg.base_url),
             auth=overrides.pop("auth", cfg.auth),
@@ -262,6 +278,21 @@ class AsyncClient:
     @classmethod
     def from_env(cls, **overrides: Any) -> AsyncClient:
         cfg = config_from_env()
+        return cls(
+            base_url=overrides.pop("base_url", cfg.base_url),
+            auth=overrides.pop("auth", cfg.auth),
+            timeout_ms=overrides.pop("timeout_ms", cfg.timeout_ms),
+            **overrides,
+        )
+
+    @classmethod
+    def from_file(
+        cls,
+        path: str | None = None,
+        search_dir: str | None = None,
+        **overrides: Any,
+    ) -> AsyncClient:
+        cfg = config_from_file(path=path, search_dir=search_dir)
         return cls(
             base_url=overrides.pop("base_url", cfg.base_url),
             auth=overrides.pop("auth", cfg.auth),

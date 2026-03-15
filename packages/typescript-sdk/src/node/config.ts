@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Effect, Schema } from "effect";
@@ -14,6 +14,7 @@ import {
 import type { FetchLike } from "../runtime";
 
 const defaultConfigCandidates = [
+  "strait.json",
   "strait.config.ts",
   "strait.config.mts",
   "strait.config.js",
@@ -181,12 +182,34 @@ const unwrapConfigShape = (value: unknown): unknown => {
 };
 
 /**
+ * Maps the `sdk` section of a `strait.json` file to `StraitClientConfigInput` shape.
+ */
+const mapJsonConfigToClientInput = (json: Record<string, unknown>): unknown => {
+  const sdk =
+    typeof json.sdk === "object" && json.sdk !== null
+      ? (json.sdk as Record<string, unknown>)
+      : {};
+
+  const baseUrl = (sdk.base_url as string) ?? "";
+  const authType = (sdk.auth_type as string) ?? "apiKey";
+  const timeoutMs = sdk.timeout_ms as number | undefined;
+
+  // Token always comes from env var — never from the file
+  const token = process.env.STRAIT_API_KEY ?? "";
+
+  return {
+    baseUrl,
+    auth: { type: authType, token },
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
+};
+
+const isJsonConfigPath = (path: string): boolean => path.endsWith(".json");
+
+/**
  * Loads and validates a Strait config file.
  *
- * Supported module exports:
- * - `export default defineStraitConfig({...})`
- * - `export const config = defineStraitConfig({...})`
- * - `export default () => ({...})`
+ * Supports both `strait.json` (universal) and `strait.config.ts` (deprecated).
  */
 export const loadStraitConfig = async (
   options?: StraitConfigFileOptions
@@ -202,20 +225,32 @@ export const loadStraitConfig = async (
     );
   }
 
-  const moduleUrl = pathToFileURL(configPath).href;
-  const importedModule = (await import(
-    `${moduleUrl}?t=${Date.now()}`
-  )) as StraitConfigModule;
+  let rawConfig: unknown;
 
-  const resolvedExport = await resolveExportedConfig(
-    importedModule.default ?? importedModule.config
-  );
-  const rawConfig = unwrapConfigShape(resolvedExport);
-
-  if (rawConfig === undefined) {
-    throw new Error(
-      `Config file '${configPath}' must export a config via default export or named export 'config'.`
+  if (isJsonConfigPath(configPath)) {
+    const content = await readFile(configPath, "utf-8");
+    const json = JSON.parse(content) as Record<string, unknown>;
+    rawConfig = mapJsonConfigToClientInput(json);
+  } else {
+    console.warn(
+      "strait.config.ts is deprecated. Run 'strait init' to migrate to strait.json."
     );
+
+    const moduleUrl = pathToFileURL(configPath).href;
+    const importedModule = (await import(
+      `${moduleUrl}?t=${Date.now()}`
+    )) as StraitConfigModule;
+
+    const resolvedExport = await resolveExportedConfig(
+      importedModule.default ?? importedModule.config
+    );
+    rawConfig = unwrapConfigShape(resolvedExport);
+
+    if (rawConfig === undefined) {
+      throw new Error(
+        `Config file '${configPath}' must export a config via default export or named export 'config'.`
+      );
+    }
   }
 
   const shouldApplyEnv = options?.envOverrides !== false;
