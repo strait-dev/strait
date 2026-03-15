@@ -369,6 +369,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 	})
 
+	exec.Use(worker.TracingMiddleware())
+
 	healthReg.Register(health.NewPoolChecker(p))
 
 	queueDepthThreshold := int64(max(cfg.WorkerConcurrency*100, 1000))

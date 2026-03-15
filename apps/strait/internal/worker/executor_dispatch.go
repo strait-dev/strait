@@ -87,10 +87,21 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "executor.Execute")
-	defer span.End()
+	ec := &ExecutionContext{
+		Run:   run,
+		Start: time.Now(),
+	}
 
-	executeStart := time.Now()
+	handler := e.executeInner
+	if len(e.middlewares) > 0 {
+		handler = Chain(e.middlewares...)(handler)
+	}
+	handler(ctx, ec)
+}
+
+func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
+	run := ec.Run
+	executeStart := ec.Start
 
 	job, err := e.resolveJobForRun(ctx, run)
 	if err != nil || job == nil {
@@ -104,6 +115,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		e.handleSystemFailure(ctx, run, "job not found")
 		return
 	}
+	ec.Job = job
 
 	policy := executionPolicy{
 		maxAttempts:      job.MaxAttempts,

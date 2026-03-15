@@ -78,6 +78,7 @@ type Executor struct {
 	circuitOpenFor           time.Duration
 	logger                   *slog.Logger
 	webhookMaxRetry          int
+	middlewares              []ExecutionMiddleware
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
 	jobCache                 sync.Map
@@ -221,6 +222,11 @@ func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
 	}
 
 	e.jobActiveRuns[jobID] = active - 1
+}
+
+// Use adds execution middleware to the chain. Must be called before Run().
+func (e *Executor) Use(mw ExecutionMiddleware) {
+	e.middlewares = append(e.middlewares, mw)
 }
 
 func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
