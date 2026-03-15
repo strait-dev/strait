@@ -295,3 +295,4 @@ CVS
 *.sqlite
 *.sqlite3
 *.db
+packages/rust-sdk/target/

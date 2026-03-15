@@ -1,6 +1,6 @@
 # strait
 
-Ruby SDK for the Strait platform API with full feature parity to `@strait/ts`.
+Ruby SDK for the Strait platform API with full feature parity across all five Strait SDKs.
 
 ## Install
 
@@ -24,9 +24,7 @@ client = Strait::Client.new(
   bearer_token: "sk_live_..."
 )
 
-jobs = Strait::Operations::Jobs.new(client)
-
-run = jobs.trigger("job_abc", payload: { sku: "ABC-123" })
+run = client.jobs.trigger("job_abc", { payload: { sku: "ABC-123" } })
 puts "Run ID: #{run['id']}"
 ```
 
@@ -72,13 +70,13 @@ The SDK reads the `sdk` section from the file. Auth tokens are **never** read fr
 You can also read just the config without creating a client:
 
 ```ruby
-cfg = Strait::Config.from_file
+cfg = Strait.config_from_file
 ```
 
 Or extract the project ID:
 
 ```ruby
-project_id = Strait::Config.project_id_from_file
+project_id = Strait.project_id_from_file
 ```
 
 ### From environment variables
@@ -183,8 +181,8 @@ run = Strait::Composition.wait_for_run(
 ```ruby
 require "strait/fsm"
 
-Strait::FSM.can_transition_run?(:executing, :complete)  # true
-Strait::FSM.terminal_run_status?(:completed)             # true
+Strait::FSM.can_transition_run?("executing", "COMPLETE")  # true
+Strait::FSM.terminal_run_status?("completed")              # true
 ```
 
 ## Middleware
@@ -250,5 +248,5 @@ end
 ## Development
 
 ```bash
-bundle exec rake spec
+bundle exec rspec
 ```

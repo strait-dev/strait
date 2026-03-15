@@ -98,17 +98,14 @@ export STRAIT_API_KEY="sk_live_..."
   require "strait"
 
   client = Strait::Client.from_file
-  jobs = Strait::Operations::Jobs.new(client)
-  result = jobs.list(project_id: "proj_1")
+  jobs = client.jobs.list
   ```
 
   ```rust Rust
-  use strait::Client;
-  use strait::operations::Jobs;
+  use strait_sdk::client::StraitClient;
 
-  let client = Client::from_file(None).await?;
-  let jobs = Jobs::new(&client);
-  let result = jobs.list(Some(&[("project_id", "proj_1")])).await?;
+  let client = StraitClient::from_file(None, None)?;
+  let jobs = client.jobs().list(None).await?;
   ```
 </CodeGroup>
 
@@ -142,19 +139,19 @@ All 186 API operations are organized into typed service classes:
 | `workflow_runs` | list, get, pause, resume, approve_step, skip_step |
 | `deployments` | list, create, finalize, promote, rollback |
 | `environments` | list, create, get, update, delete |
-| `secrets` | list, create, get, update, delete |
-| `api_keys` | list, create, revoke |
-| `webhooks` | list, create, get, update, delete |
-| `event_triggers` | list, get, create, delete, send |
+| `secrets` | list, create, delete |
+| `api_keys` | list, create, delete, rotate |
+| `webhooks` | list_subscriptions, create_subscription, delete_subscription, list_deliveries, get_delivery, retry_delivery |
+| `event_triggers` | list_events, get_event, delete_event, send_event, send_prefix, purge_event, get_stat |
 | `event_sources` | list, get, create, update, delete |
-| `batch_operations` | bulk operations |
-| `stats` | aggregate stats, health scores |
-| `analytics` | time-series analytics |
+| `batch_operations` | list, get |
+| `stats` | list |
+| `analytics` | get_performance |
 | `log_drains` | list, create, get, update, delete |
-| `sdk_runs` | complete, fail, heartbeat, checkpoint, log, progress |
-| `rbac` | list_roles, create_member, seed_roles |
-| `job_groups` | list, create, get, update, delete |
-| `health` | server health check |
+| `sdk_runs` | annotate, checkpoint, complete, continue, fail, heartbeat, log, output, progress, spawn, tool_call, usage, wait_for_event |
+| `rbac` | list_audit_events, list_members, create_member, delete_member, bulk_member, list_roles, create_role, get_role, update_role, delete_role, list_resource_policies, create_resource_policy, delete_resource_policy, list_tag_policies, create_tag_policy, delete_tag_policy, seed_roles |
+| `job_groups` | list, create, get, update, delete, list_jobs, pause_all, resume_all, get_stats |
+| `health` | list, get_ready, list_metrics |
 
 ## What's Next?
 

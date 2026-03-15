@@ -1,6 +1,6 @@
 # @strait/python
 
-Python SDK for the Strait API. Full feature parity with the Go and TypeScript SDKs.
+Python SDK for the Strait API. Full feature parity with the TypeScript, Go, Ruby, and Rust SDKs.
 
 ## Installation
 

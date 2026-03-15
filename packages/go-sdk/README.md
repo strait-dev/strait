@@ -1,6 +1,6 @@
 # @strait/go
 
-Go SDK for the Strait platform API with full feature parity to `@strait/ts`.
+Go SDK for the Strait platform API with full feature parity across all five Strait SDKs.
 
 ## Install
 

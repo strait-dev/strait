@@ -1,6 +1,6 @@
 # strait
 
-Rust SDK for the Strait platform API with full feature parity to `@strait/ts`.
+Rust SDK for the Strait platform API with full feature parity across all five Strait SDKs.
 
 ## Install
 
@@ -215,8 +215,8 @@ let run = composition::wait_for_run(
 ```rust
 use strait::fsm;
 
-fsm::can_transition_run(fsm::RunState::Executing, fsm::RunEvent::Complete);  // true
-fsm::is_terminal_run_status(fsm::RunState::Completed);                        // true
+fsm::can_transition_run(fsm::RunStatus::Executing, fsm::RunEvent::Complete);  // true
+fsm::is_terminal_run_status(fsm::RunStatus::Completed);                        // true
 ```
 
 ## Middleware
@@ -265,9 +265,9 @@ use strait::error::StraitError;
 
 match jobs.get("nonexistent").await {
     Ok(result) => println!("Found: {:?}", result),
-    Err(StraitError::NotFound(e)) => println!("Not found: {}", e.message),
-    Err(StraitError::Unauthorized(e)) => println!("Auth error: {}", e.message),
-    Err(StraitError::RateLimited(e)) => println!("Rate limited: {}", e.message),
+    Err(StraitError::NotFound { message, .. }) => println!("Not found: {}", message),
+    Err(StraitError::Unauthorized { message, .. }) => println!("Auth error: {}", message),
+    Err(StraitError::RateLimited { message, .. }) => println!("Rate limited: {}", message),
     Err(e) => println!("Error: {}", e),
 }
 ```
