@@ -3210,3 +3210,87 @@ func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
 		t.Fatal("dequeue should be called when memory pressure is disabled (threshold=0)")
 	}
 }
+
+func TestHandleFailure_PoisonPillDetected(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "server", nil // same class as current error
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+	}
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusDeadLetter {
+		t.Errorf("expected dead_letter, got %s", last.to)
+	}
+}
+
+func TestHandleFailure_PoisonPillNotTriggeredOnDifferentClass(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "transient", nil // different from current "server" class
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+	}
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusQueued {
+		t.Errorf("expected queued (retry), got %s", last.to)
+	}
+}
+
+func TestHandleFailure_PoisonPillNotTriggeredBelowThreshold(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "server", nil // same class
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 2} // below threshold of 3
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+	}
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusQueued {
+		t.Errorf("expected queued (retry), got %s", last.to)
+	}
+}
