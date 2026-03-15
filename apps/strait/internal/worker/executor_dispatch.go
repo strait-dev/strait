@@ -14,6 +14,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/golang-jwt/jwt/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -325,6 +326,23 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}
 	for _, secret := range secrets {
 		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	}
+
+	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
+	if e.jwtSigningKey != "" {
+		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		if run.ExpiresAt != nil {
+			expiresAt = *run.ExpiresAt
+		}
+		claims := jwt.RegisteredClaims{
+			Subject:   run.ID,
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
+			extraHeaders["X-Run-Token"] = signed
+		}
 	}
 
 	if run.Attempt > 1 {

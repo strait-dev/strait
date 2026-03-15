@@ -11,10 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"strait/internal/domain"
-
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 func (s *Server) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
@@ -99,19 +96,9 @@ func (s *Server) handleReplayWebhookDelivery(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	replay := &domain.WebhookDelivery{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		RunID:       original.RunID,
-		JobID:       original.JobID,
-		WebhookURL:  original.WebhookURL,
-		RetryPolicy: original.RetryPolicy,
-		Status:      domain.WebhookStatusPending,
-		Attempts:    0,
-		MaxAttempts: original.MaxAttempts,
-		NextRetryAt: func() *time.Time { t := time.Now().UTC(); return &t }(),
-	}
-
-	if err := s.store.CreateWebhookDelivery(r.Context(), replay); err != nil {
+	// Clone the delivery at the store layer so the original payload is preserved.
+	replay, err := s.store.ReplayWebhookDelivery(r.Context(), id)
+	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to create replay delivery")
 		return
 	}

@@ -1488,3 +1488,6 @@ func (m *mockAPIStore) DeleteRunState(_ context.Context, _, _ string) error { re
 func (m *mockAPIStore) CreateWebhookDelivery(_ context.Context, _ *domain.WebhookDelivery) error {
 	return nil
 }
+func (m *mockAPIStore) ReplayWebhookDelivery(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+	return &domain.WebhookDelivery{}, nil
+}

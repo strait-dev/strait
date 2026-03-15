@@ -154,6 +154,7 @@ type RunStore interface {
 	CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error)
 	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpsertRunState(ctx context.Context, s *domain.RunState) error
 	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
 	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)

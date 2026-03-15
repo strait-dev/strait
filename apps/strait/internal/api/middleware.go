@@ -467,19 +467,18 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		}
 
 		window := time.Duration(windowSecs) * time.Second
-		allowed, rlErr := s.rateLimiter.Allow(ctx, key, limit, window)
+		result, rlErr := s.rateLimiter.Allow(ctx, key, limit, window)
 		if rlErr != nil {
 			slog.Warn("rate limiter error, failing open", "key", key, "error", rlErr)
 		}
-		if !allowed {
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
-			w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
+		if !result.Allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(windowSecs))
 			respondError(w, r, http.StatusTooManyRequests, "rate limit exceeded")
 			return
 		}
 
-		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
 		next.ServeHTTP(w, r)
 	})
 }
