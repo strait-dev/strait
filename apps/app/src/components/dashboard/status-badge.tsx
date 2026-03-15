@@ -124,7 +124,7 @@ type StatusBadgeProps = {
 
 export function StatusBadge({
   status,
-  size = "sm",
+  size = "md",
   showDot = true,
 }: StatusBadgeProps) {
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
