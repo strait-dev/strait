@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Shell from "@/components/layout/shell.tsx";
+import DottedMap from "@/components/magicui/dotted-map.tsx";
 
 const ARCHITECTURE = [
   "Postgres-backed job queue",
@@ -114,6 +115,17 @@ const CredibilitySection = () => (
           <h3 className="mb-4 font-semibold text-foreground">
             Technical Foundation
           </h3>
+          <DottedMap
+            className="mb-4 rounded-lg"
+            dotColor="var(--muted-foreground)"
+            markerColor="var(--primary)"
+            markers={[
+              { lat: 39.0, lng: -77.5 },
+              { lat: 50.1, lng: 8.7 },
+              { lat: 1.3, lng: 103.8 },
+              { lat: 35.7, lng: 139.7 },
+            ]}
+          />
           <ArchitectureList />
         </div>
 

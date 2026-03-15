@@ -4,8 +4,10 @@ import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
+import { useRef } from "react";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import AnimatedBeam from "@/components/magicui/animated-beam.tsx";
 
 import { dashboardHref } from "@/lib/urls.ts";
 
@@ -174,6 +176,11 @@ const STEPS: Step[] = [
 
 const HowItWorks = () => {
   const headingId = "how-it-works-title";
+  const containerRef = useRef<HTMLDivElement>(null);
+  const step1Ref = useRef<HTMLDivElement>(null);
+  const step2Ref = useRef<HTMLDivElement>(null);
+  const step3Ref = useRef<HTMLDivElement>(null);
+  const stepRefs = [step1Ref, step2Ref, step3Ref] as const;
 
   return (
     <section
@@ -197,7 +204,10 @@ const HowItWorks = () => {
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 lg:gap-8">
+        <div
+          className="relative grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 lg:gap-8"
+          ref={containerRef}
+        >
           {STEPS.map((step, idx) => {
             const Visual = step.visual;
 
@@ -206,10 +216,13 @@ const HowItWorks = () => {
                 className="flex flex-col"
                 delay={idx * 0.12}
                 key={step.number}
-                variant="scale"
                 spring
+                variant="scale"
               >
-                <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-primary">
+                <div
+                  className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-primary"
+                  ref={stepRefs[idx]}
+                >
                   <div className="showcase-dots pointer-events-none absolute inset-0" />
                   <div
                     className="pointer-events-none absolute inset-0 opacity-30"
@@ -243,6 +256,28 @@ const HowItWorks = () => {
               </Reveal>
             );
           })}
+
+          {/* Animated beams connecting steps (lg only) */}
+          <div className="hidden lg:block">
+            <AnimatedBeam
+              containerRef={containerRef}
+              fromRef={step1Ref}
+              gradientStartColor="var(--primary-foreground)"
+              gradientStopColor="var(--primary-foreground)"
+              pathColor="var(--primary-foreground)"
+              pathOpacity={0.2}
+              toRef={step2Ref}
+            />
+            <AnimatedBeam
+              containerRef={containerRef}
+              fromRef={step2Ref}
+              gradientStartColor="var(--primary-foreground)"
+              gradientStopColor="var(--primary-foreground)"
+              pathColor="var(--primary-foreground)"
+              pathOpacity={0.2}
+              toRef={step3Ref}
+            />
+          </div>
         </div>
 
         <div className="mt-10 flex justify-center">

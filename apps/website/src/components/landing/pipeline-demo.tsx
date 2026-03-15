@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Shell from "@/components/layout/shell.tsx";
+import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";
 
 type NodeStatus = "queued" | "executing" | "completed" | "failed" | "approval";
 
@@ -285,17 +286,8 @@ const PipelineDemo = () => {
           </h2>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-lg">
-          {/* Window chrome */}
-          <div className="flex items-center justify-between border-border/50 border-b px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <span className="size-3 rounded-full bg-border" />
-              <span className="size-3 rounded-full bg-border" />
-              <span className="size-3 rounded-full bg-border" />
-            </div>
-            <span className="text-muted-foreground/50 text-xs">
-              strait — workflow replay
-            </span>
+        <MockBrowserWindow
+          actions={
             <div className="flex items-center gap-2">
               {[1, 2, 4].map((s) => (
                 <button
@@ -312,8 +304,10 @@ const PipelineDemo = () => {
                 </button>
               ))}
             </div>
-          </div>
-
+          }
+          className="shadow-lg"
+          url="strait — workflow replay"
+        >
           {/* DAG area */}
           <div className="border-border/50 border-b p-6 sm:p-8">
             <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
@@ -393,7 +387,7 @@ const PipelineDemo = () => {
               ))}
             </div>
           </div>
-        </div>
+        </MockBrowserWindow>
 
         {/* Stat cards */}
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">

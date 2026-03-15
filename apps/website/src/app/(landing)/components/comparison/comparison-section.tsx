@@ -7,6 +7,8 @@ import Link from "next/link";
 import { useState } from "react";
 
 import Shell from "@/components/layout/shell.tsx";
+import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";
+import TerminalAnimation from "@/components/magicui/terminal-animation.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
 const WITHOUT_CODE = `// redis-queue.js
@@ -89,27 +91,21 @@ const ComparisonSection = () => {
         </div>
 
         {/* Code comparison */}
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
-          <div className="border-border/50 border-b px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <span className="size-3 rounded-full bg-border" />
-              <span className="size-3 rounded-full bg-border" />
-              <span className="size-3 rounded-full bg-border" />
-              <span className="ml-3 text-muted-foreground/50 text-xs">
-                {showStrait ? "workflow.ts" : "infrastructure/"}
-              </span>
+        <MockBrowserWindow url={showStrait ? "workflow.ts" : "infrastructure/"}>
+          {showStrait ? (
+            <div className="p-6">
+              <TerminalAnimation
+                className="text-success/80 leading-relaxed"
+                code={WITH_CODE}
+                typingSpeed={25}
+              />
             </div>
-          </div>
-          <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
-            <code
-              className={`transition-opacity duration-300 ${
-                showStrait ? "text-success/80" : "text-muted-foreground/70"
-              }`}
-            >
-              {showStrait ? WITH_CODE : WITHOUT_CODE}
-            </code>
-          </pre>
-        </div>
+          ) : (
+            <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
+              <code className="text-muted-foreground/70">{WITHOUT_CODE}</code>
+            </pre>
+          )}
+        </MockBrowserWindow>
 
         {/* Metrics */}
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
