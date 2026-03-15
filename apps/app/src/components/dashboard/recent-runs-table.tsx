@@ -100,7 +100,7 @@ export function RecentRunsTable() {
                 </TableCell>
                 <TableCell className="text-sm">{run.job_name}</TableCell>
                 <TableCell>
-                  <StatusBadge size="xs" status={run.status} />
+                  <StatusBadge status={run.status} />
                 </TableCell>
                 <TableCell className="font-mono text-xs">
                   {run.duration}

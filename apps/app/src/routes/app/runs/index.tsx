@@ -154,9 +154,7 @@ function RunsPage() {
             <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
             Status
             {selectedStatuses.length > 0 && (
-              <Badge size="xs" variant="default">
-                {selectedStatuses.length}
-              </Badge>
+              <Badge variant="default">{selectedStatuses.length}</Badge>
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
@@ -166,7 +164,7 @@ function RunsPage() {
                 key={status}
                 onCheckedChange={() => toggleStatus(status)}
               >
-                <StatusBadge size="xs" status={status} />
+                <StatusBadge status={status} />
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>

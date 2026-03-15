@@ -62,7 +62,6 @@ export function ScheduleDetailSheet({
           <div className="flex items-center gap-2">
             <StatusBadge
               showDot
-              size="sm"
               status={schedule.enabled ? "completed" : "paused"}
             />
             <span className="text-muted-foreground text-xs">

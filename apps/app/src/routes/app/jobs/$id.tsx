@@ -160,7 +160,7 @@ function JobDetailPage() {
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(job.tags).map(([key, val]) => (
-                  <Badge className="text-xs" key={key} variant="secondary">
+                  <Badge key={key} variant="secondary">
                     {key}: {String(val)}
                   </Badge>
                 ))}
@@ -183,7 +183,7 @@ function JobDetailPage() {
               >
                 <span className="font-mono text-xs">{run.id}</span>
                 <div className="flex items-center gap-3">
-                  <StatusBadge size="xs" status={run.status} />
+                  <StatusBadge status={run.status} />
                   <span className="text-muted-foreground text-xs">
                     {run.time}
                   </span>

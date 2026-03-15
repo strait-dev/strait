@@ -249,7 +249,7 @@ export const EntityDetailLayout = ({
             >
               {tab.label}
               {tab.badge ? (
-                <Badge className="ml-1 text-xs" variant="secondary-light">
+                <Badge className="ml-1" variant="secondary-light">
                   {tab.badge}
                 </Badge>
               ) : null}

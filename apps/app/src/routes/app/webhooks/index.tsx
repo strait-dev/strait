@@ -175,7 +175,7 @@ function WebhookDetailSheet({
             </h4>
             <div className="flex flex-wrap gap-1.5">
               {webhook.event_types.map((event) => (
-                <Badge className="text-xs" key={event} variant="secondary">
+                <Badge key={event} variant="secondary">
                   {event}
                 </Badge>
               ))}

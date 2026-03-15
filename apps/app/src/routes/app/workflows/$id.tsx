@@ -74,7 +74,7 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     accessorKey: "triggered_by",
     header: "Trigger",
     cell: ({ row }) => (
-      <Badge className="text-xs capitalize" variant="outline">
+      <Badge className="capitalize" variant="outline">
         {row.original.triggered_by}
       </Badge>
     ),
@@ -268,7 +268,7 @@ function WorkflowDetailPage() {
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(workflow.tags).map(([key, val]) => (
-                  <Badge className="text-xs" key={key} variant="secondary">
+                  <Badge key={key} variant="secondary">
                     {key}: {val}
                   </Badge>
                 ))}

@@ -212,7 +212,7 @@ function ScheduleDetailPage() {
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(job.tags).map(([key, val]) => (
-                  <Badge className="text-xs" key={key} variant="secondary">
+                  <Badge key={key} variant="secondary">
                     {key}: {String(val)}
                   </Badge>
                 ))}

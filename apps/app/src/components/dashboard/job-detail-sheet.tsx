@@ -74,7 +74,6 @@ export function JobDetailSheet({
           <div className="flex items-center gap-2">
             <StatusBadge
               showDot
-              size="sm"
               status={job.enabled ? "completed" : "paused"}
             />
             <span className="text-muted-foreground text-xs">
@@ -127,7 +126,7 @@ export function JobDetailSheet({
               </h4>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(job.tags).map(([key, val]) => (
-                  <Badge className="text-xs" key={key} variant="secondary">
+                  <Badge key={key} variant="secondary">
                     {key}: {val}
                   </Badge>
                 ))}
@@ -152,7 +151,7 @@ export function JobDetailSheet({
                 >
                   <span className="font-mono text-xs">{run.id}</span>
                   <div className="flex items-center gap-2">
-                    <StatusBadge size="xs" status={run.status} />
+                    <StatusBadge status={run.status} />
                     <span className="text-muted-foreground text-xs">
                       {run.time}
                     </span>

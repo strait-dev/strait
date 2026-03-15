@@ -146,10 +146,7 @@ function EventRow({ event }: { event: RunEvent }) {
       {/* Content */}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <Badge
-            className={cn("px-1.5 py-0 text-xs", style.badge)}
-            variant="outline"
-          >
+          <Badge className={cn("px-1.5 py-0", style.badge)} variant="outline">
             {style.label}
           </Badge>
           <span className="font-mono text-muted-foreground text-xs">

@@ -70,7 +70,7 @@ export const runColumns: ColumnDef<JobRun>[] = [
     accessorKey: "triggered_by",
     header: "Trigger",
     cell: ({ row }) => (
-      <Badge className="text-xs capitalize" variant="outline">
+      <Badge className="capitalize" variant="outline">
         {row.original.triggered_by}
       </Badge>
     ),

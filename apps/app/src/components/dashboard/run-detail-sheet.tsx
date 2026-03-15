@@ -96,7 +96,7 @@ export function RunDetailSheet({
         <div className="mt-4 flex-1 space-y-6 overflow-y-auto px-6">
           {/* Status */}
           <div className="flex items-center gap-2">
-            <StatusBadge size="md" status={run.status} />
+            <StatusBadge status={run.status} />
           </div>
 
           {/* Job Link */}
