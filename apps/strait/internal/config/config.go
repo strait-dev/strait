@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -314,6 +316,26 @@ func Load() (*Config, error) {
 			return nil, &domain.ConfigError{Field: "OIDC_PUBLIC_KEY_PEM", Message: "is required when OIDC is enabled"}
 		}
 	}
+
+	if cfg.RedisURL != "" {
+		if _, err := url.Parse(cfg.RedisURL); err != nil {
+			return nil, &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
+		}
+	}
+
+	if cfg.SequinBaseURL != "" {
+		if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return nil, &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
+		}
+	}
+
+	slog.Info("config loaded",
+		"mode", cfg.Mode,
+		"port", cfg.Port,
+		"worker_concurrency", cfg.WorkerConcurrency,
+		"poll_interval", cfg.PollerInterval,
+		"db_max_conns", cfg.DBMaxConns,
+	)
 
 	return &cfg, nil
 }
