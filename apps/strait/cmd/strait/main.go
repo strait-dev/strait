@@ -108,7 +108,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	// Run migrations
-	if err := runMigrations(cfg.DatabaseURL); err != nil {
+	if err := runMigrations(cfg.DatabaseURL, cfg.MigrationMode, cfg.MigrationLockTimeout); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 

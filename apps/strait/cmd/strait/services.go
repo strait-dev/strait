@@ -465,7 +465,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 }
 
-func runMigrations(databaseURL string) error {
+func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
+	switch mode {
+	case "manual":
+		slog.Info("migration mode is manual, skipping migrations")
+		return nil
+	case "validate", "auto":
+		// continue below
+	default:
+		return fmt.Errorf("unknown migration mode: %s", mode)
+	}
+
 	// Use pgx/v5/stdlib shim for database/sql compatibility
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -486,6 +496,30 @@ func runMigrations(databaseURL string) error {
 	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
+	}
+
+	version, dirty, vErr := m.Version()
+	if vErr != nil && !errors.Is(vErr, migrate.ErrNilVersion) {
+		return fmt.Errorf("check migration version: %w", vErr)
+	}
+	slog.Info("current migration state", "version", version, "dirty", dirty)
+
+	if dirty {
+		return fmt.Errorf("database has dirty migration at version %d; resolve manually", version)
+	}
+
+	if mode == "validate" {
+		slog.Info("migration mode is validate, skipping apply")
+		return nil
+	}
+
+	// Set lock timeout to prevent long DDL waits blocking other transactions.
+	if lockTimeout > 0 {
+		lockTimeoutMs := lockTimeout.Milliseconds()
+		if _, execErr := db.Exec(fmt.Sprintf("SET lock_timeout = '%dms'", lockTimeoutMs)); execErr != nil {
+			return fmt.Errorf("set lock_timeout: %w", execErr)
+		}
+		slog.Info("migration lock timeout set", "timeout_ms", lockTimeoutMs)
 	}
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
