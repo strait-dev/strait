@@ -99,6 +99,17 @@ function getNodeCenter(node: DagNode) {
   return { cx: node.x + NODE_W / 2, cy: node.y + NODE_H / 2 };
 }
 
+function getCurvedPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): string {
+  const dx = x2 - x1;
+  const cpOffset = dx * 0.4;
+  return `M ${x1} ${y1} C ${x1 + cpOffset} ${y1}, ${x2 - cpOffset} ${y2}, ${x2} ${y2}`;
+}
+
 const HeroDag = () => {
   const [nodeStates, setNodeStates] = useState<Record<string, NodeStatus>>(() =>
     Object.fromEntries(NODES.map((n) => [n.id, "queued"]))
@@ -174,6 +185,29 @@ const HeroDag = () => {
         viewBox="0 0 740 380"
         xmlns="http://www.w3.org/2000/svg"
       >
+        {/* SVG glow filter for active nodes */}
+        <defs>
+          <filter id="glow-executing" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+            <feFlood floodColor="var(--primary)" floodOpacity="0.3" />
+            <feComposite in2="blur" operator="in" />
+            <feMerge>
+              <feMergeNode />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="glow-completed" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+            <feFlood floodColor="var(--success)" floodOpacity="0.2" />
+            <feComposite in2="blur" operator="in" />
+            <feMerge>
+              <feMergeNode />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Curved edges */}
         {EDGES.map((edge) => {
           const from = nodeMap[edge.from];
           const to = nodeMap[edge.to];
@@ -184,22 +218,32 @@ const HeroDag = () => {
           const { cx: x2, cy: y2 } = getNodeCenter(to);
           const fromStatus = nodeStates[edge.from] ?? "queued";
           const isActive = fromStatus === "completed";
+          const d = getCurvedPath(x1, y1, x2, y2);
 
           return (
-            <line
-              key={`${edge.from}-${edge.to}`}
-              opacity={isActive ? 0.6 : 0.3}
-              stroke={isActive ? "var(--success)" : "var(--border)"}
-              strokeDasharray={isActive ? "none" : "4 4"}
-              strokeWidth={1.5}
-              style={{
-                transition: "stroke 0.4s ease, opacity 0.4s ease",
-              }}
-              x1={x1}
-              x2={x2}
-              y1={y1}
-              y2={y2}
-            />
+            <g key={`${edge.from}-${edge.to}`}>
+              {/* Base edge */}
+              <path
+                d={d}
+                opacity={isActive ? 0.6 : 0.3}
+                stroke={isActive ? "var(--success)" : "var(--border)"}
+                strokeDasharray={isActive ? "none" : "4 4"}
+                strokeWidth={1.5}
+                style={{
+                  transition: "stroke 0.4s ease, opacity 0.4s ease",
+                }}
+              />
+              {/* Flow dot on active edges */}
+              {isActive && (
+                <circle r="3" fill="var(--success)" opacity="0.8">
+                  <animateMotion
+                    dur="1.5s"
+                    path={d}
+                    repeatCount="indefinite"
+                  />
+                </circle>
+              )}
+            </g>
           );
         })}
 
@@ -207,12 +251,19 @@ const HeroDag = () => {
           const status = nodeStates[node.id] ?? "queued";
           const isHovered = hoveredNode === node.id;
           const lines = node.label.split("\n");
+          let glowFilter: string | undefined;
+          if (status === "executing") {
+            glowFilter = "url(#glow-executing)";
+          } else if (status === "completed") {
+            glowFilter = "url(#glow-completed)";
+          }
 
           return (
             <g
               key={node.id}
               onPointerEnter={() => setHoveredNode(node.id)}
               onPointerLeave={() => setHoveredNode(null)}
+              filter={glowFilter}
             >
               <rect
                 fill={statusBg[status]}

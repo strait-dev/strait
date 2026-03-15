@@ -4,6 +4,7 @@ import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
+import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
 
 import { dashboardHref } from "@/lib/urls.ts";
@@ -197,11 +198,17 @@ const HowItWorks = () => {
         </div>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 lg:gap-8">
-          {STEPS.map((step) => {
+          {STEPS.map((step, idx) => {
             const Visual = step.visual;
 
             return (
-              <div className="flex flex-col" key={step.number}>
+              <Reveal
+                className="flex flex-col"
+                delay={idx * 0.12}
+                key={step.number}
+                variant="scale"
+                spring
+              >
                 <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-primary">
                   <div className="showcase-dots pointer-events-none absolute inset-0" />
                   <div
@@ -233,7 +240,7 @@ const HowItWorks = () => {
                     {step.description}
                   </p>
                 </div>
-              </div>
+              </Reveal>
             );
           })}
         </div>

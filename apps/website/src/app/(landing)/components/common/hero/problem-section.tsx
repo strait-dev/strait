@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import Reveal from "@/components/landing/reveal.tsx";
+import {
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
 
 const SPRAWL_BOXES = [
@@ -37,36 +41,13 @@ const PAIN_QUOTES = [
   },
 ];
 
-const ProblemSection = () => {
-  const sectionRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          el.setAttribute("data-visible", "");
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.15 }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <section
-      aria-label="The problem with background job systems"
-      className="border-border/40 border-y py-20 sm:py-28"
-      ref={sectionRef}
-    >
-      <Shell variant="wide">
+const ProblemSection = () => (
+  <section
+    aria-label="The problem with background job systems"
+    className="border-border/40 border-y py-20 sm:py-28"
+  >
+    <Shell variant="wide">
+      <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
@@ -78,55 +59,48 @@ const ProblemSection = () => {
             </span>
           </h2>
         </div>
+      </Reveal>
 
-        {/* Sprawl diagram */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_auto_1fr] lg:gap-12">
-          {/* Left: sprawl */}
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {SPRAWL_BOXES.map((box, i) => (
-              <div
-                className="demo-line rounded-lg border border-border/60 border-dashed bg-muted/30 px-4 py-2.5 text-muted-foreground text-sm"
-                key={box}
-                style={
-                  {
-                    "--line-delay": `${0.2 + i * 0.12}s`,
-                  } as React.CSSProperties
-                }
-              >
+      {/* Sprawl diagram */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_auto_1fr] lg:gap-12">
+        {/* Left: sprawl */}
+        <StaggerGroup className="flex flex-wrap items-center justify-center gap-3">
+          {SPRAWL_BOXES.map((box) => (
+            <StaggerItem key={box}>
+              <div className="rounded-lg border border-border/60 border-dashed bg-muted/30 px-4 py-2.5 text-muted-foreground text-sm">
                 {box}
               </div>
-            ))}
-            <svg
-              className="pointer-events-none absolute inset-0 hidden h-full w-full opacity-20 lg:block"
-              viewBox="0 0 400 300"
-            >
-              <path
-                d="M50,80 Q200,20 350,90 M80,150 Q180,200 320,130 M60,220 Q250,260 380,180"
-                fill="none"
-                stroke="var(--border)"
-                strokeDasharray="4 4"
-                strokeWidth={1}
-              />
-            </svg>
-          </div>
+            </StaggerItem>
+          ))}
+          <svg
+            className="pointer-events-none absolute inset-0 hidden h-full w-full opacity-20 lg:block"
+            viewBox="0 0 400 300"
+          >
+            <path
+              d="M50,80 Q200,20 350,90 M80,150 Q180,200 320,130 M60,220 Q250,260 380,180"
+              fill="none"
+              stroke="var(--border)"
+              strokeDasharray="4 4"
+              strokeWidth={1}
+            />
+          </svg>
+        </StaggerGroup>
 
-          {/* Divider */}
-          <div className="hidden items-center lg:flex">
-            <div className="flex flex-col items-center gap-2">
-              <div className="h-20 w-px bg-border/60" />
-              <span className="rounded-full bg-muted px-3 py-1 font-medium text-muted-foreground text-xs">
-                vs
-              </span>
-              <div className="h-20 w-px bg-border/60" />
-            </div>
+        {/* Divider */}
+        <div className="hidden items-center lg:flex">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-20 w-px bg-border/60" />
+            <span className="rounded-full bg-muted px-3 py-1 font-medium text-muted-foreground text-xs">
+              vs
+            </span>
+            <div className="h-20 w-px bg-border/60" />
           </div>
+        </div>
 
-          {/* Right: Strait */}
-          <div className="flex items-center justify-center">
-            <div
-              className="demo-line flex flex-col items-center gap-4"
-              style={{ "--line-delay": "1.4s" } as React.CSSProperties}
-            >
+        {/* Right: Strait */}
+        <div className="flex items-center justify-center">
+          <Reveal variant="scale" spring>
+            <div className="flex flex-col items-center gap-4">
               <div className="rounded-xl border border-foreground/10 bg-card px-8 py-6 text-center shadow-sm">
                 <p className="font-heading font-semibold text-foreground text-lg">
                   Strait
@@ -146,15 +120,20 @@ const ProblemSection = () => {
                 ))}
               </div>
             </div>
-          </div>
+          </Reveal>
         </div>
+      </div>
 
-        {/* Pain-point quotes */}
-        <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {PAIN_QUOTES.map((item) => (
+      {/* Pain-point quotes */}
+      <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {PAIN_QUOTES.map((item, i) => (
+          <Reveal
+            key={item.role}
+            delay={i * 0.08}
+            variant={i % 2 === 0 ? "fade-left" : "fade-right"}
+          >
             <div
               className="rounded-xl border border-border/60 bg-card p-5"
-              key={item.role}
               style={{
                 borderLeftColor: "var(--destructive)",
                 borderLeftWidth: 3,
@@ -167,11 +146,11 @@ const ProblemSection = () => {
                 — {item.role}
               </p>
             </div>
-          ))}
-        </div>
-      </Shell>
-    </section>
-  );
-};
+          </Reveal>
+        ))}
+      </div>
+    </Shell>
+  </section>
+);
 
 export default ProblemSection;

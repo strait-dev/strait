@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
 
 /* ── Shared animation hook ────────────────────────────── */
@@ -360,7 +361,7 @@ const SdkAnimation = () => {
   }, []);
 
   return (
-    <pre className="overflow-hidden font-mono text-primary/80 text-xs leading-relaxed">
+    <pre className="animate-gradient-shimmer overflow-hidden rounded-lg bg-[linear-gradient(90deg,_transparent,_var(--primary)/0.03,_transparent)] font-mono text-primary/80 text-xs leading-relaxed">
       <code>{code.slice(0, chars)}</code>
       {chars < code.length && (
         <span className="inline-block h-4 w-0.5 animate-pulse bg-primary/60" />
@@ -471,10 +472,13 @@ const FeatureBentoGrid = () => (
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
-        {FEATURES.map((feature) => (
-          <div
+        {FEATURES.map((feature, idx) => (
+          <Reveal
             className={`group overflow-hidden rounded-2xl border border-border/40 bg-card/50 shadow-sm transition-shadow duration-300 hover:shadow-md ${feature.span}`}
+            delay={idx * 0.06}
             key={feature.id}
+            variant={idx % 2 === 0 ? "fade-up" : "scale"}
+            spring
           >
             {/* Animation area */}
             <div className="relative flex h-48 items-center justify-center overflow-hidden bg-muted/20 p-6">
@@ -496,7 +500,7 @@ const FeatureBentoGrid = () => (
                 {feature.description}
               </p>
             </div>
-          </div>
+          </Reveal>
         ))}
       </div>
     </Shell>
