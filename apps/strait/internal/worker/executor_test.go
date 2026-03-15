@@ -3397,3 +3397,98 @@ func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
 		t.Errorf("expected 2 GetJob calls (cache disabled), got %d", getJobCalls.Load())
 	}
 }
+
+func TestHandleSuccess_LatencyAnomalyDetected(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return &orcstore.JobHealthStats{P95DurationSecs: 1.0}, nil // P95 = 1s
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-3 * time.Second) // 3s ago — exceeds 2 * 1s P95
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	// Should not panic — just verify no error
+	exec.handleSuccess(context.Background(), run, job, nil, nil)
+
+	// Verify the run was completed
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestHandleSuccess_LatencyNormal(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return &orcstore.JobHealthStats{P95DurationSecs: 10.0}, nil // P95 = 10s
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-500 * time.Millisecond) // 0.5s — well within 2 * 10s P95
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	exec.handleSuccess(context.Background(), run, job, nil, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return nil, nil // no stats
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-3 * time.Second)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	exec.handleSuccess(context.Background(), run, job, nil, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}

@@ -55,6 +55,24 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = domain.StatusCompleted
 	e.notifyWorkflowCallback(ctx, run)
 	e.submitWebhook(ctx, job, run)
+
+	// Latency anomaly detection: compare duration to job's P95.
+	if run.StartedAt != nil {
+		duration := now.Sub(*run.StartedAt)
+		stats, statsErr := e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
+		if statsErr == nil && stats != nil && stats.P95DurationSecs > 0 {
+			p95 := time.Duration(stats.P95DurationSecs * float64(time.Second))
+			if duration > 2*p95 {
+				e.logger.Warn("latency anomaly detected",
+					"run_id", run.ID, "job_id", run.JobID,
+					"duration_ms", duration.Milliseconds(), "p95_ms", p95.Milliseconds())
+				if e.metrics != nil {
+					e.metrics.LatencyAnomalies.Add(ctx, 1,
+						metric.WithAttributes(attribute.String("job_id", run.JobID)))
+				}
+			}
+		}
+	}
 }
 
 func classifyError(err error) string {
