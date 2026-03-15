@@ -40,7 +40,7 @@ function CollapsibleSection({
   return (
     <div className="rounded-md border">
       <button
-        className="flex w-full items-center justify-between px-3 py-2 font-medium text-xs hover:bg-muted/50"
+        className="flex w-full items-center justify-between px-3 py-2 font-medium text-sm hover:bg-muted/50"
         onClick={() => setOpen((o) => !o)}
         type="button"
       >
@@ -107,7 +107,7 @@ export function RunDetailSheet({
               size={14}
             />
             <span className="text-muted-foreground">Job</span>
-            <span className="ml-auto font-mono text-xs">{run.job_id}</span>
+            <span className="ml-auto font-mono text-sm">{run.job_id}</span>
           </div>
 
           {/* Error Alert */}
@@ -120,7 +120,7 @@ export function RunDetailSheet({
               />
               <div>
                 <p className="font-medium text-chart-4 text-sm">Error</p>
-                <p className="mt-0.5 text-muted-foreground text-xs">
+                <p className="mt-0.5 text-muted-foreground text-sm">
                   {String(run.error)}
                 </p>
               </div>
@@ -135,30 +135,30 @@ export function RunDetailSheet({
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Attempt</span>
-                <span className="font-mono text-xs">{run.attempt}</span>
+                <span className="font-mono text-sm">{run.attempt}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Triggered by</span>
-                <span className="font-mono text-xs">{run.triggered_by}</span>
+                <span className="font-mono text-sm">{run.triggered_by}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <HugeiconsIcon icon={ClockIcon} size={12} />
                   Duration
                 </span>
-                <span className="font-mono text-xs">
+                <span className="font-mono text-sm">
                   {formatDuration(run.started_at, run.finished_at)}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Started</span>
-                <span className="font-mono text-xs">
+                <span className="font-mono text-sm">
                   {run.started_at ?? "-"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Finished</span>
-                <span className="font-mono text-xs">
+                <span className="font-mono text-sm">
                   {run.finished_at ?? "-"}
                 </span>
               </div>
@@ -228,11 +228,11 @@ export function RunDetailSheet({
             View details
           </Button>
           <div className="flex gap-2">
-            <Button className="flex-1" size="sm" variant="outline">
+            <Button className="flex-1" variant="outline">
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
               Retry
             </Button>
-            <Button className="flex-1" size="sm" variant="outline">
+            <Button className="flex-1" variant="outline">
               <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
               Cancel
             </Button>

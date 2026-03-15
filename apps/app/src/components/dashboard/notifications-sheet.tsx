@@ -113,20 +113,16 @@ export function NotificationsSheet() {
           </span>
           <div className="flex gap-1">
             <Button
-              className="h-7 text-xs"
               disabled={unreadCount === 0}
               onClick={markAllRead}
-              size="sm"
               variant="ghost"
             >
               <HugeiconsIcon className="mr-1" icon={CheckIcon} size={12} />
               Mark all read
             </Button>
             <Button
-              className="h-7 text-xs"
               disabled={notifications.length === 0}
               onClick={clearAll}
-              size="sm"
               variant="ghost"
             >
               <HugeiconsIcon className="mr-1" icon={TrashIcon} size={12} />

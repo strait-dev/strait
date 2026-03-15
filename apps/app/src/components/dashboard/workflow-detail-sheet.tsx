@@ -65,7 +65,7 @@ export function WorkflowDetailSheet({
               showDot
               status={workflow.enabled ? "completed" : "paused"}
             />
-            <span className="text-muted-foreground text-xs">
+            <span className="text-muted-foreground text-sm">
               v{workflow.version}
             </span>
           </div>
@@ -102,7 +102,7 @@ export function WorkflowDetailSheet({
                     )}
                   />
                   <span className="text-sm">{step.name}</span>
-                  <span className="ml-auto text-muted-foreground text-xs">
+                  <span className="ml-auto text-muted-foreground text-sm">
                     {step.type}
                   </span>
                 </div>
@@ -121,13 +121,13 @@ export function WorkflowDetailSheet({
                   <HugeiconsIcon icon={ClockIcon} size={12} />
                   Timeout
                 </span>
-                <span className="font-mono text-xs">
+                <span className="font-mono text-sm">
                   {workflow.timeout_secs}s
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Max Concurrent</span>
-                <span className="font-mono text-xs">
+                <span className="font-mono text-sm">
                   {workflow.max_concurrent_runs}
                 </span>
               </div>
@@ -135,13 +135,13 @@ export function WorkflowDetailSheet({
                 <span className="text-muted-foreground">
                   Max Parallel Steps
                 </span>
-                <span className="font-mono text-xs">
+                <span className="font-mono text-sm">
                   {workflow.max_parallel_steps}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Schedule</span>
-                <span className="font-mono text-xs">
+                <span className="font-mono text-sm">
                   {workflow.cron || "Manual"}
                 </span>
               </div>
@@ -180,10 +180,10 @@ export function WorkflowDetailSheet({
                   className="flex items-center justify-between rounded-md border px-3 py-2"
                   key={run.id}
                 >
-                  <span className="font-mono text-xs">{run.id}</span>
+                  <span className="font-mono text-sm">{run.id}</span>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={run.status} />
-                    <span className="text-muted-foreground text-xs">
+                    <span className="text-muted-foreground text-sm">
                       {run.time}
                     </span>
                   </div>
@@ -204,7 +204,7 @@ export function WorkflowDetailSheet({
             View details
           </Button>
           <div className="flex gap-2">
-            <Button className="flex-1" size="sm">
+            <Button className="flex-1">
               <HugeiconsIcon
                 className="mr-1.5"
                 icon={PlayActionIcon}
@@ -212,7 +212,7 @@ export function WorkflowDetailSheet({
               />
               Trigger
             </Button>
-            <Button className="flex-1" size="sm" variant="outline">
+            <Button className="flex-1" variant="outline">
               <HugeiconsIcon
                 className="mr-1.5"
                 icon={PauseActionIcon}

@@ -48,7 +48,7 @@ function DetailRow({
     <div className="flex items-center gap-2 text-sm">
       <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
       <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto font-mono text-xs">{value}</span>
+      <span className="ml-auto font-mono text-sm">{value}</span>
     </div>
   );
 }
@@ -76,7 +76,7 @@ export function JobDetailSheet({
               showDot
               status={job.enabled ? "completed" : "paused"}
             />
-            <span className="text-muted-foreground text-xs">
+            <span className="text-muted-foreground text-sm">
               {job.enabled ? "Enabled" : "Disabled"}
             </span>
           </div>
@@ -149,10 +149,10 @@ export function JobDetailSheet({
                   className="flex items-center justify-between rounded-md border px-3 py-2"
                   key={run.id}
                 >
-                  <span className="font-mono text-xs">{run.id}</span>
+                  <span className="font-mono text-sm">{run.id}</span>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={run.status} />
-                    <span className="text-muted-foreground text-xs">
+                    <span className="text-muted-foreground text-sm">
                       {run.time}
                     </span>
                   </div>
@@ -171,7 +171,7 @@ export function JobDetailSheet({
             View details
           </Button>
           <div className="flex gap-2">
-            <Button className="flex-1" size="sm">
+            <Button className="flex-1">
               <HugeiconsIcon
                 className="mr-1.5"
                 icon={PlayActionIcon}
@@ -179,7 +179,7 @@ export function JobDetailSheet({
               />
               Trigger
             </Button>
-            <Button className="flex-1" size="sm" variant="outline">
+            <Button className="flex-1" variant="outline">
               <HugeiconsIcon
                 className="mr-1.5"
                 icon={PauseActionIcon}

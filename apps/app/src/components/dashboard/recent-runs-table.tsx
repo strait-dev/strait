@@ -91,7 +91,7 @@ export function RecentRunsTable() {
               <TableRow key={run.id}>
                 <TableCell className="pl-6">
                   <Link
-                    className="font-mono text-xs hover:underline"
+                    className="font-mono text-sm hover:underline"
                     params={{ id: run.id }}
                     to="/app/runs/$id"
                   >
@@ -102,10 +102,10 @@ export function RecentRunsTable() {
                 <TableCell>
                   <StatusBadge status={run.status} />
                 </TableCell>
-                <TableCell className="font-mono text-xs">
+                <TableCell className="font-mono text-sm tabular-nums">
                   {run.duration}
                 </TableCell>
-                <TableCell className="text-muted-foreground text-xs">
+                <TableCell className="text-muted-foreground text-sm">
                   {run.started_at}
                 </TableCell>
               </TableRow>

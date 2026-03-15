@@ -36,7 +36,7 @@ function DetailRow({
     <div className="flex items-center gap-2 text-sm">
       <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
       <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto font-mono text-xs">{value}</span>
+      <span className="ml-auto font-mono text-sm">{value}</span>
     </div>
   );
 }
@@ -64,7 +64,7 @@ export function ScheduleDetailSheet({
               showDot
               status={schedule.enabled ? "completed" : "paused"}
             />
-            <span className="text-muted-foreground text-xs">
+            <span className="text-muted-foreground text-sm">
               {schedule.enabled ? "Active" : "Paused"}
             </span>
           </div>
