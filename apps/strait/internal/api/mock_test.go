@@ -150,6 +150,11 @@ type mockAPIStore struct {
 	deleteEventTriggersFinishedBeforeFn func(ctx context.Context, before time.Time, limit int) (int64, error)
 	countEventTriggersFinishedBeforeFn  func(ctx context.Context, before time.Time) (int64, error)
 	countActiveEventTriggersByProjectFn func(ctx context.Context, projectID string) (int, error)
+	upsertRunStateFn                    func(ctx context.Context, s *domain.RunState) error
+	getRunStateFn                       func(ctx context.Context, runID, key string) (*domain.RunState, error)
+	listRunStateFn                      func(ctx context.Context, runID string) ([]domain.RunState, error)
+	deleteRunStateFn                    func(ctx context.Context, runID, key string) error
+	replayWebhookDeliveryFn             func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	getWebhookDeliveryFn                func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	retryWebhookDeliveryFn              func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
@@ -1477,17 +1482,36 @@ func (m *mockAPIStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) (
 	return nil, nil
 }
 
-func (m *mockAPIStore) UpsertRunState(_ context.Context, _ *domain.RunState) error { return nil }
-func (m *mockAPIStore) GetRunState(_ context.Context, _, _ string) (*domain.RunState, error) {
+func (m *mockAPIStore) UpsertRunState(ctx context.Context, s *domain.RunState) error {
+	if m.upsertRunStateFn != nil {
+		return m.upsertRunStateFn(ctx, s)
+	}
+	return nil
+}
+func (m *mockAPIStore) GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error) {
+	if m.getRunStateFn != nil {
+		return m.getRunStateFn(ctx, runID, key)
+	}
 	return nil, nil
 }
-func (m *mockAPIStore) ListRunState(_ context.Context, _ string) ([]domain.RunState, error) {
+func (m *mockAPIStore) ListRunState(ctx context.Context, runID string) ([]domain.RunState, error) {
+	if m.listRunStateFn != nil {
+		return m.listRunStateFn(ctx, runID)
+	}
 	return nil, nil
 }
-func (m *mockAPIStore) DeleteRunState(_ context.Context, _, _ string) error { return nil }
+func (m *mockAPIStore) DeleteRunState(ctx context.Context, runID, key string) error {
+	if m.deleteRunStateFn != nil {
+		return m.deleteRunStateFn(ctx, runID, key)
+	}
+	return nil
+}
 func (m *mockAPIStore) CreateWebhookDelivery(_ context.Context, _ *domain.WebhookDelivery) error {
 	return nil
 }
-func (m *mockAPIStore) ReplayWebhookDelivery(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+func (m *mockAPIStore) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+	if m.replayWebhookDeliveryFn != nil {
+		return m.replayWebhookDeliveryFn(ctx, id)
+	}
 	return &domain.WebhookDelivery{}, nil
 }
