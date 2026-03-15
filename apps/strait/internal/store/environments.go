@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"time"
 
@@ -33,8 +34,15 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 	var variablesEncrypted []byte
 	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
 		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
-		if encErr == nil {
-			variablesEncrypted, _ = enc.Encrypt(variablesJSON)
+		if encErr != nil {
+			slog.Warn("failed to create encryptor for environment variables", "env_id", env.ID, "error", encErr)
+		} else {
+			encrypted, encryptErr := enc.Encrypt(variablesJSON)
+			if encryptErr != nil {
+				slog.Warn("failed to encrypt environment variables", "env_id", env.ID, "error", encryptErr)
+			} else {
+				variablesEncrypted = encrypted
+			}
 		}
 	}
 
@@ -136,8 +144,15 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 	var variablesEncrypted []byte
 	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
 		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
-		if encErr == nil {
-			variablesEncrypted, _ = enc.Encrypt(variablesJSON)
+		if encErr != nil {
+			slog.Warn("failed to create encryptor for environment variables", "env_id", env.ID, "error", encErr)
+		} else {
+			encrypted, encryptErr := enc.Encrypt(variablesJSON)
+			if encryptErr != nil {
+				slog.Warn("failed to encrypt environment variables", "env_id", env.ID, "error", encryptErr)
+			} else {
+				variablesEncrypted = encrypted
+			}
 		}
 	}
 
@@ -280,9 +295,13 @@ func (q *Queries) scanEnvironment(scanner scanTarget) (*domain.Environment, erro
 	// Prefer encrypted variables if available and we have a key.
 	if len(variablesEncrypted) > 0 && q.secretEncryptionKey != "" {
 		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
-		if encErr == nil {
+		if encErr != nil {
+			slog.Warn("failed to create encryptor for decryption, falling back to plaintext", "env_id", env.ID, "error", encErr)
+		} else {
 			decrypted, decErr := enc.Decrypt(variablesEncrypted)
-			if decErr == nil {
+			if decErr != nil {
+				slog.Warn("failed to decrypt environment variables, falling back to plaintext", "env_id", env.ID, "error", decErr)
+			} else {
 				variablesRaw = decrypted
 			}
 		}

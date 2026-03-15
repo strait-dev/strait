@@ -219,7 +219,10 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 			"traceparent": fmt.Sprintf("00-%s-%s-%s", spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags()),
 		}
 		if spanCtx.TraceState().Len() > 0 {
-			traceCtx["tracestate"] = spanCtx.TraceState().String()
+			ts := spanCtx.TraceState().String()
+			if len(ts) <= 512 {
+				traceCtx["tracestate"] = ts
+			}
 		}
 	}
 

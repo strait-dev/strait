@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptrace"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -394,7 +395,9 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason, ev
 	snoozeCount := 0
 	if run.Metadata != nil {
 		if raw, ok := run.Metadata["snooze_count"]; ok {
-			_, _ = fmt.Sscanf(raw, "%d", &snoozeCount)
+			if parsed, err := strconv.Atoi(raw); err == nil {
+				snoozeCount = parsed
+			}
 		}
 	}
 	snoozeCount++
@@ -412,7 +415,7 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason, ev
 		"started_at":    nil,
 		"finished_at":   nil,
 		"next_retry_at": retryAt,
-		"metadata":      map[string]string{"snooze_count": fmt.Sprintf("%d", snoozeCount)},
+		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
 	}
 	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
 		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)

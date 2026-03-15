@@ -193,10 +193,29 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
+// maxCancelDepth limits recursive child cancellation to prevent stack overflow.
+const maxCancelDepth = 20
+
 func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID string) int64 {
+	return s.cancelChildRunsRecursiveDepth(ctx, parentRunID, 0)
+}
+
+func (s *Server) cancelChildRunsRecursiveDepth(ctx context.Context, parentRunID string, depth int) int64 {
+	if depth >= maxCancelDepth {
+		slog.Warn("max cancel recursion depth reached", "parent_run_id", parentRunID, "depth", depth)
+		return 0
+	}
+
+	now := time.Now()
 	var cursor *time.Time
 	var count int64
 	for {
+		select {
+		case <-ctx.Done():
+			return count
+		default:
+		}
+
 		children, err := s.store.ListChildRuns(ctx, parentRunID, 100, cursor)
 		if err != nil || len(children) == 0 {
 			break
@@ -204,14 +223,14 @@ func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID strin
 		for _, child := range children {
 			if !child.Status.IsTerminal() {
 				if err := s.store.UpdateRunStatus(ctx, child.ID, child.Status, domain.StatusCanceled, map[string]any{
-					"finished_at": time.Now(),
+					"finished_at": now,
 					"error":       "parent run canceled",
 				}); err != nil {
 					slog.Error("failed to cancel child run", "child_run_id", child.ID, "error", err)
 				} else {
 					count++
 				}
-				count += s.cancelChildRunsRecursive(ctx, child.ID)
+				count += s.cancelChildRunsRecursiveDepth(ctx, child.ID, depth+1)
 			}
 		}
 		lastCreatedAt := children[len(children)-1].CreatedAt
