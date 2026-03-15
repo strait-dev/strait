@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Context, Effect, Layer } from "effect";
 
 import type {
@@ -79,6 +81,34 @@ const getContextName = (
   profile: StraitCliProfile,
   explicitName?: string
 ): string | undefined => explicitName ?? profile.activeContext;
+
+type StraitJsonFallback = {
+  readonly baseUrl?: string;
+  readonly projectId?: string;
+};
+
+const readStraitJsonFallback = (): StraitJsonFallback => {
+  try {
+    const filePath = resolve(process.cwd(), "strait.json");
+    const content = readFileSync(filePath, "utf-8");
+    const json = JSON.parse(content) as Record<string, unknown>;
+    const sdk =
+      typeof json.sdk === "object" && json.sdk !== null
+        ? (json.sdk as Record<string, string>)
+        : {};
+    const project =
+      typeof json.project === "object" && json.project !== null
+        ? (json.project as Record<string, string>)
+        : {};
+
+    return {
+      baseUrl: sdk.base_url || undefined,
+      projectId: project.id || undefined,
+    };
+  } catch {
+    return {};
+  }
+};
 
 const makeConfigService = Effect.gen(function* () {
   const profileStore = yield* ProfileStoreTag;
@@ -176,10 +206,14 @@ const makeConfigService = Effect.gen(function* () {
           );
         }
 
+        // Read strait.json as a last-resort fallback
+        const jsonFallback = readStraitJsonFallback();
+
         const serverUrl =
           input?.serverUrl ??
           process.env.STRAIT_SERVER?.trim() ??
-          context?.serverUrl;
+          context?.serverUrl ??
+          jsonFallback.baseUrl;
 
         if (
           input?.requireServer !== false &&
@@ -191,7 +225,8 @@ const makeConfigService = Effect.gen(function* () {
         const projectId =
           input?.projectId ??
           process.env.STRAIT_PROJECT?.trim() ??
-          context?.projectId;
+          context?.projectId ??
+          jsonFallback.projectId;
 
         if (
           input?.requireProject === true &&

@@ -1,11 +1,12 @@
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { defineConfig, type StraitProjectConfig } from "./types";
 
 const defaultConfigCandidates = [
+  "strait.json",
   "strait.config.ts",
   "strait.config.mts",
   "strait.config.js",
@@ -80,8 +81,41 @@ export const findProjectConfigFile = async (
   return undefined;
 };
 
+type StraitJsonSchema = {
+  readonly project?: { readonly id?: string; readonly name?: string };
+  readonly src?: string;
+  readonly runtime?: string;
+  readonly build?: { readonly out_dir?: string };
+  readonly deploy?: { readonly default_environment?: string };
+};
+
+const mapJsonToProjectConfig = (
+  json: StraitJsonSchema
+): StraitProjectConfig | null => {
+  if (!json.project?.id || json.project.id.trim().length === 0) {
+    return null;
+  }
+
+  const src = json.src ?? "src";
+
+  return defineConfig({
+    project: {
+      id: json.project.id,
+      ...(json.project.name ? { name: json.project.name } : {}),
+    },
+    dirs: { jobs: src, workflows: src },
+    runtime: { kind: (json.runtime as "node" | "bun") ?? "node" },
+    build: { outDir: json.build?.out_dir ?? ".strait" },
+    ...(json.deploy?.default_environment
+      ? { deploy: { defaultEnvironment: json.deploy.default_environment } }
+      : {}),
+    jobs: [],
+    workflows: [],
+  });
+};
+
 /**
- * Loads and validates `strait.config.*` into project config shape.
+ * Loads and validates project config from `strait.json` or `strait.config.*`.
  */
 export const loadProjectConfig = async (
   options?: ProjectConfigLoadOptions
@@ -97,12 +131,30 @@ export const loadProjectConfig = async (
     );
   }
 
+  let rawExport: unknown;
+
+  if (configPath.endsWith(".json")) {
+    const content = await readFile(configPath, "utf-8");
+    const json = JSON.parse(content) as StraitJsonSchema;
+    const mapped = mapJsonToProjectConfig(json);
+    if (!mapped) {
+      throw new Error(
+        `Invalid Strait project config in '${configPath}'. Expected { project: { id: string }, ... }.`
+      );
+    }
+    return { path: configPath, config: mapped };
+  }
+
+  console.warn(
+    "strait.config.ts is deprecated. Run 'strait init' to migrate to strait.json."
+  );
+
   const modulePath = pathToFileURL(configPath).href;
   const imported = (await import(
     `${modulePath}?t=${Date.now()}`
   )) as ProjectConfigModule;
 
-  const rawExport = await resolveExport(imported.default ?? imported.config);
+  rawExport = await resolveExport(imported.default ?? imported.config);
   if (!isProjectConfig(rawExport)) {
     throw new Error(
       `Invalid Strait project config in '${configPath}'. Expected { project: { id: string }, ... }.`
