@@ -20,6 +20,7 @@ const ctxScopesKey contextKey = "scopes"
 const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
+const ctxAuthKeyObjKey contextKey = "api_key_obj"
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -91,6 +92,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
 		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)
 		ctx = context.WithValue(ctx, ctxAPIKeyIDKey, apiKey.ID)
+		ctx = context.WithValue(ctx, ctxAuthKeyObjKey, apiKey)
 
 		// Actor identity: API key requests are always attributed to the key itself.
 		// User-level actor context is only set via internal secret auth (see below)
@@ -440,10 +442,9 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		var windowSecs int
 		var key string
 
-		// 1. Try API key-level rate limit.
+		// 1. Try API key-level rate limit (from context, no DB hit).
 		if apiKeyID != "" {
-			apiKey, err := s.store.GetAPIKeyByID(ctx, apiKeyID)
-			if err == nil && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
+			if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
 				limit = apiKey.RateLimitRequests
 				windowSecs = apiKey.RateLimitWindowSecs
 				key = "rl:apikey:" + apiKeyID
@@ -466,7 +467,10 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		}
 
 		window := time.Duration(windowSecs) * time.Second
-		allowed, _ := s.rateLimiter.Allow(ctx, key, limit, window)
+		allowed, rlErr := s.rateLimiter.Allow(ctx, key, limit, window)
+		if rlErr != nil {
+			slog.Warn("rate limiter error, failing open", "key", key, "error", rlErr)
+		}
 		if !allowed {
 			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
 			w.Header().Set("X-RateLimit-Remaining", "0")

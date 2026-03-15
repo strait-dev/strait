@@ -100,7 +100,7 @@ func (q *Queries) ListFlushableBatches(ctx context.Context) ([]FlushableBatch, e
 		JOIN jobs j ON j.id = bb.job_id
 		WHERE j.batch_window_secs > 0 OR j.batch_max_size > 0
 		GROUP BY bb.job_id, bb.project_id, bb.batch_key, j.batch_window_secs, j.batch_max_size
-		HAVING COUNT(*) >= GREATEST(j.batch_max_size, 1)
+		HAVING (j.batch_max_size > 0 AND COUNT(*) >= j.batch_max_size)
 		   OR (j.batch_window_secs > 0 AND MIN(bb.created_at) + (j.batch_window_secs || ' seconds')::interval <= NOW())
 		LIMIT 100`
 

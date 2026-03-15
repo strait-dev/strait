@@ -108,6 +108,7 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 		ID:           uuid.Must(uuid.NewV7()).String(),
 		JobID:        batch.JobID,
 		ProjectID:    batch.ProjectID,
+		Tags:         job.Tags,
 		Status:       domain.StatusQueued,
 		Attempt:      1,
 		Payload:      batchPayload,
@@ -116,6 +117,7 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 		JobVersion:   job.Version,
 		JobVersionID: job.VersionID,
 		ExpiresAt:    &expiresAt,
+		CreatedBy:    items[0].CreatedBy,
 	}
 
 	return f.queue.Enqueue(ctx, run)

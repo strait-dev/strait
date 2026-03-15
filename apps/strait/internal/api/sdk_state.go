@@ -28,6 +28,10 @@ func (s *Server) handleSDKSetState(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "state key must be 256 characters or fewer")
 		return
 	}
+	if len(req.Value) > 65536 {
+		respondError(w, r, http.StatusBadRequest, "state value must not exceed 64KB")
+		return
+	}
 
 	state := &domain.RunState{
 		RunID:    runID,

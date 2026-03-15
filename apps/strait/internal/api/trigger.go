@@ -283,14 +283,17 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 						ExpiresAt:    &batchExpiresAt,
 						CreatedBy:    actorFromContext(r.Context()),
 					}
-					if enqErr := s.queue.Enqueue(r.Context(), batchRun); enqErr == nil {
-						respondJSON(w, http.StatusCreated, map[string]any{
-							"id":     batchRun.ID,
-							"status": batchRun.Status,
-							"batch":  true,
-						})
+					if enqErr := s.queue.Enqueue(r.Context(), batchRun); enqErr != nil {
+						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
+						respondError(w, r, http.StatusInternalServerError, "failed to enqueue batch run")
 						return
 					}
+					respondJSON(w, http.StatusCreated, map[string]any{
+						"id":     batchRun.ID,
+						"status": batchRun.Status,
+						"batch":  true,
+					})
+					return
 				}
 			}
 		}

@@ -97,6 +97,20 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondError(w, r, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if run.Status.IsTerminal() {
+		respondError(w, r, http.StatusGone, "run already in terminal state")
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		respondError(w, r, http.StatusInternalServerError, "streaming not supported")

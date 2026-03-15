@@ -90,6 +90,15 @@ func (s *Server) handleReplayWebhookDelivery(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Verify the delivery belongs to the caller's project via its associated job.
+	if original.JobID != "" {
+		job, jobErr := s.store.GetJob(r.Context(), original.JobID)
+		if jobErr != nil || job == nil || job.ProjectID != projectIDFromContext(r.Context()) {
+			respondError(w, r, http.StatusNotFound, "webhook delivery not found")
+			return
+		}
+	}
+
 	replay := &domain.WebhookDelivery{
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		RunID:       original.RunID,
