@@ -1,0 +1,152 @@
+---
+title: "SDK Overview"
+description: "Official Strait SDKs for TypeScript, Python, and Go — feature parity across all three languages."
+---
+
+Strait provides official SDKs for **TypeScript**, **Python**, and **Go**. All three SDKs share the same feature set, configuration model, and API coverage.
+
+## Installation
+
+<CodeGroup>
+  ```bash TypeScript
+  npm install @strait/ts
+  # or
+  bun add @strait/ts
+  ```
+
+  ```bash Python
+  pip install strait-python
+  ```
+
+  ```bash Go
+  go get github.com/strait-dev/go-sdk
+  ```
+</CodeGroup>
+
+## Feature Parity
+
+All three SDKs implement the same capabilities:
+
+| Feature | TypeScript | Python | Go |
+|---|---|---|---|
+| **API operations** (186 endpoints) | `client.jobs.list()` | `client.jobs.list()` | `jobs.List(ctx)` |
+| **Config from `strait.json`** | `createClientFromConfigFile()` | `Client.from_file()` | `NewClientFromFile()` |
+| **Config from env vars** | `createClientFromEnv()` | `Client.from_env()` | `NewClientFromEnv()` |
+| **Authoring DSL** | `defineJob()` / `defineWorkflow()` | `define_job()` / `define_workflow()` | `DefineJob()` / `DefineWorkflow()` |
+| **Composition helpers** | `withRetry()`, `waitForRun()`, `paginate()` | `with_retry()`, `wait_for_run()`, `paginate()` | `WithRetry()`, `WaitForRun()`, `Paginate()` |
+| **FSM state machines** | XState v5 actors | `transition_run()` | `CanTransitionRun()` |
+| **DAG validation** | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm |
+| **Middleware hooks** | `onRequest` / `onResponse` / `onError` | `on_request` / `on_response` / `on_error` | `OnRequest` / `OnResponse` / `OnError` |
+| **Typed errors** | 10 error classes | 10 exception types | 10 error types |
+| **Custom HTTP client** | Custom `fetch` | `httpx.Client` | `HTTPDoer` interface |
+
+## Quick Start
+
+The fastest way to get started is with a `strait.json` config file and the `STRAIT_API_KEY` environment variable.
+
+**1. Initialize your project:**
+
+```bash
+strait init
+```
+
+This creates a `strait.json` file in your project root. See [Configuration](/docs/sdks/configuration) for the full schema reference.
+
+**2. Set your API key:**
+
+```bash
+export STRAIT_API_KEY="sk_live_..."
+```
+
+**3. Create a client:**
+
+<CodeGroup>
+  ```ts TypeScript
+  import { createClientFromConfigFile } from "@strait/ts/node";
+
+  const client = await createClientFromConfigFile();
+  const jobs = await client.jobs.list({ query: { project_id: "proj_1" } });
+  ```
+
+  ```python Python
+  from strait import Client
+
+  client = Client.from_file()
+  jobs = client.jobs.list()
+  ```
+
+  ```go Go
+  import (
+      strait "github.com/strait-dev/go-sdk"
+      "github.com/strait-dev/go-sdk/operations"
+  )
+
+  client, err := strait.NewClientFromFile(nil)
+  jobs := operations.NewJobsService(client)
+  result, err := jobs.List(ctx, nil)
+  ```
+</CodeGroup>
+
+## SDK Architecture
+
+Each SDK is organized into the same five layers:
+
+```
+┌─────────────────────────────────────────┐
+│  Authoring DSL                          │  defineJob() / defineWorkflow()
+├─────────────────────────────────────────┤
+│  Composition Helpers                    │  retry, wait, paginate, deploy
+├─────────────────────────────────────────┤
+│  Domain Operations (19 services)        │  jobs, runs, workflows, ...
+├─────────────────────────────────────────┤
+│  HTTP Client + Middleware               │  auth, headers, error mapping
+├─────────────────────────────────────────┤
+│  Configuration                          │  strait.json / env vars / inline
+└─────────────────────────────────────────┘
+```
+
+### Domain Operations (19 Services)
+
+All 186 API operations are organized into typed service classes:
+
+| Service | Operations |
+|---|---|
+| `jobs` | list, create, get, update, delete, trigger, bulk_trigger, clone |
+| `runs` | list, get, delete, replay, bulk_cancel, get_dlq |
+| `workflows` | list, create, get, update, delete, trigger, get_diff, get_policy |
+| `workflow_runs` | list, get, pause, resume, approve_step, skip_step |
+| `deployments` | list, create, finalize, promote, rollback |
+| `environments` | list, create, get, update, delete |
+| `secrets` | list, create, get, update, delete |
+| `api_keys` | list, create, revoke |
+| `webhooks` | list, create, get, update, delete |
+| `event_triggers` | list, get, create, delete, send |
+| `event_sources` | list, get, create, update, delete |
+| `batch_operations` | bulk operations |
+| `stats` | aggregate stats, health scores |
+| `analytics` | time-series analytics |
+| `log_drains` | list, create, get, update, delete |
+| `sdk_runs` | complete, fail, heartbeat, checkpoint, log, progress |
+| `rbac` | list_roles, create_member, seed_roles |
+| `job_groups` | list, create, get, update, delete |
+| `health` | server health check |
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/docs/sdks/configuration">
+    `strait.json` schema reference, environment variable overrides, and config file discovery.
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/docs/sdks/typescript">
+    Effect-first SDK with generated operations, authoring DSL, and XState FSMs.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="Python SDK" icon="python" href="/docs/sdks/python">
+    Sync and async clients with httpx, authoring DSL, and composition helpers.
+  </Card>
+  <Card title="Go SDK" icon="golang" href="/docs/sdks/go">
+    Functional options pattern, typed error handling, and full API coverage.
+  </Card>
+</CardGroup>

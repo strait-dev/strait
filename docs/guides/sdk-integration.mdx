@@ -1,144 +1,226 @@
 ---
 title: "SDK Integration"
-description: "Integrating your job code with Strait using the SDK endpoints."
+description: "Integrating your job code with Strait using official SDK client libraries."
 ---
 
-Strait provides a set of SDK endpoints that allow your job code to communicate its progress, logs, and state back to the system.
+Strait provides official SDKs for **TypeScript**, **Python**, and **Go** — all with full feature parity. This guide covers how to use the SDKs to interact with the Strait API and integrate SDK endpoints into your job code.
 
-## SDK Authentication
+<Info>
+For detailed per-language documentation, see the [SDK Reference](/docs/sdks/overview).
+</Info>
 
-All SDK endpoints are located under `/sdk/v1/runs/{runID}/` and require a **JWT Run Token** for authentication.
+## Installing an SDK
 
-- **Header**: `Authorization: Bearer <run_token>`
-- **Token Source**: The `run_token` is provided in the response when a job is triggered.
+<CodeGroup>
+  ```bash TypeScript
+  npm install @strait/ts
+  ```
 
-## Available Endpoints
+  ```bash Python
+  pip install strait-python
+  ```
 
-### Logging
-`POST /log`
-Send structured logs from your job.
-- **Fields**: `message` (required), `level` (info, warn, error), `type`, `data` (JSON).
+  ```bash Go
+  go get github.com/strait-dev/go-sdk
+  ```
+</CodeGroup>
 
-### Progress Updates
-`POST /progress`
-Report the completion percentage of a job.
-- **Fields**: `percent` (0-100), `message` (required), `step`, `eta_seconds`.
+## Configuration
 
-### Annotations
-`POST /annotate`
-Add or update metadata annotations on the run.
-- **Limit**: Max 50 annotations per run.
-
-### Heartbeat
-`POST /heartbeat`
-Signal that the job is still alive and executing. This prevents Strait from marking the run as timed out or crashed.
-
-### Checkpoints
-`POST /checkpoint`
-Save the current state of a resumable job.
-- **Fields**: `state` (required JSON), `source`.
-
-### Usage Tracking
-`POST /usage`
-Report AI model usage and costs.
-- **Fields**: `provider`, `model`, `prompt_tokens`, `completion_tokens`, `cost_microusd`.
-
-### Tool Calls
-`POST /tool-call`
-Record the invocation of an external tool or API.
-- **Fields**: `tool_name`, `input`, `output`, `duration_ms`, `status`.
-
-### Structured Outputs
-`POST /output`
-Store structured results or artifacts produced by the job.
-- **Fields**: `output_key`, `value`, `schema` (optional JSON schema).
-
-### Terminal States
-- `POST /complete`: Mark the run as successfully completed. Optionally include a `result`.
-- `POST /fail`: Mark the run as failed. Requires an `error` message.
-
-### Wait for Event
-`POST /wait-for-event`
-Pause the current run and wait for an external event to arrive. The run transitions to `waiting` status.
-- **Fields**: `event_key` (required, globally unique), `timeout_secs` (default: 3600), `notify_url` (optional webhook).
-- **Behavior**: When the event arrives via `POST /v1/events/{eventKey}/send`, the run is re-queued with the event payload as checkpoint data and re-dispatched to your endpoint.
-
-### Control Flow
-- `POST /spawn`: Create a child job run.
-- `POST /continue`: Create a continuation run (for long-running jobs that need to restart with fresh timeouts).
-
-## SDK Client Libraries
-
-Official SDK packages now live under `packages/` in this repository:
-- TypeScript: `packages/typescript-sdk` (`@strait/ts`)
-- Python scaffold: `packages/python-sdk`
-- Go scaffold: `packages/go-sdk`
-
-### TypeScript
-
-```typescript
-import { createClient } from "@strait/ts";
-
-const runClient = createClient({
-  baseUrl: "https://strait.dev",
-  auth: { type: "runToken", token: process.env.RUN_TOKEN! },
-});
-
-const eventClient = createClient({
-  baseUrl: "https://strait.dev",
-  auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
-});
-
-// Pause a run and wait for an external event
-const trigger = await runClient.operationsPromise.postSdkV1RunsByRunIDWaitForEvent({
-  pathParams: { runID: "run-123" },
-  body: {
-    event_key: "approval:order-789",
-    timeout_secs: 7200,
-  },
-});
-
-// Send an event to resolve the trigger
-await eventClient.operationsPromise.postV1EventsByEventKeySend({
-  pathParams: { eventKey: "approval:order-789" },
-  body: { payload: { approved: true } },
-});
-
-// Get trigger status
-const status = await eventClient.operationsPromise.getV1EventsByEventKey({
-  pathParams: { eventKey: "approval:order-789" },
-});
-
-// Cancel a waiting trigger
-await eventClient.operationsPromise.deleteV1EventsByEventKey({
-  pathParams: { eventKey: "approval:order-789" },
-});
-```
-
-### Python
-
-```python
-# Python SDK is scaffold-only in this phase.
-# See packages/python-sdk for current status and roadmap.
-```
-
-## Endpoint Availability
-
-All SDK endpoints documented on this page are always available.
-
-## Example: Reporting Progress
+The recommended approach is a `strait.json` file at your project root plus the `STRAIT_API_KEY` environment variable:
 
 ```bash
-curl -X POST https://strait.dev/sdk/v1/runs/{runID}/progress \
-  -H "Authorization: Bearer $RUN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "percent": 45,
-    "message": "Processing images...",
-    "step": "image_optimization"
-  }'
+# Create config file
+strait init
+
+# Set API key
+export STRAIT_API_KEY="sk_live_..."
 ```
 
+Then create a client from the config file:
+
+<CodeGroup>
+  ```ts TypeScript
+  import { createClientFromConfigFile } from "@strait/ts/node";
+  const client = await createClientFromConfigFile();
+  ```
+
+  ```python Python
+  from strait import Client
+  client = Client.from_file()
+  ```
+
+  ```go Go
+  client, err := strait.NewClientFromFile(nil)
+  ```
+</CodeGroup>
+
+See [SDK Configuration](/docs/sdks/configuration) for full details on `strait.json`, environment variable overrides, and alternative configuration methods.
+
+## SDK Run Endpoints
+
+Strait provides specialized endpoints under `/sdk/v1/runs/{runID}/` for job executors to communicate progress, logs, and state back to the system.
+
+### Authentication
+
+SDK run endpoints require a **JWT Run Token**:
+
+- **Header**: `Authorization: Bearer <run_token>`
+- **Token Source**: Provided in the response when a job is triggered
+
+### Available Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/log` | POST | Send structured logs (`message`, `level`, `type`, `data`) |
+| `/progress` | POST | Report completion percentage (`percent`, `message`, `step`) |
+| `/annotate` | POST | Add metadata annotations (max 50 per run) |
+| `/heartbeat` | POST | Signal the job is alive (prevents timeout) |
+| `/checkpoint` | POST | Save resumable state (`state` JSON) |
+| `/usage` | POST | Report AI model usage (`provider`, `model`, `tokens`, `cost_microusd`) |
+| `/tool-call` | POST | Record external tool invocation |
+| `/output` | POST | Store structured results/artifacts |
+| `/complete` | POST | Mark run as successfully completed |
+| `/fail` | POST | Mark run as failed |
+| `/wait-for-event` | POST | Pause run until external event arrives |
+| `/spawn` | POST | Create a child job run |
+| `/continue` | POST | Create a continuation run |
+
+### Using SDK Run Endpoints
+
+<CodeGroup>
+  ```ts TypeScript
+  import { createClient } from "@strait/ts";
+
+  // Create a client with the run token
+  const runClient = createClient({
+    baseUrl: "https://api.strait.dev",
+    auth: { type: "runToken", token: process.env.RUN_TOKEN! },
+  });
+
+  // Log progress
+  await runClient.logRun({
+    pathParams: { runID: "run-123" },
+    body: { message: "Processing batch 3/10", level: "info" },
+  });
+
+  // Report progress
+  await runClient.reportProgress({
+    pathParams: { runID: "run-123" },
+    body: { percent: 30, message: "Processing..." },
+  });
+
+  // Complete the run
+  await runClient.completeRun({
+    pathParams: { runID: "run-123" },
+    body: { result: { processed: 100 } },
+  });
+  ```
+
+  ```python Python
+  from strait import Client
+
+  run_client = Client(
+      base_url="https://api.strait.dev",
+      run_token=os.environ["RUN_TOKEN"],
+  )
+
+  # Log progress
+  run_client.sdk_runs.log_run("run-123", {
+      "message": "Processing batch 3/10",
+      "level": "info",
+  })
+
+  # Report progress
+  run_client.sdk_runs.progress_run("run-123", {
+      "percent": 30,
+      "message": "Processing...",
+  })
+
+  # Complete the run
+  run_client.sdk_runs.complete_run("run-123", {
+      "result": {"processed": 100},
+  })
+  ```
+
+  ```go Go
+  import (
+      strait "github.com/strait-dev/go-sdk"
+      "github.com/strait-dev/go-sdk/operations"
+  )
+
+  runClient := strait.NewClient(
+      strait.WithBaseURL("https://api.strait.dev"),
+      strait.WithRunToken(os.Getenv("RUN_TOKEN")),
+  )
+  sdkRuns := operations.NewSDKRunsService(runClient)
+
+  // Log progress
+  sdkRuns.LogRun(ctx, "run-123", map[string]any{
+      "message": "Processing batch 3/10",
+      "level":   "info",
+  })
+
+  // Complete the run
+  sdkRuns.CompleteRun(ctx, "run-123", map[string]any{
+      "result": map[string]any{"processed": 100},
+  })
+  ```
+</CodeGroup>
+
+### Wait for External Events
+
+Pause a run and wait for an external event (approvals, webhooks, third-party callbacks):
+
+<CodeGroup>
+  ```ts TypeScript
+  // Pause the run
+  await runClient.waitForEvent({
+    pathParams: { runID: "run-123" },
+    body: {
+      event_key: "approval:order-789",
+      timeout_secs: 7200,
+    },
+  });
+
+  // Later, send the event (using an API key client)
+  const apiClient = createClient({
+    baseUrl: "https://api.strait.dev",
+    auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
+  });
+
+  await apiClient.sendEvent({
+    pathParams: { eventKey: "approval:order-789" },
+    body: { payload: { approved: true } },
+  });
+  ```
+
+  ```python Python
+  # Pause the run
+  run_client.sdk_runs.wait_for_event("run-123", {
+      "event_key": "approval:order-789",
+      "timeout_secs": 7200,
+  })
+
+  # Later, send the event
+  api_client = Client.from_file()
+  api_client.event_triggers.send("approval:order-789", {
+      "payload": {"approved": True},
+  })
+  ```
+</CodeGroup>
+
 <Tip>
-  Use the `heartbeat` endpoint regularly (e.g., every 30 seconds) in long-running jobs to ensure Strait knows the job is still active.
+Use the `heartbeat` endpoint regularly (every 30 seconds) in long-running jobs to prevent timeout.
 </Tip>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="SDK Reference" icon="code" href="/docs/sdks/overview">
+    Full SDK documentation — feature parity table, architecture, and per-language guides.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/docs/sdks/configuration">
+    `strait.json` schema reference, environment variable overrides, and migration guide.
+  </Card>
+</CardGroup>
