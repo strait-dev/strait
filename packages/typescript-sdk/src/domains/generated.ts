@@ -24,6 +24,8 @@ export type OperationInput<ReqBody = unknown, RespBody = unknown> = {
   readonly successStatus?: readonly number[];
   readonly requestSchema?: Schema.Schema<ReqBody>;
   readonly responseSchema?: Schema.Schema<RespBody>;
+  /** Optional AbortSignal to cancel the request. */
+  readonly signal?: AbortSignal;
 };
 
 export type OperationEffect<RespBody> = Effect.Effect<
@@ -94,6 +96,7 @@ const invokeOperation = <ReqBody = unknown, RespBody = unknown>(
         successStatus: input?.successStatus,
         requestSchema: input?.requestSchema ?? generatedRequestSchema,
         responseSchema: input?.responseSchema ?? generatedResponseSchema,
+        signal: input?.signal,
       });
     }
   );

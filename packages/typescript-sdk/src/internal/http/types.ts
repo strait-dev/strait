@@ -13,4 +13,6 @@ export type HttpRequestOptions<ReqBody = unknown, RespBody = unknown> = {
   readonly successStatus?: readonly number[];
   readonly requestSchema?: Schema.Schema<ReqBody>;
   readonly responseSchema?: Schema.Schema<RespBody>;
+  /** Optional AbortSignal to cancel the request. Combined with timeout signal. */
+  readonly signal?: AbortSignal;
 };

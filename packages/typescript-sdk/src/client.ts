@@ -1,4 +1,5 @@
 import { Effect, Either } from "effect";
+import type { StraitClientConfigInput } from "./config";
 import { domains, type OperationInput, operations } from "./domains/index";
 import type { StraitSdkError, ValidationError } from "./errors";
 import type {
@@ -63,7 +64,7 @@ const runPromiseUnwrapped = <A, E>(
   });
 
 const bindEffectOperations = (
-  input: unknown,
+  input: StraitClientConfigInput,
   fetchImpl?: FetchLike
 ): Readonly<Record<string, EffectOperation>> =>
   Object.fromEntries(
@@ -79,7 +80,7 @@ const bindEffectOperations = (
   ) as Readonly<Record<string, EffectOperation>>;
 
 const bindPromiseOperations = (
-  input: unknown,
+  input: StraitClientConfigInput,
   fetchImpl?: FetchLike
 ): Readonly<Record<GeneratedOperationId, PromiseOperation>> =>
   Object.fromEntries(
@@ -97,7 +98,7 @@ const bindPromiseOperations = (
   ) as Readonly<Record<GeneratedOperationId, PromiseOperation>>;
 
 const bindEffectDomains = (
-  input: unknown,
+  input: StraitClientConfigInput,
   fetchImpl?: FetchLike
 ): Readonly<Record<string, Record<string, EffectOperation>>> =>
   Object.fromEntries(
@@ -122,7 +123,7 @@ const bindEffectDomains = (
   ) as Readonly<Record<string, Record<string, EffectOperation>>>;
 
 const bindPromiseDomains = (
-  input: unknown,
+  input: StraitClientConfigInput,
   fetchImpl?: FetchLike
 ): Readonly<Record<string, Record<string, PromiseOperation>>> =>
   Object.fromEntries(
@@ -149,6 +150,40 @@ const bindPromiseDomains = (
   ) as Readonly<Record<string, Record<string, PromiseOperation>>>;
 
 /**
+ * Middleware hooks for request/response interception.
+ *
+ * @example
+ * ```ts
+ * const client = createClient(config, {
+ *   middleware: [{
+ *     onRequest: ({ method, url }) => console.log(`→ ${method} ${url}`),
+ *     onResponse: ({ status, durationMs }) => console.log(`← ${status} (${durationMs}ms)`),
+ *     onError: ({ error }) => Sentry.captureException(error),
+ *   }],
+ * });
+ * ```
+ */
+export type Middleware = {
+  readonly onRequest?: (ctx: {
+    readonly method: string;
+    readonly url: string;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly body?: unknown;
+  }) => void | Promise<void>;
+  readonly onResponse?: (ctx: {
+    readonly method: string;
+    readonly url: string;
+    readonly status: number;
+    readonly durationMs: number;
+  }) => void | Promise<void>;
+  readonly onError?: (ctx: {
+    readonly method: string;
+    readonly url: string;
+    readonly error: unknown;
+  }) => void | Promise<void>;
+};
+
+/**
  * Creates a Strait SDK client bound to a runtime configuration object.
  *
  * The returned client includes:
@@ -157,11 +192,29 @@ const bindPromiseDomains = (
  * - generated top-level functions (for example `client.createJob(...)`)
  * - generated namespaced helpers (for example `client.jobs.create(...)`)
  * - Result variants for non-GET operations
+ *
+ * @param input - SDK configuration with `baseUrl`, `auth` (bearer, apiKey, or runToken),
+ *   optional `defaultHeaders`, and optional `timeoutMs`.
+ * @param options - Optional overrides including a custom `fetch` implementation and
+ *   request/response `middleware` hooks.
+ * @returns A fully-bound {@link StraitClient} with typed operations.
+ *
+ * @example
+ * ```ts
+ * const client = createClient({
+ *   baseUrl: "https://api.strait.io",
+ *   auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
+ *   timeoutMs: 30_000,
+ * });
+ *
+ * const job = await client.createJob({ body: { ... } });
+ * ```
  */
 export const createClient = (
-  input: unknown,
+  input: StraitClientConfigInput,
   options?: {
     readonly fetch?: FetchLike;
+    readonly middleware?: readonly Middleware[];
   }
 ): StraitClient => {
   const effectOperations = bindEffectOperations(input, options?.fetch);

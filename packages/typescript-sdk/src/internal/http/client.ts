@@ -134,7 +134,12 @@ export const request = <ReqBody = unknown, RespBody = unknown>(
           },
           body:
             encodedBody === undefined ? undefined : JSON.stringify(encodedBody),
-          signal: AbortSignal.timeout(runtime.config.timeoutMs ?? 30_000),
+          signal: options.signal
+            ? AbortSignal.any([
+                options.signal,
+                AbortSignal.timeout(runtime.config.timeoutMs ?? 30_000),
+              ])
+            : AbortSignal.timeout(runtime.config.timeoutMs ?? 30_000),
         }),
       catch: (cause) =>
         new TransportError({ message: "request transport error", cause }),

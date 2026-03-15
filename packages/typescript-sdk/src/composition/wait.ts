@@ -1,3 +1,5 @@
+import { TimeoutError } from "../errors";
+
 const terminalRunStatuses = new Set([
   "completed",
   "failed",
@@ -28,6 +30,8 @@ export type WaitForRunOptions = {
   readonly factor?: number;
   /** Optional custom terminal-status predicate. */
   readonly isTerminal?: (status: string | undefined) => boolean;
+  /** Optional AbortSignal to cancel polling. */
+  readonly signal?: AbortSignal;
 };
 
 type RunStatusResponse = {
@@ -54,6 +58,10 @@ export const waitForRun = async <TRun extends RunStatusResponse>(
   const startedAt = Date.now();
 
   for (;;) {
+    if (options?.signal?.aborted) {
+      throw options.signal.reason ?? new Error("waitForRun aborted");
+    }
+
     const run = await getRun({ pathParams: { runID } });
     const status = run.status;
 
@@ -66,9 +74,11 @@ export const waitForRun = async <TRun extends RunStatusResponse>(
     }
 
     if (Date.now() - startedAt > timeoutMs) {
-      throw new Error(
-        `waitForRun timed out after ${timeoutMs}ms for run ${runID}`
-      );
+      throw new TimeoutError({
+        message: `waitForRun timed out after ${timeoutMs}ms for run ${runID}`,
+        runId: runID,
+        elapsedMs: Date.now() - startedAt,
+      });
     }
 
     await sleep(delayMs);

@@ -3,6 +3,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import {
   normalizeBaseUrl,
   type StraitClientConfig,
+  type StraitClientConfigInput,
   StraitClientConfigSchema,
 } from "./config";
 import { ValidationError } from "./errors";
@@ -25,7 +26,7 @@ export class StraitRuntimeTag extends Context.Tag("StraitRuntime")<
 const decodeConfig = Schema.decodeUnknown(StraitClientConfigSchema);
 
 export const createRuntime = (
-  input: unknown,
+  input: StraitClientConfigInput,
   options?: {
     readonly fetch?: FetchLike;
   }
@@ -48,7 +49,7 @@ export const createRuntime = (
   );
 
 export const runtimeLayer = (
-  input: unknown,
+  input: StraitClientConfigInput,
   options?: {
     readonly fetch?: FetchLike;
   }
@@ -57,7 +58,7 @@ export const runtimeLayer = (
 
 export const provideRuntime = <A, E, R>(
   effect: Effect.Effect<A, E, R | StraitRuntimeTag>,
-  input: unknown,
+  input: StraitClientConfigInput,
   options?: {
     readonly fetch?: FetchLike;
   }

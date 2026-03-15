@@ -10,11 +10,23 @@ export type RetryOptions<TError = unknown> = {
   readonly factor?: number;
   /** Upper bound for backoff delay in milliseconds. */
   readonly maxDelayMs?: number;
+  /**
+   * Jitter strategy applied to retry delays.
+   *
+   * - `"full"` — randomizes delay between 0 and the computed backoff value
+   *   to prevent thundering herd when many clients retry simultaneously.
+   * - `"none"` — uses the exact computed backoff value with no randomization.
+   *
+   * @default "full"
+   */
+  readonly jitter?: "full" | "none";
   /** Predicate to decide whether a failure should be retried. */
   readonly shouldRetry?: (
     error: TError,
     context: { readonly attempt: number; readonly maxAttempts: number }
   ) => boolean;
+  /** Optional AbortSignal to cancel retries. */
+  readonly signal?: AbortSignal;
 };
 
 const wait = (ms: number): Promise<void> =>
@@ -35,12 +47,17 @@ export const withRetry = async <TOutput, TError = unknown>(
   const maxAttempts = Math.max(1, options?.attempts ?? 3);
   const factor = options?.factor ?? 2;
   const maxDelayMs = options?.maxDelayMs ?? 30_000;
+  const jitter = options?.jitter ?? "full";
 
   let attempt = 0;
   let delayMs = options?.delayMs ?? 250;
 
   for (;;) {
     attempt += 1;
+
+    if (options?.signal?.aborted) {
+      throw options.signal.reason ?? new Error("retry aborted");
+    }
 
     try {
       return await operation();
@@ -59,7 +76,10 @@ export const withRetry = async <TOutput, TError = unknown>(
         throw error;
       }
 
-      await wait(delayMs);
+      const effectiveDelay =
+        jitter === "full" ? Math.round(Math.random() * delayMs) : delayMs;
+
+      await wait(effectiveDelay);
       delayMs = Math.min(maxDelayMs, Math.max(1, Math.round(delayMs * factor)));
     }
   }
