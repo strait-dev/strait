@@ -36,6 +36,7 @@ type ExecutorStore interface {
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
+	GetRunErrorClass(ctx context.Context, runID string) (string, error)
 }
 
 type executionPolicy struct {
@@ -77,6 +78,7 @@ type Executor struct {
 	webhookDispatchTimeout   time.Duration
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
+	memoryPressureThreshold  float64
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -92,27 +94,28 @@ type ConcurrencyLimitProvider interface {
 
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
-	Pool                     *Pool
-	Queue                    queue.Queue
-	Wake                     <-chan struct{}
-	ConcurrencyLimit         ConcurrencyLimitProvider
-	Store                    ExecutorStore
-	Publisher                pubsub.Publisher
-	HTTPClient               *http.Client
-	PollInterval             time.Duration
-	HeartbeatInterval        time.Duration
-	Metrics                  *telemetry.Metrics
-	WorkflowCallback         WorkflowCallback
-	Partitions               []string
-	PartitionWeights         string
-	ExecutorHTTPTimeout      time.Duration
-	ExecutorIdleConnTimeout  time.Duration
-	WebhookTimeout           time.Duration
-	WebhookIdleConnTimeout   time.Duration
-	WebhookDispatchTimeout   time.Duration
-	WebhookMaxAttempts       int
-	MaxDequeueBatchSize      int
-	DefaultJobMaxConcurrency int
+	Pool                       *Pool
+	Queue                      queue.Queue
+	Wake                       <-chan struct{}
+	ConcurrencyLimit           ConcurrencyLimitProvider
+	Store                      ExecutorStore
+	Publisher                  pubsub.Publisher
+	HTTPClient                 *http.Client
+	PollInterval               time.Duration
+	HeartbeatInterval          time.Duration
+	Metrics                    *telemetry.Metrics
+	WorkflowCallback           WorkflowCallback
+	Partitions                 []string
+	PartitionWeights           string
+	ExecutorHTTPTimeout        time.Duration
+	ExecutorIdleConnTimeout    time.Duration
+	WebhookTimeout             time.Duration
+	WebhookIdleConnTimeout     time.Duration
+	WebhookDispatchTimeout     time.Duration
+	WebhookMaxAttempts         int
+	MaxDequeueBatchSize        int
+	DefaultJobMaxConcurrency   int
+	MemoryPressureThresholdPct float64
 }
 
 const (
@@ -189,6 +192,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		webhookDispatchTimeout:   whDispatchTimeout,
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
+		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}

@@ -131,6 +131,16 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		shouldRetry = false
 	}
 
+	const poisonPillThreshold = 3
+	if shouldRetry && run.Attempt >= poisonPillThreshold {
+		prevClass, err := e.store.GetRunErrorClass(ctx, run.ID)
+		if err == nil && prevClass == errClass {
+			shouldRetry = false
+			e.logger.Warn("poison pill detected: consecutive same-class errors",
+				"run_id", run.ID, "error_class", errClass, "attempt", run.Attempt)
+		}
+	}
+
 	if shouldRetry {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
 		fields := map[string]any{

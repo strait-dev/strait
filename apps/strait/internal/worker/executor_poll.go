@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,15 @@ import (
 
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
+	if e.memoryPressureThreshold > 0 {
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		heapPct := float64(memStats.HeapAlloc) / float64(memStats.Sys) * 100
+		if heapPct > e.memoryPressureThreshold {
+			e.logger.Warn("memory pressure: skipping dequeue", "heap_pct", heapPct, "threshold", e.memoryPressureThreshold)
+			return
+		}
+	}
 	available := e.pool.Available()
 	if e.concurrencyLimit != nil {
 		target := max(e.concurrencyLimit.CurrentLimit(), 1)

@@ -2073,3 +2073,9 @@ func (q *Queries) BulkCancelByFilter(ctx context.Context, projectID string, f Bu
 	}
 	return ids, rows.Err()
 }
+
+func (q *Queries) GetRunErrorClass(ctx context.Context, runID string) (string, error) {
+	var errorClass string
+	err := q.db.QueryRow(ctx, "SELECT COALESCE(error_class, '') FROM job_runs WHERE id = $1", runID).Scan(&errorClass)
+	return errorClass, err
+}

@@ -46,6 +46,7 @@ type mockExecutorStore struct {
 	getJobHealthStatsFn      func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
 	getResolvedEnvVarsFn     func(ctx context.Context, id string) (map[string]string, error)
 	getLatestCheckpointFn    func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
+	getRunErrorClassFn       func(ctx context.Context, runID string) (string, error)
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -173,6 +174,13 @@ func (m *mockExecutorStore) GetLatestCheckpoint(ctx context.Context, runID strin
 		return nil, nil
 	}
 	return m.getLatestCheckpointFn(ctx, runID)
+}
+
+func (m *mockExecutorStore) GetRunErrorClass(ctx context.Context, runID string) (string, error) {
+	if m.getRunErrorClassFn == nil {
+		return "", nil
+	}
+	return m.getRunErrorClassFn(ctx, runID)
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
@@ -3148,5 +3156,57 @@ func TestBulkhead_DefaultZeroDisabled(t *testing.T) {
 		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
 			t.Fatalf("slot %d should be acquired with no limit", i+1)
 		}
+	}
+}
+
+func TestPoll_MemoryPressure_SkipsDequeue(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                       NewPool(10),
+		Queue:                      q,
+		Store:                      &mockExecutorStore{},
+		PollInterval:               time.Hour,
+		MemoryPressureThresholdPct: 1, // 1% — will always be exceeded
+	})
+
+	exec.poll(context.Background())
+
+	if dequeueCalled.Load() {
+		t.Fatal("dequeue should not be called when memory pressure exceeds threshold")
+	}
+}
+
+func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                       NewPool(10),
+		Queue:                      q,
+		Store:                      &mockExecutorStore{},
+		PollInterval:               time.Hour,
+		MemoryPressureThresholdPct: 0, // disabled
+	})
+
+	exec.poll(context.Background())
+
+	if !dequeueCalled.Load() {
+		t.Fatal("dequeue should be called when memory pressure is disabled (threshold=0)")
 	}
 }
