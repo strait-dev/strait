@@ -49,7 +49,12 @@ export function RunsChart() {
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">
-          <ResponsiveContainer height="100%" width="100%">
+          <ResponsiveContainer
+            height="100%"
+            minHeight={1}
+            minWidth={1}
+            width="100%"
+          >
             <AreaChart data={MOCK_DATA}>
               <defs>
                 <linearGradient id="gradCompleted" x1="0" x2="0" y1="0" y2="1">

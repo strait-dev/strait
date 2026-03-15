@@ -16,6 +16,7 @@ import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as InvitationIdRouteImport } from './routes/invitation/$id'
 import { Route as AppUpgradeRouteImport } from './routes/app/upgrade'
+import { Route as AppDashboardRouteImport } from './routes/app/dashboard'
 import { Route as AppWorkflowsIndexRouteImport } from './routes/app/workflows/index'
 import { Route as AppWebhooksIndexRouteImport } from './routes/app/webhooks/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/app/settings/index'
@@ -64,6 +65,11 @@ const InvitationIdRoute = InvitationIdRouteImport.update({
 const AppUpgradeRoute = AppUpgradeRouteImport.update({
   id: '/upgrade',
   path: '/upgrade',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppWorkflowsIndexRoute = AppWorkflowsIndexRouteImport.update({
@@ -141,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppLayoutRouteWithChildren
   '/login': typeof LoginRoute
+  '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app': typeof AppIndexRoute
@@ -187,6 +195,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppLayoutRouteWithChildren
   '/login': typeof LoginRoute
+  '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
@@ -212,6 +221,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
+    | '/app/dashboard'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -234,6 +244,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/app/dashboard'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app'
@@ -257,6 +268,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
+    | '/app/dashboard'
     | '/app/upgrade'
     | '/invitation/$id'
     | '/app/'
@@ -335,6 +347,13 @@ declare module '@tanstack/react-router' {
       path: '/upgrade'
       fullPath: '/app/upgrade'
       preLoaderRoute: typeof AppUpgradeRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/dashboard': {
+      id: '/app/dashboard'
+      path: '/dashboard'
+      fullPath: '/app/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/app/workflows/': {
@@ -439,6 +458,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppLayoutRouteChildren {
+  AppDashboardRoute: typeof AppDashboardRoute
   AppUpgradeRoute: typeof AppUpgradeRoute
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
@@ -457,6 +477,7 @@ interface AppLayoutRouteChildren {
 }
 
 const AppLayoutRouteChildren: AppLayoutRouteChildren = {
+  AppDashboardRoute: AppDashboardRoute,
   AppUpgradeRoute: AppUpgradeRoute,
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,

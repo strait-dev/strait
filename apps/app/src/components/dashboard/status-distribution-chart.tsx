@@ -26,7 +26,12 @@ export function StatusDistributionChart() {
       <CardContent>
         <div className="flex items-center gap-6">
           <div className="h-[180px] w-[180px] shrink-0">
-            <ResponsiveContainer height="100%" width="100%">
+            <ResponsiveContainer
+              height="100%"
+              minHeight={1}
+              minWidth={1}
+              width="100%"
+            >
               <PieChart>
                 <Pie
                   cx="50%"

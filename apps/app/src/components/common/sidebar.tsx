@@ -36,6 +36,7 @@ import {
   FileTextIcon,
   LayersIcon,
   PlayActionIcon,
+  TrendingUpIcon,
   WebhookIcon,
   WorkflowIcon,
 } from "@/lib/icons";
@@ -58,6 +59,7 @@ type NavItem = {
 
 const mainNav: NavItem[] = [
   { title: "Overview", url: "/app", icon: DashboardIcon, exact: true },
+  { title: "Dashboard", url: "/app/dashboard", icon: TrendingUpIcon },
   { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
   { title: "Workflows", url: "/app/workflows", icon: WorkflowIcon },
   { title: "Runs", url: "/app/runs", icon: PlayActionIcon },

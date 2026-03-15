@@ -1,19 +1,18 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@strait/ui/components/button";
 import { Shell } from "@strait/ui/components/shell";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
 import PageHeader from "@/components/common/page-header";
-import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
 import { MetricsCard } from "@/components/dashboard/metrics-card";
-import { RecentRunsTable } from "@/components/dashboard/recent-runs-table";
-import { RunsChart } from "@/components/dashboard/runs-chart";
-import { StatusDistributionChart } from "@/components/dashboard/status-distribution-chart";
 import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
 import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription";
 import {
   ActivityIcon,
   AlertIcon,
+  ArrowRightIcon,
   BriefcaseIcon,
   CalendarIcon,
   CheckCircleIcon,
@@ -60,7 +59,7 @@ function RouteComponent() {
     <Shell>
       <PageHeader
         text="Monitor your orchestration infrastructure at a glance."
-        title="Dashboard"
+        title="Overview"
       />
 
       {/* Metrics Row 1 */}
@@ -119,20 +118,11 @@ function RouteComponent() {
         />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <RunsChart />
-        </div>
-        <StatusDistributionChart />
-      </div>
-
-      {/* Activity */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <RecentRunsTable />
-        </div>
-        <LiveActivityFeed />
+      <div className="flex justify-center">
+        <Button render={<Link to="/app/dashboard" />} variant="outline">
+          View dashboard
+          <HugeiconsIcon icon={ArrowRightIcon} size={16} />
+        </Button>
       </div>
 
       <SubscriptionSuccessDialog
