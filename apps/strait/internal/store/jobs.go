@@ -38,11 +38,11 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			rate_limit_max, rate_limit_window_secs, dedup_window_secs, enabled,
 			webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version,
 			version_id, version_policy, backwards_compatible, created_by, updated_by,
-			max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold
+			max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, skip_if_running, result_schema
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1,
 			$27, $28, $29, $30, $31,
-			$32, $33::jsonb, $34::jsonb, $35, $36, $37)
+			$32, $33::jsonb, $34::jsonb, $35, $36, $37, $38, $39)
 		RETURNING created_at, updated_at, version`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -95,6 +95,8 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.RetryPriorityBoost,
 		job.DLQAlertThreshold,
 		job.QueueDepthAlertThreshold,
+		job.SkipIfRunning,
+		dbscan.NilIfEmptyRawMessage(job.ResultSchema),
 	).Scan(&job.CreatedAt, &job.UpdatedAt, &job.Version)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
@@ -112,7 +114,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, skip_if_running, result_schema
 		FROM jobs
 		WHERE id = $1`
 
@@ -136,7 +138,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, skip_if_running, result_schema
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -160,7 +162,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, skip_if_running, result_schema
 		FROM jobs
 		WHERE project_id = $1`
 
@@ -209,11 +211,11 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 			INSERT INTO job_versions (id, job_id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
-				group_id, project_id, enabled, backwards_compatible, created_by, updated_by)
+				group_id, project_id, enabled, backwards_compatible, created_by, updated_by, skip_if_running, result_schema)
 			SELECT $29, id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
-				group_id, project_id, enabled, backwards_compatible, created_by, updated_by
+				group_id, project_id, enabled, backwards_compatible, created_by, updated_by, skip_if_running, result_schema
 			FROM jobs WHERE id = $25
 		)
 		UPDATE jobs
@@ -252,6 +254,8 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    retry_priority_boost = $34,
 		    dlq_alert_threshold = $35,
 		    queue_depth_alert_threshold = $36,
+		    skip_if_running = $37,
+		    result_schema = $38,
 		    updated_at = NOW()
 		WHERE id = $25
 		RETURNING updated_at, version, version_id`
@@ -305,6 +309,8 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		job.RetryPriorityBoost,
 		job.DLQAlertThreshold,
 		job.QueueDepthAlertThreshold,
+		job.SkipIfRunning,
+		dbscan.NilIfEmptyRawMessage(job.ResultSchema),
 	).Scan(&job.UpdatedAt, &job.Version, &job.VersionID)
 	if err != nil {
 		return fmt.Errorf("update job: %w", err)
@@ -404,7 +410,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, skip_if_running, result_schema
 		FROM jobs
 		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -592,6 +598,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&job.RetryPriorityBoost,
 		&job.DLQAlertThreshold,
 		&job.QueueDepthAlertThreshold,
+		&job.SkipIfRunning,
 	)
 	if err != nil {
 		return nil, err
@@ -693,7 +700,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, skip_if_running, result_schema
 		FROM jobs
 		WHERE project_id = $1`
 

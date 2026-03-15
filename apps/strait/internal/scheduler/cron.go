@@ -22,6 +22,7 @@ type CronStore interface {
 	ListCronJobs(ctx context.Context) ([]domain.Job, error)
 	ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error)
 	CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error)
+	CountActiveRunsForJob(ctx context.Context, jobID string) (int, error)
 }
 
 type WorkflowTrigger interface {
@@ -113,6 +114,24 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	if job.RunTTLSecs > 0 {
 		exp := time.Now().Add(time.Duration(job.RunTTLSecs) * time.Second)
 		run.ExpiresAt = &exp
+	}
+
+	if job.SkipIfRunning {
+		active, err := cs.store.CountActiveRunsForJob(ctx, job.ID)
+		if err != nil {
+			slog.Error("failed to count active runs for job", "job_id", job.ID, "error", err)
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+			}
+			return
+		}
+		if active > 0 {
+			slog.Info("skipping cron trigger: job has active runs", "job_id", job.ID, "active", active)
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
+			}
+			return
+		}
 	}
 
 	if err := cs.queue.Enqueue(ctx, &run); err != nil {

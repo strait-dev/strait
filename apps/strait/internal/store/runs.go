@@ -2079,3 +2079,10 @@ func (q *Queries) GetRunErrorClass(ctx context.Context, runID string) (string, e
 	err := q.db.QueryRow(ctx, "SELECT COALESCE(error_class, '') FROM job_runs WHERE id = $1", runID).Scan(&errorClass)
 	return errorClass, err
 }
+
+func (q *Queries) CountActiveRunsForJob(ctx context.Context, jobID string) (int, error) {
+	query := `SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','dequeued','executing','waiting','delayed')`
+	var count int
+	err := q.db.QueryRow(ctx, query, jobID).Scan(&count)
+	return count, err
+}

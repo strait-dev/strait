@@ -175,6 +175,8 @@ type Job struct {
 	VersionID                string            `json:"version_id,omitempty"`
 	VersionPolicy            VersionPolicy     `json:"version_policy,omitempty"`
 	BackwardsCompatible      bool              `json:"backwards_compatible,omitempty"`
+	SkipIfRunning            bool              `json:"skip_if_running,omitempty"`
+	ResultSchema             json.RawMessage   `json:"result_schema,omitempty"`
 	CreatedBy                string            `json:"created_by,omitempty"`
 	UpdatedBy                string            `json:"updated_by,omitempty"`
 	CreatedAt                time.Time         `json:"created_at"`

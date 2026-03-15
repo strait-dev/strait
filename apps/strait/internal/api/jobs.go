@@ -41,6 +41,7 @@ type CreateJobRequest struct {
 	EnvironmentID        string            `json:"environment_id,omitempty"`
 	VersionPolicy        string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
+	SkipIfRunning        bool              `json:"skip_if_running,omitempty"`
 }
 
 type UpdateJobRequest struct {
@@ -70,6 +71,7 @@ type UpdateJobRequest struct {
 	VersionPolicy        *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	BackwardsCompatible  *bool              `json:"backwards_compatible,omitempty"`
 	DefaultRunMetadata   *map[string]string `json:"default_run_metadata,omitempty"`
+	SkipIfRunning        *bool              `json:"skip_if_running,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +168,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		RetryDelaysSecs:      req.RetryDelaysSecs,
 		EnvironmentID:        req.EnvironmentID,
 		DefaultRunMetadata:   req.DefaultRunMetadata,
+		SkipIfRunning:        req.SkipIfRunning,
 		Enabled:              true,
 		VersionPolicy:        domain.VersionPolicyPin,
 		CreatedBy:            actorFromContext(r.Context()),
@@ -394,6 +397,9 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.DefaultRunMetadata != nil {
 		job.DefaultRunMetadata = *req.DefaultRunMetadata
+	}
+	if req.SkipIfRunning != nil {
+		job.SkipIfRunning = *req.SkipIfRunning
 	}
 
 	if job.FallbackEndpointURL != "" {
