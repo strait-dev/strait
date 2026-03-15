@@ -166,6 +166,7 @@ type Job struct {
 	RunTTLSecs           int               `json:"run_ttl_secs,omitempty"`
 	RetryStrategy        string            `json:"retry_strategy,omitempty"`
 	RetryDelaysSecs      []int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost   int               `json:"retry_priority_boost,omitempty"`
 	EnvironmentID        string            `json:"environment_id,omitempty"`
 	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
 	Version              int               `json:"version"`

@@ -146,7 +146,8 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       jv.created_at, j.updated_at,
 		       COALESCE(jv.max_concurrency_per_key, j.max_concurrency_per_key),
 		       COALESCE(jv.rate_limit_keys, j.rate_limit_keys),
-		       COALESCE(jv.default_run_metadata, j.default_run_metadata)
+		       COALESCE(jv.default_run_metadata, j.default_run_metadata),
+		       COALESCE(jv.retry_priority_boost, j.retry_priority_boost)
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id
 		WHERE jv.job_id = $1 AND jv.version = $2`

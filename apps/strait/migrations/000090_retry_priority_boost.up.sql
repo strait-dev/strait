@@ -1,0 +1,2 @@
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS retry_priority_boost INT NOT NULL DEFAULT 1;
+ALTER TABLE job_versions ADD COLUMN IF NOT EXISTS retry_priority_boost INT NOT NULL DEFAULT 1;

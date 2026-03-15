@@ -133,14 +133,18 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	if shouldRetry {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
-		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
+		fields := map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
 			"error":         errMsg,
 			"error_class":   errClass,
 			"started_at":    nil,
 			"finished_at":   nil,
-		})
+		}
+		if job.RetryPriorityBoost > 0 {
+			fields["priority"] = min(run.Priority+job.RetryPriorityBoost, 10)
+		}
+		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
 		if err != nil {
 			e.logger.Error(
 				"failed to re-enqueue run",

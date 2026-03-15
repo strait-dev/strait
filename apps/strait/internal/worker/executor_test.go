@@ -2830,3 +2830,162 @@ func TestDispatch_RetryNoPreviousError(t *testing.T) {
 		t.Fatalf("expected no X-Previous-Error when empty, got %q", headers.Get("X-Previous-Error"))
 	}
 }
+
+func TestHandleFailure_RetryBoostsPriority(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 2
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 3
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	// Find the retry transition (executing -> queued)
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition (executing -> queued)")
+	}
+	gotPriority, ok := retryCall.fields["priority"].(int)
+	if !ok {
+		t.Fatalf("expected priority field in retry, got %v", retryCall.fields["priority"])
+	}
+	if gotPriority != 5 {
+		t.Fatalf("expected priority=5 (3+2), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 3
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 9
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority capped at 10, got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_ZeroBoostNoChange(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 0
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 3
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	if _, ok := retryCall.fields["priority"]; ok {
+		t.Fatal("expected no priority field when boost is 0")
+	}
+}
+
+func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 1 // default from DB
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 0
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 1 {
+		t.Fatalf("expected priority=1 (0+1 default boost), got %d", gotPriority)
+	}
+}
