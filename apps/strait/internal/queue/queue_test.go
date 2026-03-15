@@ -414,6 +414,65 @@ func TestDequeueN_NoTimeoutWhenZero(t *testing.T) {
 	}
 }
 
+func TestDequeueN_SkipsDisabledJobs(t *testing.T) {
+	t.Parallel()
+
+	var capturedQuery string
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			capturedQuery = sql
+			return nil, errors.New("forced query error")
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	_, _ = q.DequeueN(context.Background(), 10)
+
+	if !strings.Contains(capturedQuery, "j.enabled = true") {
+		t.Fatalf("DequeueN() query missing j.enabled = true filter: %s", capturedQuery)
+	}
+}
+
+func TestDequeue_SkipsDisabledJobs(t *testing.T) {
+	t.Parallel()
+
+	var capturedQuery string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedQuery = sql
+			return &mockRow{
+				scanFn: func(_ ...any) error { return pgx.ErrNoRows },
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	_, _ = q.Dequeue(context.Background())
+
+	if !strings.Contains(capturedQuery, "j.enabled = true") {
+		t.Fatalf("Dequeue() query missing j.enabled = true filter: %s", capturedQuery)
+	}
+}
+
+func TestDequeueNByProject_SkipsDisabledJobs(t *testing.T) {
+	t.Parallel()
+
+	var capturedQuery string
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			capturedQuery = sql
+			return nil, errors.New("forced query error")
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	_, _ = q.DequeueNByProject(context.Background(), 10, "proj-1")
+
+	if !strings.Contains(capturedQuery, "j.enabled = true") {
+		t.Fatalf("DequeueNByProject() query missing j.enabled = true filter: %s", capturedQuery)
+	}
+}
+
 func TestLoad_DefaultStatementTimeout(t *testing.T) {
 	// This is tested via config_test.go - just verify the option works
 	q := NewPostgresQueue(&mockDBTX{}, WithStatementTimeout(30*time.Second))

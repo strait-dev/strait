@@ -172,6 +172,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
 			WHERE jr.status = '%s'
+			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND (
@@ -227,6 +228,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
 			WHERE jr.status = '%s'
+			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND (
@@ -302,6 +304,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
 			WHERE jr.status = '%s'
+			  AND j.enabled = true
 			  AND jr.project_id = $2
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
