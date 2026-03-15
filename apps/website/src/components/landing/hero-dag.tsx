@@ -18,13 +18,31 @@ type DagEdge = {
 };
 
 const NODES: DagNode[] = [
-  { id: "validate", label: "Validate\nPayload", x: 60, y: 180, status: "queued" },
-  { id: "inventory", label: "Check\nInventory", x: 200, y: 180, status: "queued" },
+  {
+    id: "validate",
+    label: "Validate\nPayload",
+    x: 60,
+    y: 180,
+    status: "queued",
+  },
+  {
+    id: "inventory",
+    label: "Check\nInventory",
+    x: 200,
+    y: 180,
+    status: "queued",
+  },
   { id: "payment", label: "Charge\nPayment", x: 340, y: 120, status: "queued" },
   { id: "approval", label: "Approval\nGate", x: 340, y: 240, status: "queued" },
   { id: "fulfill", label: "Fulfill\nOrder", x: 480, y: 180, status: "queued" },
   { id: "confirm", label: "Send\nConfirm", x: 620, y: 130, status: "queued" },
-  { id: "analytics", label: "Update\nAnalytics", x: 620, y: 230, status: "queued" },
+  {
+    id: "analytics",
+    label: "Update\nAnalytics",
+    x: 620,
+    y: 230,
+    status: "queued",
+  },
 ];
 
 const EDGES: DagEdge[] = [
@@ -145,15 +163,15 @@ const HeroDag = () => {
 
   return (
     <div
-      ref={containerRef}
-      className="relative h-full w-full select-none"
-      role="img"
       aria-label="Animated DAG showing an order processing workflow executing"
+      className="relative h-full w-full select-none"
+      ref={containerRef}
+      role="img"
     >
       <svg
-        viewBox="0 0 740 380"
         className="h-full w-full"
         fill="none"
+        viewBox="0 0 740 380"
         xmlns="http://www.w3.org/2000/svg"
       >
         {EDGES.map((edge) => {
@@ -170,17 +188,17 @@ const HeroDag = () => {
           return (
             <line
               key={`${edge.from}-${edge.to}`}
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
-              stroke={isActive ? "var(--success)" : "var(--border)"}
-              strokeWidth={1.5}
-              strokeDasharray={isActive ? "none" : "4 4"}
               opacity={isActive ? 0.6 : 0.3}
+              stroke={isActive ? "var(--success)" : "var(--border)"}
+              strokeDasharray={isActive ? "none" : "4 4"}
+              strokeWidth={1.5}
               style={{
                 transition: "stroke 0.4s ease, opacity 0.4s ease",
               }}
+              x1={x1}
+              x2={x2}
+              y1={y1}
+              y2={y2}
             />
           );
         })}
@@ -197,67 +215,67 @@ const HeroDag = () => {
               onPointerLeave={() => setHoveredNode(null)}
             >
               <rect
-                x={node.x}
-                y={node.y}
-                width={NODE_W}
+                fill={statusBg[status]}
                 height={NODE_H}
                 rx={10}
-                fill={statusBg[status]}
                 stroke={statusColor[status]}
                 strokeWidth={isHovered ? 2 : 1.5}
                 style={{
                   transition: "fill 0.4s ease, stroke 0.4s ease",
                 }}
+                width={NODE_W}
+                x={node.x}
+                y={node.y}
               />
 
               {status === "executing" && (
                 <rect
-                  x={node.x}
-                  y={node.y}
-                  width={NODE_W}
-                  height={NODE_H}
-                  rx={10}
                   fill="none"
+                  height={NODE_H}
+                  opacity={0.4}
+                  rx={10}
                   stroke={statusColor[status]}
                   strokeWidth={1}
-                  opacity={0.4}
                   style={{
                     animation: "dag-pulse 1.5s ease-in-out infinite",
                   }}
+                  width={NODE_W}
+                  x={node.x}
+                  y={node.y}
                 />
               )}
 
               {status === "approval" && (
                 <rect
-                  x={node.x}
-                  y={node.y}
-                  width={NODE_W}
-                  height={NODE_H}
-                  rx={10}
                   fill="none"
+                  height={NODE_H}
+                  opacity={0.5}
+                  rx={10}
                   stroke={statusColor[status]}
                   strokeWidth={1}
-                  opacity={0.5}
                   style={{
                     animation: "dag-pulse 1s ease-in-out infinite",
                   }}
+                  width={NODE_W}
+                  x={node.x}
+                  y={node.y}
                 />
               )}
 
               {lines.map((line, i) => (
                 <text
-                  key={`${node.id}-line-${String(i)}`}
-                  x={node.x + NODE_W / 2}
-                  y={node.y + NODE_H / 2 + (i - (lines.length - 1) / 2) * 14}
-                  textAnchor="middle"
                   dominantBaseline="central"
                   fill={statusColor[status]}
-                  fontSize={11}
                   fontFamily="var(--font-sans), system-ui, sans-serif"
+                  fontSize={11}
                   fontWeight={500}
+                  key={`${node.id}-line-${String(i)}`}
                   style={{
                     transition: "fill 0.4s ease",
                   }}
+                  textAnchor="middle"
+                  x={node.x + NODE_W / 2}
+                  y={node.y + NODE_H / 2 + (i - (lines.length - 1) / 2) * 14}
                 >
                   {line}
                 </text>
@@ -266,32 +284,32 @@ const HeroDag = () => {
               {isHovered && (
                 <g>
                   <rect
-                    x={node.x - 10}
-                    y={node.y + NODE_H + 8}
-                    width={NODE_W + 20}
+                    fill="var(--card)"
                     height={42}
                     rx={6}
-                    fill="var(--card)"
                     stroke="var(--border)"
                     strokeWidth={1}
+                    width={NODE_W + 20}
+                    x={node.x - 10}
+                    y={node.y + NODE_H + 8}
                   />
                   <text
+                    fill="var(--muted-foreground)"
+                    fontFamily="var(--font-sans), system-ui, sans-serif"
+                    fontSize={9}
+                    textAnchor="middle"
                     x={node.x + NODE_W / 2}
                     y={node.y + NODE_H + 24}
-                    textAnchor="middle"
-                    fill="var(--muted-foreground)"
-                    fontSize={9}
-                    fontFamily="var(--font-sans), system-ui, sans-serif"
                   >
                     {`Status: ${status}`}
                   </text>
                   <text
+                    fill="var(--muted-foreground)"
+                    fontFamily="var(--font-sans), system-ui, sans-serif"
+                    fontSize={9}
+                    textAnchor="middle"
                     x={node.x + NODE_W / 2}
                     y={node.y + NODE_H + 38}
-                    textAnchor="middle"
-                    fill="var(--muted-foreground)"
-                    fontSize={9}
-                    fontFamily="var(--font-sans), system-ui, sans-serif"
                   >
                     {`run_${node.id.slice(0, 6)} · ${status === "completed" ? "215ms" : "—"}`}
                   </text>

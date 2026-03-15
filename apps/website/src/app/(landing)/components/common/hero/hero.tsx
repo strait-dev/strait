@@ -2,9 +2,8 @@ import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
-
-import Shell from "@/components/layout/shell.tsx";
 import HeroDag from "@/components/landing/hero-dag.tsx";
+import Shell from "@/components/layout/shell.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
 const Hero = () => (

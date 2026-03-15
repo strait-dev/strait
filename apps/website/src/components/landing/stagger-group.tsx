@@ -22,11 +22,11 @@ const StaggerGroup = ({
 
   return (
     <motion.div
-      ref={ref}
-      className={className}
-      variants={staggerContainer(delay)}
-      initial="hidden"
       animate={isInView ? "visible" : "hidden"}
+      className={className}
+      initial="hidden"
+      ref={ref}
+      variants={staggerContainer(delay)}
     >
       {children}
     </motion.div>

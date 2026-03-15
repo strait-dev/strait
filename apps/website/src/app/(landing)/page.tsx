@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-
+import PipelineDemo from "@/components/landing/pipeline-demo.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getHowToSchema,
@@ -15,7 +15,6 @@ import InterviewShowcase from "./components/common/feature-section/interview-sho
 import StylesShowcase from "./components/common/feature-section/styles-showcase.tsx";
 import WritingToolkitShowcase from "./components/common/feature-section/writing-toolkit-showcase.tsx";
 import Hero from "./components/common/hero/hero.tsx";
-import InteractiveDemo from "./components/common/hero/interactive-demo.tsx";
 import ProblemSection from "./components/common/hero/problem-section.tsx";
 import ProductShowcase from "./components/common/hero/product-showcase.tsx";
 
@@ -70,7 +69,7 @@ const LandingPage = () => {
       <JsonLd data={softwareAppSchema} />
       {howToSchema ? <JsonLd data={howToSchema} /> : null}
       <Hero />
-      <InteractiveDemo />
+      <PipelineDemo />
       <ProblemSection />
 
       <Suspense

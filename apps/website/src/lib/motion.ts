@@ -12,7 +12,9 @@ export const SPRING_SMOOTH: Transition = {
   damping: 20,
 };
 
-export const EASE_OUT_EXPO: [number, number, number, number] = [0.16, 1, 0.3, 1];
+export const EASE_OUT_EXPO: [number, number, number, number] = [
+  0.16, 1, 0.3, 1,
+];
 
 export function staggerContainer(delay = 0.08): Variants {
   return {

@@ -35,18 +35,18 @@ const Reveal = ({
 
   return (
     <motion.div
-      ref={ref}
+      animate={
+        isInView
+          ? { opacity: 1, x: 0, y: 0 }
+          : { opacity: 0, x: dir.x * distance, y: dir.y * distance }
+      }
       className={className}
       initial={{
         opacity: 0,
         x: dir.x * distance,
         y: dir.y * distance,
       }}
-      animate={
-        isInView
-          ? { opacity: 1, x: 0, y: 0 }
-          : { opacity: 0, x: dir.x * distance, y: dir.y * distance }
-      }
+      ref={ref}
       transition={{
         duration: 0.6,
         ease: EASE_OUT_EXPO,
