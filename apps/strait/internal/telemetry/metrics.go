@@ -64,6 +64,7 @@ type Metrics struct {
 	PoolDroppedTasks    metric.Int64ObservableCounter
 	ShutdownTotal       metric.Int64Counter
 	DLQDepth            metric.Int64Gauge
+	QueueDepthPerJob    metric.Int64Gauge
 
 	// DB connection pool metrics.
 	DBPoolTotalConns    metric.Int64ObservableGauge
@@ -455,6 +456,8 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create dlq depth gauge: %w", err)
 	}
 
+	queueDepthPerJob, _ := meter.Int64Gauge("strait_queue_depth_per_job", metric.WithDescription("Queue depth per job"), metric.WithUnit("1"))
+
 	dbPoolTotal, _ := meter.Int64ObservableGauge("strait_db_pool_total_conns", metric.WithDescription("Total DB pool connections"))
 	dbPoolIdle, _ := meter.Int64ObservableGauge("strait_db_pool_idle_conns", metric.WithDescription("Idle DB pool connections"))
 	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
@@ -500,6 +503,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		PoolDroppedTasks:         poolDropped,
 		ShutdownTotal:            shutdownTotal,
 		DLQDepth:                 dlqDepth,
+		QueueDepthPerJob:         queueDepthPerJob,
 		DBPoolTotalConns:         dbPoolTotal,
 		DBPoolIdleConns:          dbPoolIdle,
 		DBPoolAcquiredConns:      dbPoolAcquired,

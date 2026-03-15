@@ -58,6 +58,11 @@ type ReconciliationStore interface {
 	ResetStuckWebhookDeliveries(ctx context.Context) (int64, error)
 }
 
+// QueueDepthMonitorStore is an optional interface for queue depth monitoring.
+type QueueDepthMonitorStore interface {
+	ListQueueDepthByJob(ctx context.Context) ([]store.QueueJobDepth, error)
+}
+
 // DLQJobDepth represents the dead-letter queue depth for a single job.
 type DLQJobDepth struct {
 	JobID             string
@@ -102,6 +107,7 @@ type Reaper struct {
 	logger                *slog.Logger
 	stalledAction         string
 	dlqAlertCooldown      map[string]time.Time
+	queueAlertCooldown    map[string]time.Time
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -144,6 +150,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		logger:                slog.Default(),
 		stalledAction:         "log_only",
 		dlqAlertCooldown:      make(map[string]time.Time),
+		queueAlertCooldown:    make(map[string]time.Time),
 	}
 }
 
@@ -231,6 +238,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.monitorDLQDepth(ctx)
 	r.reapOrphanedStepRuns(ctx)
 	r.reapStuckWebhookDeliveries(ctx)
+	r.monitorQueueDepth(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -796,5 +804,38 @@ func (r *Reaper) reapStuckWebhookDeliveries(ctx context.Context) {
 
 	if count > 0 {
 		r.logger.Info("reset stuck webhook deliveries", "count", count)
+	}
+}
+
+func (r *Reaper) monitorQueueDepth(ctx context.Context) {
+	qdStore, ok := r.store.(QueueDepthMonitorStore)
+	if !ok {
+		return
+	}
+
+	depths, err := qdStore.ListQueueDepthByJob(ctx)
+	if err != nil {
+		r.logger.Error("failed to query queue depth", "error", err)
+		return
+	}
+
+	now := time.Now()
+	for _, d := range depths {
+		if r.metrics != nil {
+			r.metrics.QueueDepthPerJob.Record(ctx, int64(d.QueuedCount), metric.WithAttributes(
+				attribute.String("job_id", d.JobID),
+			))
+		}
+
+		if lastAlert, exists := r.queueAlertCooldown[d.JobID]; exists && now.Sub(lastAlert) < time.Hour {
+			continue
+		}
+
+		r.logger.Warn("queue depth threshold exceeded",
+			"job_id", d.JobID,
+			"queued_count", d.QueuedCount,
+			"threshold", d.QueueDepthAlertThreshold,
+		)
+		r.queueAlertCooldown[d.JobID] = now
 	}
 }

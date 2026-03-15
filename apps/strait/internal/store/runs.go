@@ -1370,6 +1370,43 @@ func (q *Queries) ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error) 
 	return results, rows.Err()
 }
 
+// QueueJobDepth represents the queue depth for a single job.
+type QueueJobDepth struct {
+	JobID                    string
+	QueuedCount              int
+	QueueDepthAlertThreshold int
+}
+
+func (q *Queries) ListQueueDepthByJob(ctx context.Context) ([]QueueJobDepth, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListQueueDepthByJob")
+	defer span.End()
+
+	query := `
+		SELECT jr.job_id, COUNT(*) AS queued_count, j.queue_depth_alert_threshold
+		FROM job_runs jr
+		JOIN jobs j ON j.id = jr.job_id
+		WHERE jr.status = 'queued'
+		  AND j.queue_depth_alert_threshold IS NOT NULL
+		GROUP BY jr.job_id, j.queue_depth_alert_threshold
+		HAVING COUNT(*) >= j.queue_depth_alert_threshold`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list queue depth by job: %w", err)
+	}
+	defer rows.Close()
+
+	var results []QueueJobDepth
+	for rows.Next() {
+		var d QueueJobDepth
+		if err := rows.Scan(&d.JobID, &d.QueuedCount, &d.QueueDepthAlertThreshold); err != nil {
+			return nil, fmt.Errorf("scan queue depth: %w", err)
+		}
+		results = append(results, d)
+	}
+	return results, rows.Err()
+}
+
 func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetDebugBundle")
 	defer span.End()
