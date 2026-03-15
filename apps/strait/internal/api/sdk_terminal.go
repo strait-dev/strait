@@ -45,7 +45,7 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 	// Validate result against job's result_schema if defined.
 	if len(req.Result) > 0 {
 		job, jobErr := s.store.GetJob(r.Context(), run.JobID)
-		if jobErr == nil && len(job.ResultSchema) > 0 {
+		if jobErr == nil && job != nil && len(job.ResultSchema) > 0 {
 			if schemaErr := validatePayloadAgainstSchema(req.Result, job.ResultSchema); schemaErr != nil {
 				respondJSON(w, http.StatusUnprocessableEntity, map[string]any{
 					"error":   "result schema validation failed",
