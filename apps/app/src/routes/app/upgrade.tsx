@@ -83,12 +83,6 @@ export const Route = createFileRoute("/app/upgrade")({
 
 function RouteComponent() {
   const search = Route.useSearch();
-  const [selectedPlan, setSelectedPlan] = useState<
-    "starter" | "growth" | "professional" | "enterprise"
-  >("growth");
-  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">(
-    "monthly"
-  );
   const { data: subscriptionState } = useSuspenseQuery(
     subscriptionStateQueryOptions()
   );
@@ -98,6 +92,12 @@ function RouteComponent() {
     | "growth"
     | "professional"
     | "enterprise";
+  const [selectedPlan, setSelectedPlan] = useState<
+    "starter" | "growth" | "professional" | "enterprise"
+  >(currentPlan || "growth");
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">(
+    "monthly"
+  );
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const { trackSubscription } = useAnalytics();
   const hasTrackedPageView = useRef(false);
@@ -112,13 +112,6 @@ function RouteComponent() {
       hasTrackedPageView.current = true;
     }
   }, [trackSubscription, currentPlan, isTrialing]);
-
-  // Pre-select user's current plan on mount (so they upgrade to the plan they're trialing)
-  useEffect(() => {
-    if (currentPlan) {
-      setSelectedPlan(currentPlan);
-    }
-  }, [currentPlan]);
 
   const startCheckout = useMutation({
     mutationFn: () =>

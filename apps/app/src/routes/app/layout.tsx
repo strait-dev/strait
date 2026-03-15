@@ -12,7 +12,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import * as z from "zod";
 import ErrorComponent from "@/components/common/error-component";
 import { RequireOrganization } from "@/components/common/require-organization";
@@ -116,7 +116,7 @@ function RouteComponent() {
   const search = Route.useSearch() as SearchParams;
   const navigate = useNavigate();
   const posthog = usePostHog();
-  const [showTrialModal, setShowTrialModal] = useState(false);
+  const showTrialModal = Boolean(search.trial_started);
   const hasIdentifiedRef = useRef(false);
 
   const { data: subscription } = useSuspenseQuery(subscriptionQueryOptions());
@@ -154,15 +154,8 @@ function RouteComponent() {
     hasIdentifiedRef.current = true;
   }, [posthog, session, subscription, subscriptionState]);
 
-  useEffect(() => {
-    if (search.trial_started) {
-      setShowTrialModal(true);
-    }
-  }, [search.trial_started]);
-
   const handleTrialModalClose = (open: boolean) => {
-    setShowTrialModal(open);
-    if (!open && search.trial_started) {
+    if (!open) {
       navigate({
         to: "/app",
         search: {} as SearchParams,

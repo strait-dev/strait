@@ -8,7 +8,6 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import type { Table } from "@tanstack/react-table";
-import { useEffect, useState } from "react";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -39,11 +38,7 @@ export const DataTablePagination = <TData,>({
 }: DataTablePaginationProps<TData>) => {
   const pageSizeOptions = PAGE_SIZE_OPTIONS;
   const pageSize = table.getState().pagination.pageSize;
-  const [localPageSize, setLocalPageSize] = useState(String(pageSize));
-
-  useEffect(() => {
-    setLocalPageSize(String(pageSize));
-  }, [pageSize]);
+  const localPageSize = String(pageSize);
 
   return (
     <div className="flex w-full flex-col gap-2 self-center sm:flex-row sm:items-center sm:justify-between">
@@ -59,7 +54,6 @@ export const DataTablePagination = <TData,>({
             if (!value) {
               return;
             }
-            setLocalPageSize(value);
             table.setPageSize(Number(value));
           }}
           value={localPageSize}
