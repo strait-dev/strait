@@ -17,7 +17,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import PageHeader from "@/components/common/page-header";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
@@ -27,8 +26,12 @@ import { authMiddleware } from "@/middlewares/auth";
 const PLAN_SLUGS: Record<string, string> = {
   "starter-monthly": "starter-monthly",
   "starter-yearly": "starter-yearly",
+  "growth-monthly": "growth-monthly",
+  "growth-yearly": "growth-yearly",
   "professional-monthly": "professional-monthly",
   "professional-yearly": "professional-yearly",
+  "enterprise-monthly": "enterprise-monthly",
+  "enterprise-yearly": "enterprise-yearly",
 };
 
 type StartCheckoutInput = {
@@ -166,11 +169,6 @@ function RouteComponent() {
 
   return (
     <Shell>
-      <PageHeader
-        text="Here you can find all our plans. Choose the plan that best fits your needs and start selling more today."
-        title="Upgrade Plan"
-      />
-
       {/* Show cancellation message if user canceled checkout */}
       {search.canceled ? (
         <Alert className="mb-6 border-yellow-200 bg-yellow-50">

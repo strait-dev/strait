@@ -4,6 +4,7 @@ import { CheckIcon } from "@radix-ui/react-icons";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { CardCheckboxItem } from "@strait/ui/components/card-checkbox";
+import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { cn } from "@strait/ui/utils/index";
 import { formatCurrency } from "@strait/utils/money";
 import { useCallback, useState } from "react";
@@ -450,26 +451,23 @@ export const PlanSelection = ({
 
       {/* Billing Toggle */}
       <div className="flex justify-center">
-        <div className="flex w-fit items-center gap-1 rounded-custom bg-muted p-1">
-          {BILLING_INTERVALS.map((option) => (
-            <button
-              className={cn(
-                "relative flex items-center gap-2 rounded-custom px-3 py-1.5 font-normal text-sm transition-colors",
-                billingInterval === option.value
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-foreground/80 hover:bg-muted-foreground/10"
-              )}
-              key={option.value}
-              onClick={() => handleBillingIntervalChange(option.value)}
-              type="button"
-            >
-              <span>{option.label}</span>
-              {option.helper ? (
-                <Badge variant="success-light">{option.helper}</Badge>
-              ) : null}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          onValueChange={(v) =>
+            handleBillingIntervalChange(v as BillingInterval)
+          }
+          value={billingInterval}
+        >
+          <TabsList>
+            {BILLING_INTERVALS.map((option) => (
+              <TabsTrigger key={option.value} value={option.value}>
+                {option.label}
+                {option.helper ? (
+                  <Badge variant="success-light">{option.helper}</Badge>
+                ) : null}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Plan Cards */}
