@@ -193,50 +193,58 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, updatedRun)
 }
 
-// maxCancelDepth limits recursive child cancellation to prevent stack overflow.
+// maxCancelDepth limits recursive child cancellation to prevent runaway traversal.
 const maxCancelDepth = 20
 
+// cancelChildRunsRecursive uses CancelChildRunsByParentIDs to bulk-cancel
+// children at each depth level, avoiding N+1 individual UpdateRunStatus calls.
 func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID string) int64 {
-	return s.cancelChildRunsRecursiveDepth(ctx, parentRunID, 0)
-}
-
-func (s *Server) cancelChildRunsRecursiveDepth(ctx context.Context, parentRunID string, depth int) int64 {
-	if depth >= maxCancelDepth {
-		slog.Warn("max cancel recursion depth reached", "parent_run_id", parentRunID, "depth", depth)
-		return 0
-	}
-
 	now := time.Now()
-	var cursor *time.Time
-	var count int64
-	for {
+	parentIDs := []string{parentRunID}
+	var total int64
+
+	for depth := range maxCancelDepth {
 		select {
 		case <-ctx.Done():
-			return count
+			return total
 		default:
 		}
 
-		children, err := s.store.ListChildRuns(ctx, parentRunID, 100, cursor)
-		if err != nil || len(children) == 0 {
+		if len(parentIDs) == 0 {
 			break
 		}
-		for _, child := range children {
-			if !child.Status.IsTerminal() {
-				if err := s.store.UpdateRunStatus(ctx, child.ID, child.Status, domain.StatusCanceled, map[string]any{
-					"finished_at": now,
-					"error":       "parent run canceled",
-				}); err != nil {
-					slog.Error("failed to cancel child run", "child_run_id", child.ID, "error", err)
-				} else {
-					count++
+
+		canceled, err := s.store.CancelChildRunsByParentIDs(ctx, parentIDs, now, "parent run canceled")
+		if err != nil {
+			slog.Error("failed to bulk cancel child runs", "depth", depth, "parent_count", len(parentIDs), "error", err)
+			break
+		}
+		if canceled == 0 {
+			break
+		}
+		total += canceled
+
+		// Collect IDs of the just-canceled children to recurse into their children.
+		// We need to list them to get their IDs for the next depth level.
+		nextParentIDs := make([]string, 0)
+		for _, pid := range parentIDs {
+			var cursor *time.Time
+			for {
+				children, listErr := s.store.ListChildRuns(ctx, pid, 100, cursor)
+				if listErr != nil || len(children) == 0 {
+					break
 				}
-				count += s.cancelChildRunsRecursiveDepth(ctx, child.ID, depth+1)
+				for _, child := range children {
+					nextParentIDs = append(nextParentIDs, child.ID)
+				}
+				lastCreatedAt := children[len(children)-1].CreatedAt
+				cursor = &lastCreatedAt
 			}
 		}
-		lastCreatedAt := children[len(children)-1].CreatedAt
-		cursor = &lastCreatedAt
+		parentIDs = nextParentIDs
 	}
-	return count
+
+	return total
 }
 
 func (s *Server) handleGetRunDependencyStatus(w http.ResponseWriter, r *http.Request) {
