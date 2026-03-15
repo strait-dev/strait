@@ -785,6 +785,48 @@
   animation: fsm-pulse 2.4s ease-in-out infinite;
 }
 
+/* ============================================
+   Gradient Shimmer & Glow Pulse
+   ============================================ */
+
+@keyframes gradient-shimmer {
+  0% {
+    background-position: -200% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px 2px color-mix(in oklch, var(--primary) 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 20px 6px color-mix(in oklch, var(--primary) 40%, transparent);
+  }
+}
+
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.animate-gradient-shimmer {
+  background-size: 200% 100%;
+  animation: gradient-shimmer 3s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+.animate-flow-dash {
+  animation: flow-dash 1s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .parallax-slow,
   .demo-cursor,
@@ -801,7 +843,10 @@
   .animate-float,
   .animate-shimmer,
   .animate-slide-up,
-  .animate-scale-in {
+  .animate-scale-in,
+  .animate-gradient-shimmer,
+  .animate-glow-pulse,
+  .animate-flow-dash {
     opacity: 1 !important;
     transform: none !important;
     animation: none !important;

@@ -12,6 +12,18 @@ export const SPRING_SMOOTH: Transition = {
   damping: 20,
 };
 
+export const SPRING_BOUNCY: Transition = {
+  type: "spring",
+  stiffness: 400,
+  damping: 15,
+};
+
+export const SPRING_GENTLE: Transition = {
+  type: "spring",
+  stiffness: 60,
+  damping: 18,
+};
+
 export const EASE_OUT_EXPO: [number, number, number, number] = [
   0.16, 1, 0.3, 1,
 ];
@@ -48,6 +60,48 @@ export function scaleReveal(): Variants {
       opacity: 1,
       scale: 1,
       transition: SPRING_SMOOTH,
+    },
+  };
+}
+
+export function blurFadeIn(): Variants {
+  return {
+    hidden: { opacity: 0, filter: "blur(8px)" },
+    visible: {
+      opacity: 1,
+      filter: "blur(0px)",
+      transition: {
+        duration: 0.6,
+        ease: EASE_OUT_EXPO,
+      },
+    },
+  };
+}
+
+export function fadeSlideLeft(distance = 24): Variants {
+  return {
+    hidden: { opacity: 0, x: -distance },
+    visible: {
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: 0.6,
+        ease: EASE_OUT_EXPO,
+      },
+    },
+  };
+}
+
+export function fadeSlideRight(distance = 24): Variants {
+  return {
+    hidden: { opacity: 0, x: distance },
+    visible: {
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: 0.6,
+        ease: EASE_OUT_EXPO,
+      },
     },
   };
 }
