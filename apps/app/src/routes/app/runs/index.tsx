@@ -150,16 +150,14 @@ function RunsPage() {
         </div>
 
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <Button variant="outline">
-              <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
-              Status
-              {selectedStatuses.length > 0 && (
-                <Badge size="xs" variant="default">
-                  {selectedStatuses.length}
-                </Badge>
-              )}
-            </Button>
+          <DropdownMenuTrigger render={<Button variant="outline" />}>
+            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
+            Status
+            {selectedStatuses.length > 0 && (
+              <Badge size="xs" variant="default">
+                {selectedStatuses.length}
+              </Badge>
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             {STATUS_OPTIONS.map((status) => (

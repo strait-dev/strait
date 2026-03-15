@@ -93,15 +93,15 @@ export function NotificationsSheet() {
 
   return (
     <Sheet>
-      <SheetTrigger>
-        <Button className="relative" size="icon" variant="ghost">
-          <HugeiconsIcon icon={BellIcon} size={18} />
-          {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive font-medium text-destructive-foreground text-xs">
-              {unreadCount}
-            </span>
-          )}
-        </Button>
+      <SheetTrigger
+        render={<Button className="relative" size="icon" variant="ghost" />}
+      >
+        <HugeiconsIcon icon={BellIcon} size={18} />
+        {unreadCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive font-medium text-destructive-foreground text-xs">
+            {unreadCount}
+          </span>
+        )}
       </SheetTrigger>
       <SheetContent>
         <SheetHeader>

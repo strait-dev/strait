@@ -47,10 +47,12 @@ export function createActionsColumn<T>(actions: ActionItem<T>[]): ColumnDef<T> {
     id: "actions",
     cell: ({ row }) => (
       <DropdownMenu>
-        <DropdownMenuTrigger>
-          <Button aria-label="Row actions" size="icon" variant="ghost">
-            <HugeiconsIcon icon={MoreVerticalIcon} size={16} />
-          </Button>
+        <DropdownMenuTrigger
+          render={
+            <Button aria-label="Row actions" size="icon" variant="ghost" />
+          }
+        >
+          <HugeiconsIcon icon={MoreVerticalIcon} size={16} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {actions.map((action) => (
