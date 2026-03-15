@@ -1,9 +1,9 @@
 ---
 title: "SDK Overview"
-description: "Official Strait SDKs for TypeScript, Python, and Go — feature parity across all three languages."
+description: "Official Strait SDKs for TypeScript, Python, Go, Ruby, and Rust — feature parity across all five languages."
 ---
 
-Strait provides official SDKs for **TypeScript**, **Python**, and **Go**. All three SDKs share the same feature set, configuration model, and API coverage.
+Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs share the same feature set, configuration model, and API coverage.
 
 ## Installation
 
@@ -21,24 +21,32 @@ Strait provides official SDKs for **TypeScript**, **Python**, and **Go**. All th
   ```bash Go
   go get github.com/strait-dev/go-sdk
   ```
+
+  ```bash Ruby
+  gem install strait
+  ```
+
+  ```bash Rust
+  cargo add strait
+  ```
 </CodeGroup>
 
 ## Feature Parity
 
-All three SDKs implement the same capabilities:
+All five SDKs implement the same capabilities:
 
-| Feature | TypeScript | Python | Go |
-|---|---|---|---|
-| **API operations** (186 endpoints) | `client.jobs.list()` | `client.jobs.list()` | `jobs.List(ctx)` |
-| **Config from `strait.json`** | `createClientFromConfigFile()` | `Client.from_file()` | `NewClientFromFile()` |
-| **Config from env vars** | `createClientFromEnv()` | `Client.from_env()` | `NewClientFromEnv()` |
-| **Authoring DSL** | `defineJob()` / `defineWorkflow()` | `define_job()` / `define_workflow()` | `DefineJob()` / `DefineWorkflow()` |
-| **Composition helpers** | `withRetry()`, `waitForRun()`, `paginate()` | `with_retry()`, `wait_for_run()`, `paginate()` | `WithRetry()`, `WaitForRun()`, `Paginate()` |
-| **FSM state machines** | XState v5 actors | `transition_run()` | `CanTransitionRun()` |
-| **DAG validation** | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm |
-| **Middleware hooks** | `onRequest` / `onResponse` / `onError` | `on_request` / `on_response` / `on_error` | `OnRequest` / `OnResponse` / `OnError` |
-| **Typed errors** | 10 error classes | 10 exception types | 10 error types |
-| **Custom HTTP client** | Custom `fetch` | `httpx.Client` | `HTTPDoer` interface |
+| Feature | TypeScript | Python | Go | Ruby | Rust |
+|---|---|---|---|---|---|
+| **API operations** (186 endpoints) | `client.jobs.list()` | `client.jobs.list()` | `jobs.List(ctx)` | `jobs.list` | `jobs.list().await` |
+| **Config from `strait.json`** | `createClientFromConfigFile()` | `Client.from_file()` | `NewClientFromFile()` | `Client.from_file` | `Client::from_file()` |
+| **Config from env vars** | `createClientFromEnv()` | `Client.from_env()` | `NewClientFromEnv()` | `Client.from_env` | `Client::from_env()` |
+| **Authoring DSL** | `defineJob()` / `defineWorkflow()` | `define_job()` / `define_workflow()` | `DefineJob()` / `DefineWorkflow()` | `define_job` / `define_workflow` | `define_job()` / `define_workflow()` |
+| **Composition helpers** | `withRetry()`, `waitForRun()`, `paginate()` | `with_retry()`, `wait_for_run()`, `paginate()` | `WithRetry()`, `WaitForRun()`, `Paginate()` | `with_retry`, `wait_for_run`, `paginate` | `with_retry()`, `wait_for_run()`, `paginate()` |
+| **FSM state machines** | XState v5 actors | `transition_run()` | `CanTransitionRun()` | `can_transition_run?` | `can_transition_run()` |
+| **DAG validation** | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm |
+| **Middleware hooks** | `onRequest` / `onResponse` / `onError` | `on_request` / `on_response` / `on_error` | `OnRequest` / `OnResponse` / `OnError` | `on_request` / `on_response` / `on_error` | `on_request` / `on_response` / `on_error` |
+| **Typed errors** | 10 error classes | 10 exception types | 10 error types | 10 error classes | 10 error variants |
+| **Custom HTTP client** | Custom `fetch` | `httpx.Client` | `HTTPDoer` interface | `#call` interface | `reqwest::Client` |
 
 ## Quick Start
 
@@ -84,6 +92,23 @@ export STRAIT_API_KEY="sk_live_..."
   client, err := strait.NewClientFromFile(nil)
   jobs := operations.NewJobsService(client)
   result, err := jobs.List(ctx, nil)
+  ```
+
+  ```ruby Ruby
+  require "strait"
+
+  client = Strait::Client.from_file
+  jobs = Strait::Operations::Jobs.new(client)
+  result = jobs.list(project_id: "proj_1")
+  ```
+
+  ```rust Rust
+  use strait::Client;
+  use strait::operations::Jobs;
+
+  let client = Client::from_file(None).await?;
+  let jobs = Jobs::new(&client);
+  let result = jobs.list(Some(&[("project_id", "proj_1")])).await?;
   ```
 </CodeGroup>
 
@@ -148,5 +173,14 @@ All 186 API operations are organized into typed service classes:
   </Card>
   <Card title="Go SDK" icon="golang" href="/docs/sdks/go">
     Functional options pattern, typed error handling, and full API coverage.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="Ruby SDK" icon="gem" href="/docs/sdks/ruby">
+    Idiomatic Ruby DSL, typed errors, and full API coverage.
+  </Card>
+  <Card title="Rust SDK" icon="rust" href="/docs/sdks/rust">
+    Async/await, builder pattern, type-safe errors, and full API coverage.
   </Card>
 </CardGroup>

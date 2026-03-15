@@ -106,7 +106,9 @@
               "sdks/configuration",
               "sdks/typescript",
               "sdks/python",
-              "sdks/go"
+              "sdks/go",
+              "sdks/ruby",
+              "sdks/rust"
             ]
           }
         ]

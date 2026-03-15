@@ -3,7 +3,7 @@ title: "SDK Integration"
 description: "Integrating your job code with Strait using official SDK client libraries."
 ---
 
-Strait provides official SDKs for **TypeScript**, **Python**, and **Go** — all with full feature parity. This guide covers how to use the SDKs to interact with the Strait API and integrate SDK endpoints into your job code.
+Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust** — all with full feature parity. This guide covers how to use the SDKs to interact with the Strait API and integrate SDK endpoints into your job code.
 
 <Info>
 For detailed per-language documentation, see the [SDK Reference](/docs/sdks/overview).
@@ -22,6 +22,14 @@ For detailed per-language documentation, see the [SDK Reference](/docs/sdks/over
 
   ```bash Go
   go get github.com/strait-dev/go-sdk
+  ```
+
+  ```bash Ruby
+  gem install strait
+  ```
+
+  ```bash Rust
+  cargo add strait
   ```
 </CodeGroup>
 
@@ -52,6 +60,14 @@ Then create a client from the config file:
 
   ```go Go
   client, err := strait.NewClientFromFile(nil)
+  ```
+
+  ```ruby Ruby
+  client = Strait::Client.from_file
+  ```
+
+  ```rust Rust
+  let client = Client::from_file(None).await?;
   ```
 </CodeGroup>
 
@@ -165,6 +181,61 @@ SDK run endpoints require a **JWT Run Token**:
   sdkRuns.CompleteRun(ctx, "run-123", map[string]any{
       "result": map[string]any{"processed": 100},
   })
+  ```
+
+  ```ruby Ruby
+  require "strait"
+
+  run_client = Strait::Client.new(
+    base_url: "https://api.strait.dev",
+    run_token: ENV["RUN_TOKEN"]
+  )
+  sdk_runs = Strait::Operations::SDKRuns.new(run_client)
+
+  # Log progress
+  sdk_runs.log_run("run-123", {
+    message: "Processing batch 3/10",
+    level: "info"
+  })
+
+  # Report progress
+  sdk_runs.progress_run("run-123", {
+    percent: 30,
+    message: "Processing..."
+  })
+
+  # Complete the run
+  sdk_runs.complete_run("run-123", {
+    result: { processed: 100 }
+  })
+  ```
+
+  ```rust Rust
+  use strait::Client;
+  use strait::operations::SdkRuns;
+
+  let run_client = Client::builder()
+      .base_url("https://api.strait.dev")
+      .run_token(std::env::var("RUN_TOKEN")?)
+      .build()?;
+  let sdk_runs = SdkRuns::new(&run_client);
+
+  // Log progress
+  sdk_runs.log_run("run-123", serde_json::json!({
+      "message": "Processing batch 3/10",
+      "level": "info",
+  })).await?;
+
+  // Report progress
+  sdk_runs.progress_run("run-123", serde_json::json!({
+      "percent": 30,
+      "message": "Processing...",
+  })).await?;
+
+  // Complete the run
+  sdk_runs.complete_run("run-123", serde_json::json!({
+      "result": { "processed": 100 },
+  })).await?;
   ```
 </CodeGroup>
 
