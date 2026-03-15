@@ -4,9 +4,11 @@ import { Button } from "@strait/ui/components/button";
 import {
   Sheet,
   SheetContent,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@strait/ui/components/sheet";
+import { Link } from "@tanstack/react-router";
 import type { Job } from "@/hooks/api/types";
 import {
   ClockIcon,
@@ -62,12 +64,12 @@ export function JobDetailSheet({
 
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="flex flex-col overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{job.name}</SheetTitle>
         </SheetHeader>
 
-        <div className="mt-4 space-y-6">
+        <div className="mt-4 flex-1 space-y-6 overflow-y-auto px-6">
           {/* Status */}
           <div className="flex items-center gap-2">
             <StatusBadge
@@ -78,26 +80,6 @@ export function JobDetailSheet({
             <span className="text-muted-foreground text-xs">
               {job.enabled ? "Enabled" : "Disabled"}
             </span>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex gap-2">
-            <Button className="flex-1" size="sm">
-              <HugeiconsIcon
-                className="mr-1.5"
-                icon={PlayActionIcon}
-                size={14}
-              />
-              Trigger
-            </Button>
-            <Button className="flex-1" size="sm" variant="outline">
-              <HugeiconsIcon
-                className="mr-1.5"
-                icon={PauseActionIcon}
-                size={14}
-              />
-              Pause
-            </Button>
           </div>
 
           {/* Stats Grid */}
@@ -180,6 +162,34 @@ export function JobDetailSheet({
             </div>
           </div>
         </div>
+
+        <SheetFooter>
+          <Button
+            className="w-full"
+            render={<Link params={{ id: job.id }} to="/app/jobs/$id" />}
+            variant="outline"
+          >
+            View details
+          </Button>
+          <div className="flex gap-2">
+            <Button className="flex-1" size="sm">
+              <HugeiconsIcon
+                className="mr-1.5"
+                icon={PlayActionIcon}
+                size={14}
+              />
+              Trigger
+            </Button>
+            <Button className="flex-1" size="sm" variant="outline">
+              <HugeiconsIcon
+                className="mr-1.5"
+                icon={PauseActionIcon}
+                size={14}
+              />
+              Pause
+            </Button>
+          </div>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   );

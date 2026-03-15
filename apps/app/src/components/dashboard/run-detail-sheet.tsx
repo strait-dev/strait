@@ -3,10 +3,12 @@ import { Button } from "@strait/ui/components/button";
 import {
   Sheet,
   SheetContent,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@strait/ui/components/sheet";
 import { cn } from "@strait/ui/utils/index";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { JobRun } from "@/hooks/api/types";
 import {
@@ -86,12 +88,12 @@ export function RunDetailSheet({
 
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="flex flex-col overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="font-mono text-sm">{run.id}</SheetTitle>
         </SheetHeader>
 
-        <div className="mt-4 space-y-6">
+        <div className="mt-4 flex-1 space-y-6 overflow-y-auto px-6">
           {/* Status */}
           <div className="flex items-center gap-2">
             <StatusBadge size="md" status={run.status} />
@@ -106,18 +108,6 @@ export function RunDetailSheet({
             />
             <span className="text-muted-foreground">Job</span>
             <span className="ml-auto font-mono text-xs">{run.job_id}</span>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex gap-2">
-            <Button className="flex-1" size="sm" variant="outline">
-              <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
-              Retry
-            </Button>
-            <Button className="flex-1" size="sm" variant="outline">
-              <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
-              Cancel
-            </Button>
           </div>
 
           {/* Error Alert */}
@@ -229,6 +219,25 @@ export function RunDetailSheet({
             </CollapsibleSection>
           )}
         </div>
+        <SheetFooter>
+          <Button
+            className="w-full"
+            render={<Link params={{ id: run.id }} to="/app/runs/$id" />}
+            variant="outline"
+          >
+            View details
+          </Button>
+          <div className="flex gap-2">
+            <Button className="flex-1" size="sm" variant="outline">
+              <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
+              Retry
+            </Button>
+            <Button className="flex-1" size="sm" variant="outline">
+              <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
+              Cancel
+            </Button>
+          </div>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   );

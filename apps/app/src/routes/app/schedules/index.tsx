@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-table";
 import { useState } from "react";
 import PageHeader from "@/components/common/page-header";
+import { ScheduleDetailSheet } from "@/components/dashboard/schedule-detail-sheet";
 import { scheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
@@ -30,6 +31,8 @@ function SchedulesPage() {
     data: PaginatedResponse<Job>;
   };
   const [globalFilter, setGlobalFilter] = useState("");
+  const [selectedSchedule, setSelectedSchedule] = useState<Job | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const table = useReactTable({
     data: data?.data ?? [],
@@ -65,7 +68,30 @@ function SchedulesPage() {
         </div>
       </div>
 
-      <DataTable emptyState={<div>No schedules found</div>} table={table} />
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
+      <div
+        className="[&_tbody_tr]:cursor-pointer"
+        onClick={(e) => {
+          const row = (e.target as HTMLElement).closest("tr[data-row-index]");
+          if (!row) {
+            return;
+          }
+          const idx = Number(row.getAttribute("data-row-index"));
+          const schedule = table.getRowModel().rows[idx]?.original;
+          if (schedule) {
+            setSelectedSchedule(schedule);
+            setSheetOpen(true);
+          }
+        }}
+      >
+        <DataTable emptyState={<div>No schedules found</div>} table={table} />
+      </div>
+
+      <ScheduleDetailSheet
+        onOpenChange={setSheetOpen}
+        open={sheetOpen}
+        schedule={selectedSchedule}
+      />
     </Shell>
   );
 }

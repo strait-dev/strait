@@ -47,7 +47,7 @@ function DlqPage() {
   ) as { data: PaginatedResponse<JobRun> };
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
-  const [selectedRun, _setSelectedRun] = useState<JobRun | null>(null);
+  const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const bulkRetry = useBulkRetryDlq();
@@ -154,15 +154,36 @@ function DlqPage() {
       </div>
 
       {/* Table */}
-      <div className="pt-2">
-        <DataTable
-          emptyState={
-            <div className="py-12 text-center text-muted-foreground">
-              No dead letter items found.
-            </div>
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
+      <div
+        className="[&_tbody_tr]:cursor-pointer"
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest("a, button, input[type=checkbox]")) {
+            return;
           }
-          table={table}
-        />
+          const row = target.closest("tr[data-row-index]");
+          if (!row) {
+            return;
+          }
+          const idx = Number(row.getAttribute("data-row-index"));
+          const run = table.getRowModel().rows[idx]?.original;
+          if (run) {
+            setSelectedRun(run);
+            setSheetOpen(true);
+          }
+        }}
+      >
+        <div className="pt-2">
+          <DataTable
+            emptyState={
+              <div className="py-12 text-center text-muted-foreground">
+                No dead letter items found.
+              </div>
+            }
+            table={table}
+          />
+        </div>
       </div>
 
       <RunDetailSheet
