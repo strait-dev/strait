@@ -316,7 +316,8 @@ describe("deployment SDK support", () => {
   test("createFinalizePromoteDeployment result variant captures missing finalized id", async () => {
     const client = {
       operationsPromise: {
-        postV1Deployments: () => Promise.resolve({ id: "dep_1", status: "draft" }),
+        postV1Deployments: () =>
+          Promise.resolve({ id: "dep_1", status: "draft" }),
         postV1DeploymentsByDeploymentIDFinalize: () =>
           Promise.resolve({ status: "finalized" }),
         postV1DeploymentsByDeploymentIDPromote: () =>
