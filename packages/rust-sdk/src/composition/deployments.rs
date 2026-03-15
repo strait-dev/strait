@@ -1,6 +1,4 @@
-use crate::errors::StraitError;
 use serde_json::Value;
-use std::future::Future;
 
 #[derive(Debug, Clone)]
 pub struct CreateDeploymentVersionBody {
@@ -31,16 +29,16 @@ pub struct CreateFinalizePromoteOutput {
     pub promoted: Value,
 }
 
-fn infer_mutation_body(create: &CreateDeploymentVersionBody) -> DeploymentVersionMutationBody {
-    DeploymentVersionMutationBody {
-        project_id: create.project_id.clone(),
-        environment: create.environment.clone(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn infer_mutation_body(create: &CreateDeploymentVersionBody) -> DeploymentVersionMutationBody {
+        DeploymentVersionMutationBody {
+            project_id: create.project_id.clone(),
+            environment: create.environment.clone(),
+        }
+    }
 
     #[test]
     fn test_create_deployment_version_body_default() {

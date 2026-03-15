@@ -19,10 +19,14 @@ pub struct ErrorContext {
     pub error: String,
 }
 
+pub type RequestHook = Box<dyn Fn(&RequestContext) + Send + Sync>;
+pub type ResponseHook = Box<dyn Fn(&ResponseContext) + Send + Sync>;
+pub type ErrorHook = Box<dyn Fn(&ErrorContext) + Send + Sync>;
+
 pub struct Middleware {
-    pub on_request: Option<Box<dyn Fn(&RequestContext) + Send + Sync>>,
-    pub on_response: Option<Box<dyn Fn(&ResponseContext) + Send + Sync>>,
-    pub on_error: Option<Box<dyn Fn(&ErrorContext) + Send + Sync>>,
+    pub on_request: Option<RequestHook>,
+    pub on_response: Option<ResponseHook>,
+    pub on_error: Option<ErrorHook>,
 }
 
 #[cfg(test)]

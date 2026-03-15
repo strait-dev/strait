@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { generatedOperations } from "../src/internal/contracts/_generated/contracts";
 
@@ -42,7 +43,7 @@ const parsePathMethods = (
 
 describe("generated contracts", () => {
   test("cover every OpenAPI path/method pair", () => {
-    const openApiPath = new URL("../../../docs/openapi.yaml", import.meta.url);
+    const openApiPath = resolve(import.meta.dir, "../../../docs/openapi.yaml");
     const openApiSource = readFileSync(openApiPath, "utf-8");
 
     const openApiPairs = parsePathMethods(openApiSource).map(
