@@ -2,10 +2,6 @@
 
 Effect-first TypeScript SDK for Strait with generated endpoint coverage, high-level Promise helpers, and authoring primitives for jobs/workflows.
 
-## Status
-
-In active implementation.
-
 ## What this package provides
 
 - Generated low-level operation/domain clients from `docs/openapi.yaml`
@@ -20,6 +16,47 @@ In active implementation.
 - Request/response middleware hooks
 
 ## Client creation
+
+### From `strait.json` (recommended)
+
+Create a `strait.json` at your project root:
+
+```json
+{
+  "$schema": "https://strait.dev/schema.json",
+  "project": {
+    "id": "proj_abc123",
+    "name": "My Project"
+  },
+  "sdk": {
+    "base_url": "https://api.strait.dev",
+    "auth_type": "apiKey",
+    "timeout_ms": 30000
+  }
+}
+```
+
+Then create a client from it:
+
+```ts
+import { createClientFromConfigFile } from "@strait/ts/node";
+
+// Reads strait.json from working directory + STRAIT_API_KEY from env
+const client = await createClientFromConfigFile();
+```
+
+The SDK reads the `sdk` section and maps it to client config (`sdk.base_url` becomes `baseUrl`, etc.). Auth tokens are **never** read from the file — they always come from the `STRAIT_API_KEY` environment variable.
+
+> **Note:** `strait.config.ts` is deprecated. Run `strait init` to generate a `strait.json` file.
+
+### From environment variables
+
+```ts
+import { createClientFromEnv } from "@strait/ts/node";
+
+// Reads STRAIT_BASE_URL, STRAIT_API_KEY, STRAIT_AUTH_TYPE, STRAIT_TIMEOUT_MS
+const client = createClientFromEnv();
+```
 
 ### Inline config
 
@@ -38,24 +75,31 @@ const client = createClient({
 });
 ```
 
-### Config file discovery (`strait.config.ts`)
-> Node/Bun environments only. Import from `@strait/ts/node`.
+### Environment variable override precedence
+
+Environment variables always take precedence over `strait.json` values:
+
+| `strait.json` field | Env var | Wins |
+|---|---|---|
+| `sdk.base_url` | `STRAIT_BASE_URL` | env var |
+| `sdk.auth_type` | `STRAIT_AUTH_TYPE` | env var |
+| `sdk.timeout_ms` | `STRAIT_TIMEOUT_MS` | env var |
+| *(not in file)* | `STRAIT_API_KEY` | env var (only source) |
+
+### Legacy `strait.config.ts` (deprecated)
+
+> **Deprecated:** Use `strait.json` instead. Run `strait init` to migrate.
+
+If no `strait.json` is found, the SDK falls back to `strait.config.ts` and emits a deprecation warning to stderr.
 
 ```ts
-// strait.config.ts
+// strait.config.ts (deprecated)
 import { defineStraitConfig } from "@strait/ts/node";
 
 export default defineStraitConfig({
   baseUrl: "http://localhost:3000",
   auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
 });
-```
-
-```ts
-// app.ts
-import { createClientFromConfigFile } from "@strait/ts/node";
-
-const client = await createClientFromConfigFile();
 ```
 
 ## Calling generated operations
@@ -325,6 +369,44 @@ actor.send({ type: "DEQUEUE" });
 actor.send({ type: "EXECUTE" });
 actor.getSnapshot().value; // "executing"
 ```
+
+## Error handling
+
+All SDK errors extend Effect's `Data.TaggedError` for pattern matching:
+
+```ts
+import {
+  NotFoundError,
+  UnauthorizedError,
+  RateLimitedError,
+  ApiError,
+} from "@strait/ts";
+
+try {
+  await client.getJob({ pathParams: { jobID: "nonexistent" } });
+} catch (e) {
+  if (e instanceof NotFoundError) {
+    console.log("Not found:", e.message, e.status);
+  } else if (e instanceof UnauthorizedError) {
+    console.log("Auth error:", e.message);
+  } else if (e instanceof RateLimitedError) {
+    console.log("Rate limited:", e.message);
+  }
+}
+```
+
+| Error class | HTTP status | Description |
+|---|---|---|
+| `TransportError` | — | Network/transport failure |
+| `DecodeError` | — | JSON decode failure |
+| `ValidationError` | — | Config or input validation |
+| `UnauthorizedError` | 401, 403 | Authentication failure |
+| `NotFoundError` | 404 | Resource not found |
+| `ConflictError` | 409 | Conflict (duplicate, etc.) |
+| `RateLimitedError` | 429 | Rate limit exceeded |
+| `ApiError` | other | Generic HTTP error |
+| `TimeoutError` | — | Polling timeout |
+| `DagValidationError` | — | Workflow DAG is invalid |
 
 ## Quality checks
 

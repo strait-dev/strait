@@ -28,25 +28,98 @@ run = client.jobs.trigger(job["id"], {"payload": {"key": "value"}})
 run = client.runs.get(run["id"])
 ```
 
-### From Environment Variables
+## Configuration
+
+### From `strait.json` (recommended)
+
+Create a `strait.json` at your project root:
+
+```json
+{
+  "$schema": "https://strait.dev/schema.json",
+  "project": {
+    "id": "proj_abc123",
+    "name": "My Project"
+  },
+  "sdk": {
+    "base_url": "https://api.strait.dev",
+    "auth_type": "apiKey",
+    "timeout_ms": 30000
+  }
+}
+```
+
+Then load the client from it:
+
+```python
+# Reads strait.json from working directory + STRAIT_API_KEY from env
+client = Client.from_file()
+
+# Or specify a custom directory
+client = Client.from_file(search_dir="/path/to/project")
+
+# Or an explicit file path
+client = Client.from_file(path="/path/to/custom-config.json")
+
+# Apply overrides on top
+client = Client.from_file(timeout_ms=5000)
+```
+
+The SDK reads the `sdk` section from the file. Auth tokens are **never** read from the file — they always come from the `STRAIT_API_KEY` environment variable.
+
+You can also read just the config without creating a client:
+
+```python
+from strait import config_from_file
+
+cfg = config_from_file()
+cfg = config_from_file(search_dir="/path/to/project")
+```
+
+### From environment variables
 
 ```python
 # Reads STRAIT_BASE_URL, STRAIT_API_KEY, STRAIT_AUTH_TYPE, STRAIT_TIMEOUT_MS
 client = Client.from_env()
 ```
 
-### Async Client
+### Inline
+
+```python
+client = Client(
+    base_url="https://api.strait.dev",
+    api_key="your-key",
+    timeout_ms=5000,
+)
+```
+
+### Async client
+
+All three configuration methods work with `AsyncClient` too:
 
 ```python
 from strait import AsyncClient
 
-async with AsyncClient(base_url="https://api.strait.dev", api_key="your-key") as client:
+async with AsyncClient.from_file() as client:
+    jobs = await client.jobs.list()
+
+# Or from env
+async with AsyncClient.from_env() as client:
     jobs = await client.jobs.list()
 ```
 
-## Features
+### Environment variable override precedence
 
-### Domain Operations (19 Services)
+Environment variables always take precedence over `strait.json` values:
+
+| `strait.json` field | Env var | Wins |
+|---|---|---|
+| `sdk.base_url` | `STRAIT_BASE_URL` | env var |
+| `sdk.auth_type` | `STRAIT_AUTH_TYPE` | env var |
+| `sdk.timeout_ms` | `STRAIT_TIMEOUT_MS` | env var |
+| *(not in file)* | `STRAIT_API_KEY` | env var (only source) |
+
+## Domain Operations (19 Services)
 
 All 186 API operations organized into typed service classes:
 
@@ -61,7 +134,7 @@ All 186 API operations organized into typed service classes:
 | `client.rbac` | list_roles, create_member, seed_roles |
 | + 12 more | environments, secrets, api_keys, webhooks, ... |
 
-### Authoring DSL
+## Authoring DSL
 
 ```python
 from strait.authoring import define_job, define_workflow, JobOptions, WorkflowOptions
@@ -91,7 +164,7 @@ wf = define_workflow(WorkflowOptions(
 ))
 ```
 
-### Composition Helpers
+## Composition Helpers
 
 ```python
 from strait.composition import with_retry, wait_for_run, paginate, Result, RetryOptions
@@ -112,7 +185,7 @@ for item in paginate(lambda q: PaginatedResponse(data=client.jobs.list(query={"c
     print(item)
 ```
 
-### FSM State Machines
+## FSM State Machines
 
 ```python
 from strait.fsm import transition_run, RunStatus, RunEvent, is_terminal_run_status
@@ -122,7 +195,7 @@ assert next_status == RunStatus.COMPLETED
 assert is_terminal_run_status(next_status)
 ```
 
-### Middleware
+## Middleware
 
 ```python
 from strait import Client, Middleware
@@ -135,6 +208,53 @@ mw = Middleware(
 
 client = Client(base_url="...", api_key="...", middleware=[mw])
 ```
+
+## Custom HTTP Client
+
+You can inject your own `httpx.Client` or `httpx.AsyncClient`:
+
+```python
+import httpx
+
+custom_http = httpx.Client(timeout=60.0, verify=False)
+client = Client(base_url="...", api_key="...", http_client=custom_http)
+
+# Async
+custom_async = httpx.AsyncClient(timeout=60.0)
+async_client = AsyncClient(base_url="...", api_key="...", http_client=custom_async)
+```
+
+## Error Handling
+
+All errors raised by the SDK inherit from `StraitError`:
+
+```python
+from strait import Client, NotFoundError, UnauthorizedError, RateLimitedError
+
+try:
+    job = client.jobs.get("job_nonexistent")
+except NotFoundError as e:
+    print(f"Not found: {e} (status={e.status})")
+except UnauthorizedError as e:
+    print(f"Auth error: {e}")
+except RateLimitedError as e:
+    print(f"Rate limited: {e}")
+```
+
+| Exception | HTTP status | Description |
+|---|---|---|
+| `TransportError` | — | Network/transport failure |
+| `DecodeError` | — | JSON decode failure |
+| `ValidationError` | — | Config or input validation |
+| `UnauthorizedError` | 401, 403 | Authentication failure |
+| `NotFoundError` | 404 | Resource not found |
+| `ConflictError` | 409 | Conflict (duplicate, etc.) |
+| `RateLimitedError` | 429 | Rate limit exceeded |
+| `ApiError` | other | Generic HTTP error |
+| `StraitTimeoutError` | — | Polling timeout |
+| `DagValidationError` | — | Workflow DAG is invalid |
+
+All exceptions expose `.status` (for HTTP errors) and `.body` (raw response body when available).
 
 ## Development
 
