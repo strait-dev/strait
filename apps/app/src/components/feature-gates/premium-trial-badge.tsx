@@ -24,7 +24,7 @@ export const PremiumFeatureBadge = ({ className }: { className?: string }) => {
       title="Premium trial feature"
       variant="secondary"
     >
-      <HugeiconsIcon className="h-3 w-3" icon={SparklesIcon} />
+      <HugeiconsIcon className="size-3" icon={SparklesIcon} />
       <span className="font-medium">Premium</span>
     </Badge>
   );

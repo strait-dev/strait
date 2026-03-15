@@ -126,7 +126,7 @@ function OnboardingFlow() {
     if (completeOnboarding.isPending) {
       return (
         <>
-          <HugeiconsIcon className="h-4 w-4 animate-spin" icon={LoadingIcon} />
+          <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
           <span>Setting up...</span>
         </>
       );
@@ -137,7 +137,7 @@ function OnboardingFlow() {
     return (
       <>
         Continue
-        <HugeiconsIcon className="h-4 w-4" icon={ArrowRightIcon} />
+        <HugeiconsIcon className="size-4" icon={ArrowRightIcon} />
       </>
     );
   }, [currentStep, completeOnboarding.isPending]);

@@ -17,12 +17,12 @@ const FiltersEmptyState = ({
       <div className="flex aspect-square h-14 items-center justify-center rounded-xl bg-muted/70">
         {icon === "search" ? (
           <HugeiconsIcon
-            className="h-6 w-6 text-muted-foreground"
+            className="size-6 text-muted-foreground"
             icon={SearchIcon}
           />
         ) : (
           <HugeiconsIcon
-            className="h-6 w-6 text-muted-foreground"
+            className="size-6 text-muted-foreground"
             icon={XCircleIcon}
           />
         )}

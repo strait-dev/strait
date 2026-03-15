@@ -33,9 +33,9 @@ export const RequireOrganization = ({
     <div className="flex h-[450px] items-center justify-center p-8">
       <Card className="max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-muted">
             <HugeiconsIcon
-              className="h-6 w-6 text-muted-foreground"
+              className="size-6 text-muted-foreground"
               icon={PlusIcon}
             />
           </div>

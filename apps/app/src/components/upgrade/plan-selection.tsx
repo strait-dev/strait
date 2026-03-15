@@ -176,7 +176,7 @@ const PricingCardBadges = ({
           className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
           variant="success-light"
         >
-          <HugeiconsIcon className="h-3 w-3" icon={CheckIcon} />
+          <HugeiconsIcon className="size-3" icon={CheckIcon} />
           <span className="font-normal text-xs">Current plan</span>
         </Badge>
       );
@@ -187,7 +187,7 @@ const PricingCardBadges = ({
           className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
           variant="info-light"
         >
-          <HugeiconsIcon className="h-3 w-3" icon={StarIcon} />
+          <HugeiconsIcon className="size-3" icon={StarIcon} />
           <span className="font-normal text-xs">Most Popular</span>
         </Badge>
       );
@@ -202,7 +202,7 @@ const PricingCardBadges = ({
           className="absolute -top-2 right-2 flex items-center gap-1 shadow-sm"
           variant="success-light"
         >
-          <HugeiconsIcon className="h-3 w-3" icon={CheckIcon} />
+          <HugeiconsIcon className="size-3" icon={CheckIcon} />
           <span className="font-normal text-xs">
             Save{" "}
             {Math.round(
@@ -223,8 +223,8 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
   <div className="mt-4 grow space-y-2">
     {plan.includesFromPrevious ? (
       <div className="flex items-start gap-2 border-border/50 border-b pb-2">
-        <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-custom text-primary">
-          <RadixCheckIcon className="h-3 w-3" />
+        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-primary">
+          <RadixCheckIcon className="size-3" />
         </div>
         <span className="font-medium text-muted-foreground/80 text-xs">
           {plan.includesFromPrevious}
@@ -236,8 +236,8 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
       .slice(0, 5)
       .map((feature: PricingFeature) => (
         <div className="flex items-start gap-2" key={feature.name}>
-          <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-custom text-primary">
-            <RadixCheckIcon className="h-3 w-3" />
+          <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-primary">
+            <RadixCheckIcon className="size-3" />
           </div>
           <span className="text-muted-foreground/80 text-xs">
             {feature.description ? feature.description : feature.name}
@@ -346,7 +346,7 @@ const PricingCard = ({
             </h3>
             <div
               className={cn(
-                "flex h-4 w-4 items-center justify-center rounded-full border-2 transition-colors",
+                "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
                 isSelected
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-muted-foreground/30"

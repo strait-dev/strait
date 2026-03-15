@@ -28,7 +28,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   return (
     <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
       <span
-        className="inline-block h-2 w-2 rounded-full"
+        className="inline-block size-2 rounded-full"
         style={{ backgroundColor: `var(--color-${color})` }}
       />
       {label}

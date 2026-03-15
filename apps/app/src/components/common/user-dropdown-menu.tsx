@@ -93,7 +93,7 @@ const UserDropdownMenu = ({ user }: Props) => {
               />
             }
           >
-            <Avatar className="h-10 w-10">
+            <Avatar className="size-10">
               {user.image ? (
                 <AvatarImage alt="User Avatar" src={user.image} />
               ) : (
@@ -118,7 +118,7 @@ const UserDropdownMenu = ({ user }: Props) => {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="p-0 font-normal">
                 <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                  <Avatar className="h-10 w-10">
+                  <Avatar className="size-10">
                     {user.image ? (
                       <AvatarImage alt="User Avatar" src={user.image} />
                     ) : (

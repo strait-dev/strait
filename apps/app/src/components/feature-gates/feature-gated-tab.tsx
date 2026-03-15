@@ -155,9 +155,9 @@ export const FeatureGatedTabContent = ({
   return (
     <TabsContent className={cn("space-y-6", className)} value={value}>
       <div className="flex min-h-[300px] flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent">
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-accent">
           <HugeiconsIcon
-            className="h-6 w-6 text-accent-foreground"
+            className="size-6 text-accent-foreground"
             icon={LockSquareIcon}
           />
         </div>

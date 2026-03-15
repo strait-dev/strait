@@ -101,7 +101,7 @@ function EventsPage() {
             >
               <span
                 className={cn(
-                  "mr-1.5 inline-block h-2 w-2 rounded-full",
+                  "mr-1.5 inline-block size-2 rounded-full",
                   style.dot
                 )}
               />

@@ -145,7 +145,7 @@ const AppSidebar = ({ session }: Props) => {
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md border px-2 py-1 font-medium text-sidebar-foreground text-xs hover:bg-sidebar-accent">
               <span
-                className={`inline-block h-2 w-2 rounded-full ${currentEnv.dotClass}`}
+                className={`inline-block size-2 rounded-full ${currentEnv.dotClass}`}
               />
               {currentEnv.label}
               <HugeiconsIcon
@@ -160,7 +160,7 @@ const AppSidebar = ({ session }: Props) => {
                   onClick={() => setEnvironment(env.value)}
                 >
                   <span
-                    className={`inline-block h-2 w-2 rounded-full ${env.dotClass}`}
+                    className={`inline-block size-2 rounded-full ${env.dotClass}`}
                   />
                   {env.label}
                 </DropdownMenuItem>

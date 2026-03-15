@@ -98,7 +98,7 @@ export function WorkflowDetailSheet({
                 >
                   <span
                     className={cn(
-                      "h-2 w-2 shrink-0 rounded-full",
+                      "size-2 shrink-0 rounded-full",
                       STEP_TYPE_COLORS[step.type]
                     )}
                   />

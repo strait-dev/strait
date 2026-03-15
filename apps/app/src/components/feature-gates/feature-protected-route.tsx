@@ -151,9 +151,9 @@ export const FeatureProtectedRoute = ({
       <div className="flex min-h-[60vh] items-center justify-center p-8">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent">
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-accent">
               <HugeiconsIcon
-                className="h-6 w-6 text-accent-foreground"
+                className="size-6 text-accent-foreground"
                 icon={LockSquareIcon}
               />
             </div>

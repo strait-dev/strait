@@ -30,7 +30,7 @@ export const TeamMemberLimitGate = ({
       }) => (
         <Alert className="border-accent bg-accent/50">
           <HugeiconsIcon
-            className="h-4 w-4 text-accent-foreground"
+            className="size-4 text-accent-foreground"
             icon={CrownIcon}
           />
           <AlertDescription className="text-accent-foreground">

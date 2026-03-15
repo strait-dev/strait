@@ -80,7 +80,7 @@ const CountryDropdown = ({
       >
         {selectedCountry ? (
           <div className="flex w-0 grow items-center gap-2 overflow-hidden">
-            <div className="inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
+            <div className="inline-flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
               <CircleFlag
                 countryCode={selectedCountry.iso.toLowerCase()}
                 height={16}
@@ -104,7 +104,7 @@ const CountryDropdown = ({
       >
         <Command>
           <div className="flex items-center border-input border-b px-3 py-2">
-            <div className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+            <div className="inline-flex size-4 shrink-0 items-center justify-center">
               <HugeiconsIcon
                 className="text-muted-foreground/80"
                 icon={SearchIcon}
@@ -136,7 +136,7 @@ const CountryDropdown = ({
                     key={option.iso}
                     onSelect={() => handleSelect(option)}
                   >
-                    <div className="inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                    <div className="inline-flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
                       <CircleFlag
                         countryCode={option.iso.toLowerCase()}
                         height={16}
@@ -147,7 +147,7 @@ const CountryDropdown = ({
                     </span>
                     <HugeiconsIcon
                       className={cn(
-                        "ml-auto h-4 w-4 shrink-0",
+                        "ml-auto size-4 shrink-0",
                         option.value === selectedCountry?.value
                           ? "opacity-100"
                           : "opacity-0"

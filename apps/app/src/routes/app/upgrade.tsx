@@ -173,7 +173,7 @@ function RouteComponent() {
       {search.canceled ? (
         <Alert className="mb-6 border-yellow-200 bg-yellow-50">
           <HugeiconsIcon
-            className="h-4 w-4 text-yellow-600"
+            className="size-4 text-yellow-600"
             icon={AlertCircleIcon}
           />
           <AlertDescription className="text-yellow-800">
@@ -186,7 +186,7 @@ function RouteComponent() {
       {search.error ? (
         <Alert className="mb-6 border-red-200 bg-red-50">
           <HugeiconsIcon
-            className="h-4 w-4 text-red-600"
+            className="size-4 text-red-600"
             icon={AlertCircleIcon}
           />
           <AlertDescription className="text-red-800">
@@ -201,7 +201,7 @@ function RouteComponent() {
           <Card className="border-primary/20 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <HugeiconsIcon className="h-5 w-5" icon={LinkSquareIcon} />
+                <HugeiconsIcon className="size-5" icon={LinkSquareIcon} />
                 Customer Portal
               </CardTitle>
               <CardDescription>

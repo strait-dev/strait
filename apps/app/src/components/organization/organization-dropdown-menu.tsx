@@ -111,7 +111,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
             <SidebarMenuButton className="w-full max-w-[200px]" size="lg" />
           }
         >
-          <Avatar className="h-10 w-10">
+          <Avatar className="size-10">
             <AvatarFallback>
               <HugeiconsIcon className="size-4" icon={PlusIcon} />
             </AvatarFallback>
@@ -153,7 +153,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
             <SidebarMenuButton className="w-full max-w-[200px]" size="lg" />
           }
         >
-          <Avatar className="h-10 w-10">
+          <Avatar className="size-10">
             {activeOrganization.logo ? (
               <AvatarImage src={activeOrganization.logo} />
             ) : null}
@@ -182,7 +182,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
           <DropdownMenuGroup>
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-10 w-10">
+                <Avatar className="size-10">
                   {activeOrganization.logo ? (
                     <AvatarImage src={activeOrganization.logo} />
                   ) : null}

@@ -30,7 +30,7 @@ export const CreateOrganizationLimitGate = ({
       }) => (
         <Alert className="border-accent bg-accent/50">
           <HugeiconsIcon
-            className="h-4 w-4 text-accent-foreground"
+            className="size-4 text-accent-foreground"
             icon={CrownIcon}
           />
           <AlertDescription className="text-accent-foreground">
@@ -53,7 +53,7 @@ export const CreateOrganizationLimitGate = ({
                   onClick={onUpgradeClick}
                   type="button"
                 >
-                  <HugeiconsIcon className="h-3 w-3" icon={CrownIcon} />
+                  <HugeiconsIcon className="size-3" icon={CrownIcon} />
                   Upgrade Plan
                 </button>
               ) : null}

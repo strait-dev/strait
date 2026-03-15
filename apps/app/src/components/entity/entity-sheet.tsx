@@ -168,7 +168,7 @@ const EntitySheetSkeleton = memo(() => {
       {/* Metrics skeleton */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          <div className="size-3/4 animate-pulse rounded bg-muted" />
           <div className="h-6 w-full animate-pulse rounded bg-muted" />
         </div>
         <div className="space-y-2">

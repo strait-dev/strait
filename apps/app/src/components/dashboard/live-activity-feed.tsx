@@ -87,7 +87,7 @@ export function LiveActivityFeed() {
         <CardTitle className="font-medium text-sm">Live Activity</CardTitle>
         <Button
           aria-label={paused ? "Resume activity feed" : "Pause activity feed"}
-          className="h-7 w-7"
+          className="size-7"
           onClick={() => setPaused((p) => !p)}
           size="icon"
           variant="ghost"
@@ -104,7 +104,7 @@ export function LiveActivityFeed() {
             <div className="flex items-start gap-2.5" key={event.id}>
               <span
                 className={cn(
-                  "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                  "mt-1.5 size-2 shrink-0 rounded-full",
                   DOT_COLORS[event.type]
                 )}
               />

@@ -217,7 +217,7 @@ function RouteComponent() {
           <div className="flex flex-col items-center gap-4 text-center">
             <div className="rounded-full bg-primary/10 p-3">
               <HugeiconsIcon
-                className="h-8 w-8 text-primary"
+                className="size-8 text-primary"
                 icon={UsersAltIcon}
               />
             </div>
@@ -276,7 +276,7 @@ function RouteComponent() {
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="rounded-full bg-primary/10 p-3">
             <HugeiconsIcon
-              className="h-8 w-8 text-primary"
+              className="size-8 text-primary"
               icon={UsersAltIcon}
             />
           </div>
