@@ -79,6 +79,8 @@ type Executor struct {
 	logger                   *slog.Logger
 	webhookMaxRetry          int
 	middlewares              []ExecutionMiddleware
+	subscribers              []RunEventSubscriber
+	eventCh                  chan runEventEnvelope
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
 	jobCache                 sync.Map
@@ -175,6 +177,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
 		webhookMaxRetry:          whMaxAttempts,
+		eventCh:                  make(chan runEventEnvelope, 256),
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCacheTTL:              cfg.JobCacheTTL,
@@ -229,6 +232,58 @@ func (e *Executor) Use(mw ExecutionMiddleware) {
 	e.middlewares = append(e.middlewares, mw)
 }
 
+// Subscribe registers a run lifecycle event subscriber. Must be called before Run().
+func (e *Executor) Subscribe(sub RunEventSubscriber) {
+	e.subscribers = append(e.subscribers, sub)
+}
+
+// emit sends a lifecycle event to all subscribers via the buffered channel.
+// Non-blocking: drops the event with a warning if the channel is full.
+func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
+	if len(e.subscribers) == 0 {
+		return
+	}
+	select {
+	case e.eventCh <- runEventEnvelope{ctx: ctx, event: event}:
+	default:
+		e.logger.Warn("event channel full, dropping event",
+			"type", event.Type,
+			"run_id", event.Run.ID,
+		)
+	}
+}
+
+// runEventLoop drains the event channel and fans out to all subscribers.
+// Exits when the done channel is closed and the event channel is drained.
+func (e *Executor) runEventLoop() {
+	for {
+		select {
+		case env, ok := <-e.eventCh:
+			if !ok {
+				return
+			}
+			for _, sub := range e.subscribers {
+				sub(env.ctx, env.event)
+			}
+		case <-e.done:
+			// Drain remaining events.
+			for {
+				select {
+				case env, ok := <-e.eventCh:
+					if !ok {
+						return
+					}
+					for _, sub := range e.subscribers {
+						sub(env.ctx, env.event)
+					}
+				default:
+					return
+				}
+			}
+		}
+	}
+}
+
 func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
 	if e.workflowCallback == nil {
 		return
@@ -268,7 +323,7 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 	}
 }
 
-// Run starts the heartbeat manager and polling loop. Blocks until ctx is canceled.
+// Run starts the heartbeat manager, event loop, and polling loop. Blocks until ctx is canceled.
 func (e *Executor) Run(ctx context.Context) {
 	e.runStarted.Store(true)
 	defer close(e.done)
@@ -276,6 +331,7 @@ func (e *Executor) Run(ctx context.Context) {
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
 
 	go e.heartbeat.Run(ctx)
+	go e.runEventLoop()
 
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()

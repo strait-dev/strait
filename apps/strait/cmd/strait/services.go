@@ -370,6 +370,12 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 
 	exec.Use(worker.TracingMiddleware())
+	if metrics != nil {
+		exec.Subscribe(worker.MetricsSubscriber(metrics))
+	}
+	if pub != nil {
+		exec.Subscribe(worker.PubSubSubscriber(pub))
+	}
 
 	healthReg.Register(health.NewPoolChecker(p))
 

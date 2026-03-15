@@ -168,14 +168,14 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 
 	if !allowed {
-		e.snoozeRun(ctx, run, "endpoint circuit breaker open", "circuit_open", retryAt)
+		e.snoozeRun(ctx, run, "endpoint circuit breaker open", retryAt)
 		return
 	}
 
 	acquired := e.tryAcquireBulkheadSlot(job.ID, job.MaxConcurrency)
 	if !acquired {
 		bulkheadRetryAt := NextRetryAt(run.Attempt)
-		e.snoozeRun(ctx, run, "job bulkhead at capacity", "bulkhead_capacity", &bulkheadRetryAt)
+		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)
 		return
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
@@ -221,10 +221,6 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			dequeue := max(time.Duration(0), executeStart.Sub(*run.StartedAt))
 			execTrace.DequeueMs = durationMillisecondsAtLeastOne(dequeue)
 		}
-	}
-	if e.metrics != nil && execTrace != nil {
-		e.metrics.ExecutionTraceDispatch.Record(ctx, float64(execTrace.DispatchMs))
-		e.metrics.ExecutionTraceQueueWait.Record(ctx, float64(execTrace.QueueWaitMs))
 	}
 	if err != nil {
 		if job.FallbackEndpointURL != "" {
@@ -403,7 +399,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	return nil, nil
 }
 
-func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason, eventReason string, retryAt *time.Time) {
+func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
 	snoozeCount := 0
 	if run.Metadata != nil {
 		if raw, ok := run.Metadata["snooze_count"]; ok {
@@ -434,11 +430,11 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason, ev
 		return
 	}
 
-	e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
-	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": eventReason})
-	if e.metrics != nil {
-		e.metrics.SnoozeTotal.Add(ctx, 1)
-	}
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventSnoozed, Run: run,
+		FromStatus: domain.StatusDequeued, ToStatus: domain.StatusQueued,
+		Attempt: run.Attempt,
+	})
 }
 
 func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRun, fallback executionPolicy) (executionPolicy, error) {

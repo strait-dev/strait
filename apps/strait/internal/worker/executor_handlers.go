@@ -42,7 +42,6 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusCompleted)
 	if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
 		e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
 	}
@@ -53,7 +52,15 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
 	)
-	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "completed"})
+	var execDur time.Duration
+	if run.StartedAt != nil {
+		execDur = now.Sub(*run.StartedAt)
+	}
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventCompleted, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusCompleted,
+		ExecTrace: execTrace, ExecDur: execDur, Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
 
 	// Latency anomaly detection: compare duration to job's P95.
@@ -181,7 +188,6 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
-			e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusQueued)
 			e.logger.Info(
 				"run re-enqueued for retry",
 				"run_id", run.ID,
@@ -189,7 +195,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"attempt", run.Attempt+1,
 				"next_retry_at", retryAt,
 			)
-			e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
+			e.emit(ctx, RunLifecycleEvent{
+				Type: EventRetried, Run: run, Job: job,
+				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+			})
 		}
 		return
 	}
@@ -216,8 +226,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.recordRunTransition(ctx, domain.StatusExecuting, targetStatus)
-	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": string(targetStatus), "error": errMsg})
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventDeadLettered, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: targetStatus,
+		ExecTrace: execTrace, Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
 }
 
@@ -255,8 +268,11 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
-			e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusQueued)
-			e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
+			e.emit(ctx, RunLifecycleEvent{
+				Type: EventRetried, Run: run, Job: job,
+				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+			})
 		}
 		return
 	}
@@ -281,8 +297,11 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusTimedOut)
-	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "timed_out"})
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventTimedOut, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusTimedOut,
+		ExecTrace: execTrace, Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
 }
 
@@ -306,6 +325,7 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
 
+	fromStatus := run.Status
 	now := time.Now()
 	err := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusSystemFailed, map[string]any{
 		"finished_at": now,
@@ -321,22 +341,14 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		)
 		return
 	}
-	e.recordRunTransition(ctx, run.Status, domain.StatusSystemFailed)
-	e.publishEvent(ctx, run, map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
 	run.Status = domain.StatusSystemFailed
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventSystemFailed, Run: run,
+		FromStatus: fromStatus, ToStatus: domain.StatusSystemFailed,
+		Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
 	// No webhook for system failures — job may not be available
-}
-
-func (e *Executor) recordRunTransition(ctx context.Context, fromStatus, toStatus domain.RunStatus) {
-	if e.metrics == nil {
-		return
-	}
-
-	e.metrics.RunTransitions.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("from", string(fromStatus)),
-		attribute.String("to", string(toStatus)),
-	))
 }
 
 func durationMillisecondsAtLeastOne(d time.Duration) int64 {
