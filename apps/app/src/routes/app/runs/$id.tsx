@@ -204,7 +204,7 @@ function RunDetailPage() {
 function DetailCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="font-medium text-[11px] text-muted-foreground uppercase">
+      <span className="font-medium text-muted-foreground text-xs uppercase">
         {label}
       </span>
       <span className="font-mono text-xs capitalize">{value}</span>

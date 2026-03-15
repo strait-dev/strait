@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
+import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -92,22 +93,18 @@ function WorkflowsPage() {
           />
         </div>
 
-        <div className="flex rounded-md border">
-          {(["all", "active", "paused"] as const).map((status) => (
-            <button
-              className={`px-3 py-1.5 font-medium text-xs capitalize transition-colors ${
-                statusFilter === status
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
-              } ${status === "all" ? "" : "border-l"}`}
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              type="button"
-            >
-              {status}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
+          value={statusFilter}
+        >
+          <TabsList>
+            {(["all", "active", "paused"] as const).map((status) => (
+              <TabsTrigger className="capitalize" key={status} value={status}>
+                {status}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}

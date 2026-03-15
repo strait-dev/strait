@@ -35,7 +35,7 @@ function StatCell({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-md border p-3 text-center">
       <p className="font-normal text-lg">{value}</p>
-      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-muted-foreground text-xs">{label}</p>
     </div>
   );
 }
@@ -122,7 +122,7 @@ export function WorkflowDetailSheet({
                     )}
                   />
                   <span className="text-sm">{step.name}</span>
-                  <span className="ml-auto text-[11px] text-muted-foreground">
+                  <span className="ml-auto text-muted-foreground text-xs">
                     {step.type}
                   </span>
                 </div>
@@ -203,7 +203,7 @@ export function WorkflowDetailSheet({
                   <span className="font-mono text-xs">{run.id}</span>
                   <div className="flex items-center gap-2">
                     <StatusBadge size="xs" status={run.status} />
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-muted-foreground text-xs">
                       {run.time}
                     </span>
                   </div>

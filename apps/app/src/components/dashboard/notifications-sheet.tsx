@@ -97,7 +97,7 @@ export function NotificationsSheet() {
         <Button className="relative" size="icon" variant="ghost">
           <HugeiconsIcon icon={BellIcon} size={18} />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-chart-4 font-medium text-[10px] text-white">
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-chart-4 font-medium text-white text-xs">
               {unreadCount}
             </span>
           )}
@@ -156,7 +156,7 @@ export function NotificationsSheet() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-sm">{notif.title}</p>
                 <p className="text-muted-foreground text-xs">{notif.message}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-muted-foreground text-xs">
                   {notif.timestamp}
                 </p>
               </div>

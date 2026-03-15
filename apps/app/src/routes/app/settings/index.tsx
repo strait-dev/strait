@@ -152,7 +152,7 @@ function ApiKeysTab() {
                     <div className="flex gap-1">
                       {key.scopes.map((scope) => (
                         <span
-                          className="inline-flex rounded-full border px-2 py-0.5 font-medium text-[11px] text-muted-foreground"
+                          className="inline-flex rounded-full border px-2 py-0.5 font-medium text-muted-foreground text-xs"
                           key={scope}
                         >
                           {scope}
@@ -224,7 +224,7 @@ function TeamTab() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex rounded-full border px-2 py-0.5 font-medium text-[11px] text-muted-foreground">
+                    <span className="inline-flex rounded-full border px-2 py-0.5 font-medium text-muted-foreground text-xs">
                       {member.role}
                     </span>
                   </td>

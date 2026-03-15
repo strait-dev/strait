@@ -147,12 +147,12 @@ function EventRow({ event }: { event: RunEvent }) {
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-center gap-2">
           <Badge
-            className={cn("px-1.5 py-0 text-[10px]", style.badge)}
+            className={cn("px-1.5 py-0 text-xs", style.badge)}
             variant="outline"
           >
             {style.label}
           </Badge>
-          <span className="font-mono text-[11px] text-muted-foreground">
+          <span className="font-mono text-muted-foreground text-xs">
             {formatDistanceToNow(new Date(event.created_at), {
               addSuffix: true,
             })}
@@ -166,7 +166,7 @@ function EventRow({ event }: { event: RunEvent }) {
         >
           {event.message}
         </p>
-        <span className="font-mono text-[11px] text-muted-foreground">
+        <span className="font-mono text-muted-foreground text-xs">
           {event.run_id}
         </span>
       </div>

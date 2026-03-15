@@ -184,7 +184,7 @@ function JobDetailPage() {
                 <span className="font-mono text-xs">{run.id}</span>
                 <div className="flex items-center gap-3">
                   <StatusBadge size="xs" status={run.status} />
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-muted-foreground text-xs">
                     {run.time}
                   </span>
                 </div>

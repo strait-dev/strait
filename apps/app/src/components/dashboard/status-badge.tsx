@@ -1,3 +1,5 @@
+import type { BadgeProps } from "@strait/ui/components/badge";
+import { Badge } from "@strait/ui/components/badge";
 import { cn } from "@strait/ui/utils/index";
 import type { DisplayStatus, StepRunStatus } from "@/hooks/api/types";
 
@@ -5,107 +7,113 @@ type StatusBadgeStatus = DisplayStatus | StepRunStatus;
 
 type StatusConfig = {
   label: string;
-  className: string;
+  variant: BadgeProps["variant"];
   dotClassName: string;
 };
 
 const STATUS_CONFIG: Record<StatusBadgeStatus, StatusConfig> = {
   queued: {
     label: "Queued",
-    className: "bg-chart-2/10 text-chart-2 border-chart-2/20",
-    dotClassName: "bg-chart-2",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
   },
   dequeued: {
     label: "Dequeued",
-    className: "bg-chart-2/10 text-chart-2 border-chart-2/20",
-    dotClassName: "bg-chart-2",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
   },
   executing: {
     label: "Executing",
-    className: "bg-chart-3/10 text-chart-3 border-chart-3/20",
-    dotClassName: "bg-chart-3 animate-pulse",
+    variant: "info-light",
+    dotClassName: "bg-info animate-pulse",
   },
   running: {
     label: "Running",
-    className: "bg-chart-3/10 text-chart-3 border-chart-3/20",
-    dotClassName: "bg-chart-3 animate-pulse",
+    variant: "info-light",
+    dotClassName: "bg-info animate-pulse",
   },
   completed: {
     label: "Completed",
-    className: "bg-chart-1/10 text-chart-1 border-chart-1/20",
-    dotClassName: "bg-chart-1",
+    variant: "success-light",
+    dotClassName: "bg-success",
   },
   failed: {
     label: "Failed",
-    className: "bg-chart-4/10 text-chart-4 border-chart-4/20",
-    dotClassName: "bg-chart-4",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
   },
   timed_out: {
     label: "Timed Out",
-    className: "bg-chart-4/10 text-chart-4 border-chart-4/20",
-    dotClassName: "bg-chart-4",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
   },
   crashed: {
     label: "Crashed",
-    className: "bg-chart-4/10 text-chart-4 border-chart-4/20",
-    dotClassName: "bg-chart-4",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
   },
   system_failed: {
     label: "System Failed",
-    className: "bg-chart-4/10 text-chart-4 border-chart-4/20",
-    dotClassName: "bg-chart-4",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
   },
   canceled: {
     label: "Canceled",
-    className: "bg-muted text-muted-foreground border-border",
+    variant: "secondary-light",
     dotClassName: "bg-muted-foreground",
   },
   expired: {
     label: "Expired",
-    className: "bg-muted text-muted-foreground border-border",
+    variant: "secondary-light",
     dotClassName: "bg-muted-foreground",
   },
   dead_letter: {
     label: "Dead Letter",
-    className: "bg-chart-4/10 text-chart-4 border-chart-4/20",
-    dotClassName: "bg-chart-4",
+    variant: "destructive-light",
+    dotClassName: "bg-destructive",
   },
   replay_staged: {
     label: "Replay Staged",
-    className: "bg-chart-5/10 text-chart-5 border-chart-5/20",
-    dotClassName: "bg-chart-5",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
   },
   delayed: {
     label: "Delayed",
-    className: "bg-chart-5/10 text-chart-5 border-chart-5/20",
-    dotClassName: "bg-chart-5",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
   },
   waiting: {
     label: "Waiting",
-    className: "bg-chart-5/10 text-chart-5 border-chart-5/20",
-    dotClassName: "bg-chart-5",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
   },
   pending: {
     label: "Pending",
-    className: "bg-muted text-muted-foreground border-border",
+    variant: "secondary-light",
     dotClassName: "bg-muted-foreground",
   },
   paused: {
     label: "Paused",
-    className: "bg-chart-3/10 text-chart-3 border-chart-3/20",
-    dotClassName: "bg-chart-3",
+    variant: "warning-light",
+    dotClassName: "bg-warning",
   },
   skipped: {
     label: "Skipped",
-    className: "bg-muted text-muted-foreground border-border",
+    variant: "secondary-light",
     dotClassName: "bg-muted-foreground",
   },
 };
 
-const SIZE_VARIANTS = {
-  xs: { badge: "gap-1 px-1.5 py-px text-[10px]", dot: "h-1 w-1" },
-  sm: { badge: "gap-1 px-1.5 py-0.5 text-[11px]", dot: "h-1.5 w-1.5" },
-  md: { badge: "gap-1.5 px-2.5 py-1 text-xs", dot: "h-1.5 w-1.5" },
+const SIZE_MAP = {
+  xs: "xs",
+  sm: "sm",
+  md: "default",
+} as const;
+
+const DOT_SIZES = {
+  xs: "size-1",
+  sm: "size-1.5",
+  md: "size-1.5",
 } as const;
 
 type StatusBadgeProps = {
@@ -120,26 +128,18 @@ export function StatusBadge({
   showDot = true,
 }: StatusBadgeProps) {
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
-  const sizeVariant = SIZE_VARIANTS[size];
-
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border font-medium",
-        sizeVariant.badge,
-        config.className
-      )}
-    >
+    <Badge size={SIZE_MAP[size]} variant={config.variant}>
       {showDot && (
         <span
           className={cn(
             "shrink-0 rounded-full",
-            sizeVariant.dot,
+            DOT_SIZES[size],
             config.dotClassName
           )}
         />
       )}
       {config.label}
-    </span>
+    </Badge>
   );
 }

@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
   DropdownMenu,
@@ -134,13 +135,13 @@ function RunsPage() {
 
         <DropdownMenu>
           <DropdownMenuTrigger>
-            <Button size="sm" variant="outline">
+            <Button variant="outline">
               <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
               Status
               {selectedStatuses.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">
+                <Badge size="xs" variant="default">
                   {selectedStatuses.length}
-                </span>
+                </Badge>
               )}
             </Button>
           </DropdownMenuTrigger>

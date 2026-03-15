@@ -109,7 +109,7 @@ export function LiveActivityFeed() {
               />
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-tight">{event.message}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   {event.timestamp}
                 </p>
               </div>
