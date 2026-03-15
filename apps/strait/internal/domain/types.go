@@ -30,6 +30,7 @@ const (
 	TriggerSpawn    = "spawn"
 	TriggerWorkflow = "workflow"
 	TriggerRetry    = "retry"
+	TriggerDebounce = "debounce"
 )
 
 const (
@@ -177,10 +178,52 @@ type Job struct {
 	BackwardsCompatible      bool              `json:"backwards_compatible,omitempty"`
 	SkipIfRunning            bool              `json:"skip_if_running,omitempty"`
 	ResultSchema             json.RawMessage   `json:"result_schema,omitempty"`
+	DebounceWindowSecs       int               `json:"debounce_window_secs,omitempty"`
+	BatchWindowSecs          int               `json:"batch_window_secs,omitempty"`
+	BatchMaxSize             int               `json:"batch_max_size,omitempty"`
 	CreatedBy                string            `json:"created_by,omitempty"`
 	UpdatedBy                string            `json:"updated_by,omitempty"`
 	CreatedAt                time.Time         `json:"created_at"`
 	UpdatedAt                time.Time         `json:"updated_at"`
+}
+
+// DebouncePending represents a pending debounced trigger waiting to fire.
+type DebouncePending struct {
+	ID             string          `json:"id"`
+	JobID          string          `json:"job_id"`
+	ProjectID      string          `json:"project_id"`
+	DebounceKey    string          `json:"debounce_key"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	Tags           json.RawMessage `json:"tags,omitempty"`
+	Priority       int             `json:"priority"`
+	ConcurrencyKey string          `json:"concurrency_key,omitempty"`
+	TTLSecs        *int            `json:"ttl_secs,omitempty"`
+	TriggeredBy    string          `json:"triggered_by"`
+	CreatedBy      string          `json:"created_by,omitempty"`
+	FireAt         time.Time       `json:"fire_at"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// BatchBufferItem represents a single trigger payload buffered for batch processing.
+type BatchBufferItem struct {
+	ID          string          `json:"id"`
+	JobID       string          `json:"job_id"`
+	ProjectID   string          `json:"project_id"`
+	BatchKey    string          `json:"batch_key"`
+	Payload     json.RawMessage `json:"payload"`
+	Tags        json.RawMessage `json:"tags,omitempty"`
+	Priority    int             `json:"priority"`
+	TriggeredBy string          `json:"triggered_by"`
+	CreatedBy   string          `json:"created_by,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
+// RunState represents a mutable key-value entry scoped to a run.
+type RunState struct {
+	RunID     string          `json:"run_id"`
+	StateKey  string          `json:"state_key"`
+	Value     json.RawMessage `json:"value"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type JobGroup struct {

@@ -149,6 +149,10 @@ type RunStore interface {
 	GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
 	ListBatchOperations(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
 	BulkCancelByFilter(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error)
+	UpsertDebouncePending(ctx context.Context, d *domain.DebouncePending) error
+	InsertBatchBufferItem(ctx context.Context, item *domain.BatchBufferItem) error
+	CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error)
+	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
 }
 
 type LogDrainStore interface {

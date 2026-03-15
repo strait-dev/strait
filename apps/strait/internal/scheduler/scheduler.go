@@ -9,6 +9,7 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/queue"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 )
 
@@ -18,6 +19,8 @@ type SchedulerStore interface {
 	PollerStore
 	ReaperStore
 	IndexMaintenanceStore
+	store.DebounceStore
+	store.BatchStore
 }
 
 type Scheduler struct {
@@ -25,6 +28,8 @@ type Scheduler struct {
 	poller          *DelayedPoller
 	reaper          *Reaper
 	indexMaintainer *IndexMaintainer
+	debouncePoller  *DebouncePoller
+	batchFlusher    *BatchFlusher
 	wg              conc.WaitGroup
 }
 
@@ -40,6 +45,8 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
 			WithStalledAction(cfg.StalledWorkflowAction),
 		indexMaintainer: NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
+		debouncePoller:  NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
+		batchFlusher:    NewBatchFlusher(s, q, cfg.BatchFlushInterval),
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -66,6 +73,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.poller.Run(ctx) })
 	s.wg.Go(func() { s.reaper.Run(ctx) })
 	s.wg.Go(func() { s.indexMaintainer.Run(ctx) })
+	s.wg.Go(func() { s.debouncePoller.Run(ctx) })
+	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
 
 	slog.Info("scheduler started")
 	return nil

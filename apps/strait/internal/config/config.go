@@ -124,6 +124,9 @@ type Config struct {
 	MigrationMode              string        `mapstructure:"MIGRATION_MODE"`
 	MigrationLockTimeout       time.Duration `mapstructure:"MIGRATION_LOCK_TIMEOUT"`
 	MaxSnoozeCount             int           `mapstructure:"MAX_SNOOZE_COUNT"`
+	DebouncePollerInterval     time.Duration `mapstructure:"DEBOUNCE_POLLER_INTERVAL"`
+	BatchFlushInterval         time.Duration `mapstructure:"BATCH_FLUSH_INTERVAL"`
+	WebhookRequireTLS          bool          `mapstructure:"WEBHOOK_REQUIRE_TLS"`
 }
 
 func setDefaults() {
@@ -200,6 +203,9 @@ func setDefaults() {
 	viper.SetDefault("MIGRATION_MODE", "auto")
 	viper.SetDefault("MIGRATION_LOCK_TIMEOUT", 30*time.Second)
 	viper.SetDefault("MAX_SNOOZE_COUNT", 50)
+	viper.SetDefault("DEBOUNCE_POLLER_INTERVAL", time.Second)
+	viper.SetDefault("BATCH_FLUSH_INTERVAL", time.Second)
+	viper.SetDefault("WEBHOOK_REQUIRE_TLS", false)
 }
 
 func BindEnv() error {
@@ -231,6 +237,7 @@ func BindEnv() error {
 		"DEFAULT_RUN_TTL_SECS", "MAX_RESULT_SIZE",
 		"MIGRATION_MODE", "MIGRATION_LOCK_TIMEOUT",
 		"MAX_SNOOZE_COUNT",
+		"DEBOUNCE_POLLER_INTERVAL", "BATCH_FLUSH_INTERVAL", "WEBHOOK_REQUIRE_TLS",
 	}
 
 	for _, key := range keys {
@@ -312,6 +319,9 @@ func Load() (*Config, error) {
 	cfg.MigrationMode = viper.GetString("MIGRATION_MODE")
 	cfg.MigrationLockTimeout = viper.GetDuration("MIGRATION_LOCK_TIMEOUT")
 	cfg.MaxSnoozeCount = viper.GetInt("MAX_SNOOZE_COUNT")
+	cfg.DebouncePollerInterval = viper.GetDuration("DEBOUNCE_POLLER_INTERVAL")
+	cfg.BatchFlushInterval = viper.GetDuration("BATCH_FLUSH_INTERVAL")
+	cfg.WebhookRequireTLS = viper.GetBool("WEBHOOK_REQUIRE_TLS")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")

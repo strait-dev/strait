@@ -1460,3 +1460,19 @@ func (m *mockAPIStore) DeleteEventSubscription(ctx context.Context, subID string
 	}
 	return nil
 }
+
+func (m *mockAPIStore) UpsertDebouncePending(_ context.Context, _ *domain.DebouncePending) error {
+	return nil
+}
+
+func (m *mockAPIStore) InsertBatchBufferItem(_ context.Context, _ *domain.BatchBufferItem) error {
+	return nil
+}
+
+func (m *mockAPIStore) CountBatchBufferItems(_ context.Context, _, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+	return nil, nil
+}
