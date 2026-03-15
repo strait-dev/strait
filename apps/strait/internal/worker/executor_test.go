@@ -2515,3 +2515,154 @@ func TestResolveJobForRun_SameVersion(t *testing.T) {
 		t.Fatalf("expected current endpoint, got %s", job.EndpointURL)
 	}
 }
+
+func TestAdaptiveDequeue_SkipsWhenPoolSaturated(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	// Saturate the pool
+	started := make(chan struct{})
+	done := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-done
+	})
+	<-started
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	if dequeueCalled.Load() {
+		t.Fatal("expected dequeue to be skipped when pool is saturated")
+	}
+}
+
+func TestAdaptiveDequeue_UsesIdleCount(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(10)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	// Use 5 of 10 slots
+	started := make(chan struct{}, 5)
+	done := make(chan struct{})
+	for range 5 {
+		pool.Submit(context.Background(), func() {
+			started <- struct{}{}
+			<-done
+		})
+	}
+	for range 5 {
+		<-started
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	got := requestedN.Load()
+	if got != 5 {
+		t.Fatalf("expected dequeue with n=5 (idle workers), got n=%d", got)
+	}
+}
+
+func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(100)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		MaxDequeueBatchSize: 10,
+	})
+
+	exec.poll(context.Background())
+
+	got := requestedN.Load()
+	if got != 10 {
+		t.Fatalf("expected dequeue capped at maxBatchSize=10, got n=%d", got)
+	}
+}
+
+func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(2)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	// Occupy 1 of 2 slots
+	started := make(chan struct{})
+	done := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-done
+	})
+	<-started
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		MaxDequeueBatchSize: 10,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	got := requestedN.Load()
+	if got != 1 {
+		t.Fatalf("expected dequeue with n=1 (single idle worker), got n=%d", got)
+	}
+}

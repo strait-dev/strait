@@ -23,6 +23,9 @@ func (e *Executor) poll(ctx context.Context) {
 	if available <= 0 {
 		return
 	}
+	if e.maxDequeueBatchSize > 0 && available > e.maxDequeueBatchSize {
+		available = e.maxDequeueBatchSize
+	}
 
 	var runs []domain.JobRun
 	var err error

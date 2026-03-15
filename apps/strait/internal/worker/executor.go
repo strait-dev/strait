@@ -74,6 +74,7 @@ type Executor struct {
 	webhookClient          *http.Client
 	webhookMaxRetry        int
 	webhookDispatchTimeout time.Duration
+	maxDequeueBatchSize    int
 	stop                   chan struct{}
 	done                   chan struct{}
 	stopOnce               sync.Once
@@ -107,6 +108,7 @@ type ExecutorConfig struct {
 	WebhookIdleConnTimeout  time.Duration
 	WebhookDispatchTimeout  time.Duration
 	WebhookMaxAttempts      int
+	MaxDequeueBatchSize     int
 }
 
 const (
@@ -181,6 +183,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		webhookClient:          whClient,
 		webhookMaxRetry:        whMaxAttempts,
 		webhookDispatchTimeout: whDispatchTimeout,
+		maxDequeueBatchSize:    cfg.MaxDequeueBatchSize,
 		stop:                   make(chan struct{}),
 		done:                   make(chan struct{}),
 	}
