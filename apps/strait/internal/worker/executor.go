@@ -54,35 +54,36 @@ type WorkflowCallback interface {
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
-	pool                   *Pool
-	concurrencyLimit       ConcurrencyLimitProvider
-	queue                  queue.Queue
-	wake                   <-chan struct{}
-	store                  ExecutorStore
-	httpClient             *http.Client
-	pollInterval           time.Duration
-	heartbeat              *HeartbeatSender
-	publisher              pubsub.Publisher
-	metrics                *telemetry.Metrics
-	workflowCallback       WorkflowCallback
-	partitionCycle         []string
-	nextPartition          int
-	jobActiveRuns          map[string]int
-	jobActiveRunsMu        sync.Mutex
-	circuitThreshold       int
-	circuitOpenFor         time.Duration
-	logger                 *slog.Logger
-	webhookClient          *http.Client
-	webhookMaxRetry        int
-	webhookDispatchTimeout time.Duration
-	maxDequeueBatchSize    int
-	stop                   chan struct{}
-	done                   chan struct{}
-	stopOnce               sync.Once
-	pollWG                 sync.WaitGroup
-	callbackWG             sync.WaitGroup
-	pollInFlight           atomic.Int64
-	runStarted             atomic.Bool
+	pool                     *Pool
+	concurrencyLimit         ConcurrencyLimitProvider
+	queue                    queue.Queue
+	wake                     <-chan struct{}
+	store                    ExecutorStore
+	httpClient               *http.Client
+	pollInterval             time.Duration
+	heartbeat                *HeartbeatSender
+	publisher                pubsub.Publisher
+	metrics                  *telemetry.Metrics
+	workflowCallback         WorkflowCallback
+	partitionCycle           []string
+	nextPartition            int
+	jobActiveRuns            map[string]int
+	jobActiveRunsMu          sync.Mutex
+	circuitThreshold         int
+	circuitOpenFor           time.Duration
+	logger                   *slog.Logger
+	webhookClient            *http.Client
+	webhookMaxRetry          int
+	webhookDispatchTimeout   time.Duration
+	maxDequeueBatchSize      int
+	defaultJobMaxConcurrency int
+	stop                     chan struct{}
+	done                     chan struct{}
+	stopOnce                 sync.Once
+	pollWG                   sync.WaitGroup
+	callbackWG               sync.WaitGroup
+	pollInFlight             atomic.Int64
+	runStarted               atomic.Bool
 }
 
 type ConcurrencyLimitProvider interface {
@@ -91,26 +92,27 @@ type ConcurrencyLimitProvider interface {
 
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
-	Pool                    *Pool
-	Queue                   queue.Queue
-	Wake                    <-chan struct{}
-	ConcurrencyLimit        ConcurrencyLimitProvider
-	Store                   ExecutorStore
-	Publisher               pubsub.Publisher
-	HTTPClient              *http.Client
-	PollInterval            time.Duration
-	HeartbeatInterval       time.Duration
-	Metrics                 *telemetry.Metrics
-	WorkflowCallback        WorkflowCallback
-	Partitions              []string
-	PartitionWeights        string
-	ExecutorHTTPTimeout     time.Duration
-	ExecutorIdleConnTimeout time.Duration
-	WebhookTimeout          time.Duration
-	WebhookIdleConnTimeout  time.Duration
-	WebhookDispatchTimeout  time.Duration
-	WebhookMaxAttempts      int
-	MaxDequeueBatchSize     int
+	Pool                     *Pool
+	Queue                    queue.Queue
+	Wake                     <-chan struct{}
+	ConcurrencyLimit         ConcurrencyLimitProvider
+	Store                    ExecutorStore
+	Publisher                pubsub.Publisher
+	HTTPClient               *http.Client
+	PollInterval             time.Duration
+	HeartbeatInterval        time.Duration
+	Metrics                  *telemetry.Metrics
+	WorkflowCallback         WorkflowCallback
+	Partitions               []string
+	PartitionWeights         string
+	ExecutorHTTPTimeout      time.Duration
+	ExecutorIdleConnTimeout  time.Duration
+	WebhookTimeout           time.Duration
+	WebhookIdleConnTimeout   time.Duration
+	WebhookDispatchTimeout   time.Duration
+	WebhookMaxAttempts       int
+	MaxDequeueBatchSize      int
+	DefaultJobMaxConcurrency int
 }
 
 const (
@@ -166,32 +168,36 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 
 	return &Executor{
-		pool:                   cfg.Pool,
-		concurrencyLimit:       cfg.ConcurrencyLimit,
-		queue:                  cfg.Queue,
-		wake:                   cfg.Wake,
-		store:                  cfg.Store,
-		httpClient:             httpClient,
-		pollInterval:           cfg.PollInterval,
-		heartbeat:              NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
-		publisher:              cfg.Publisher,
-		metrics:                cfg.Metrics,
-		workflowCallback:       cfg.WorkflowCallback,
-		partitionCycle:         buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
-		jobActiveRuns:          make(map[string]int),
-		circuitThreshold:       defaultCircuitFailureThreshold,
-		circuitOpenFor:         defaultCircuitOpenDuration,
-		logger:                 slog.Default(),
-		webhookClient:          whClient,
-		webhookMaxRetry:        whMaxAttempts,
-		webhookDispatchTimeout: whDispatchTimeout,
-		maxDequeueBatchSize:    cfg.MaxDequeueBatchSize,
-		stop:                   make(chan struct{}),
-		done:                   make(chan struct{}),
+		pool:                     cfg.Pool,
+		concurrencyLimit:         cfg.ConcurrencyLimit,
+		queue:                    cfg.Queue,
+		wake:                     cfg.Wake,
+		store:                    cfg.Store,
+		httpClient:               httpClient,
+		pollInterval:             cfg.PollInterval,
+		heartbeat:                NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
+		publisher:                cfg.Publisher,
+		metrics:                  cfg.Metrics,
+		workflowCallback:         cfg.WorkflowCallback,
+		partitionCycle:           buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
+		jobActiveRuns:            make(map[string]int),
+		circuitThreshold:         defaultCircuitFailureThreshold,
+		circuitOpenFor:           defaultCircuitOpenDuration,
+		logger:                   slog.Default(),
+		webhookClient:            whClient,
+		webhookMaxRetry:          whMaxAttempts,
+		webhookDispatchTimeout:   whDispatchTimeout,
+		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
+		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
+		stop:                     make(chan struct{}),
+		done:                     make(chan struct{}),
 	}
 }
 
 func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {
+	if maxConcurrency <= 0 {
+		maxConcurrency = e.defaultJobMaxConcurrency
+	}
 	if maxConcurrency <= 0 {
 		return true
 	}
@@ -208,6 +214,9 @@ func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool
 }
 
 func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
+	if maxConcurrency <= 0 {
+		maxConcurrency = e.defaultJobMaxConcurrency
+	}
 	if maxConcurrency <= 0 {
 		return
 	}

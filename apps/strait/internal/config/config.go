@@ -88,11 +88,12 @@ type Config struct {
 	WebhookMaxPayloadBytes  int64         `mapstructure:"WEBHOOK_MAX_PAYLOAD_BYTES"`
 
 	// Worker settings
-	WebhookMaxAttempts    int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
-	DefaultJobMaxAttempts int `mapstructure:"DEFAULT_JOB_MAX_ATTEMPTS"`
-	DefaultJobTimeoutSecs int `mapstructure:"DEFAULT_JOB_TIMEOUT_SECS"`
-	WorkerQueueSize       int `mapstructure:"WORKER_QUEUE_SIZE"`
-	MaxDequeueBatchSize   int `mapstructure:"MAX_DEQUEUE_BATCH_SIZE"`
+	WebhookMaxAttempts       int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
+	DefaultJobMaxAttempts    int `mapstructure:"DEFAULT_JOB_MAX_ATTEMPTS"`
+	DefaultJobTimeoutSecs    int `mapstructure:"DEFAULT_JOB_TIMEOUT_SECS"`
+	DefaultJobMaxConcurrency int `mapstructure:"DEFAULT_JOB_MAX_CONCURRENCY"`
+	WorkerQueueSize          int `mapstructure:"WORKER_QUEUE_SIZE"`
+	MaxDequeueBatchSize      int `mapstructure:"MAX_DEQUEUE_BATCH_SIZE"`
 
 	// Scheduler settings
 	WorkflowRetention        time.Duration `mapstructure:"WORKFLOW_RETENTION"`
@@ -169,6 +170,7 @@ func setDefaults() {
 	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
+	viper.SetDefault("DEFAULT_JOB_MAX_CONCURRENCY", 0)
 	viper.SetDefault("WORKER_QUEUE_SIZE", 0)
 	viper.SetDefault("MAX_DEQUEUE_BATCH_SIZE", 0)
 	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
@@ -202,7 +204,7 @@ func BindEnv() error {
 		"WORKER_DRAIN_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_MAX_ATTEMPTS",
-		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE", "MAX_DEQUEUE_BATCH_SIZE",
+		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "DEFAULT_JOB_MAX_CONCURRENCY", "WORKER_QUEUE_SIZE", "MAX_DEQUEUE_BATCH_SIZE",
 		"WORKFLOW_RETENTION", "INDEX_MAINTENANCE_INTERVAL", "REAPER_DELETE_BATCH_SIZE",
 		"WF_STALL_THRESHOLD", "WF_STALL_ACTION", "WF_MAX_STEP_CAP", "WF_STEP_CONCURRENCY_LIMIT",
 		"DEPENDENCY_STATUS_CACHE_TTL", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
