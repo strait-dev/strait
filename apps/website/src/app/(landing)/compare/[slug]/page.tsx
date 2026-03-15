@@ -11,6 +11,7 @@ import {
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import FlickeringGrid from "@/components/magicui/flickering-grid.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
@@ -153,25 +154,27 @@ export default async function ComparisonPage({ params }: Props) {
             {comparison.differentiators.map((diff) => (
               <StaggerItem key={diff.title}>
                 <div className="rounded-xl border border-border/60 bg-card p-6">
-                <h3 className="font-semibold text-foreground">{diff.title}</h3>
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <p className="text-muted-foreground text-xs uppercase tracking-wide">
-                      Strait
-                    </p>
-                    <p className="mt-1 text-foreground text-sm leading-relaxed">
-                      {diff.strait}
-                    </p>
+                  <h3 className="font-semibold text-foreground">
+                    {diff.title}
+                  </h3>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <p className="text-muted-foreground text-xs uppercase tracking-wide">
+                        Strait
+                      </p>
+                      <p className="mt-1 text-foreground text-sm leading-relaxed">
+                        {diff.strait}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs uppercase tracking-wide">
+                        {comparison.competitor}
+                      </p>
+                      <p className="mt-1 text-muted-foreground/70 text-sm leading-relaxed">
+                        {diff.competitor}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-muted-foreground text-xs uppercase tracking-wide">
-                      {comparison.competitor}
-                    </p>
-                    <p className="mt-1 text-muted-foreground/70 text-sm leading-relaxed">
-                      {diff.competitor}
-                    </p>
-                  </div>
-                </div>
                 </div>
               </StaggerItem>
             ))}
@@ -187,43 +190,43 @@ export default async function ComparisonPage({ params }: Props) {
           </h2>
           <div className="space-y-6">
             {comparison.categories.map((category, idx) => (
-              <Reveal key={category.name} delay={idx * 0.08}>
-              <details
-                className="group rounded-xl border border-border/60 bg-card"
-                key={category.name}
-                open
-              >
-                <summary className="cursor-pointer select-none px-6 py-4 font-semibold text-foreground">
-                  {category.name}
-                </summary>
-                <div className="border-border/40 border-t">
-                  {/* Header row */}
-                  <div className="grid grid-cols-3 gap-4 border-border/30 border-b px-6 py-3">
-                    <p className="text-muted-foreground text-sm">Feature</p>
-                    <p className="text-center text-muted-foreground text-sm">
-                      Strait
-                    </p>
-                    <p className="text-center text-muted-foreground text-sm">
-                      {comparison.competitor}
-                    </p>
-                  </div>
-                  {/* Feature rows */}
-                  {category.features.map((row) => (
-                    <div
-                      className="grid grid-cols-3 gap-4 border-border/20 border-b px-6 py-3 last:border-b-0"
-                      key={row.feature}
-                    >
-                      <p className="text-foreground text-sm">{row.feature}</p>
-                      <p className="text-center">
-                        <FeatureValue value={row.strait} />
+              <Reveal delay={idx * 0.08} key={category.name}>
+                <details
+                  className="group rounded-xl border border-border/60 bg-card"
+                  key={category.name}
+                  open
+                >
+                  <summary className="cursor-pointer select-none px-6 py-4 font-semibold text-foreground">
+                    {category.name}
+                  </summary>
+                  <div className="border-border/40 border-t">
+                    {/* Header row */}
+                    <div className="grid grid-cols-3 gap-4 border-border/30 border-b px-6 py-3">
+                      <p className="text-muted-foreground text-sm">Feature</p>
+                      <p className="text-center text-muted-foreground text-sm">
+                        Strait
                       </p>
-                      <p className="text-center">
-                        <FeatureValue value={row.competitor} />
+                      <p className="text-center text-muted-foreground text-sm">
+                        {comparison.competitor}
                       </p>
                     </div>
-                  ))}
-                </div>
-              </details>
+                    {/* Feature rows */}
+                    {category.features.map((row) => (
+                      <div
+                        className="grid grid-cols-3 gap-4 border-border/20 border-b px-6 py-3 last:border-b-0"
+                        key={row.feature}
+                      >
+                        <p className="text-foreground text-sm">{row.feature}</p>
+                        <p className="text-center">
+                          <FeatureValue value={row.strait} />
+                        </p>
+                        <p className="text-center">
+                          <FeatureValue value={row.competitor} />
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               </Reveal>
             ))}
           </div>
@@ -241,14 +244,14 @@ export default async function ComparisonPage({ params }: Props) {
               const stepNumber = index + 1;
               return (
                 <StaggerItem key={step}>
-                <li className="flex gap-4">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground text-sm">
-                    {stepNumber}
-                  </span>
-                  <p className="pt-1 text-muted-foreground leading-relaxed">
-                    {step}
-                  </p>
-                </li>
+                  <li className="flex gap-4">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground text-sm">
+                      {stepNumber}
+                    </span>
+                    <p className="pt-1 text-muted-foreground leading-relaxed">
+                      {step}
+                    </p>
+                  </li>
                 </StaggerItem>
               );
             })}
@@ -259,6 +262,11 @@ export default async function ComparisonPage({ params }: Props) {
       {/* CTA */}
       <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
         <MeshGradientBg />
+        <FlickeringGrid
+          color="rgba(255,255,255,0.6)"
+          flickerChance={0.2}
+          maxOpacity={0.15}
+        />
         <Shell className="relative z-10 text-center" variant="wide">
           <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
             Ready to switch from {comparison.competitor}?

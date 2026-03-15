@@ -11,6 +11,8 @@ import {
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import MockBrowserWindow from "@/components/magicui/mock-browser-window.tsx";
+import Particles from "@/components/magicui/particles.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
@@ -144,23 +146,16 @@ export default async function FeaturePage({ params }: Props) {
             {feature.codeExample.title}
           </h2>
           <Reveal variant="scale">
-          <div className="mt-8 overflow-hidden rounded-2xl border border-border/60 bg-card">
-            <div className="border-border/50 border-b px-4 py-3">
-              <div className="flex items-center gap-1.5">
-                <span className="size-3 rounded-full bg-border" />
-                <span className="size-3 rounded-full bg-border" />
-                <span className="size-3 rounded-full bg-border" />
-                <span className="ml-3 text-muted-foreground/50 text-xs">
-                  main.{feature.codeExample.language}
-                </span>
-              </div>
-            </div>
-            <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
-              <code className="text-foreground/80">
-                {feature.codeExample.code}
-              </code>
-            </pre>
-          </div>
+            <MockBrowserWindow
+              className="mt-8"
+              url={`main.${feature.codeExample.language}`}
+            >
+              <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
+                <code className="text-foreground/80">
+                  {feature.codeExample.code}
+                </code>
+              </pre>
+            </MockBrowserWindow>
           </Reveal>
         </Shell>
       </section>
@@ -201,6 +196,13 @@ export default async function FeaturePage({ params }: Props) {
       {/* CTA */}
       <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
         <MeshGradientBg />
+        <Particles
+          className="pointer-events-none absolute inset-0"
+          color="var(--primary-foreground)"
+          quantity={80}
+          size={0.4}
+          staticity={40}
+        />
         <Shell className="relative z-10 text-center" variant="wide">
           <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
             Ready to try {feature.name}?

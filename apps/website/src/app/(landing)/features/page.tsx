@@ -9,6 +9,7 @@ import {
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import FlickeringGrid from "@/components/magicui/flickering-grid.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { dashboardHref } from "@/lib/urls.ts";
 import { FEATURE_PAGES } from "./data.ts";
@@ -60,19 +61,22 @@ export default function FeaturesPage() {
                   className="group flex h-full flex-col rounded-2xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md sm:p-8"
                   href={`/features/${feature.slug}`}
                 >
-                <h2 className="font-semibold text-foreground text-xl group-hover:text-primary">
-                  {feature.name}
-                </h2>
-                <p className="mt-1 text-muted-foreground text-sm">
-                  {feature.subheadline}
-                </p>
-                <p className="mt-4 flex-1 text-muted-foreground/70 text-sm leading-relaxed">
-                  {feature.description}
-                </p>
-                <div className="mt-4 flex items-center gap-1 text-primary text-sm">
-                  Learn more
-                  <HugeiconsIcon className="size-3.5" icon={ArrowRight02Icon} />
-                </div>
+                  <h2 className="font-semibold text-foreground text-xl group-hover:text-primary">
+                    {feature.name}
+                  </h2>
+                  <p className="mt-1 text-muted-foreground text-sm">
+                    {feature.subheadline}
+                  </p>
+                  <p className="mt-4 flex-1 text-muted-foreground/70 text-sm leading-relaxed">
+                    {feature.description}
+                  </p>
+                  <div className="mt-4 flex items-center gap-1 text-primary text-sm">
+                    Learn more
+                    <HugeiconsIcon
+                      className="size-3.5"
+                      icon={ArrowRight02Icon}
+                    />
+                  </div>
                 </Link>
               </StaggerItem>
             ))}
@@ -80,8 +84,13 @@ export default function FeaturesPage() {
         </Shell>
       </section>
 
-      <section className="border-border/40 border-t bg-primary py-16 sm:py-20">
-        <Shell className="text-center" variant="wide">
+      <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
+        <FlickeringGrid
+          color="rgba(255,255,255,0.6)"
+          flickerChance={0.2}
+          maxOpacity={0.15}
+        />
+        <Shell className="relative z-10 text-center" variant="wide">
           <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
             Ready to deploy your first workflow?
           </h2>

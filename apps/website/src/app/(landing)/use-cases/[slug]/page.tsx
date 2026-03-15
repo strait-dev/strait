@@ -11,6 +11,7 @@ import {
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import Particles from "@/components/magicui/particles.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
@@ -91,25 +92,25 @@ export default async function UseCasePage({ params }: Props) {
             </Reveal>
 
             <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
-              <Reveal variant="fade-left" delay={0.1}>
-              <div className="rounded-xl border border-border/60 bg-card p-6">
-                <p className="font-medium text-foreground text-sm uppercase tracking-wider">
-                  The Problem
-                </p>
-                <p className="mt-3 text-muted-foreground leading-relaxed">
-                  {useCase.problem}
-                </p>
-              </div>
+              <Reveal delay={0.1} variant="fade-left">
+                <div className="rounded-xl border border-border/60 bg-card p-6">
+                  <p className="font-medium text-foreground text-sm uppercase tracking-wider">
+                    The Problem
+                  </p>
+                  <p className="mt-3 text-muted-foreground leading-relaxed">
+                    {useCase.problem}
+                  </p>
+                </div>
               </Reveal>
-              <Reveal variant="fade-right" delay={0.15}>
-              <div className="rounded-xl border border-primary/30 bg-primary/5 p-6">
-                <p className="font-medium text-primary text-sm uppercase tracking-wider">
-                  The Solution
-                </p>
-                <p className="mt-3 text-muted-foreground leading-relaxed">
-                  {useCase.solution}
-                </p>
-              </div>
+              <Reveal delay={0.15} variant="fade-right">
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-6">
+                  <p className="font-medium text-primary text-sm uppercase tracking-wider">
+                    The Solution
+                  </p>
+                  <p className="mt-3 text-muted-foreground leading-relaxed">
+                    {useCase.solution}
+                  </p>
+                </div>
               </Reveal>
             </div>
 
@@ -179,12 +180,12 @@ export default async function UseCasePage({ params }: Props) {
                   className="group block rounded-xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md"
                   href={`/features/${feature.slug}`}
                 >
-                <h3 className="font-semibold text-foreground group-hover:text-primary">
-                  {feature.name}
-                </h3>
-                <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
-                  {feature.description}
-                </p>
+                  <h3 className="font-semibold text-foreground group-hover:text-primary">
+                    {feature.name}
+                  </h3>
+                  <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
+                    {feature.description}
+                  </p>
                 </Link>
               </StaggerItem>
             ))}
@@ -195,6 +196,13 @@ export default async function UseCasePage({ params }: Props) {
       {/* CTA */}
       <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
         <MeshGradientBg />
+        <Particles
+          className="pointer-events-none absolute inset-0"
+          color="var(--primary-foreground)"
+          quantity={80}
+          size={0.4}
+          staticity={40}
+        />
         <Shell className="relative z-10 text-center" variant="wide">
           <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
             Ready to build {useCase.title.toLowerCase()}?

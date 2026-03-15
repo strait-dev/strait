@@ -8,6 +8,7 @@ import Link from "next/link";
 import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
+import Particles from "@/components/magicui/particles.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
 const CTA = () => {
@@ -20,6 +21,13 @@ const CTA = () => {
     >
       <div className="orchestration-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
       <MeshGradientBg />
+      <Particles
+        className="pointer-events-none absolute inset-0"
+        color="var(--primary-foreground)"
+        quantity={80}
+        size={0.4}
+        staticity={40}
+      />
 
       <Shell className="relative z-10" variant="wide">
         <div className="flex flex-col items-center text-center">
