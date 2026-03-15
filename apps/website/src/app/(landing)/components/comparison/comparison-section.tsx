@@ -1,131 +1,135 @@
 "use client";
 
-import {
-  ArrowRight02Icon,
-  Cancel01Icon,
-  CheckmarkCircle02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useState } from "react";
 
 import Shell from "@/components/layout/shell.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
-const OLD_WAY_STEPS = [
-  "Run a separate message broker and keep it healthy",
-  "Write custom retry, timeout, and deduplication logic",
-  "Build ad-hoc workflow dependency handling",
-  "Patch observability across multiple systems",
-  "Debug failures by joining logs from different tools",
-  "Repeat the same platform work in every project",
-];
+const WITHOUT_CODE = `// redis-queue.js
+const queue = new Bull('process-order');
+queue.process(async (job) => {
+  // custom retry logic...
+  // manual error handling...
+  // ad-hoc workflow state...
+  // scattered observability...
+});
 
-const STRAIT_STEPS = [
-  "Queue runs directly in PostgreSQL with SKIP LOCKED",
-  "Use built-in retries, DLQ, and idempotency controls",
-  "Model DAG workflows with dependencies and conditions",
-  "Add approval gates and nested sub-workflows",
-  "Track runs with events, usage, and execution traces",
-  "Operate one runtime with API, worker, and CLI support",
+// cron-service.js
+cron.schedule('*/5 * * * *', checkStuckJobs);
+
+// webhook-handler.js
+app.post('/webhook', customRetryWrapper(handler));
+
+// monitoring.js
+setupCustomMetrics(prometheus, redis, postgres);`;
+
+const WITH_CODE = `// main.go
+client.Jobs.Create(ctx, strait.JobInput{
+  Name:       "process-order",
+  WorkflowID: "checkout-flow",
+  Retries:    3,
+  Backoff:    strait.Exponential,
+  Budget:     "$12/run",
+})
+
+// That's it. Retries, DLQ, events,
+// health scoring, and CDC are built in.`;
+
+const METRICS = [
+  { label: "Lines of infra code", without: 2400, with: 120, unit: "" },
+  { label: "Systems to monitor", without: 5, with: 1, unit: "" },
+  { label: "MTTR", without: 45, with: 3, unit: "min" },
 ];
 
 const ComparisonSection = () => {
-  const sectionRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          el.setAttribute("data-visible", "");
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const [showStrait, setShowStrait] = useState(false);
 
   return (
-    <section
-      className="border-border/40 border-y py-20 sm:py-28"
-      ref={sectionRef}
-    >
+    <section className="border-border/40 border-y py-20 sm:py-28">
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
-              Replace tool sprawl with one platform your team actually enjoys.
+              See the difference in one toggle.
             </span>{" "}
             <span className="text-muted-foreground">
-              Strait helps you ship faster and recover quicker without building
-              more internal plumbing.
+              From fragmented infrastructure to a single, clean SDK call.
             </span>
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:gap-8">
-          <div className="rounded-2xl border border-border/60 bg-card p-6 sm:p-8">
-            <div className="mb-6 flex items-center gap-3">
-              <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <HugeiconsIcon className="size-4" icon={Cancel01Icon} />
+        {/* Toggle */}
+        <div className="mb-8 flex items-center justify-center gap-2">
+          <button
+            className={`rounded-full px-4 py-2 font-medium text-sm transition-all ${
+              showStrait
+                ? "bg-muted text-muted-foreground"
+                : "bg-foreground text-background"
+            }`}
+            onClick={() => setShowStrait(false)}
+            type="button"
+          >
+            Without Strait
+          </button>
+          <button
+            className={`rounded-full px-4 py-2 font-medium text-sm transition-all ${
+              showStrait
+                ? "bg-foreground text-background"
+                : "bg-muted text-muted-foreground"
+            }`}
+            onClick={() => setShowStrait(true)}
+            type="button"
+          >
+            With Strait
+          </button>
+        </div>
+
+        {/* Code comparison */}
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+          <div className="border-border/50 border-b px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <span className="size-3 rounded-full bg-border" />
+              <span className="size-3 rounded-full bg-border" />
+              <span className="size-3 rounded-full bg-border" />
+              <span className="ml-3 text-muted-foreground/50 text-xs">
+                {showStrait ? "main.go" : "infrastructure/"}
               </span>
-              <h3 className="font-semibold text-foreground text-lg">
-                Fragmented stack
-              </h3>
             </div>
-
-            <ul className="space-y-3">
-              {OLD_WAY_STEPS.map((step) => (
-                <li className="flex items-start gap-3" key={step}>
-                  <span className="mt-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                    <HugeiconsIcon className="size-3" icon={Cancel01Icon} />
-                  </span>
-                  <span className="text-muted-foreground text-sm leading-relaxed">
-                    {step}
-                  </span>
-                </li>
-              ))}
-            </ul>
           </div>
+          <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
+            <code
+              className={`transition-opacity duration-300 ${
+                showStrait ? "text-success/80" : "text-muted-foreground/70"
+              }`}
+            >
+              {showStrait ? WITH_CODE : WITHOUT_CODE}
+            </code>
+          </pre>
+        </div>
 
-          <div className="rounded-2xl border border-foreground/10 bg-card p-6 sm:p-8">
-            <div className="mb-6 flex items-center gap-3">
-              <span className="icon-chip text-foreground">
-                <HugeiconsIcon
-                  className="size-4"
-                  icon={CheckmarkCircle02Icon}
-                />
-              </span>
-              <h3 className="font-semibold text-foreground text-lg">
-                Strait runtime
-              </h3>
-            </div>
-
-            <ul className="space-y-3">
-              {STRAIT_STEPS.map((step) => (
-                <li className="flex items-start gap-3" key={step}>
-                  <span className="mt-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
-                    <HugeiconsIcon
-                      className="size-3"
-                      icon={CheckmarkCircle02Icon}
-                    />
-                  </span>
-                  <span className="text-foreground text-sm leading-relaxed">
-                    {step}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {/* Metrics */}
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {METRICS.map((metric) => {
+            const value = showStrait ? metric.with : metric.without;
+            return (
+              <div
+                className="rounded-xl border border-border/60 bg-card p-5 text-center"
+                key={metric.label}
+              >
+                <p className="font-heading font-semibold text-3xl text-foreground tabular-nums transition-all duration-300">
+                  {value}
+                  {metric.unit}
+                </p>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  {metric.label}
+                </p>
+              </div>
+            );
+          })}
         </div>
 
         <div className="mt-10 flex justify-center">

@@ -1,198 +1,172 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Shell from "@/components/layout/shell.tsx";
 
-const ChatVisual = () => (
-  <div className="flex h-full flex-col justify-center gap-3 px-6 py-8">
+const StackCollapseVisual = () => {
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCollapsed((prev) => !prev);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const brokers = ["RabbitMQ", "SQS", "Redis"];
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-8">
+      {brokers.map((label, i) => {
+        const isHidden = collapsed;
+        return (
+          <div
+            className="flex w-40 items-center justify-center rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-4 py-2 text-primary-foreground/70 text-sm transition-all duration-500"
+            key={label}
+            style={{
+              opacity: isHidden ? 0 : 1,
+              transform: isHidden
+                ? "translateY(20px) scale(0.9)"
+                : "translateY(0) scale(1)",
+              transitionDelay: `${i * 80}ms`,
+            }}
+          >
+            {label}
+          </div>
+        );
+      })}
+      <div
+        className="flex w-40 items-center justify-center rounded-lg border border-primary-foreground/40 bg-primary-foreground/20 px-4 py-2.5 font-medium text-primary-foreground/90 text-sm transition-all duration-500"
+        style={{
+          transform: collapsed ? "scale(1.08)" : "scale(1)",
+          boxShadow: collapsed ? "0 0 20px oklch(1 0 0 / 0.1)" : "none",
+        }}
+      >
+        Postgres
+      </div>
+    </div>
+  );
+};
+
+const FSMVisual = () => {
+  const states = ["queued", "claimed", "executing", "completed"];
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-6 py-8">
+      <div className="flex flex-col gap-0">
+        {states.map((state, i) => (
+          <div className="flex flex-col items-center" key={state}>
+            <div
+              className="why-card-el relative flex items-center gap-2"
+              style={
+                { "--el-delay": `${0.2 + i * 0.25}s` } as React.CSSProperties
+              }
+            >
+              <div className="relative flex items-center justify-center rounded-md border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-1.5">
+                <span className="text-primary-foreground/80 text-xs">
+                  {state}
+                </span>
+                <span
+                  className="fsm-dot absolute -left-1.5 size-2 rounded-full bg-primary-foreground/80"
+                  style={{ animationDelay: `${i * 0.8}s` }}
+                />
+              </div>
+            </div>
+            {i < states.length - 1 && (
+              <div className="h-4 w-px bg-primary-foreground/20" />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ObservabilityVisual = () => {
+  const layers = ["Health", "Usage", "Debug Bundle", "Events"];
+
+  return (
+    <div className="flex h-full items-center justify-center px-6 py-8">
+      <div className="relative h-32 w-48">
+        {layers.map((label, i) => (
+          <div
+            className="why-card-el absolute top-0 left-0 w-full rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 px-4 py-3 shadow-sm"
+            key={label}
+            style={
+              {
+                "--el-delay": `${0.3 + i * 0.2}s`,
+                transform: `translateY(${i * 14}px) translateX(${i * 6}px) rotate(${i * -2}deg)`,
+                zIndex: layers.length - i,
+              } as React.CSSProperties
+            }
+          >
+            <span className="font-medium text-primary-foreground/80 text-xs">
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const AIWorkflowVisual = () => (
+  <div className="flex h-full flex-col items-center justify-center gap-4 px-6 py-8">
     <div
-      className="why-card-el flex justify-end"
+      className="why-card-el flex items-center gap-3 rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-4 py-3"
       style={{ "--el-delay": "0.3s" } as React.CSSProperties}
     >
-      <div className="rounded-2xl rounded-br-sm bg-primary-foreground/20 px-4 py-2.5">
-        <p className="text-primary-foreground/90 text-sm">
-          Why did this run move to dead letter?
-        </p>
-      </div>
-    </div>
-
-    <div
-      className="why-card-el flex justify-start"
-      style={{ "--el-delay": "0.9s" } as React.CSSProperties}
-    >
-      <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-primary-foreground/15 bg-primary-foreground/10 px-4 py-2.5">
-        <p className="text-primary-foreground/80 text-sm leading-relaxed">
-          Attempt 3 returned 502 and max attempts was reached. Replay is
-          available with the same payload and metadata.
-        </p>
-      </div>
-    </div>
-
-    <div
-      className="why-card-el flex justify-start"
-      style={{ "--el-delay": "1.8s" } as React.CSSProperties}
-    >
-      <div className="flex gap-1.5 rounded-2xl rounded-bl-sm border border-primary-foreground/15 bg-primary-foreground/10 px-4 py-3">
-        <span className="why-typing-dot size-1.5 rounded-full bg-primary-foreground/50" />
-        <span
-          className="why-typing-dot size-1.5 rounded-full bg-primary-foreground/50"
-          style={{ animationDelay: "0.15s" }}
-        />
-        <span
-          className="why-typing-dot size-1.5 rounded-full bg-primary-foreground/50"
-          style={{ animationDelay: "0.3s" }}
-        />
-      </div>
-    </div>
-  </div>
-);
-
-const EditorVisual = () => (
-  <div className="flex h-full flex-col px-6 py-8">
-    <div
-      className="why-card-el mb-4 flex items-center gap-2"
-      style={{ "--el-delay": "0.2s" } as React.CSSProperties}
-    >
-      <div className="flex gap-1">
-        <span className="size-2 rounded-full bg-primary-foreground/30" />
-        <span className="size-2 rounded-full bg-primary-foreground/30" />
-        <span className="size-2 rounded-full bg-primary-foreground/30" />
-      </div>
-      <span className="text-primary-foreground/40 text-xs">workflow.yaml</span>
-    </div>
-
-    <div
-      className="why-card-el mb-3"
-      style={{ "--el-delay": "0.4s" } as React.CSSProperties}
-    >
-      <div className="h-3.5 w-3/4 rounded bg-primary-foreground/25" />
-    </div>
-
-    <div className="space-y-2">
-      <div
-        className="why-card-el"
-        style={{ "--el-delay": "0.6s" } as React.CSSProperties}
-      >
-        <div className="h-2.5 w-full rounded bg-primary-foreground/15" />
-      </div>
-      <div
-        className="why-card-el"
-        style={{ "--el-delay": "0.75s" } as React.CSSProperties}
-      >
-        <div className="h-2.5 w-[92%] rounded bg-primary-foreground/15" />
-      </div>
-      <div
-        className="why-card-el"
-        style={{ "--el-delay": "0.9s" } as React.CSSProperties}
-      >
-        <div className="h-2.5 w-[85%] rounded bg-primary-foreground/15" />
-      </div>
-    </div>
-
-    <div
-      className="why-card-el mt-4"
-      style={{ "--el-delay": "1.2s" } as React.CSSProperties}
-    >
-      <div className="rounded-lg border border-primary-foreground/15 bg-primary-foreground/8 px-3 py-2.5">
-        <div className="mb-1.5 h-2.5 w-[70%] rounded bg-primary-foreground/20" />
-        <div className="h-2.5 w-[50%] rounded bg-primary-foreground/15" />
-      </div>
-    </div>
-
-    <div
-      className="why-card-el mt-3"
-      style={{ "--el-delay": "1.5s" } as React.CSSProperties}
-    >
-      <span className="why-cursor inline-block h-4 w-0.5 bg-primary-foreground/60" />
-    </div>
-  </div>
-);
-
-const OrgVisual = () => (
-  <div className="flex h-full flex-col px-6 py-8">
-    <div
-      className="why-card-el mb-4 flex items-center gap-2"
-      style={{ "--el-delay": "0.2s" } as React.CSSProperties}
-    >
-      <div className="size-6 rounded-md bg-primary-foreground/20" />
-      <span className="font-medium text-primary-foreground/70 text-xs">
-        Platform Project
+      <span className="text-primary-foreground/50 text-xs">Tokens</span>
+      <span className="font-medium font-mono text-primary-foreground/90 text-sm">
+        12,847
+      </span>
+      <div className="h-4 w-px bg-primary-foreground/20" />
+      <span className="text-primary-foreground/50 text-xs">Cost</span>
+      <span className="font-medium font-mono text-primary-foreground/90 text-sm">
+        $0.38
       </span>
     </div>
 
-    {[
-      { name: "Webhook Pipeline", count: 12, delay: "0.5s" },
-      { name: "Billing Jobs", count: 8, delay: "0.7s" },
-      { name: "Agent Workflow", count: 5, delay: "0.9s" },
-    ].map((folder) => (
-      <div
-        className="why-card-el mb-2 flex items-center justify-between rounded-lg border border-primary-foreground/10 bg-primary-foreground/8 px-3 py-2"
-        key={folder.name}
-        style={{ "--el-delay": folder.delay } as React.CSSProperties}
-      >
-        <div className="flex items-center gap-2">
-          <div className="flex size-5 items-center justify-center rounded bg-primary-foreground/15">
-            <svg
-              className="size-3 text-primary-foreground/50"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-          <span className="text-primary-foreground/70 text-xs">
-            {folder.name}
-          </span>
-        </div>
-        <span className="text-primary-foreground/40 text-xs">
-          {folder.count}
-        </span>
-      </div>
-    ))}
-
     <div
-      className="why-card-el mt-3 flex flex-wrap gap-1.5"
-      style={{ "--el-delay": "1.2s" } as React.CSSProperties}
+      className="why-card-el flex items-center gap-2 rounded-full border border-primary-foreground/25 bg-primary-foreground/15 px-3 py-1.5"
+      style={{ "--el-delay": "0.8s" } as React.CSSProperties}
     >
-      {["Queued", "Executing", "Failed", "Completed"].map((tag) => (
-        <span
-          className="rounded-full border border-primary-foreground/15 bg-primary-foreground/10 px-2.5 py-0.5 text-primary-foreground/60 text-xs"
-          key={tag}
-        >
-          {tag}
-        </span>
-      ))}
+      <span className="size-2 rounded-full bg-green-400/80" />
+      <span className="font-medium text-primary-foreground/80 text-xs">
+        Approved
+      </span>
     </div>
   </div>
 );
 
 const CARDS = [
   {
-    id: "runtime-feedback",
-    title: "Run intelligence where work happens",
+    id: "zero-broker",
+    title: "Drop the message broker",
     description:
-      "Inspect failures, retries, and terminal states with context-rich events tied to every execution.",
-    Visual: ChatVisual,
+      "SKIP LOCKED turns Postgres into your job queue. No Redis cluster, no RabbitMQ, no extra infrastructure to monitor.",
+    Visual: StackCollapseVisual,
   },
   {
-    id: "workflow-control",
-    title: "Configuration that stays operational",
+    id: "fsm-states",
+    title: "Every state is intentional",
     description:
-      "Define jobs and workflow behavior in one place, then execute with predictable semantics at scale.",
-    Visual: EditorVisual,
+      "From queued to terminal, every transition is tracked and queryable. No ambiguous job status.",
+    Visual: FSMVisual,
   },
   {
-    id: "organization",
-    title: "Projects organized for operations",
+    id: "observability",
+    title: "Built-in observability",
     description:
-      "Environments, groups, and state labels keep asynchronous systems understandable as they grow.",
-    Visual: OrgVisual,
+      "Events, debug bundles, usage tracking, and health scoring ship with the runtime.",
+    Visual: ObservabilityVisual,
+  },
+  {
+    id: "ai-workflows",
+    title: "Budget-aware orchestration",
+    description:
+      "Track token spend, enforce cost limits, and add human approval gates to long-running agent workflows.",
+    Visual: AIWorkflowVisual,
   },
 ] as const;
 
@@ -224,20 +198,18 @@ const WhyStrait = () => {
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-            <span className="text-foreground">
-              Why engineering teams use Strait.
-            </span>{" "}
+            <span className="text-foreground">Why teams switch to Strait.</span>{" "}
             <span className="text-muted-foreground">
-              Build reliable async systems with less platform overhead and
-              better operational control.
+              Less infrastructure. Faster recovery. One system your whole team
+              understands.
             </span>
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 lg:gap-8">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:gap-8">
           {CARDS.map((card) => (
             <div className="flex flex-col" key={card.id}>
-              <div className="why-card-visual relative aspect-square overflow-hidden rounded-2xl bg-primary">
+              <div className="why-card-visual relative aspect-[4/3] overflow-hidden rounded-2xl bg-primary">
                 <div className="showcase-dots pointer-events-none absolute inset-0" />
                 <div
                   className="pointer-events-none absolute inset-0 opacity-30"

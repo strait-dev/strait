@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import CredibilitySection from "@/components/landing/credibility-section.tsx";
 import FeatureBentoGrid from "@/components/landing/feature-bento-grid.tsx";
 import PipelineDemo from "@/components/landing/pipeline-demo.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
@@ -9,7 +10,6 @@ import {
   getWebSiteSchema,
   JsonLd,
 } from "@/lib/structured-data.tsx";
-import AudienceSection from "./components/audience/audience-section.tsx";
 import WhyStrait from "./components/benefits/why-polyglot.tsx";
 import CTA from "./components/common/cta/cta.tsx";
 import Hero from "./components/common/hero/hero.tsx";
@@ -17,7 +17,6 @@ import ProblemSection from "./components/common/hero/problem-section.tsx";
 import ComparisonSection from "./components/comparison/comparison-section.tsx";
 import HowItWorks from "./components/how-it-works/how-it-works.tsx";
 import PricingTeaser from "./components/pricing/pricing-teaser.tsx";
-import TestimonialsSection from "./components/testimonials/testimonials-section.tsx";
 
 export const metadata = generatePageMetadata({
   path: "/",
@@ -91,48 +90,8 @@ const LandingPage = () => {
 
       <FeatureBentoGrid />
       <WhyStrait />
+      <CredibilitySection />
       <ComparisonSection />
-
-      <Suspense
-        fallback={
-          <div className="mx-auto w-full max-w-[1600px] px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
-            <div className="space-y-4">
-              <div className="mx-auto h-4 w-28 animate-pulse rounded bg-muted/20" />
-              <div className="mx-auto h-8 w-72 animate-pulse rounded bg-muted/20" />
-              <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    className="h-56 animate-pulse rounded-xl bg-muted/20"
-                    key={`audience-skeleton-${String(i)}`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        }
-      >
-        <AudienceSection />
-      </Suspense>
-      <Suspense
-        fallback={
-          <div className="mx-auto w-full max-w-[1600px] px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
-            <div className="space-y-4">
-              <div className="mx-auto h-4 w-28 animate-pulse rounded bg-muted/20" />
-              <div className="mx-auto h-8 w-64 animate-pulse rounded bg-muted/20" />
-              <div className="mt-8 grid gap-6 sm:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div
-                    className="h-40 animate-pulse rounded-xl bg-muted/20"
-                    key={`testimonial-skeleton-${String(i)}`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        }
-      >
-        <TestimonialsSection />
-      </Suspense>
       <PricingTeaser />
       <CTA />
     </>

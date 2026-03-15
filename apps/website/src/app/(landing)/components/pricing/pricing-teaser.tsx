@@ -31,23 +31,23 @@ const PricingTeaser = () => (
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
           <span className="text-foreground">
-            Pricing that scales with your team.
+            Start free. Scale when you&apos;re ready.
           </span>{" "}
           <span className="text-muted-foreground">
-            Start simple today, then unlock more power as your workflows grow.
+            No credit card to start. Runs on your Postgres.
           </span>
         </h2>
       </div>
 
       <div className="mb-8 flex flex-wrap items-center justify-center gap-2.5 md:justify-start">
         <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
+          No credit card to start
+        </span>
+        <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
           Cancel anytime
         </span>
         <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-          Keep your existing PostgreSQL setup
-        </span>
-        <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-          Upgrade as your workload grows
+          Runs on your Postgres
         </span>
       </div>
 
@@ -55,9 +55,7 @@ const PricingTeaser = () => (
         {TEASER_PLANS.map((plan) => (
           <div
             className={`relative flex flex-col overflow-hidden rounded-2xl border ${
-              plan.highlighted
-                ? "border-foreground/10"
-                : "border-border/60 bg-card"
+              plan.highlighted ? "gradient-border" : "border-border/60 bg-card"
             }`}
             key={plan.name}
           >
