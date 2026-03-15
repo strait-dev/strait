@@ -4,6 +4,7 @@ import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
 import Shell from "@/components/layout/shell.tsx";
+import HeroDag from "@/components/landing/hero-dag.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
 const Hero = () => (
@@ -14,51 +15,70 @@ const Hero = () => (
     <div className="paper-texture absolute inset-0 -z-10 opacity-[0.02]" />
 
     <Shell variant="wide">
-      <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
-        <span className="kicker animate-fade-in-up">
-          Job orchestration your team can ship with
-        </span>
-
-        <h1 className="mt-6 animate-delay-100 animate-fade-in-up text-balance text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl xl:text-7xl">
-          <span className="text-foreground">
-            Run every background workflow from one clean control center.
-          </span>{" "}
-          <span className="text-muted-foreground">
-            Launch faster, fix failures sooner, and stop stitching together
-            queue tools.
+      <div className="flex flex-col items-center gap-12 lg:flex-row lg:items-start lg:gap-16">
+        {/* Text — 45% */}
+        <div className="flex max-w-2xl flex-col lg:w-[45%]">
+          <span className="kicker animate-fade-in-up">
+            OPEN SOURCE JOB ORCHESTRATION
           </span>
-        </h1>
 
-        <p className="mt-5 max-w-3xl animate-delay-200 animate-fade-in-up text-base text-muted-foreground/70 leading-relaxed sm:mt-6 sm:text-lg">
-          Strait gives your team one place to trigger work, watch progress, and
-          recover quickly when something goes wrong.
-        </p>
+          <h1 className="mt-6 animate-delay-100 animate-fade-in-up text-balance text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+            <span className="text-foreground">
+              Ship background workflows that don&apos;t wake you up at 3 AM.
+            </span>{" "}
+            <span className="text-muted-foreground">
+              PostgreSQL-native queueing, DAG orchestration, and failure
+              recovery in a single Go runtime.
+            </span>
+          </h1>
 
-        <div className="mt-10 flex animate-delay-300 animate-fade-in-up flex-col items-center gap-4 sm:flex-row">
-          <Button
-            className="transition-shadow duration-300"
-            render={<Link href={dashboardHref("/login")} />}
-            variant="gradient"
-          >
-            Start your first workflow
-            <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-          </Button>
-          <Button render={<Link href="/docs/quickstart" />} variant="ghost">
-            Read quickstart
-            <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-          </Button>
+          <p className="mt-5 max-w-xl animate-delay-200 animate-fade-in-up text-base text-muted-foreground/70 leading-relaxed sm:mt-6 sm:text-lg">
+            Define jobs, wire dependencies, and let Strait handle retries, dead
+            letters, approvals, and cost budgets — all backed by your existing
+            Postgres.
+          </p>
+
+          <div className="mt-10 flex animate-delay-300 animate-fade-in-up flex-col items-start gap-4 sm:flex-row">
+            <Button
+              className="transition-shadow duration-300"
+              render={<Link href={dashboardHref("/login")} />}
+              variant="gradient"
+            >
+              Deploy your first workflow
+              <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
+            </Button>
+            <Button render={<Link href="/docs/quickstart" />} variant="ghost">
+              Read the docs
+              <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
+            </Button>
+          </div>
+
+          <div className="mt-6 flex animate-delay-400 animate-fade-in-up flex-wrap items-start gap-2.5">
+            <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
+              PostgreSQL-native
+            </span>
+            <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
+              13-state FSM
+            </span>
+            <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
+              Apache 2.0 licensed
+            </span>
+          </div>
         </div>
 
-        <div className="mt-6 flex animate-delay-400 animate-fade-in-up flex-wrap items-center justify-center gap-2.5">
-          <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-            No broker setup required
-          </span>
-          <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-            Works with your PostgreSQL stack
-          </span>
-          <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-            Built for real production traffic
-          </span>
+        {/* DAG Visual — 55% */}
+        <div className="relative w-full animate-delay-200 animate-fade-in-up lg:w-[55%]">
+          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-20"
+              style={{
+                background:
+                  "radial-gradient(circle at 50% 40%, var(--primary), transparent 70%)",
+              }}
+            />
+            <div className="orchestration-grid pointer-events-none absolute inset-0 opacity-[0.06]" />
+            <HeroDag />
+          </div>
         </div>
       </div>
     </Shell>
