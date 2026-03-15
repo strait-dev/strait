@@ -54,7 +54,7 @@ const Footer = () => {
                   width={siteConfig.logo.width}
                 />
               </Link>
-              <p className="max-w-xs text-muted-foreground text-sm leading-relaxed">
+              <p className="max-w-xs text-pretty text-muted-foreground text-sm leading-relaxed">
                 Production-grade job orchestration for teams building reliable
                 asynchronous systems.
               </p>

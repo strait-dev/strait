@@ -184,7 +184,7 @@ const HowItWorks = () => {
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2
-            className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl"
+            className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl"
             id={headingId}
           >
             <span className="text-foreground">
@@ -224,11 +224,11 @@ const HowItWorks = () => {
                 </div>
                 <div className="mt-5">
                   <div className="flex items-center gap-3">
-                    <span className="font-heading text-3xl text-muted-foreground/30 leading-none tracking-tighter">
+                    <span className="font-heading text-3xl text-muted-foreground/30 leading-none">
                       {step.number}
                     </span>
                     <div>
-                      <span className="block font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                      <span className="block font-medium text-muted-foreground text-xs uppercase">
                         {step.label}
                       </span>
                       <h3 className="font-semibold text-foreground text-lg">

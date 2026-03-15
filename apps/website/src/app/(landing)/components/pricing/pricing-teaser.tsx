@@ -35,7 +35,7 @@ const PricingTeaser = () => (
     <Shell variant="wide">
       <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">
-          <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
               Start free. Scale when you&apos;re ready.
             </span>{" "}
@@ -75,7 +75,7 @@ const PricingTeaser = () => (
             <div
               className={`relative flex h-full flex-col overflow-hidden rounded-2xl border ${
                 plan.highlighted
-                  ? "gradient-border animate-glow-pulse"
+                  ? "border-primary/60 bg-card shadow-md"
                   : "border-border/60 bg-card"
               }`}
             >
@@ -114,7 +114,7 @@ const PricingTeaser = () => (
 
               <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
                 <div className="mt-8 mb-8">
-                  <span className="text-5xl text-foreground tabular-nums tracking-tight">
+                  <span className="text-5xl text-foreground tabular-nums">
                     {formatPrice(plan.prices.yearly)}
                   </span>
                   <span className="ml-1 text-muted-foreground text-sm">

@@ -52,7 +52,7 @@ const ComparisonSection = () => {
     <section className="border-border/40 border-y py-20 sm:py-28">
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
-          <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
               See the difference in one toggle.
             </span>{" "}
@@ -65,7 +65,7 @@ const ComparisonSection = () => {
         {/* Toggle */}
         <div className="mb-8 flex items-center justify-center gap-2">
           <button
-            className={`rounded-full px-4 py-2 font-medium text-sm transition-all ${
+            className={`rounded-full px-4 py-2 font-medium text-sm transition-colors ${
               showStrait
                 ? "bg-muted text-muted-foreground"
                 : "bg-foreground text-background"
@@ -76,7 +76,7 @@ const ComparisonSection = () => {
             Without Strait
           </button>
           <button
-            className={`rounded-full px-4 py-2 font-medium text-sm transition-all ${
+            className={`rounded-full px-4 py-2 font-medium text-sm transition-colors ${
               showStrait
                 ? "bg-foreground text-background"
                 : "bg-muted text-muted-foreground"
@@ -120,7 +120,7 @@ const ComparisonSection = () => {
                 className="rounded-xl border border-border/60 bg-card p-5 text-center"
                 key={metric.label}
               >
-                <p className="font-heading font-semibold text-3xl text-foreground tabular-nums transition-all duration-300">
+                <p className="font-heading font-semibold text-3xl text-foreground tabular-nums transition-opacity duration-300">
                   {value}
                   {metric.unit}
                 </p>

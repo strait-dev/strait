@@ -321,8 +321,8 @@ const HealthAnimation = () => {
           </span>
           <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/50">
             <div
-              className="h-full rounded-full bg-primary/60 transition-all duration-100"
-              style={{ width: `${String(bar.value)}%` }}
+              className="h-full w-full origin-left rounded-full bg-primary/60 transition-transform duration-100"
+              style={{ transform: `scaleX(${bar.value / 100})` }}
             />
           </div>
         </div>
@@ -460,7 +460,7 @@ const FeatureBentoGrid = () => (
   <section className="py-20 sm:py-28" id="features">
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
-        <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+        <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
           <span className="text-foreground">
             Everything you need to run production workflows.
           </span>{" "}
@@ -490,7 +490,7 @@ const FeatureBentoGrid = () => (
 
             {/* Content */}
             <div className="p-5 sm:p-6">
-              <p className="text-muted-foreground text-xs uppercase tracking-wider">
+              <p className="text-muted-foreground text-xs uppercase">
                 {feature.subtitle}
               </p>
               <h3 className="mt-1 font-semibold text-foreground text-lg">

@@ -49,7 +49,7 @@ const ProblemSection = () => (
     <Shell variant="wide">
       <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">
-          <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
               Your current stack is held together with duct tape.
             </span>{" "}

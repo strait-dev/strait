@@ -25,7 +25,7 @@ const CTA = () => {
         <div className="flex flex-col items-center text-center">
           <Reveal variant="blur">
             <h2
-              className="max-w-3xl text-2xl text-primary-foreground leading-[1.1] tracking-tighter sm:text-3xl lg:text-4xl"
+              className="max-w-3xl text-balance text-2xl text-primary-foreground leading-[1.1] sm:text-3xl lg:text-4xl"
               id={headingId}
             >
               Stop building job infrastructure. Start shipping workflows.
@@ -33,7 +33,7 @@ const CTA = () => {
           </Reveal>
 
           <Reveal delay={0.1}>
-            <p className="mt-6 max-w-2xl text-base text-primary-foreground/70 leading-relaxed sm:text-lg">
+            <p className="mt-6 max-w-2xl text-pretty text-base text-primary-foreground/70 leading-relaxed sm:text-lg">
               Deploy your first workflow in under 10 minutes. Zero-broker,
               production-grade from the first run.
             </p>

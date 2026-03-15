@@ -24,9 +24,7 @@ export const SPRING_GENTLE: Transition = {
   damping: 18,
 };
 
-export const EASE_OUT_EXPO: [number, number, number, number] = [
-  0.16, 1, 0.3, 1,
-];
+export const EASE_OUT: [number, number, number, number] = [0, 0, 0.2, 1];
 
 export function staggerContainer(delay = 0.08): Variants {
   return {
@@ -47,7 +45,7 @@ export function fadeSlideUp(distance = 24): Variants {
       y: 0,
       transition: {
         duration: 0.6,
-        ease: EASE_OUT_EXPO,
+        ease: EASE_OUT,
       },
     },
   };
@@ -72,7 +70,7 @@ export function blurFadeIn(): Variants {
       filter: "blur(0px)",
       transition: {
         duration: 0.6,
-        ease: EASE_OUT_EXPO,
+        ease: EASE_OUT,
       },
     },
   };
@@ -86,7 +84,7 @@ export function fadeSlideLeft(distance = 24): Variants {
       x: 0,
       transition: {
         duration: 0.6,
-        ease: EASE_OUT_EXPO,
+        ease: EASE_OUT,
       },
     },
   };
@@ -100,7 +98,7 @@ export function fadeSlideRight(distance = 24): Variants {
       x: 0,
       transition: {
         duration: 0.6,
-        ease: EASE_OUT_EXPO,
+        ease: EASE_OUT,
       },
     },
   };

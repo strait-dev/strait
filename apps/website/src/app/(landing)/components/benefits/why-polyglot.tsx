@@ -197,7 +197,7 @@ const WhyStrait = () => {
     <section className="py-20 sm:py-28" ref={sectionRef}>
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
-          <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">Why teams switch to Strait.</span>{" "}
             <span className="text-muted-foreground">
               Less infrastructure. Faster recovery. One system your whole team

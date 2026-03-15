@@ -1,7 +1,7 @@
 const BLOBS = [
   {
     className:
-      "absolute -top-1/4 -left-1/4 h-[60%] w-[60%] rounded-full opacity-20 blur-[80px]",
+      "absolute -top-1/4 -left-1/4 h-[60%] w-[60%] rounded-full opacity-20 blur-3xl",
     style: {
       background:
         "color-mix(in oklch, var(--primary) 80%, oklch(0.7 0.15 90))",
@@ -10,7 +10,7 @@ const BLOBS = [
   },
   {
     className:
-      "absolute top-1/3 -right-1/4 h-[50%] w-[50%] rounded-full opacity-15 blur-[80px]",
+      "absolute top-1/3 -right-1/4 h-[50%] w-[50%] rounded-full opacity-15 blur-3xl",
     style: {
       background:
         "color-mix(in oklch, var(--primary) 70%, oklch(0.7 0.15 130))",
@@ -19,7 +19,7 @@ const BLOBS = [
   },
   {
     className:
-      "absolute -bottom-1/4 left-1/4 h-[55%] w-[55%] rounded-full opacity-15 blur-[80px]",
+      "absolute -bottom-1/4 left-1/4 h-[55%] w-[55%] rounded-full opacity-15 blur-3xl",
     style: {
       background:
         "color-mix(in oklch, var(--primary) 60%, oklch(0.8 0.12 80))",
@@ -28,7 +28,7 @@ const BLOBS = [
   },
   {
     className:
-      "absolute top-0 right-1/3 h-[40%] w-[40%] rounded-full opacity-10 blur-[80px]",
+      "absolute top-0 right-1/3 h-[40%] w-[40%] rounded-full opacity-10 blur-3xl",
     style: {
       background:
         "color-mix(in oklch, var(--primary) 90%, oklch(0.6 0.18 120))",

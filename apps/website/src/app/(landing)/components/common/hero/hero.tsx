@@ -39,7 +39,7 @@ const Hero = () => (
           </Reveal>
 
           <Reveal delay={0.2} spring>
-            <p className="mt-5 max-w-xl text-base text-muted-foreground/70 leading-relaxed sm:mt-6 sm:text-lg">
+            <p className="mt-5 max-w-xl text-pretty text-base text-muted-foreground/70 leading-relaxed sm:mt-6 sm:text-lg">
               Define jobs, wire dependencies, and let Strait handle retries, dead
               letters, approvals, and cost budgets — all backed by your existing
               Postgres.

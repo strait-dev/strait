@@ -1,9 +1,14 @@
 "use client";
 
-import { type HTMLMotionProps, motion, useInView } from "motion/react";
+import {
+  type HTMLMotionProps,
+  motion,
+  useInView,
+  useReducedMotion,
+} from "motion/react";
 import { type ReactNode, useRef } from "react";
 import {
-  EASE_OUT_EXPO,
+  EASE_OUT,
   SPRING_BOUNCY,
   SPRING_SMOOTH,
 } from "@/lib/motion.ts";
@@ -81,7 +86,7 @@ function getTransition(
   }
   return {
     duration: 0.6,
-    ease: EASE_OUT_EXPO,
+    ease: EASE_OUT,
     delay,
   };
 }
@@ -99,16 +104,19 @@ const Reveal = ({
 }: RevealProps) => {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once, margin: "-64px" });
+  const prefersReduced = useReducedMotion();
   const styles = getVariantStyles(variant, distance, direction);
   const transition = getTransition(variant, spring, delay);
 
   return (
     <motion.div
-      animate={isInView ? styles.visible : styles.hidden}
+      animate={
+        prefersReduced || isInView ? styles.visible : styles.hidden
+      }
       className={className}
-      initial={styles.hidden}
+      initial={prefersReduced ? styles.visible : styles.hidden}
       ref={ref}
-      transition={transition}
+      transition={prefersReduced ? { duration: 0 } : transition}
       {...rest}
     >
       {children}

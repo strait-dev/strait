@@ -659,7 +659,6 @@
 
 .parallax-slow {
   animation: slow-float-y 14s ease-in-out infinite;
-  will-change: transform;
 }
 
 .demo-line {
