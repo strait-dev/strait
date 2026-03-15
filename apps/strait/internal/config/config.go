@@ -118,6 +118,7 @@ type Config struct {
 	// Log drain settings
 	LogDrainWorkerInterval     time.Duration `mapstructure:"LOG_DRAIN_WORKER_INTERVAL"`
 	MemoryPressureThresholdPct float64       `mapstructure:"MEMORY_PRESSURE_THRESHOLD_PCT"`
+	JobCacheTTL                time.Duration `mapstructure:"JOB_CACHE_TTL"`
 }
 
 func setDefaults() {
@@ -188,6 +189,7 @@ func setDefaults() {
 	viper.SetDefault("SSE_KEEPALIVE_INTERVAL", 15*time.Second)
 	viper.SetDefault("LOG_DRAIN_WORKER_INTERVAL", 60*time.Second)
 	viper.SetDefault("MEMORY_PRESSURE_THRESHOLD_PCT", float64(0))
+	viper.SetDefault("JOB_CACHE_TTL", 5*time.Minute)
 }
 
 func BindEnv() error {
@@ -215,6 +217,7 @@ func BindEnv() error {
 		"EVENT_TRIGGER_RETENTION", "EVENT_TRIGGER_RETENTION_DAYS",
 		"LOG_DRAIN_WORKER_INTERVAL",
 		"MEMORY_PRESSURE_THRESHOLD_PCT",
+		"JOB_CACHE_TTL",
 	}
 
 	for _, key := range keys {
@@ -290,6 +293,7 @@ func Load() (*Config, error) {
 	cfg.WorkerDrainTimeout = viper.GetDuration("WORKER_DRAIN_TIMEOUT")
 	cfg.LogDrainWorkerInterval = viper.GetDuration("LOG_DRAIN_WORKER_INTERVAL")
 	cfg.MemoryPressureThresholdPct = viper.GetFloat64("MEMORY_PRESSURE_THRESHOLD_PCT")
+	cfg.JobCacheTTL = viper.GetDuration("JOB_CACHE_TTL")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")

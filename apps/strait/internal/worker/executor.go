@@ -53,6 +53,11 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
+type cachedJob struct {
+	job       *domain.Job
+	expiresAt time.Time
+}
+
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                     *Pool
@@ -78,6 +83,8 @@ type Executor struct {
 	webhookDispatchTimeout   time.Duration
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
+	jobCache                 sync.Map
+	jobCacheTTL              time.Duration
 	memoryPressureThreshold  float64
 	stop                     chan struct{}
 	done                     chan struct{}
@@ -116,6 +123,7 @@ type ExecutorConfig struct {
 	MaxDequeueBatchSize        int
 	DefaultJobMaxConcurrency   int
 	MemoryPressureThresholdPct float64
+	JobCacheTTL                time.Duration
 }
 
 const (
@@ -192,6 +200,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		webhookDispatchTimeout:   whDispatchTimeout,
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
+		jobCacheTTL:              cfg.JobCacheTTL,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),

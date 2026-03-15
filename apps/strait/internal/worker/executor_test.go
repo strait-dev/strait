@@ -3294,3 +3294,106 @@ func TestHandleFailure_PoisonPillNotTriggeredBelowThreshold(t *testing.T) {
 		t.Errorf("expected queued (retry), got %s", last.to)
 	}
 }
+
+func TestResolveJob_CacheHit(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	// First call — cache miss, hits store
+	job1, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("first call error: %v", err)
+	}
+	if job1 == nil {
+		t.Fatal("expected job, got nil")
+	}
+
+	// Second call — cache hit, should not hit store again
+	job2, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("second call error: %v", err)
+	}
+	if job2 == nil {
+		t.Fatal("expected job, got nil")
+	}
+
+	if getJobCalls.Load() != 1 {
+		t.Errorf("expected 1 GetJob call (cache hit), got %d", getJobCalls.Load())
+	}
+}
+
+func TestResolveJob_CacheExpiry(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  1 * time.Millisecond, // very short TTL
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+	time.Sleep(5 * time.Millisecond) // wait for expiry
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+
+	if getJobCalls.Load() != 2 {
+		t.Errorf("expected 2 GetJob calls after expiry, got %d", getJobCalls.Load())
+	}
+}
+
+func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  0, // disabled
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+
+	if getJobCalls.Load() != 2 {
+		t.Errorf("expected 2 GetJob calls (cache disabled), got %d", getJobCalls.Load())
+	}
+}

@@ -21,10 +21,24 @@ import (
 // "latest", upgrades to the current version. For "minor", upgrades only if
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
-	// Always load the current job to check version_policy.
-	current, err := e.store.GetJob(ctx, run.JobID)
-	if err != nil {
-		return nil, fmt.Errorf("load current job: %w", err)
+	// Check job cache first.
+	cacheKey := run.JobID
+	var current *domain.Job
+	if entry, ok := e.jobCache.Load(cacheKey); ok {
+		if cached := entry.(*cachedJob); time.Now().Before(cached.expiresAt) {
+			current = cached.job
+		}
+	}
+
+	if current == nil {
+		var err error
+		current, err = e.store.GetJob(ctx, run.JobID)
+		if err != nil {
+			return nil, fmt.Errorf("load current job: %w", err)
+		}
+		if e.jobCacheTTL > 0 {
+			e.jobCache.Store(cacheKey, &cachedJob{job: current, expiresAt: time.Now().Add(e.jobCacheTTL)})
+		}
 	}
 
 	// If the run is already at the current version, no policy check needed.
