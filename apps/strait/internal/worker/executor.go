@@ -35,6 +35,7 @@ type ExecutorStore interface {
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 }
 
 type executionPolicy struct {

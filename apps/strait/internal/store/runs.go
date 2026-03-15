@@ -350,6 +350,29 @@ func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit in
 	return checkpoints, nil
 }
 
+func (q *Queries) GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetLatestCheckpoint")
+	defer span.End()
+
+	query := `
+		SELECT id, run_id, sequence, source, state, created_at
+		FROM run_checkpoints
+		WHERE run_id = $1
+		ORDER BY sequence DESC
+		LIMIT 1`
+
+	row := q.db.QueryRow(ctx, query, runID)
+	cp, err := scanRunCheckpoint(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get latest checkpoint: %w", err)
+	}
+
+	return cp, nil
+}
+
 func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsage")
 	defer span.End()

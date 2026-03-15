@@ -45,6 +45,7 @@ type mockExecutorStore struct {
 	recordSuccessFn          func(ctx context.Context, endpointURL string) error
 	getJobHealthStatsFn      func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
 	getResolvedEnvVarsFn     func(ctx context.Context, id string) (map[string]string, error)
+	getLatestCheckpointFn    func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -165,6 +166,13 @@ func (m *mockExecutorStore) GetResolvedEnvironmentVariables(ctx context.Context,
 		return nil, nil
 	}
 	return m.getResolvedEnvVarsFn(ctx, id)
+}
+
+func (m *mockExecutorStore) GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error) {
+	if m.getLatestCheckpointFn == nil {
+		return nil, nil
+	}
+	return m.getLatestCheckpointFn(ctx, runID)
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
@@ -2664,5 +2672,161 @@ func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
 	got := requestedN.Load()
 	if got != 1 {
 		t.Fatalf("expected dequeue with n=1 (single idle worker), got n=%d", got)
+	}
+}
+
+func TestDispatch_RetryIncludesCheckpointHeaders(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	cpTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		return &domain.RunCheckpoint{
+			ID:        "cp-1",
+			RunID:     "run-1",
+			Sequence:  1,
+			State:     json.RawMessage(`{"cursor":42}`),
+			CreatedAt: cpTime,
+		}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2) // attempt > 1
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Last-Checkpoint") != `{"cursor":42}` {
+		t.Fatalf("X-Last-Checkpoint = %q, want %q", headers.Get("X-Last-Checkpoint"), `{"cursor":42}`)
+	}
+	if headers.Get("X-Checkpoint-At") != cpTime.Format(time.RFC3339) {
+		t.Fatalf("X-Checkpoint-At = %q, want %q", headers.Get("X-Checkpoint-At"), cpTime.Format(time.RFC3339))
+	}
+}
+
+func TestDispatch_FirstAttemptNoCheckpointHeaders(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		t.Fatal("should not call GetLatestCheckpoint on first attempt")
+		return nil, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1) // first attempt
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Last-Checkpoint") != "" {
+		t.Fatalf("expected no X-Last-Checkpoint on first attempt, got %q", headers.Get("X-Last-Checkpoint"))
+	}
+}
+
+func TestDispatch_NoCheckpointGraceful(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		return nil, nil // no checkpoint exists
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2) // retry
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Last-Checkpoint") != "" {
+		t.Fatalf("expected no X-Last-Checkpoint when none exists, got %q", headers.Get("X-Last-Checkpoint"))
+	}
+	// Should still have completed successfully
+	if run.Status != domain.StatusCompleted {
+		t.Fatalf("run status = %s, want completed", run.Status)
+	}
+}
+
+func TestDispatch_RetryIncludesPreviousError(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2)
+	run.Error = "connection timeout"
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Previous-Error") != "connection timeout" {
+		t.Fatalf("X-Previous-Error = %q, want %q", headers.Get("X-Previous-Error"), "connection timeout")
+	}
+}
+
+func TestDispatch_RetryNoPreviousError(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2)
+	run.Error = ""
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Previous-Error") != "" {
+		t.Fatalf("expected no X-Previous-Error when empty, got %q", headers.Get("X-Previous-Error"))
 	}
 }

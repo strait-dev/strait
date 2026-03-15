@@ -276,15 +276,26 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
 
-	var extraHeaders map[string]string
+	extraHeaders := make(map[string]string)
 	secrets, err := e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
 	}
-	if len(secrets) > 0 {
-		extraHeaders = make(map[string]string, len(secrets))
-		for _, secret := range secrets {
-			extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	for _, secret := range secrets {
+		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	}
+
+	if run.Attempt > 1 {
+		cp, cpErr := e.store.GetLatestCheckpoint(tracedCtx, run.ID)
+		if cpErr == nil && cp != nil {
+			data, _ := json.Marshal(cp.State)
+			if len(data) <= 65536 {
+				extraHeaders["X-Last-Checkpoint"] = string(data)
+				extraHeaders["X-Checkpoint-At"] = cp.CreatedAt.Format(time.RFC3339)
+			}
+		}
+		if run.Error != "" {
+			extraHeaders["X-Previous-Error"] = run.Error
 		}
 	}
 
@@ -320,15 +331,26 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}()
 
-	var extraHeaders map[string]string
+	extraHeaders := make(map[string]string)
 	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
 	if err != nil {
 		return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
 	}
-	if len(secrets) > 0 {
-		extraHeaders = make(map[string]string, len(secrets))
-		for _, secret := range secrets {
-			extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	for _, secret := range secrets {
+		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	}
+
+	if run.Attempt > 1 {
+		cp, cpErr := e.store.GetLatestCheckpoint(ctx, run.ID)
+		if cpErr == nil && cp != nil {
+			data, _ := json.Marshal(cp.State)
+			if len(data) <= 65536 {
+				extraHeaders["X-Last-Checkpoint"] = string(data)
+				extraHeaders["X-Checkpoint-At"] = cp.CreatedAt.Format(time.RFC3339)
+			}
+		}
+		if run.Error != "" {
+			extraHeaders["X-Previous-Error"] = run.Error
 		}
 	}
 
