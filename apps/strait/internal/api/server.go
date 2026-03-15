@@ -322,6 +322,7 @@ type Server struct {
 	actorSyncer        ActorSyncer
 	validate           *validator.Validate
 	maxRequestBodySize int64
+	poolStatter        PoolStatter
 	permCache          *permissionCache
 	oidcVerifier       *oidcVerifier
 	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
@@ -342,6 +343,13 @@ type ServerDeps struct {
 	Metrics          *telemetry.Metrics
 	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer      ActorSyncer
+	PoolStatter      PoolStatter // Optional: enables DB pool backpressure middleware.
+}
+
+// PoolStatter provides connection pool statistics for backpressure.
+type PoolStatter interface {
+	AcquiredConns() int32
+	MaxConns() int32
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -372,6 +380,7 @@ func NewServer(deps ServerDeps) *Server {
 		actorSyncer:        deps.ActorSyncer,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
+		poolStatter:        deps.PoolStatter,
 		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
@@ -391,6 +400,19 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv.router = srv.routes()
 	return srv
+}
+
+func (s *Server) dbBackpressure(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acquired := s.poolStatter.AcquiredConns()
+		maxConns := s.poolStatter.MaxConns()
+		if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "service temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func permCacheTTL(cfg *config.Config) time.Duration {

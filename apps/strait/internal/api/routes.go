@@ -31,6 +31,9 @@ func (s *Server) routes() chi.Router {
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(apiVersionHeader)
+	if s.poolStatter != nil {
+		r.Use(s.dbBackpressure)
+	}
 	requestTimeout := s.config.RequestTimeout
 	if requestTimeout <= 0 {
 		requestTimeout = 30 * time.Second
