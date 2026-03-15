@@ -1,14 +1,11 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ScrollArea } from "@strait/ui/components/scroll-area";
 import { cn } from "@strait/ui/utils/index";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { PauseActionIcon, PlayActionIcon } from "@/lib/icons";
 
 type ActivityEventType =
   | "job_started"
@@ -25,98 +22,163 @@ type ActivityEvent = {
 };
 
 const DOT_COLORS: Record<ActivityEventType, string> = {
-  job_started: "bg-chart-3",
-  job_completed: "bg-chart-1",
-  job_failed: "bg-chart-4",
-  workflow_completed: "bg-chart-1",
-  approval_pending: "bg-chart-3",
+  job_started: "bg-info",
+  job_completed: "bg-success",
+  job_failed: "bg-destructive",
+  workflow_completed: "bg-success",
+  approval_pending: "bg-warning",
 };
 
-const SAMPLE_MESSAGES: { type: ActivityEventType; message: string }[] = [
-  { type: "job_started", message: "payment-sync started (run_x82k)" },
-  { type: "job_completed", message: "email-dispatch completed in 1.2s" },
-  { type: "job_failed", message: "report-gen failed: timeout exceeded" },
-  { type: "workflow_completed", message: "onboarding-flow completed" },
-  { type: "approval_pending", message: "deploy-prod awaiting approval" },
-  { type: "job_started", message: "cache-warm started (run_q19m)" },
-  { type: "job_completed", message: "user-import completed in 4.8s" },
-  { type: "job_failed", message: "webhook-relay failed: connection refused" },
+const EVENTS: ActivityEvent[] = [
+  {
+    id: "1",
+    type: "job_completed",
+    message: "payment-sync completed in 1.2s",
+    timestamp: "2 min ago",
+  },
+  {
+    id: "2",
+    type: "job_started",
+    message: "email-dispatch started (run_d4e5)",
+    timestamp: "3 min ago",
+  },
+  {
+    id: "3",
+    type: "job_failed",
+    message: "report-gen failed: timeout exceeded",
+    timestamp: "5 min ago",
+  },
+  {
+    id: "4",
+    type: "workflow_completed",
+    message: "onboarding-flow completed",
+    timestamp: "6 min ago",
+  },
+  {
+    id: "5",
+    type: "approval_pending",
+    message: "deploy-prod awaiting approval",
+    timestamp: "8 min ago",
+  },
+  {
+    id: "6",
+    type: "job_started",
+    message: "cache-warm started (run_q19m)",
+    timestamp: "10 min ago",
+  },
+  {
+    id: "7",
+    type: "job_completed",
+    message: "user-import completed in 4.8s",
+    timestamp: "12 min ago",
+  },
+  {
+    id: "8",
+    type: "job_failed",
+    message: "webhook-relay failed: connection refused",
+    timestamp: "14 min ago",
+  },
+  {
+    id: "9",
+    type: "job_completed",
+    message: "invoice-gen completed in 0.9s",
+    timestamp: "15 min ago",
+  },
+  {
+    id: "10",
+    type: "job_started",
+    message: "data-pipeline started (run_m8k2)",
+    timestamp: "17 min ago",
+  },
+  {
+    id: "11",
+    type: "workflow_completed",
+    message: "signup-verification completed",
+    timestamp: "19 min ago",
+  },
+  {
+    id: "12",
+    type: "job_completed",
+    message: "metrics-agg completed in 2.3s",
+    timestamp: "21 min ago",
+  },
+  {
+    id: "13",
+    type: "job_failed",
+    message: "pdf-export failed: out of memory",
+    timestamp: "23 min ago",
+  },
+  {
+    id: "14",
+    type: "job_started",
+    message: "cache-invalidate started (run_p3x9)",
+    timestamp: "25 min ago",
+  },
+  {
+    id: "15",
+    type: "job_completed",
+    message: "notification-batch completed in 0.4s",
+    timestamp: "27 min ago",
+  },
+  {
+    id: "16",
+    type: "approval_pending",
+    message: "db-migration awaiting approval",
+    timestamp: "30 min ago",
+  },
+  {
+    id: "17",
+    type: "job_completed",
+    message: "search-reindex completed in 12.1s",
+    timestamp: "33 min ago",
+  },
+  {
+    id: "18",
+    type: "job_started",
+    message: "log-rotation started (run_v7w1)",
+    timestamp: "35 min ago",
+  },
+  {
+    id: "19",
+    type: "workflow_completed",
+    message: "billing-cycle completed",
+    timestamp: "38 min ago",
+  },
+  {
+    id: "20",
+    type: "job_completed",
+    message: "health-check completed in 0.1s",
+    timestamp: "40 min ago",
+  },
 ];
 
-let nextId = 0;
-
-function makeEvent(): ActivityEvent {
-  const sample =
-    SAMPLE_MESSAGES[Math.floor(Math.random() * SAMPLE_MESSAGES.length)];
-  return {
-    id: String(++nextId),
-    type: sample.type,
-    message: sample.message,
-    timestamp: new Date().toLocaleTimeString(),
-  };
-}
-
-const MAX_EVENTS = 20;
-
 export function LiveActivityFeed() {
-  const [events, setEvents] = useState<ActivityEvent[]>(() =>
-    Array.from({ length: 5 }, makeEvent)
-  );
-  const [paused, setPaused] = useState(false);
-  const pausedRef = useRef(paused);
-
-  useEffect(() => {
-    pausedRef.current = paused;
-  }, [paused]);
-
-  const addEvent = useCallback(() => {
-    if (pausedRef.current) {
-      return;
-    }
-    setEvents((prev) => [makeEvent(), ...prev].slice(0, MAX_EVENTS));
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(addEvent, 3000);
-    return () => clearInterval(interval);
-  }, [addEvent]);
-
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+      <CardHeader className="pb-2">
         <CardTitle className="font-medium text-sm">Live Activity</CardTitle>
-        <Button
-          aria-label={paused ? "Resume activity feed" : "Pause activity feed"}
-          className="size-7"
-          onClick={() => setPaused((p) => !p)}
-          size="icon"
-          variant="ghost"
-        >
-          <HugeiconsIcon
-            icon={paused ? PlayActionIcon : PauseActionIcon}
-            size={14}
-          />
-        </Button>
       </CardHeader>
-      <CardContent>
-        <div className="max-h-[320px] space-y-3 overflow-y-auto">
-          {events.map((event) => (
-            <div className="flex items-start gap-2.5" key={event.id}>
-              <span
-                className={cn(
-                  "mt-1.5 size-2 shrink-0 rounded-full",
-                  DOT_COLORS[event.type]
-                )}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm leading-tight">{event.message}</p>
-                <p className="text-muted-foreground text-xs">
-                  {event.timestamp}
-                </p>
+      <CardContent className="p-0">
+        <ScrollArea className="h-[320px] px-6 pb-6">
+          <div className="space-y-3">
+            {EVENTS.map((event) => (
+              <div className="flex items-start gap-2.5" key={event.id}>
+                <span
+                  className={cn(
+                    "mt-1.5 size-2 shrink-0 rounded-full",
+                    DOT_COLORS[event.type]
+                  )}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm leading-tight">{event.message}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {event.timestamp}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </ScrollArea>
       </CardContent>
     </Card>
   );
