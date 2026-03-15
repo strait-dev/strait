@@ -1332,6 +1332,44 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 	return tag.RowsAffected(), nil
 }
 
+// DLQJobDepth represents the dead-letter queue depth for a single job.
+type DLQJobDepth struct {
+	JobID             string
+	WebhookURL        string
+	DLQCount          int
+	DLQAlertThreshold int
+}
+
+func (q *Queries) ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListDLQDepthByJob")
+	defer span.End()
+
+	query := `
+		SELECT jr.job_id, COALESCE(j.webhook_url, ''), COUNT(*) AS dlq_count, j.dlq_alert_threshold
+		FROM job_runs jr
+		JOIN jobs j ON j.id = jr.job_id
+		WHERE jr.status = 'dead_letter'
+		  AND j.dlq_alert_threshold IS NOT NULL
+		GROUP BY jr.job_id, j.webhook_url, j.dlq_alert_threshold
+		HAVING COUNT(*) >= j.dlq_alert_threshold`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list dlq depth by job: %w", err)
+	}
+	defer rows.Close()
+
+	var results []DLQJobDepth
+	for rows.Next() {
+		var d DLQJobDepth
+		if err := rows.Scan(&d.JobID, &d.WebhookURL, &d.DLQCount, &d.DLQAlertThreshold); err != nil {
+			return nil, fmt.Errorf("scan dlq depth: %w", err)
+		}
+		results = append(results, d)
+	}
+	return results, rows.Err()
+}
+
 func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetDebugBundle")
 	defer span.End()

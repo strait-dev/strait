@@ -46,6 +46,19 @@ type ReaperStore interface {
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
+// DLQMonitorStore is an optional interface for DLQ depth monitoring.
+type DLQMonitorStore interface {
+	ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error)
+}
+
+// DLQJobDepth represents the dead-letter queue depth for a single job.
+type DLQJobDepth struct {
+	JobID             string
+	WebhookURL        string
+	DLQCount          int
+	DLQAlertThreshold int
+}
+
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
@@ -81,6 +94,7 @@ type Reaper struct {
 	metrics               *telemetry.Metrics
 	logger                *slog.Logger
 	stalledAction         string
+	dlqAlertCooldown      map[string]time.Time
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -122,6 +136,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
 		stalledAction:         "log_only",
+		dlqAlertCooldown:      make(map[string]time.Time),
 	}
 }
 
@@ -206,6 +221,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapStalledWorkflows(ctx)
 	r.reapOldWorkflowRuns(ctx)
 	r.reapOldEventTriggers(ctx)
+	r.monitorDLQDepth(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -688,5 +704,39 @@ func (r *Reaper) reapTerminalRetention(ctx context.Context) {
 	r.recordDeleted(ctx, "terminal_runs", deleted)
 	if deleted > 0 {
 		slog.Info("deleted terminal runs past retention", "count", deleted)
+	}
+}
+
+func (r *Reaper) monitorDLQDepth(ctx context.Context) {
+	dlqStore, ok := r.store.(DLQMonitorStore)
+	if !ok {
+		return
+	}
+
+	depths, err := dlqStore.ListDLQDepthByJob(ctx)
+	if err != nil {
+		r.logger.Error("failed to query DLQ depth", "error", err)
+		return
+	}
+
+	now := time.Now()
+	for _, d := range depths {
+		if r.metrics != nil {
+			r.metrics.DLQDepth.Record(ctx, int64(d.DLQCount), metric.WithAttributes(
+				attribute.String("job_id", d.JobID),
+			))
+		}
+
+		// Check cooldown — skip if alerted within the last hour.
+		if lastAlert, exists := r.dlqAlertCooldown[d.JobID]; exists && now.Sub(lastAlert) < time.Hour {
+			continue
+		}
+
+		r.logger.Warn("DLQ threshold exceeded",
+			"job_id", d.JobID,
+			"dlq_count", d.DLQCount,
+			"threshold", d.DLQAlertThreshold,
+		)
+		r.dlqAlertCooldown[d.JobID] = now
 	}
 }

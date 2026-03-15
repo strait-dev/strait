@@ -63,6 +63,7 @@ type Metrics struct {
 	PoolFailedTasks     metric.Int64ObservableCounter
 	PoolDroppedTasks    metric.Int64ObservableCounter
 	ShutdownTotal       metric.Int64Counter
+	DLQDepth            metric.Int64Gauge
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -439,6 +440,15 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create shutdown total counter: %w", err)
 	}
 
+	dlqDepth, err := meter.Int64Gauge(
+		"strait_dlq_depth",
+		metric.WithDescription("Current DLQ depth per job"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create dlq depth gauge: %w", err)
+	}
+
 	m := &Metrics{
 		RunTransitions:           runTransitions,
 		DequeueDuration:          dequeueDuration,
@@ -478,6 +488,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		PoolFailedTasks:          poolFailed,
 		PoolDroppedTasks:         poolDropped,
 		ShutdownTotal:            shutdownTotal,
+		DLQDepth:                 dlqDepth,
 	}
 
 	slog.Info("prometheus metrics enabled")
