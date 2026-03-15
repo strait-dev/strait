@@ -153,6 +153,7 @@ type RunStore interface {
 	InsertBatchBufferItem(ctx context.Context, item *domain.BatchBufferItem) error
 	CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error)
 	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
+	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	UpsertRunState(ctx context.Context, s *domain.RunState) error
 	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
 	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
@@ -616,6 +617,31 @@ func validateURL(rawURL string) error {
 		allowedPorts := map[int]bool{80: true, 443: true, 8080: true, 8443: true, 3000: true, 4000: true, 5000: true, 9000: true}
 		if !allowedPorts[portNum] {
 			return fmt.Errorf("port %d is not allowed for webhooks", portNum)
+		}
+	}
+
+	return nil
+}
+
+func validateURLWithTLS(rawURL string, requireTLS bool) error {
+	if err := worker.ValidateEndpointURLWithTLS(rawURL, requireTLS); err != nil {
+		msg := err.Error()
+		if strings.HasPrefix(msg, "URL") {
+			msg = "u" + msg[1:]
+		}
+		return errors.New(msg)
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	host := u.Hostname()
+	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
+	for _, blocked := range blockedHosts {
+		if strings.EqualFold(host, blocked) {
+			return fmt.Errorf("url must not point to internal services")
 		}
 	}
 

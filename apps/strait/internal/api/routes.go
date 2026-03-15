@@ -176,10 +176,12 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", s.handleRetryWebhookDelivery)
 
 		r.Route("/webhooks", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeRunsWrite), rateLimit(5, time.Minute)).Post("/test", s.handleTestWebhook)
 			r.Route("/deliveries", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookDeliveries)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", s.handleGetWebhookDelivery)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/retry", s.handleRetryWebhookDelivery)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/replay", s.handleReplayWebhookDelivery)
 			})
 			r.Route("/subscriptions", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/", s.handleCreateWebhookSubscription)

@@ -4075,6 +4075,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobRun'
 
+  /v1/webhooks/test:
+    post:
+      tags:
+        - Webhooks
+      summary: Test webhook endpoint
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                secret:
+                  type: string
+      responses:
+        '200':
+          description: Test result
+
+  /v1/webhooks/deliveries/{id}/replay:
+    post:
+      tags:
+        - Webhooks
+      summary: Replay webhook delivery
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Replay delivery created
+
   /sdk/v1/runs/{runID}/state:
     post:
       tags:
