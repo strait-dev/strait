@@ -80,6 +80,7 @@ type Executor struct {
 	done                   chan struct{}
 	stopOnce               sync.Once
 	pollWG                 sync.WaitGroup
+	callbackWG             sync.WaitGroup
 	pollInFlight           atomic.Int64
 	runStarted             atomic.Bool
 }
@@ -228,6 +229,9 @@ func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRu
 		return
 	}
 
+	e.callbackWG.Add(1)
+	defer e.callbackWG.Done()
+
 	if err := e.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
 		e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
 	}
@@ -315,5 +319,22 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	}
 
 	e.pollWG.Wait()
+
+	callbackDone := make(chan struct{})
+	go func() {
+		e.callbackWG.Wait()
+		close(callbackDone)
+	}()
+
+	callbackTimeout := time.NewTimer(10 * time.Second)
+	defer callbackTimeout.Stop()
+	select {
+	case <-callbackDone:
+	case <-callbackTimeout.C:
+		e.logger.Warn("timed out waiting for in-flight workflow callbacks")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	return nil
 }

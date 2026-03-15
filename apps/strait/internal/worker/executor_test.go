@@ -2989,3 +2989,100 @@ func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
 		t.Fatalf("expected priority=1 (0+1 default boost), got %d", gotPriority)
 	}
 }
+
+func TestShutdown_WaitsForCallbacks(t *testing.T) {
+	t.Parallel()
+
+	var callbackCalled atomic.Bool
+	callback := &mockWorkflowCallback{
+		onTerminalFn: func(_ context.Context, _ *domain.JobRun) error {
+			time.Sleep(100 * time.Millisecond)
+			callbackCalled.Store(true)
+			return nil
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+
+	var dequeued atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			if dequeued.CompareAndSwap(false, true) {
+				return []domain.JobRun{*testRun(1)}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(4)
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      50 * time.Millisecond,
+		HeartbeatInterval: time.Hour,
+		WorkflowCallback:  callback,
+		HTTPClient:        server.Client(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go exec.Run(ctx)
+
+	// Wait for the callback to start
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := exec.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	_ = pool.Shutdown(context.Background())
+
+	if !callbackCalled.Load() {
+		t.Fatal("expected callback to complete before shutdown returned")
+	}
+}
+
+func TestShutdown_NoCallbacksNoDelay(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	q := &mockExecQueue{}
+
+	pool := NewPool(4)
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go exec.Run(ctx)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	start := time.Now()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := exec.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	_ = pool.Shutdown(context.Background())
+
+	elapsed := time.Since(start)
+	if elapsed > 2*time.Second {
+		t.Fatalf("shutdown took %v, expected near-instant with no callbacks", elapsed)
+	}
+}
