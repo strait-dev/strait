@@ -270,7 +270,10 @@ export const createFinalizePromoteDeployment = async (
   client: DeploymentOperationClient,
   input: CreateFinalizePromoteDeploymentInput
 ): Promise<CreateFinalizePromoteDeploymentOutput> => {
-  const { created, finalized } = await createAndFinalizeDeployment(client, input);
+  const { created, finalized } = await createAndFinalizeDeployment(
+    client,
+    input
+  );
   const deploymentID = resolveDeploymentID(finalized);
 
   const promoted = await promoteDeploymentVersion(client, {
