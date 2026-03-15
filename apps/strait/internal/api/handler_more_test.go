@@ -349,7 +349,7 @@ func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
 	updates := make(map[string]domain.RunStatus)
-	listCalls := 0
+	parentListCalls := 0
 
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -363,9 +363,13 @@ func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 			updates[id] = to
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
-			listCalls++
-			switch listCalls {
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
+			// Only the parent has children; child runs have no grandchildren.
+			if parentRunID != "run-parent" {
+				return nil, nil
+			}
+			parentListCalls++
+			switch parentListCalls {
 			case 1:
 				if cursor != nil {
 					t.Fatalf("expected nil cursor on first page")
@@ -399,8 +403,8 @@ func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 			t.Fatalf("expected %s to be canceled, got %q", childID, updates[childID])
 		}
 	}
-	if listCalls != 3 {
-		t.Fatalf("expected 3 listChildRuns calls for pagination, got %d", listCalls)
+	if parentListCalls != 3 {
+		t.Fatalf("expected 3 listChildRuns calls for parent pagination, got %d", parentListCalls)
 	}
 }
 

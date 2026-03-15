@@ -38,6 +38,12 @@ var openapiSpec []byte
 
 // APIStore is the subset of store operations needed by the API handlers.
 // Composed of smaller, focused interfaces for each domain.
+// ProjectContextSetter sets the app.current_project_id session variable for RLS policies.
+type ProjectContextSetter interface {
+	SetProjectContext(ctx context.Context, projectID string) error
+	ClearProjectContext(ctx context.Context) error
+}
+
 type APIStore interface {
 	JobStore
 	RunStore

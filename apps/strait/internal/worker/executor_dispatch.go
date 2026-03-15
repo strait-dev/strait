@@ -407,14 +407,12 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason, ev
 	}
 
 	fields := map[string]any{
-		"error":       reason,
-		"error_class": "transient",
-		"started_at":  nil,
-		"finished_at": nil,
-		"metadata":    map[string]string{"snooze_count": fmt.Sprintf("%d", snoozeCount)},
-	}
-	if retryAt != nil {
-		fields["next_retry_at"] = *retryAt
+		"error":         reason,
+		"error_class":   "transient",
+		"started_at":    nil,
+		"finished_at":   nil,
+		"next_retry_at": retryAt,
+		"metadata":      map[string]string{"snooze_count": fmt.Sprintf("%d", snoozeCount)},
 	}
 	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
 		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)

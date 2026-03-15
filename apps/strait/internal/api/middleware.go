@@ -384,6 +384,29 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 	}
 }
 
+// projectContextMiddleware sets the app.current_project_id session variable
+// for RLS policies when the request has a project context.
+func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
+	setter, ok := s.store.(ProjectContextSetter)
+	if !ok {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		projectID := projectIDFromContext(r.Context())
+		if projectID != "" {
+			if err := setter.SetProjectContext(r.Context(), projectID); err != nil {
+				slog.Warn("failed to set project context for RLS", "project_id", projectID, "error", err)
+			}
+			defer func() {
+				if err := setter.ClearProjectContext(r.Context()); err != nil {
+					slog.Warn("failed to clear project context for RLS", "error", err)
+				}
+			}()
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // apiVersionHeader injects X-API-Version into every response.
 func apiVersionHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

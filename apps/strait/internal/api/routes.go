@@ -80,6 +80,7 @@ func (s *Server) routes() chi.Router {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", s.handleCreateSecret)

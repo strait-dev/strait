@@ -8,6 +8,7 @@ import (
 	"maps"
 	"time"
 
+	"strait/internal/crypto"
 	"strait/internal/dbscan"
 	"strait/internal/domain"
 
@@ -29,9 +30,17 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 		return err
 	}
 
+	var variablesEncrypted []byte
+	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
+		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		if encErr == nil {
+			variablesEncrypted, _ = enc.Encrypt(variablesJSON)
+		}
+	}
+
 	query := `
-		INSERT INTO environments (id, project_id, name, slug, parent_id, variables)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO environments (id, project_id, name, slug, parent_id, variables, variables_encrypted)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING created_at, updated_at`
 
 	err = q.db.QueryRow(
@@ -43,6 +52,7 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 		env.Slug,
 		dbscan.NilIfEmptyString(env.ParentID),
 		variablesJSON,
+		variablesEncrypted,
 	).Scan(&env.CreatedAt, &env.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create environment: %w", err)
@@ -56,11 +66,11 @@ func (q *Queries) GetEnvironment(ctx context.Context, id string) (*domain.Enviro
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, parent_id, variables, created_at, updated_at
+		SELECT id, project_id, name, slug, parent_id, variables, variables_encrypted, created_at, updated_at
 		FROM environments
 		WHERE id = $1`
 
-	env, err := scanEnvironment(q.db.QueryRow(ctx, query, id))
+	env, err := q.scanEnvironment(q.db.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrEnvironmentNotFound
@@ -76,7 +86,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, projectID string, limit 
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, parent_id, variables, created_at, updated_at
+		SELECT id, project_id, name, slug, parent_id, variables, variables_encrypted, created_at, updated_at
 		FROM environments
 		WHERE project_id = $1`
 
@@ -100,7 +110,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, projectID string, limit 
 
 	envs := make([]domain.Environment, 0, limit)
 	for rows.Next() {
-		env, scanErr := scanEnvironment(rows)
+		env, scanErr := q.scanEnvironment(rows)
 		if scanErr != nil {
 			return nil, fmt.Errorf("list environments scan: %w", scanErr)
 		}
@@ -123,14 +133,23 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 		return err
 	}
 
+	var variablesEncrypted []byte
+	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
+		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		if encErr == nil {
+			variablesEncrypted, _ = enc.Encrypt(variablesJSON)
+		}
+	}
+
 	query := `
 		UPDATE environments
 		SET name = $1,
 		    slug = $2,
 		    parent_id = $3,
 		    variables = $4,
+		    variables_encrypted = $5,
 		    updated_at = NOW()
-		WHERE id = $5
+		WHERE id = $6
 		RETURNING updated_at`
 
 	err = q.db.QueryRow(
@@ -140,6 +159,7 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 		env.Slug,
 		dbscan.NilIfEmptyString(env.ParentID),
 		variablesJSON,
+		variablesEncrypted,
 		env.ID,
 	).Scan(&env.UpdatedAt)
 	if err != nil {
@@ -232,10 +252,11 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 	return resolved, nil
 }
 
-func scanEnvironment(scanner scanTarget) (*domain.Environment, error) {
+func (q *Queries) scanEnvironment(scanner scanTarget) (*domain.Environment, error) {
 	var env domain.Environment
 	var parentID *string
 	var variablesRaw []byte
+	var variablesEncrypted []byte
 
 	err := scanner.Scan(
 		&env.ID,
@@ -244,6 +265,7 @@ func scanEnvironment(scanner scanTarget) (*domain.Environment, error) {
 		&env.Slug,
 		&parentID,
 		&variablesRaw,
+		&variablesEncrypted,
 		&env.CreatedAt,
 		&env.UpdatedAt,
 	)
@@ -253,6 +275,17 @@ func scanEnvironment(scanner scanTarget) (*domain.Environment, error) {
 
 	if parentID != nil {
 		env.ParentID = *parentID
+	}
+
+	// Prefer encrypted variables if available and we have a key.
+	if len(variablesEncrypted) > 0 && q.secretEncryptionKey != "" {
+		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		if encErr == nil {
+			decrypted, decErr := enc.Decrypt(variablesEncrypted)
+			if decErr == nil {
+				variablesRaw = decrypted
+			}
+		}
 	}
 
 	variables, err := unmarshalEnvironmentVariables(variablesRaw)
