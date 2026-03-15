@@ -4,6 +4,8 @@ import { createClient } from "../src/client";
 import {
   createAndFinalizeDeployment,
   createAndFinalizeDeploymentResult,
+  createFinalizePromoteDeployment,
+  createFinalizePromoteDeploymentResult,
   promoteDeploymentVersion,
   rollbackDeploymentVersion,
 } from "../src/composition/index";
@@ -238,5 +240,106 @@ describe("deployment SDK support", () => {
       { action: "promote", deploymentID: "dep_2" },
       { action: "rollback", deploymentID: "dep_1" },
     ]);
+  });
+
+  test("createFinalizePromoteDeployment chains create, finalize, and promote", async () => {
+    const recorded: string[] = [];
+
+    const client = {
+      operationsPromise: {
+        postV1Deployments: () => {
+          recorded.push("create");
+          return Promise.resolve({ id: "dep_71", status: "draft" });
+        },
+        postV1DeploymentsByDeploymentIDFinalize: (
+          input?: Readonly<Record<string, unknown>>
+        ) => {
+          recorded.push("finalize");
+          const pathParams = input?.pathParams as
+            | { readonly deploymentID?: string }
+            | undefined;
+          const body = input?.body as
+            | { readonly project_id?: string; readonly environment?: string }
+            | undefined;
+
+          expect(pathParams?.deploymentID).toBe("dep_71");
+          expect(body).toEqual({
+            project_id: "proj_1",
+            environment: "prod",
+          });
+          return Promise.resolve({ id: "dep_71", status: "finalized" });
+        },
+        postV1DeploymentsByDeploymentIDPromote: (
+          input?: Readonly<Record<string, unknown>>
+        ) => {
+          recorded.push("promote");
+          const pathParams = input?.pathParams as
+            | { readonly deploymentID?: string }
+            | undefined;
+          const body = input?.body as
+            | { readonly project_id?: string; readonly environment?: string }
+            | undefined;
+
+          expect(pathParams?.deploymentID).toBe("dep_71");
+          expect(body).toEqual({
+            project_id: "proj_1",
+            environment: "prod",
+          });
+          return Promise.resolve({ id: "dep_71", status: "promoted" });
+        },
+        postV1DeploymentsByDeploymentIDRollback: () =>
+          Promise.resolve({ id: "dep_71", status: "promoted" }),
+      },
+    };
+
+    const output = await createFinalizePromoteDeployment(client, {
+      create: {
+        body: {
+          project_id: "proj_1",
+          environment: "staging",
+          runtime: "node",
+          artifact_uri: "file:///tmp/manifest.json",
+        },
+      },
+      finalizeBody: {
+        project_id: "proj_1",
+        environment: "prod",
+      },
+    });
+
+    expect(recorded).toEqual(["create", "finalize", "promote"]);
+    expect(output.created.id).toBe("dep_71");
+    expect(output.finalized.status).toBe("finalized");
+    expect(output.promoted.status).toBe("promoted");
+  });
+
+  test("createFinalizePromoteDeployment result variant captures missing finalized id", async () => {
+    const client = {
+      operationsPromise: {
+        postV1Deployments: () => Promise.resolve({ id: "dep_1", status: "draft" }),
+        postV1DeploymentsByDeploymentIDFinalize: () =>
+          Promise.resolve({ status: "finalized" }),
+        postV1DeploymentsByDeploymentIDPromote: () =>
+          Promise.resolve({ id: "dep_1", status: "promoted" }),
+        postV1DeploymentsByDeploymentIDRollback: () =>
+          Promise.resolve({ id: "dep_1", status: "promoted" }),
+      },
+    };
+
+    const result = await createFinalizePromoteDeploymentResult(client, {
+      create: {
+        body: {
+          project_id: "proj_1",
+          environment: "staging",
+          runtime: "node",
+          artifact_uri: "file:///tmp/manifest.json",
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(() => result.unwrap()).toThrow(
+      "deployment response is missing a usable id"
+    );
   });
 });
