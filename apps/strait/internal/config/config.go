@@ -41,10 +41,11 @@ type Config struct {
 	EventTriggerRetentionDays int           `mapstructure:"EVENT_TRIGGER_RETENTION_DAYS"`
 
 	// Database connection pool tuning
-	DBMaxConns        int32         `mapstructure:"DB_MAX_CONNS"`
-	DBMinConns        int32         `mapstructure:"DB_MIN_CONNS"`
-	DBMaxConnLifetime time.Duration `mapstructure:"DB_MAX_CONN_LIFETIME"`
-	DBMaxConnIdleTime time.Duration `mapstructure:"DB_MAX_CONN_IDLE_TIME"`
+	DBMaxConns         int32         `mapstructure:"DB_MAX_CONNS"`
+	DBMinConns         int32         `mapstructure:"DB_MIN_CONNS"`
+	DBMaxConnLifetime  time.Duration `mapstructure:"DB_MAX_CONN_LIFETIME"`
+	DBMaxConnIdleTime  time.Duration `mapstructure:"DB_MAX_CONN_IDLE_TIME"`
+	DBStatementTimeout time.Duration `mapstructure:"DB_STATEMENT_TIMEOUT"`
 
 	RateLimitRequests int           `mapstructure:"RATE_LIMIT_REQUESTS"`
 	RateLimitWindow   time.Duration `mapstructure:"RATE_LIMIT_WINDOW"`
@@ -133,6 +134,7 @@ func setDefaults() {
 	viper.SetDefault("DB_MIN_CONNS", 5)
 	viper.SetDefault("DB_MAX_CONN_LIFETIME", 30*time.Minute)
 	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
+	viper.SetDefault("DB_STATEMENT_TIMEOUT", 30*time.Second)
 	viper.SetDefault("RATE_LIMIT_REQUESTS", 100)
 	viper.SetDefault("RATE_LIMIT_WINDOW", time.Minute)
 	viper.SetDefault("TRIGGER_RATE_LIMIT_REQUESTS", 10)
@@ -191,7 +193,7 @@ func BindEnv() error {
 		"SECRET_ENCRYPTION_KEY", "ENCRYPTION_KEY", "ENCRYPTION_KEY_OLD", "LOG_LEVEL", "HEARTBEAT_INTERVAL", "REAPER_INTERVAL",
 		"STALE_THRESHOLD", "POLLER_INTERVAL", "RUN_RETENTION_SHORT", "RUN_RETENTION_LONG",
 		"OTEL_EXPORTER_OTLP_ENDPOINT", "WORKFLOW_RUN_RETENTION_DAYS", "DB_MAX_CONNS",
-		"DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME", "RATE_LIMIT_REQUESTS",
+		"DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME", "DB_STATEMENT_TIMEOUT", "RATE_LIMIT_REQUESTS",
 		"RATE_LIMIT_WINDOW", "TRIGGER_RATE_LIMIT_REQUESTS", "TRIGGER_RATE_LIMIT_WINDOW",
 		"REQUEST_TIMEOUT", "MAX_REQUEST_BODY_SIZE", "MAX_BULK_TRIGGER_ITEMS", "SEQUIN_BASE_URL", "SEQUIN_CONSUMER_NAME",
 		"SEQUIN_API_TOKEN", "SEQUIN_BATCH_SIZE", "SEQUIN_WAIT_TIME_MS", "CORS_ALLOWED_ORIGINS",
@@ -241,6 +243,7 @@ func Load() (*Config, error) {
 	cfg.RunRetentionLong = viper.GetDuration("RUN_RETENTION_LONG")
 	cfg.DBMaxConnLifetime = viper.GetDuration("DB_MAX_CONN_LIFETIME")
 	cfg.DBMaxConnIdleTime = viper.GetDuration("DB_MAX_CONN_IDLE_TIME")
+	cfg.DBStatementTimeout = viper.GetDuration("DB_STATEMENT_TIMEOUT")
 	cfg.DBMaxConns = viper.GetInt32("DB_MAX_CONNS")
 	cfg.DBMinConns = viper.GetInt32("DB_MIN_CONNS")
 	cfg.RateLimitWindow = viper.GetDuration("RATE_LIMIT_WINDOW")

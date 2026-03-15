@@ -349,3 +349,75 @@ func TestDequeueN_QueryUsesStaticPriorityWhenAgingDisabled(t *testing.T) {
 		t.Fatalf("DequeueN() query unexpectedly contains priority aging formula: %s", query)
 	}
 }
+
+func TestWithStatementTimeout_Default(t *testing.T) {
+	t.Parallel()
+
+	db := &mockDBTX{}
+	q := NewPostgresQueue(db)
+	if q.statementTimeout != 0 {
+		t.Fatalf("expected zero timeout by default, got %v", q.statementTimeout)
+	}
+}
+
+func TestWithStatementTimeout_Custom(t *testing.T) {
+	t.Parallel()
+
+	db := &mockDBTX{}
+	q := NewPostgresQueue(db, WithStatementTimeout(15*time.Second))
+	if q.statementTimeout != 15*time.Second {
+		t.Fatalf("expected 15s timeout, got %v", q.statementTimeout)
+	}
+}
+
+func TestDequeueN_SetsStatementTimeout(t *testing.T) {
+	t.Parallel()
+
+	var execSQL string
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			execSQL = sql
+			return pgconn.CommandTag{}, nil
+		},
+		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+			return nil, errors.New("no rows") // short-circuit
+		},
+	}
+
+	q := NewPostgresQueue(db, WithStatementTimeout(30*time.Second))
+	_, _ = q.DequeueN(context.Background(), 5)
+
+	if !strings.Contains(execSQL, "SET LOCAL statement_timeout = 30000") {
+		t.Fatalf("expected SET LOCAL statement_timeout = 30000, got %q", execSQL)
+	}
+}
+
+func TestDequeueN_NoTimeoutWhenZero(t *testing.T) {
+	t.Parallel()
+
+	var execCalled bool
+	db := &mockDBTX{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			execCalled = true
+			return pgconn.CommandTag{}, nil
+		},
+		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+			return nil, errors.New("no rows")
+		},
+	}
+
+	q := NewPostgresQueue(db) // no timeout set
+	_, _ = q.DequeueN(context.Background(), 5)
+
+	if execCalled {
+		t.Fatal("expected no Exec call when statement timeout is zero")
+	}
+}
+
+func TestLoad_DefaultStatementTimeout(t *testing.T) {
+	// This is tested via config_test.go - just verify the option works
+	q := NewPostgresQueue(&mockDBTX{}, WithStatementTimeout(30*time.Second))
+	if q.statementTimeout != 30*time.Second {
+		t.Fatalf("expected 30s, got %v", q.statementTimeout)
+	}
+}

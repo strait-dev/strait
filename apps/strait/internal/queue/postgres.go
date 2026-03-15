@@ -17,8 +17,9 @@ import (
 )
 
 type PostgresQueue struct {
-	db            store.DBTX
-	priorityAging bool
+	db               store.DBTX
+	priorityAging    bool
+	statementTimeout time.Duration
 }
 
 type PostgresQueueOption func(*PostgresQueue)
@@ -26,6 +27,12 @@ type PostgresQueueOption func(*PostgresQueue)
 func WithPriorityAging(enabled bool) PostgresQueueOption {
 	return func(q *PostgresQueue) {
 		q.priorityAging = enabled
+	}
+}
+
+func WithStatementTimeout(d time.Duration) PostgresQueueOption {
+	return func(q *PostgresQueue) {
+		q.statementTimeout = d
 	}
 }
 
@@ -38,6 +45,13 @@ func NewPostgresQueue(db store.DBTX, opts ...PostgresQueueOption) *PostgresQueue
 		}
 	}
 	return q
+}
+
+func (q *PostgresQueue) setStatementTimeout(ctx context.Context) {
+	if q.statementTimeout > 0 {
+		ms := int(q.statementTimeout.Milliseconds())
+		_, _ = q.db.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms))
+	}
 }
 
 func (q *PostgresQueue) dequeueOrderByClause() string {
@@ -148,6 +162,8 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Dequeue")
 	defer span.End()
 
+	q.setStatementTimeout(ctx)
+
 	query := fmt.Sprintf(`
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
@@ -200,6 +216,8 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueN")
 	defer span.End()
+
+	q.setStatementTimeout(ctx)
 
 	orderBy := q.dequeueOrderByClause()
 
@@ -273,6 +291,8 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
 	defer span.End()
+
+	q.setStatementTimeout(ctx)
 
 	orderBy := q.dequeueOrderByClause()
 
