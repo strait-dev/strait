@@ -4,8 +4,8 @@ import { createActor } from "xstate";
 import {
   canTransitionRun,
   isTerminalRunStatus,
-  runMachine,
   type RunStatus,
+  runMachine,
 } from "../src/fsm/index";
 
 describe("runMachine", () => {

@@ -9,7 +9,7 @@ describe("standalone triggerAndWait", () => {
     let pollIndex = 0;
 
     const result = await triggerAndWait(
-      (input: { payload: string }) =>
+      (_input: { payload: string }) =>
         Promise.resolve({ id: "run_1", status: "queued" }),
       () => {
         const status = statuses[pollIndex] ?? "completed";

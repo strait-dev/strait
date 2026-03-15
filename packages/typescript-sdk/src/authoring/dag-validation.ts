@@ -24,15 +24,7 @@ import type { WorkflowStepDefinition } from "./steps";
  * // sorted = ["a", "b", "c"] — topological order
  * ```
  */
-export const validateDag = (
-  steps: readonly WorkflowStepDefinition[]
-): readonly string[] => {
-  if (steps.length === 0) {
-    return [];
-  }
-
-  // 1. Detect duplicate stepRefs
-  const refs = steps.map((s) => s.stepRef);
+const checkDuplicateRefs = (refs: readonly string[]): void => {
   const seen = new Set<string>();
   const duplicateRefs: string[] = [];
 
@@ -49,9 +41,12 @@ export const validateDag = (
       duplicateRefs,
     });
   }
+};
 
-  // 2. Detect references to non-existent steps
-  const allRefs = new Set(refs);
+const checkMissingRefs = (
+  steps: readonly WorkflowStepDefinition[],
+  allRefs: ReadonlySet<string>
+): void => {
   const missingRefs: string[] = [];
 
   for (const s of steps) {
@@ -68,8 +63,12 @@ export const validateDag = (
       missingRefs,
     });
   }
+};
 
-  // 3. Kahn's algorithm for topological sort
+const topologicalSort = (
+  steps: readonly WorkflowStepDefinition[],
+  refs: readonly string[]
+): readonly string[] => {
   const inDegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
 
@@ -80,12 +79,11 @@ export const validateDag = (
 
   for (const s of steps) {
     for (const dep of s.dependsOn ?? []) {
-      adjacency.get(dep)!.push(s.stepRef);
+      adjacency.get(dep)?.push(s.stepRef);
       inDegree.set(s.stepRef, (inDegree.get(s.stepRef) ?? 0) + 1);
     }
   }
 
-  // Initialize queue with roots (in-degree 0)
   const queue: string[] = [];
   for (const [ref, degree] of inDegree) {
     if (degree === 0) {
@@ -96,7 +94,7 @@ export const validateDag = (
   const sorted: string[] = [];
 
   while (queue.length > 0) {
-    const node = queue.shift()!;
+    const node = queue.shift() as string;
     sorted.push(node);
 
     for (const neighbor of adjacency.get(node) ?? []) {
@@ -108,7 +106,6 @@ export const validateDag = (
     }
   }
 
-  // If we couldn't sort all nodes, there's a cycle
   if (sorted.length !== steps.length) {
     const inCycle = refs.filter((ref) => !sorted.includes(ref));
     throw new DagValidationError({
@@ -118,4 +115,19 @@ export const validateDag = (
   }
 
   return sorted;
+};
+
+export const validateDag = (
+  steps: readonly WorkflowStepDefinition[]
+): readonly string[] => {
+  if (steps.length === 0) {
+    return [];
+  }
+
+  const refs = steps.map((s) => s.stepRef);
+
+  checkDuplicateRefs(refs);
+  checkMissingRefs(steps, new Set(refs));
+
+  return topologicalSort(steps, refs);
 };

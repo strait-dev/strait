@@ -1,12 +1,12 @@
 import { createActor } from "xstate";
-import { runMachine, type RunEvent } from "./run-machine";
+import { type RunEvent, runMachine } from "./run-machine";
 
-export { runMachine, type RunEvent } from "./run-machine";
+export { type RunEvent, runMachine } from "./run-machine";
+export { type StepRunEvent, stepRunMachine } from "./step-run-machine";
 export {
-  workflowRunMachine,
   type WorkflowRunEvent,
+  workflowRunMachine,
 } from "./workflow-run-machine";
-export { stepRunMachine, type StepRunEvent } from "./step-run-machine";
 
 /** All valid run status values. */
 export type RunStatus =
@@ -80,10 +80,13 @@ export const isValidRunTransition = (
   if (snapshot.value !== from) {
     // We need to check the machine definition directly
     const stateConfig = runMachine.config.states?.[from];
-    if (!stateConfig) return false;
-    const transitions =
-      stateConfig.on as Record<string, string> | undefined;
-    if (!transitions) return false;
+    if (!stateConfig) {
+      return false;
+    }
+    const transitions = stateConfig.on as Record<string, string> | undefined;
+    if (!transitions) {
+      return false;
+    }
     return event in transitions;
   }
 
@@ -113,10 +116,7 @@ const getValidTransitions = (
  * isValidRunTransition("completed", "EXECUTE"); // false
  * ```
  */
-export const canTransitionRun = (
-  from: RunStatus,
-  event: RunEvent
-): boolean => {
+export const canTransitionRun = (from: RunStatus, event: RunEvent): boolean => {
   const transitions = getValidTransitions(
     runMachine.config.states as Record<string, unknown>,
     from

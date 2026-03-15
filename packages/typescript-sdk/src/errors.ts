@@ -71,9 +71,7 @@ export class TimeoutError extends Data.TaggedError("TimeoutError")<{
  *
  * Contains details about which specific validation rules were violated.
  */
-export class DagValidationError extends Data.TaggedError(
-  "DagValidationError"
-)<{
+export class DagValidationError extends Data.TaggedError("DagValidationError")<{
   readonly message: string;
   readonly cycles?: readonly string[];
   readonly missingRefs?: readonly string[];

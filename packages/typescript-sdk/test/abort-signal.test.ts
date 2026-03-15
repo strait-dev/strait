@@ -56,22 +56,15 @@ describe("AbortSignal support", () => {
     controller.abort(new Error("canceled"));
 
     await expect(
-      waitForRun(
-        () => Promise.resolve({ status: "executing" }),
-        "run_1",
-        {
-          signal: controller.signal,
-          initialDelayMs: 1,
-          timeoutMs: 100,
-        }
-      )
+      waitForRun(() => Promise.resolve({ status: "executing" }), "run_1", {
+        signal: controller.signal,
+        initialDelayMs: 1,
+        timeoutMs: 100,
+      })
     ).rejects.toThrow("canceled");
   });
 
   test("withRetry with jitter none uses exact delay", async () => {
-    const delays: number[] = [];
-    const originalSetTimeout = globalThis.setTimeout;
-
     let attempts = 0;
 
     await withRetry(

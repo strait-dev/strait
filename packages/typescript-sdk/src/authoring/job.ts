@@ -1,5 +1,5 @@
 import { fromPromise } from "../composition/result";
-import { waitForRun, type WaitForRunOptions } from "../composition/wait";
+import { type WaitForRunOptions, waitForRun } from "../composition/wait";
 import type {
   FutureLocalExecutorHooks,
   SchemaAdapter,
@@ -30,18 +30,9 @@ export type RunContext = {
   readonly attempt: number;
   readonly signal: AbortSignal;
   readonly logger: {
-    readonly info: (
-      message: string,
-      data?: Record<string, unknown>
-    ) => void;
-    readonly warn: (
-      message: string,
-      data?: Record<string, unknown>
-    ) => void;
-    readonly error: (
-      message: string,
-      data?: Record<string, unknown>
-    ) => void;
+    readonly info: (message: string, data?: Record<string, unknown>) => void;
+    readonly warn: (message: string, data?: Record<string, unknown>) => void;
+    readonly error: (message: string, data?: Record<string, unknown>) => void;
   };
   readonly checkpoint: (state: Record<string, unknown>) => Promise<void>;
   readonly reportProgress: (percent: number) => Promise<void>;
@@ -182,7 +173,10 @@ export type JobRunResponse = {
 
 /** Response from triggering multiple job runs in bulk. */
 export type BulkTriggerResponse = {
-  readonly runs?: readonly { readonly id: string; readonly [key: string]: unknown }[];
+  readonly runs?: readonly {
+    readonly id: string;
+    readonly [key: string]: unknown;
+  }[];
   readonly [key: string]: unknown;
 };
 
@@ -277,6 +271,7 @@ export const defineJob = <TPayload, TOutput = unknown>(
 ) => {
   let lastRegisteredJobId: string | undefined;
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: field mapping is necessarily verbose
   const toRegistrationBody = (projectId?: string): JobRegistrationBody => {
     const resolvedProjectId = requireProjectId(
       options.projectId,
@@ -303,33 +298,33 @@ export const defineJob = <TPayload, TOutput = unknown>(
       ...(options.executionWindowCron
         ? { execution_window_cron: options.executionWindowCron }
         : {}),
-      ...(options.maxConcurrency !== undefined
-        ? { max_concurrency: options.maxConcurrency }
-        : {}),
-      ...(options.rateLimitMax !== undefined
-        ? { rate_limit_max: options.rateLimitMax }
-        : {}),
-      ...(options.rateLimitWindowSecs !== undefined
-        ? { rate_limit_window_secs: options.rateLimitWindowSecs }
-        : {}),
-      ...(options.maxAttempts !== undefined
-        ? { max_attempts: options.maxAttempts }
-        : {}),
+      ...(options.maxConcurrency === undefined
+        ? {}
+        : { max_concurrency: options.maxConcurrency }),
+      ...(options.rateLimitMax === undefined
+        ? {}
+        : { rate_limit_max: options.rateLimitMax }),
+      ...(options.rateLimitWindowSecs === undefined
+        ? {}
+        : { rate_limit_window_secs: options.rateLimitWindowSecs }),
+      ...(options.maxAttempts === undefined
+        ? {}
+        : { max_attempts: options.maxAttempts }),
       ...(options.retryStrategy
         ? { retry_strategy: options.retryStrategy }
         : {}),
       ...(options.retryDelaysSecs
         ? { retry_delays_secs: options.retryDelaysSecs }
         : {}),
-      ...(options.timeoutSecs !== undefined
-        ? { timeout_secs: options.timeoutSecs }
-        : {}),
-      ...(options.runTtlSecs !== undefined
-        ? { run_ttl_secs: options.runTtlSecs }
-        : {}),
-      ...(options.dedupWindowSecs !== undefined
-        ? { dedup_window_secs: options.dedupWindowSecs }
-        : {}),
+      ...(options.timeoutSecs === undefined
+        ? {}
+        : { timeout_secs: options.timeoutSecs }),
+      ...(options.runTtlSecs === undefined
+        ? {}
+        : { run_ttl_secs: options.runTtlSecs }),
+      ...(options.dedupWindowSecs === undefined
+        ? {}
+        : { dedup_window_secs: options.dedupWindowSecs }),
       ...(options.webhookUrl ? { webhook_url: options.webhookUrl } : {}),
       ...(options.webhookSecret
         ? { webhook_secret: options.webhookSecret }
@@ -351,13 +346,13 @@ export const defineJob = <TPayload, TOutput = unknown>(
     return resolved;
   };
 
-  const buildTriggerBody = (input: TriggerJobInput<unknown>): JobTriggerBody => ({
+  const buildTriggerBody = (
+    input: TriggerJobInput<unknown>
+  ): JobTriggerBody => ({
     payload: input.payload,
-    ...(input.idempotencyKey
-      ? { idempotency_key: input.idempotencyKey }
-      : {}),
-    ...(input.priority !== undefined ? { priority: input.priority } : {}),
-    ...(input.dryRun !== undefined ? { dry_run: input.dryRun } : {}),
+    ...(input.idempotencyKey ? { idempotency_key: input.idempotencyKey } : {}),
+    ...(input.priority === undefined ? {} : { priority: input.priority }),
+    ...(input.dryRun === undefined ? {} : { dry_run: input.dryRun }),
     ...(input.metadata ? { metadata: input.metadata } : {}),
     ...(input.scheduledAt ? { scheduled_at: input.scheduledAt } : {}),
   });
@@ -466,12 +461,8 @@ export const defineJob = <TPayload, TOutput = unknown>(
           const payload = await options.schema.parse(item.payload);
           return {
             payload,
-            ...(item.scheduledAt
-              ? { scheduled_at: item.scheduledAt }
-              : {}),
-            ...(item.priority !== undefined
-              ? { priority: item.priority }
-              : {}),
+            ...(item.scheduledAt ? { scheduled_at: item.scheduledAt } : {}),
+            ...(item.priority === undefined ? {} : { priority: item.priority }),
             ...(item.idempotencyKey
               ? { idempotency_key: item.idempotencyKey }
               : {}),
@@ -500,11 +491,12 @@ export const defineJob = <TPayload, TOutput = unknown>(
       client: JobDslClient,
       input: TriggerJobInput<TPayload>,
       waitOptions?: WaitForRunOptions
-    ): Promise<{ readonly status?: string; readonly [key: string]: unknown }> => {
+    ): Promise<{
+      readonly status?: string;
+      readonly [key: string]: unknown;
+    }> => {
       if (!client.getRun) {
-        throw new Error(
-          "triggerAndWait requires a client with getRun method"
-        );
+        throw new Error("triggerAndWait requires a client with getRun method");
       }
 
       const run = await trigger(client, input);

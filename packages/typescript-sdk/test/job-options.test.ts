@@ -7,13 +7,6 @@ const mockSchema = zodSchema({
   toJSON: () => ({ type: "object" }),
 });
 
-const mockClient = {
-  createJob: (input: { readonly body: unknown }) =>
-    Promise.resolve({ id: "job_1", ...(input.body as object) }),
-  triggerJob: (input: { readonly body?: unknown }) =>
-    Promise.resolve({ id: "run_1", status: "queued" }),
-};
-
 describe("DefineJobOptions → toRegistrationBody mapping", () => {
   test("maps all basic fields to snake_case", () => {
     const job = defineJob({
@@ -101,13 +94,13 @@ describe("DefineJobOptions → toRegistrationBody mapping", () => {
       projectId: "proj_1",
       schema: mockSchema,
       timeoutSecs: 300,
-      runTtlSecs: 86400,
+      runTtlSecs: 86_400,
       dedupWindowSecs: 60,
     });
 
     const body = job.toRegistrationBody();
     expect(body.timeout_secs).toBe(300);
-    expect(body.run_ttl_secs).toBe(86400);
+    expect(body.run_ttl_secs).toBe(86_400);
     expect(body.dedup_window_secs).toBe(60);
   });
 

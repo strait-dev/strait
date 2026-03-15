@@ -1,5 +1,5 @@
 import { fromPromise } from "../composition/result";
-import { waitForRun, type WaitForRunOptions } from "../composition/wait";
+import { type WaitForRunOptions, waitForRun } from "../composition/wait";
 import type {
   FutureLocalExecutorHooks,
   SchemaAdapter,
@@ -184,9 +184,8 @@ export const defineWorkflow = <TPayload>(
 ) => {
   let lastRegisteredWorkflowId: string | undefined;
 
-  const toRegistrationBody = (
-    projectId?: string
-  ): WorkflowRegistrationBody => {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: field mapping is necessarily verbose
+  const toRegistrationBody = (projectId?: string): WorkflowRegistrationBody => {
     const resolvedProjectId = requireProjectId(
       options.projectId,
       projectId,
@@ -203,18 +202,18 @@ export const defineWorkflow = <TPayload>(
       ...(options.environmentId
         ? { environment_id: options.environmentId }
         : {}),
-      ...(options.maxConcurrentRuns !== undefined
-        ? { max_concurrent_runs: options.maxConcurrentRuns }
-        : {}),
-      ...(options.maxParallelSteps !== undefined
-        ? { max_parallel_steps: options.maxParallelSteps }
-        : {}),
-      ...(options.timeoutSecs !== undefined
-        ? { timeout_secs: options.timeoutSecs }
-        : {}),
-      ...(options.maxAttempts !== undefined
-        ? { max_attempts: options.maxAttempts }
-        : {}),
+      ...(options.maxConcurrentRuns === undefined
+        ? {}
+        : { max_concurrent_runs: options.maxConcurrentRuns }),
+      ...(options.maxParallelSteps === undefined
+        ? {}
+        : { max_parallel_steps: options.maxParallelSteps }),
+      ...(options.timeoutSecs === undefined
+        ? {}
+        : { timeout_secs: options.timeoutSecs }),
+      ...(options.maxAttempts === undefined
+        ? {}
+        : { max_attempts: options.maxAttempts }),
       ...(options.retryStrategy
         ? { retry_strategy: options.retryStrategy }
         : {}),
@@ -249,12 +248,10 @@ export const defineWorkflow = <TPayload>(
       ...(input.idempotencyKey
         ? { idempotency_key: input.idempotencyKey }
         : {}),
-      ...(input.priority !== undefined ? { priority: input.priority } : {}),
-      ...(input.dryRun !== undefined ? { dry_run: input.dryRun } : {}),
+      ...(input.priority === undefined ? {} : { priority: input.priority }),
+      ...(input.dryRun === undefined ? {} : { dry_run: input.dryRun }),
       ...(input.metadata ? { metadata: input.metadata } : {}),
-      ...(input.stepOverrides
-        ? { step_overrides: input.stepOverrides }
-        : {}),
+      ...(input.stepOverrides ? { step_overrides: input.stepOverrides } : {}),
     };
 
     const result = await client.triggerWorkflow({
@@ -324,9 +321,7 @@ export const defineWorkflow = <TPayload>(
       readonly [key: string]: unknown;
     }> => {
       if (!client.getRun) {
-        throw new Error(
-          "triggerAndWait requires a client with getRun method"
-        );
+        throw new Error("triggerAndWait requires a client with getRun method");
       }
 
       const run = await trigger(client, input);

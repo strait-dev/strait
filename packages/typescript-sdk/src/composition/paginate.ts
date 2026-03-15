@@ -42,7 +42,7 @@ export async function* paginate<TItem>(
   for (;;) {
     const response = await listFn({
       cursor,
-      ...(options?.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options?.limit === undefined ? {} : { limit: options.limit }),
     });
 
     const items = response.data ?? response.items ?? [];

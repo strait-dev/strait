@@ -5,13 +5,6 @@ import { defineWorkflow, effectSchema } from "../src/index";
 
 const mockSchema = effectSchema(Schema.Struct({ orderId: Schema.String }));
 
-const mockClient = {
-  createWorkflow: (input: { readonly body: unknown }) =>
-    Promise.resolve({ id: "wf_1" }),
-  triggerWorkflow: (input: { readonly body?: unknown }) =>
-    Promise.resolve({ id: "wfr_1", status: "pending" }),
-};
-
 describe("DefineWorkflowOptions → toRegistrationBody mapping", () => {
   test("maps all basic fields to snake_case", () => {
     const wf = defineWorkflow({

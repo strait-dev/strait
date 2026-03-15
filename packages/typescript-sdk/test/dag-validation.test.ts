@@ -26,7 +26,7 @@ describe("DAG validation (Kahn's algorithm)", () => {
 
     const sorted = validateDag(steps);
     expect(sorted[0]).toBe("a");
-    expect(sorted[sorted.length - 1]).toBe("d");
+    expect(sorted.at(-1)).toBe("d");
     expect(sorted.indexOf("b")).toBeGreaterThan(sorted.indexOf("a"));
     expect(sorted.indexOf("c")).toBeGreaterThan(sorted.indexOf("a"));
     expect(sorted.indexOf("d")).toBeGreaterThan(sorted.indexOf("b"));
@@ -48,7 +48,7 @@ describe("DAG validation (Kahn's algorithm)", () => {
       const err = e as DagValidationError;
       expect(err.message).toContain("Circular dependency");
       expect(err.cycles).toBeDefined();
-      expect(err.cycles!.length).toBeGreaterThan(0);
+      expect(err.cycles?.length).toBeGreaterThan(0);
     }
   });
 
@@ -70,10 +70,7 @@ describe("DAG validation (Kahn's algorithm)", () => {
   });
 
   test("detects duplicate step refs", () => {
-    const steps = [
-      step.job("a", "job_1"),
-      step.job("a", "job_2"),
-    ];
+    const steps = [step.job("a", "job_1"), step.job("a", "job_2")];
 
     expect(() => validateDag(steps)).toThrow(DagValidationError);
 
@@ -110,13 +107,9 @@ describe("DAG validation (Kahn's algorithm)", () => {
     const sorted = validateDag(steps);
     expect(sorted.length).toBe(7);
     expect(sorted[0]).toBe("start");
-    expect(sorted[sorted.length - 1]).toBe("end");
-    expect(sorted.indexOf("merge")).toBeGreaterThan(
-      sorted.indexOf("path-a2")
-    );
-    expect(sorted.indexOf("merge")).toBeGreaterThan(
-      sorted.indexOf("path-b2")
-    );
+    expect(sorted.at(-1)).toBe("end");
+    expect(sorted.indexOf("merge")).toBeGreaterThan(sorted.indexOf("path-a2"));
+    expect(sorted.indexOf("merge")).toBeGreaterThan(sorted.indexOf("path-b2"));
   });
 
   test("multiple root nodes (no dependencies) are valid", () => {
@@ -128,14 +121,16 @@ describe("DAG validation (Kahn's algorithm)", () => {
 
     const sorted = validateDag(steps);
     expect(sorted.length).toBe(3);
-    expect(sorted[sorted.length - 1]).toBe("join");
+    expect(sorted.at(-1)).toBe("join");
   });
 
   test("works with all step types, not just job steps", () => {
     const steps = [
       step.job("validate", "job_validate"),
       step.approval("review", { dependsOn: ["validate"] }),
-      step.waitForEvent("confirm", "order.confirmed", { dependsOn: ["review"] }),
+      step.waitForEvent("confirm", "order.confirmed", {
+        dependsOn: ["review"],
+      }),
       step.sleep("cooldown", 30, { dependsOn: ["confirm"] }),
       step.subWorkflow("notify", "wf_notify", { dependsOn: ["cooldown"] }),
     ];

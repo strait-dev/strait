@@ -1,4 +1,4 @@
-import { waitForRun, type WaitForRunOptions } from "./wait";
+import { type WaitForRunOptions, waitForRun } from "./wait";
 
 type TriggerFn<TInput, TRun extends { readonly id: string }> = (
   input: TInput

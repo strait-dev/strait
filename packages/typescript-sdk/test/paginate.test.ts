@@ -111,14 +111,15 @@ describe("paginate", () => {
     expect(callCount).toBe(1);
   });
 
-  test("collectAll works with async generator", async () => {
-    async function* gen() {
-      yield 1;
-      yield 2;
-      yield 3;
-    }
+  test("collectAll works with paginate generator", async () => {
+    const result = await collectAll(
+      paginate(() =>
+        Promise.resolve({
+          data: [1, 2, 3],
+        })
+      )
+    );
 
-    const result = await collectAll(gen());
     expect(result).toEqual([1, 2, 3]);
   });
 

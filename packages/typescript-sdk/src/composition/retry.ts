@@ -34,6 +34,30 @@ const wait = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
+const checkAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) {
+    throw (signal.reason as Error) ?? new Error("retry aborted");
+  }
+};
+
+const shouldRetryError = <TError>(
+  error: unknown,
+  attempt: number,
+  maxAttempts: number,
+  shouldRetry?: (
+    error: TError,
+    context: { readonly attempt: number; readonly maxAttempts: number }
+  ) => boolean
+): boolean => {
+  if (attempt >= maxAttempts) {
+    return false;
+  }
+  return shouldRetry?.(error as TError, { attempt, maxAttempts }) ?? true;
+};
+
+const computeDelay = (baseDelay: number, jitter: "full" | "none"): number =>
+  jitter === "full" ? Math.round(Math.random() * baseDelay) : baseDelay;
+
 /**
  * Executes an async operation with exponential backoff retries.
  *
@@ -54,32 +78,18 @@ export const withRetry = async <TOutput, TError = unknown>(
 
   for (;;) {
     attempt += 1;
-
-    if (options?.signal?.aborted) {
-      throw options.signal.reason ?? new Error("retry aborted");
-    }
+    checkAborted(options?.signal);
 
     try {
       return await operation();
     } catch (error) {
-      if (attempt >= maxAttempts) {
+      if (
+        !shouldRetryError(error, attempt, maxAttempts, options?.shouldRetry)
+      ) {
         throw error;
       }
 
-      const canRetry =
-        options?.shouldRetry?.(error as TError, {
-          attempt,
-          maxAttempts,
-        }) ?? true;
-
-      if (!canRetry) {
-        throw error;
-      }
-
-      const effectiveDelay =
-        jitter === "full" ? Math.round(Math.random() * delayMs) : delayMs;
-
-      await wait(effectiveDelay);
+      await wait(computeDelay(delayMs, jitter));
       delayMs = Math.min(maxDelayMs, Math.max(1, Math.round(delayMs * factor)));
     }
   }

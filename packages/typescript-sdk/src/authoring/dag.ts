@@ -1,7 +1,9 @@
-import type { FutureLocalExecutorHooks, SchemaAdapter } from "./types";
-import { defineWorkflow, type DefineWorkflowOptions } from "./workflow";
+import { type DefineWorkflowOptions, defineWorkflow } from "./workflow";
 
-type DefineDagOptions<TPayload> = Omit<DefineWorkflowOptions<TPayload>, "run" | "onSuccess" | "onFailure">;
+type DefineDagOptions<TPayload> = Omit<
+  DefineWorkflowOptions<TPayload>,
+  "run" | "onSuccess" | "onFailure"
+>;
 
 /**
  * Defines a DAG-flavored workflow authoring unit.

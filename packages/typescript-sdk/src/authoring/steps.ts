@@ -80,58 +80,90 @@ export type WorkflowStepDefinition =
  * @param def - A typed step definition from the step builder.
  * @returns A plain object ready for API registration.
  */
-export const stepToApi = (
+const baseStepFields = (def: BaseStepOptions): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  if (def.dependsOn?.length) {
+    out.depends_on = def.dependsOn;
+  }
+  if (def.condition) {
+    out.condition = def.condition;
+  }
+  if (def.onFailure) {
+    out.on_failure = def.onFailure;
+  }
+  if (def.payload) {
+    out.payload = def.payload;
+  }
+  if (def.retryMaxAttempts !== undefined) {
+    out.retry_max_attempts = def.retryMaxAttempts;
+  }
+  if (def.retryBackoff) {
+    out.retry_backoff = def.retryBackoff;
+  }
+  if (def.retryInitialDelaySecs !== undefined) {
+    out.retry_initial_delay_secs = def.retryInitialDelaySecs;
+  }
+  if (def.retryMaxDelaySecs !== undefined) {
+    out.retry_max_delay_secs = def.retryMaxDelaySecs;
+  }
+  if (def.timeoutSecsOverride !== undefined) {
+    out.timeout_secs_override = def.timeoutSecsOverride;
+  }
+  if (def.outputTransform) {
+    out.output_transform = def.outputTransform;
+  }
+  if (def.concurrencyKey) {
+    out.concurrency_key = def.concurrencyKey;
+  }
+  if (def.resourceClass) {
+    out.resource_class = def.resourceClass;
+  }
+  return out;
+};
+
+const typeSpecificFields = (
   def: WorkflowStepDefinition
-): Readonly<Record<string, unknown>> => {
-  const base: Record<string, unknown> = {
-    step_ref: def.stepRef,
-    type: def.type,
-  };
-
-  if (def.dependsOn?.length) base.depends_on = def.dependsOn;
-  if (def.condition) base.condition = def.condition;
-  if (def.onFailure) base.on_failure = def.onFailure;
-  if (def.payload) base.payload = def.payload;
-  if (def.retryMaxAttempts !== undefined)
-    base.retry_max_attempts = def.retryMaxAttempts;
-  if (def.retryBackoff) base.retry_backoff = def.retryBackoff;
-  if (def.retryInitialDelaySecs !== undefined)
-    base.retry_initial_delay_secs = def.retryInitialDelaySecs;
-  if (def.retryMaxDelaySecs !== undefined)
-    base.retry_max_delay_secs = def.retryMaxDelaySecs;
-  if (def.timeoutSecsOverride !== undefined)
-    base.timeout_secs_override = def.timeoutSecsOverride;
-  if (def.outputTransform) base.output_transform = def.outputTransform;
-  if (def.concurrencyKey) base.concurrency_key = def.concurrencyKey;
-  if (def.resourceClass) base.resource_class = def.resourceClass;
-
+): Record<string, unknown> => {
   switch (def.type) {
     case "job":
-      base.job_id = def.jobId;
-      break;
+      return { job_id: def.jobId };
     case "approval":
-      if (def.approvalTimeoutSecs !== undefined)
-        base.approval_timeout_secs = def.approvalTimeoutSecs;
-      if (def.approvers?.length) base.approvers = def.approvers;
-      break;
+      return {
+        ...(def.approvalTimeoutSecs === undefined
+          ? {}
+          : { approval_timeout_secs: def.approvalTimeoutSecs }),
+        ...(def.approvers?.length ? { approvers: def.approvers } : {}),
+      };
     case "sub_workflow":
-      base.sub_workflow_id = def.subWorkflowId;
-      if (def.maxNestingDepth !== undefined)
-        base.max_nesting_depth = def.maxNestingDepth;
-      break;
+      return {
+        sub_workflow_id: def.subWorkflowId,
+        ...(def.maxNestingDepth === undefined
+          ? {}
+          : { max_nesting_depth: def.maxNestingDepth }),
+      };
     case "wait_for_event":
-      base.event_key = def.eventKey;
-      if (def.eventTimeoutSecs !== undefined)
-        base.event_timeout_secs = def.eventTimeoutSecs;
-      if (def.eventNotifyUrl) base.event_notify_url = def.eventNotifyUrl;
-      break;
+      return {
+        event_key: def.eventKey,
+        ...(def.eventTimeoutSecs === undefined
+          ? {}
+          : { event_timeout_secs: def.eventTimeoutSecs }),
+        ...(def.eventNotifyUrl ? { event_notify_url: def.eventNotifyUrl } : {}),
+      };
     case "sleep":
-      base.sleep_duration_secs = def.sleepDurationSecs;
-      break;
+      return { sleep_duration_secs: def.sleepDurationSecs };
+    default:
+      return {};
   }
-
-  return base;
 };
+
+export const stepToApi = (
+  def: WorkflowStepDefinition
+): Readonly<Record<string, unknown>> => ({
+  step_ref: def.stepRef,
+  type: def.type,
+  ...baseStepFields(def),
+  ...typeSpecificFields(def),
+});
 
 /**
  * Fluent builder for creating type-safe workflow step definitions.

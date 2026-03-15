@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createActor } from "xstate";
 
-import {
-  stepRunMachine,
-  workflowRunMachine,
-} from "../src/fsm/index";
+import { stepRunMachine, workflowRunMachine } from "../src/fsm/index";
 
 describe("workflowRunMachine", () => {
   test("starts in pending state", () => {

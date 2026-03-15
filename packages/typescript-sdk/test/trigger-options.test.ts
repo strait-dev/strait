@@ -67,8 +67,7 @@ describe("typed trigger options", () => {
     const run = await job.trigger(
       {
         createJob: () => Promise.resolve({ id: "job_1" }),
-        triggerJob: () =>
-          Promise.resolve({ id: "run_1", status: "queued" }),
+        triggerJob: () => Promise.resolve({ id: "run_1", status: "queued" }),
       },
       { payload: { sku: "test" } }
     );
@@ -88,7 +87,11 @@ describe("typed trigger options", () => {
 
     const response = await job.register({
       createJob: () =>
-        Promise.resolve({ id: "job_1", slug: "typed-register", name: "Typed Register" }),
+        Promise.resolve({
+          id: "job_1",
+          slug: "typed-register",
+          name: "Typed Register",
+        }),
       triggerJob: () => Promise.resolve({ id: "run_1" }),
     });
 
@@ -134,10 +137,10 @@ describe("typed trigger options", () => {
 
     const items = capturedBody.items as Record<string, unknown>[];
     expect(items.length).toBe(2);
-    expect(items[0]!.payload).toEqual({ sku: "A" });
-    expect(items[1]!.payload).toEqual({ sku: "B" });
-    expect(items[1]!.priority).toBe(5);
-    expect(items[1]!.idempotency_key).toBe("idem_b");
+    expect(items[0]?.payload).toEqual({ sku: "A" });
+    expect(items[1]?.payload).toEqual({ sku: "B" });
+    expect(items[1]?.priority).toBe(5);
+    expect(items[1]?.idempotency_key).toBe("idem_b");
   });
 
   test("batchTrigger throws when client lacks triggerJobBulk", async () => {
@@ -158,8 +161,7 @@ describe("typed trigger options", () => {
       job.batchTrigger(
         {
           createJob: () => Promise.resolve({ id: "job_1" }),
-          triggerJob: () =>
-            Promise.resolve({ id: "run_1", status: "queued" }),
+          triggerJob: () => Promise.resolve({ id: "run_1", status: "queued" }),
         },
         { items: [{ payload: { sku: "A" } }] }
       )

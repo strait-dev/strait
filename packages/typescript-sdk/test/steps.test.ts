@@ -69,14 +69,14 @@ describe("step builder", () => {
   test("step.waitForEvent creates a wait-for-event step", () => {
     const s = step.waitForEvent("shipping", "shipping.confirmed", {
       dependsOn: ["review"],
-      eventTimeoutSecs: 86400,
+      eventTimeoutSecs: 86_400,
       eventNotifyUrl: "https://notify.example.com",
     });
 
     expect(s.type).toBe("wait_for_event");
     expect(s.stepRef).toBe("shipping");
     expect(s.eventKey).toBe("shipping.confirmed");
-    expect(s.eventTimeoutSecs).toBe(86400);
+    expect(s.eventTimeoutSecs).toBe(86_400);
     expect(s.eventNotifyUrl).toBe("https://notify.example.com");
   });
 
@@ -144,7 +144,7 @@ describe("stepToApi", () => {
   test("converts wait-for-event step to API format", () => {
     const api = stepToApi(
       step.waitForEvent("wait", "order.shipped", {
-        eventTimeoutSecs: 86400,
+        eventTimeoutSecs: 86_400,
         eventNotifyUrl: "https://notify.example.com",
       })
     );
@@ -153,7 +153,7 @@ describe("stepToApi", () => {
       step_ref: "wait",
       type: "wait_for_event",
       event_key: "order.shipped",
-      event_timeout_secs: 86400,
+      event_timeout_secs: 86_400,
       event_notify_url: "https://notify.example.com",
     });
   });

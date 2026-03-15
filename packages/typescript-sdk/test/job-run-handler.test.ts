@@ -36,6 +36,7 @@ describe("job run handler", () => {
   });
 
   test("onSuccess hook is stored on definition", () => {
+    // biome-ignore lint/suspicious/noEmptyBlockStatements: noop stub
     const onSuccess = async () => {};
     const job = defineJob({
       name: "Success Hook",
@@ -49,6 +50,7 @@ describe("job run handler", () => {
   });
 
   test("onFailure hook is stored on definition", () => {
+    // biome-ignore lint/suspicious/noEmptyBlockStatements: noop stub
     const onFailure = async () => {};
     const job = defineJob({
       name: "Failure Hook",
@@ -62,6 +64,7 @@ describe("job run handler", () => {
   });
 
   test("onStart hook is stored on definition", () => {
+    // biome-ignore lint/suspicious/noEmptyBlockStatements: noop stub
     const onStart = async () => {};
     const job = defineJob({
       name: "Start Hook",
@@ -83,20 +86,20 @@ describe("job run handler", () => {
       run: async (payload) => ({ upper: payload.value.toUpperCase() }),
     });
 
-    const result = await job.run!(
+    const result = await job.run?.(
       { value: "hello" },
       {
         runId: "run_test",
         attempt: 1,
         signal: AbortSignal.timeout(5000),
         logger: {
-          info: () => {},
-          warn: () => {},
-          error: () => {},
+          info: () => undefined,
+          warn: () => undefined,
+          error: () => undefined,
         },
-        checkpoint: async () => {},
-        reportProgress: async () => {},
-        heartbeat: async () => {},
+        checkpoint: () => Promise.resolve(),
+        reportProgress: () => Promise.resolve(),
+        heartbeat: () => Promise.resolve(),
       }
     );
 

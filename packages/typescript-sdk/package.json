@@ -19,7 +19,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./node": "./src/node/index.ts"
+    "./node": "./src/node/index.ts",
+    "./fsm": "./src/fsm/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
