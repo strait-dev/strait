@@ -53,7 +53,7 @@ export const DataTablePagination = <TData,>({
       </div>
 
       <div className="flex items-center justify-between gap-4">
-        <p className="text-muted-foreground">Results per page</p>
+        <p className="text-muted-foreground text-sm">Results per page</p>
         <Select
           onValueChange={(value) => {
             if (!value) {
@@ -78,7 +78,7 @@ export const DataTablePagination = <TData,>({
       </div>
 
       <div className="flex justify-between gap-4">
-        <div className="flex items-center justify-center text-muted-foreground tabular-nums">
+        <div className="flex items-center justify-center text-muted-foreground text-sm tabular-nums">
           Page {table.getState().pagination.pageIndex + 1} of{" "}
           {table.getPageCount()}
         </div>
