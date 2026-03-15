@@ -163,6 +163,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/idempotency-key", s.handleResetIdempotencyKey)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/reschedule", s.handleRescheduleRun)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", s.handleListRunState)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
 			})
 		})
 
@@ -339,6 +340,7 @@ func (s *Server) routes() chi.Router {
 			r.Get("/state", s.handleSDKListState)
 			r.Get("/state/{key}", s.handleSDKGetState)
 			r.Delete("/state/{key}", s.handleSDKDeleteState)
+			r.Post("/stream", s.handleSDKStreamChunk)
 		})
 	})
 

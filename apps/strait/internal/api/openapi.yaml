@@ -4160,6 +4160,53 @@ paths:
         '204':
           description: State key deleted
 
+  /sdk/v1/runs/{runID}/stream:
+    post:
+      tags:
+        - SDK
+      summary: Push LLM stream chunk
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                chunk:
+                  type: string
+                stream_id:
+                  type: string
+                done:
+                  type: boolean
+      responses:
+        '200':
+          description: Chunk published
+
+  /v1/runs/{runID}/stream/chunks:
+    get:
+      tags:
+        - Runs
+      summary: SSE stream of LLM chunks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE event stream
+
   /v1/runs/{runID}/state:
     get:
       tags:
