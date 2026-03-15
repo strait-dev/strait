@@ -2,10 +2,10 @@ import { fromPromise } from "../composition/result";
 import { type WaitForRunOptions, waitForRun } from "../composition/wait";
 import type {
   FutureLocalExecutorHooks,
-  SchemaAdapter,
+  SchemaInput,
   TriggerResult,
 } from "./types";
-import { extractEntityId, requireProjectId } from "./utils";
+import { extractEntityId, requireProjectId, resolveSchema } from "./utils";
 
 /**
  * Context object passed to the job's `run` handler.
@@ -81,8 +81,12 @@ export type DefineJobOptions<TPayload, TOutput = unknown> = {
   readonly slug: string;
   /** URL where the job executor is hosted. */
   readonly endpointUrl: string;
-  /** Schema adapter for payload validation. */
-  readonly schema: SchemaAdapter<TPayload>;
+  /**
+   * Schema for payload validation. Accepts either:
+   * - A Standard Schema v1 object directly (Zod 3.24+, Valibot 1.0+, ArkType 2.0+)
+   * - A `SchemaAdapter` from `zodSchema()`, `effectSchema()`, `customSchema()`, or `standardSchema()`
+   */
+  readonly schema: SchemaInput<TPayload>;
   /** Project ID — can also be provided at register() time. */
   readonly projectId?: string;
 
@@ -310,6 +314,7 @@ type JobDslClient = {
 export const defineJob = <TPayload, TOutput = unknown>(
   options: DefineJobOptions<TPayload, TOutput>
 ) => {
+  const schema = resolveSchema(options.schema);
   let lastRegisteredJobId: string | undefined;
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: field mapping is necessarily verbose
@@ -320,7 +325,7 @@ export const defineJob = <TPayload, TOutput = unknown>(
       `defineJob(${options.slug})`
     );
 
-    const payloadSchema = options.schema.toJsonSchema?.();
+    const payloadSchema = schema.toJsonSchema?.();
 
     return {
       project_id: resolvedProjectId,
@@ -402,7 +407,7 @@ export const defineJob = <TPayload, TOutput = unknown>(
     client: JobDslClient,
     input: TriggerJobInput<TPayload>
   ): Promise<JobRunResponse> => {
-    const payload = await options.schema.parse(input.payload);
+    const payload = await schema.parse(input.payload);
     const body = buildTriggerBody({ ...input, payload });
 
     const result = await client.triggerJob({
@@ -416,7 +421,7 @@ export const defineJob = <TPayload, TOutput = unknown>(
   return {
     kind: "job" as const,
     slug: options.slug,
-    schema: options.schema,
+    schema,
     hooks: options.hooks,
 
     /** The run handler, if provided. Exposed for local executors or test harnesses. */
@@ -499,7 +504,7 @@ export const defineJob = <TPayload, TOutput = unknown>(
 
       const items = await Promise.all(
         input.items.map(async (item) => {
-          const payload = await options.schema.parse(item.payload);
+          const payload = await schema.parse(item.payload);
           return {
             payload,
             ...(item.scheduledAt ? { scheduled_at: item.scheduledAt } : {}),

@@ -1,3 +1,36 @@
+import { isStandardSchema, standardSchema } from "../schema-adapters/standard";
+import type { SchemaAdapter, SchemaInput } from "./types";
+
+/**
+ * Resolves a {@link SchemaInput} to a {@link SchemaAdapter}.
+ *
+ * If the input is already a `SchemaAdapter` (has a `kind` and `parse` property),
+ * it is returned as-is. If it implements Standard Schema v1 (has `~standard`
+ * with `version: 1` and a `validate` function), it is auto-wrapped via
+ * `standardSchema()`.
+ *
+ * @param input - Either a `SchemaAdapter` or a Standard Schema v1 compliant object.
+ * @returns A `SchemaAdapter` ready for use in the authoring DSL.
+ */
+export const resolveSchema = <TInput>(
+  input: SchemaInput<TInput>
+): SchemaAdapter<TInput> => {
+  // Already a SchemaAdapter
+  if ("kind" in input && "parse" in input) {
+    return input as SchemaAdapter<TInput>;
+  }
+
+  // Standard Schema v1
+  if (isStandardSchema(input)) {
+    return standardSchema(input) as SchemaAdapter<TInput>;
+  }
+
+  throw new Error(
+    "Invalid schema: expected a SchemaAdapter (from zodSchema/effectSchema/customSchema/standardSchema) " +
+      "or a Standard Schema v1 compliant object (Zod 3.24+, Valibot 1.0+, ArkType 2.0+)"
+  );
+};
+
 /**
  * Resolves a project ID from definition-time or registration-time values.
  *

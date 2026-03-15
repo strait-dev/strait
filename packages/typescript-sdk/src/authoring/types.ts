@@ -1,3 +1,5 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
 import type { SdkResult } from "../composition/result";
 
 /**
@@ -16,6 +18,32 @@ export type SchemaAdapter<TInput> = {
   /** Optional JSON schema projection used for registration payloads. */
   readonly toJsonSchema?: () => JsonSchemaLike | undefined;
 };
+
+/**
+ * Accepted schema input for authoring DSL helpers.
+ *
+ * You can pass either:
+ * - A {@link SchemaAdapter} created via `zodSchema()`, `effectSchema()`,
+ *   `customSchema()`, or `standardSchema()`
+ * - A raw Standard Schema v1 compliant object (Zod 3.24+, Valibot 1.0+,
+ *   ArkType 2.0+, etc.) — it will be auto-wrapped
+ *
+ * @example
+ * ```ts
+ * import { z } from "zod";
+ * import * as v from "valibot";
+ *
+ * // All of these work in defineJob({ schema: ... }):
+ * defineJob({ schema: z.object({ sku: z.string() }), ... });       // Zod (auto-detected)
+ * defineJob({ schema: v.object({ sku: v.string() }), ... });       // Valibot (auto-detected)
+ * defineJob({ schema: zodSchema(myZod), ... });                     // Explicit adapter
+ * defineJob({ schema: standardSchema(mySchema), ... });             // Explicit adapter
+ * defineJob({ schema: customSchema((i) => validate(i)), ... });     // Custom
+ * ```
+ */
+export type SchemaInput<TInput> =
+  | SchemaAdapter<TInput>
+  | StandardSchemaV1<TInput, TInput>;
 
 /**
  * Promise wrapper used by `triggerResult` helpers.

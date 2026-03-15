@@ -5,10 +5,10 @@ import type { RunContext } from "./job";
 import { stepToApi, type WorkflowStepDefinition } from "./steps";
 import type {
   FutureLocalExecutorHooks,
-  SchemaAdapter,
+  SchemaInput,
   TriggerResult,
 } from "./types";
-import { extractEntityId, requireProjectId } from "./utils";
+import { extractEntityId, requireProjectId, resolveSchema } from "./utils";
 
 /**
  * Options for defining a Strait workflow with full configuration.
@@ -38,8 +38,12 @@ export type DefineWorkflowOptions<TPayload> = {
   readonly steps:
     | readonly WorkflowStepDefinition[]
     | readonly Readonly<Record<string, unknown>>[];
-  /** Schema adapter for trigger payload validation. */
-  readonly schema: SchemaAdapter<TPayload>;
+  /**
+   * Schema for trigger payload validation. Accepts either:
+   * - A Standard Schema v1 object directly (Zod 3.24+, Valibot 1.0+, ArkType 2.0+)
+   * - A `SchemaAdapter` from `zodSchema()`, `effectSchema()`, `customSchema()`, or `standardSchema()`
+   */
+  readonly schema: SchemaInput<TPayload>;
   /** Project ID — can also be provided at register() time. */
   readonly projectId?: string;
 
@@ -200,6 +204,7 @@ type WorkflowDslClient = {
 export const defineWorkflow = <TPayload>(
   options: DefineWorkflowOptions<TPayload>
 ) => {
+  const schema = resolveSchema(options.schema);
   let lastRegisteredWorkflowId: string | undefined;
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: field mapping is necessarily verbose
@@ -280,7 +285,7 @@ export const defineWorkflow = <TPayload>(
     client: WorkflowDslClient,
     input: TriggerWorkflowInput<TPayload>
   ): Promise<WorkflowRunResponse> => {
-    const payload = await options.schema.parse(input.payload);
+    const payload = await schema.parse(input.payload);
 
     const body: WorkflowTriggerBody = {
       payload,
@@ -306,7 +311,7 @@ export const defineWorkflow = <TPayload>(
   return {
     kind: "workflow" as const,
     slug: options.slug,
-    schema: options.schema,
+    schema,
     hooks: options.hooks,
     run: options.run,
     onSuccess: options.onSuccess,
