@@ -25,6 +25,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
+import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -32,6 +33,7 @@ import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { jobQueryOptions } from "@/hooks/api/use-jobs";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
+  ActivityIcon,
   CalendarIcon,
   ClockIcon,
   GlobeIcon,
@@ -154,7 +156,19 @@ function ScheduleDetailPage() {
 
         <TabsContent className="mt-6" value="history">
           <DataTable
-            emptyState={<div>No runs found for this schedule</div>}
+            emptyState={
+              <TableEmptyState
+                description="No runs found for this schedule."
+                hideButton
+                icon={
+                  <HugeiconsIcon
+                    className="size-6 text-primary"
+                    icon={ActivityIcon}
+                  />
+                }
+                title="No runs found"
+              />
+            }
             table={runsTable}
           />
         </TabsContent>

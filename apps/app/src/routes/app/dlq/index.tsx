@@ -15,6 +15,7 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
+import TableEmptyState from "@/components/common/table-empty-state";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { dlqColumns } from "@/components/tables/dlq-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -114,6 +115,7 @@ function DlqPage() {
             size={16}
           />
           <Input
+            aria-label="Search"
             className="pl-9"
             onChange={(e) =>
               navigate({
@@ -177,9 +179,17 @@ function DlqPage() {
         <div className="pt-2">
           <DataTable
             emptyState={
-              <div className="py-12 text-center text-muted-foreground">
-                No dead letter items found.
-              </div>
+              <TableEmptyState
+                description="No dead letter items found."
+                hideButton
+                icon={
+                  <HugeiconsIcon
+                    className="size-6 text-primary"
+                    icon={AlertIcon}
+                  />
+                }
+                title="No dead letter items"
+              />
             }
             table={table}
           />

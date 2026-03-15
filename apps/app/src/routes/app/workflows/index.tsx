@@ -14,13 +14,14 @@ import {
 } from "@tanstack/react-table";
 import { useState } from "react";
 import PageHeader from "@/components/common/page-header";
+import TableEmptyState from "@/components/common/table-empty-state";
 import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet";
 import { workflowColumns } from "@/components/tables/workflows-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Workflow } from "@/hooks/api/types";
 import { workflowsQueryOptions } from "@/hooks/api/use-workflows";
-import { PlusIcon, SearchIcon } from "@/lib/icons";
+import { PlusIcon, SearchIcon, WorkflowIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/workflows/")({
   loader: async ({ context }) => {
@@ -95,6 +96,7 @@ function WorkflowsPage() {
             size={16}
           />
           <Input
+            aria-label="Search"
             className="pl-9"
             onChange={(e) => setGlobalFilter(e.target.value)}
             placeholder="Search workflows..."
@@ -131,7 +133,19 @@ function WorkflowsPage() {
         }}
       >
         <DataTable
-          emptyState={<div>No workflows found</div>}
+          emptyState={
+            <TableEmptyState
+              description="No workflows match the current filters."
+              hideButton
+              icon={
+                <HugeiconsIcon
+                  className="size-6 text-primary"
+                  icon={WorkflowIcon}
+                />
+              }
+              title="No workflows found"
+            />
+          }
           floatingBar={
             <DataTableFloatingBar
               actions={[]}

@@ -86,6 +86,7 @@ export function LiveActivityFeed() {
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="font-medium text-sm">Live Activity</CardTitle>
         <Button
+          aria-label={paused ? "Resume activity feed" : "Pause activity feed"}
           className="h-7 w-7"
           onClick={() => setPaused((p) => !p)}
           size="icon"

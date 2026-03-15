@@ -1,3 +1,4 @@
+import { Button } from "@strait/ui/components/button";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import {
   ErrorComponent,
@@ -29,33 +30,28 @@ export const DefaultCatchBoundary = ({ error }: ErrorComponentProps) => {
     <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-6 p-4">
       <ErrorComponent error={error} />
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          className="rounded bg-gray-600 px-2 py-1 font-normal text-white uppercase dark:bg-gray-700"
-          onClick={() => {
-            router.invalidate();
-          }}
+        <Button
+          onClick={() => router.invalidate()}
           type="button"
+          variant="secondary"
         >
           Try Again
-        </button>
+        </Button>
         {isRoot ? (
-          <Link
-            className="rounded bg-gray-600 px-2 py-1 font-normal text-white uppercase dark:bg-gray-700"
-            to="/"
-          >
+          <Button render={<Link to="/" />} variant="secondary">
             Home
-          </Link>
+          </Button>
         ) : (
-          <Link
-            className="rounded bg-gray-600 px-2 py-1 font-normal text-white uppercase dark:bg-gray-700"
-            onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+          <Button
+            onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
               e.preventDefault();
               window.history.back();
             }}
-            to="/"
+            type="button"
+            variant="secondary"
           >
             Go Back
-          </Link>
+          </Button>
         )}
       </div>
     </div>

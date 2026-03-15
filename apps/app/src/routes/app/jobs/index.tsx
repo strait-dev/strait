@@ -14,13 +14,14 @@ import {
 } from "@tanstack/react-table";
 import { useState } from "react";
 import PageHeader from "@/components/common/page-header";
+import TableEmptyState from "@/components/common/table-empty-state";
 import { JobDetailSheet } from "@/components/dashboard/job-detail-sheet";
 import { jobColumns } from "@/components/tables/jobs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
-import { PlusIcon, SearchIcon } from "@/lib/icons";
+import { BriefcaseIcon, PlusIcon, SearchIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/jobs/")({
   loader: async ({ context }) => {
@@ -96,6 +97,7 @@ function JobsPage() {
             size={16}
           />
           <Input
+            aria-label="Search"
             className="pl-9"
             onChange={(e) => setGlobalFilter(e.target.value)}
             placeholder="Search jobs..."
@@ -145,7 +147,19 @@ function JobsPage() {
         }}
       >
         <DataTable
-          emptyState={<div>No jobs found</div>}
+          emptyState={
+            <TableEmptyState
+              description="No jobs match the current filters."
+              hideButton
+              icon={
+                <HugeiconsIcon
+                  className="size-6 text-primary"
+                  icon={BriefcaseIcon}
+                />
+              }
+              title="No jobs found"
+            />
+          }
           floatingBar={
             <DataTableFloatingBar
               actions={[]}

@@ -27,6 +27,7 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
+import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { WorkflowDAG } from "@/components/dashboard/workflow-dag";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -37,6 +38,7 @@ import {
   workflowStepsQueryOptions,
 } from "@/hooks/api/use-workflows";
 import {
+  ActivityIcon,
   ClockIcon,
   PauseActionIcon,
   PlayActionIcon,
@@ -193,7 +195,19 @@ function WorkflowDetailPage() {
 
         <TabsContent className="mt-6" value="runs">
           <DataTable
-            emptyState={<div>No runs found for this workflow</div>}
+            emptyState={
+              <TableEmptyState
+                description="No runs found for this workflow."
+                hideButton
+                icon={
+                  <HugeiconsIcon
+                    className="size-6 text-primary"
+                    icon={ActivityIcon}
+                  />
+                }
+                title="No runs found"
+              />
+            }
             table={runsTable}
           />
         </TabsContent>

@@ -69,6 +69,7 @@ function SchedulesPage() {
             size={16}
           />
           <Input
+            aria-label="Search"
             className="pl-9"
             onChange={(e) => setGlobalFilter(e.target.value)}
             placeholder="Search schedules..."

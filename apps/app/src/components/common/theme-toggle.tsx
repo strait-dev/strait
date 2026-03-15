@@ -1,8 +1,8 @@
-import { Moon02Icon, Sun01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import { MoonIcon, SunIcon } from "@/lib/icons";
 
 export const ThemeToggle = () => {
   const { theme, setTheme } = useTheme();
@@ -20,11 +20,7 @@ export const ThemeToggle = () => {
         size="icon"
         variant="outline"
       >
-        <HugeiconsIcon
-          aria-hidden="true"
-          className="size-4"
-          icon={Moon02Icon}
-        />
+        <HugeiconsIcon aria-hidden="true" className="size-4" icon={MoonIcon} />
         <span className="sr-only">Toggle theme</span>
       </Button>
     );
@@ -45,13 +41,13 @@ export const ThemeToggle = () => {
         <HugeiconsIcon
           aria-hidden="true"
           className="size-4 transition-all"
-          icon={Sun01Icon}
+          icon={SunIcon}
         />
       ) : (
         <HugeiconsIcon
           aria-hidden="true"
           className="size-4 transition-all"
-          icon={Moon02Icon}
+          icon={MoonIcon}
         />
       )}
       <span className="sr-only">Toggle theme</span>

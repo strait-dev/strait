@@ -52,6 +52,7 @@ import {
   Key01Icon,
   Layers01Icon,
   Link01Icon,
+  Loading03Icon,
   Logout01Icon,
   Mail01Icon,
   Menu01Icon,
@@ -172,3 +173,4 @@ export const AlarmClockIcon = _AlarmClockIcon;
 export const AlertCircleIcon = _AlertCircleIcon;
 export const LinkSquareIcon = _LinkSquare01Icon;
 export const SparklesIcon = _SparklesIcon;
+export const LoadingIcon = Loading03Icon;

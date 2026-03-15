@@ -1,8 +1,3 @@
-import {
-  Alert02Icon,
-  Delete02Icon,
-  Loading03Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertDialog,
@@ -33,6 +28,7 @@ import { useForm } from "@tanstack/react-form";
 import { useState, useTransition } from "react";
 import * as z from "zod";
 import { authClient } from "@/lib/auth-client";
+import { AlertIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 
 type Props = {
@@ -105,7 +101,7 @@ const DeleteAccount = ({ user }: Props) => {
         <CardContent>
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 rounded-custom border border-destructive/50 bg-destructive/5 px-3 py-2 text-destructive text-sm">
-              <HugeiconsIcon className="size-4" icon={Alert02Icon} />
+              <HugeiconsIcon className="size-4" icon={AlertIcon} />
               <span>
                 Warning: This action is irreversible and all your data will be
                 permanently lost.
@@ -193,10 +189,10 @@ const DeleteAccount = ({ user }: Props) => {
               {isPending ? (
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : (
-                <HugeiconsIcon className="size-4" icon={Delete02Icon} />
+                <HugeiconsIcon className="size-4" icon={TrashIcon} />
               )}
               Delete my account
             </AlertDialogTrigger>
@@ -223,10 +219,10 @@ const DeleteAccount = ({ user }: Props) => {
                     {isPending ? (
                       <HugeiconsIcon
                         className="size-4 animate-spin"
-                        icon={Loading03Icon}
+                        icon={LoadingIcon}
                       />
                     ) : (
-                      <HugeiconsIcon className="size-4" icon={Delete02Icon} />
+                      <HugeiconsIcon className="size-4" icon={TrashIcon} />
                     )}
                     Yes, delete my account
                   </AlertDialogAction>

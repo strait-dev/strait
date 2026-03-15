@@ -1,4 +1,3 @@
-import { Alert02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Accordion,
@@ -15,6 +14,7 @@ import { Button } from "@strait/ui/components/button";
 import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { AlertIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 const ErrorComponent = ({ error }: { error: Error }) => {
@@ -41,7 +41,7 @@ const ErrorComponent = ({ error }: { error: Error }) => {
     <div className="mt-8 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <Alert variant={"destructive"}>
-          <HugeiconsIcon className="size-4" icon={Alert02Icon} />
+          <HugeiconsIcon className="size-4" icon={AlertIcon} />
           <AlertTitle>Oops! Something went wrong</AlertTitle>
           <AlertDescription>
             We're sorry, but the website has encountered an unexpected issue

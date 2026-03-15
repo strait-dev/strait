@@ -22,6 +22,7 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useState } from "react";
 import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
+import TableEmptyState from "@/components/common/table-empty-state";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
@@ -29,7 +30,12 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
-import { CalendarIcon, FilterIcon, SearchIcon } from "@/lib/icons";
+import {
+  ActivityIcon,
+  CalendarIcon,
+  FilterIcon,
+  SearchIcon,
+} from "@/lib/icons";
 
 const searchSchema = z.object({
   query: z.string().optional(),
@@ -127,6 +133,7 @@ function RunsPage() {
             size={16}
           />
           <Input
+            aria-label="Search"
             className="pl-9"
             onChange={(e) =>
               navigate({
@@ -201,7 +208,19 @@ function RunsPage() {
         }}
       >
         <DataTable
-          emptyState={<div>No runs found</div>}
+          emptyState={
+            <TableEmptyState
+              description="No runs match the current filters."
+              hideButton
+              icon={
+                <HugeiconsIcon
+                  className="size-6 text-primary"
+                  icon={ActivityIcon}
+                />
+              }
+              title="No runs found"
+            />
+          }
           floatingBar={
             <DataTableFloatingBar
               actions={[]}

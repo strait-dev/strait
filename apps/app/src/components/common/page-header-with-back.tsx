@@ -1,8 +1,8 @@
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Link } from "@tanstack/react-router";
 import type React from "react";
+import { ArrowLeftIcon } from "@/lib/icons";
 
 type Props = {
   title: string;
@@ -24,7 +24,7 @@ const PageHeaderWithBack = ({
       {/* Back Button */}
       <div>
         <Button render={<Link to={backHref} />} variant="ghost">
-          <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
+          <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
           {backLabel}
         </Button>
       </div>

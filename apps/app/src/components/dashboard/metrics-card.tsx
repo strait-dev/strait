@@ -42,7 +42,7 @@ export function MetricsCard({
         )}
       </CardHeader>
       <CardContent>
-        <div className="font-normal text-2xl">{value}</div>
+        <div className="font-normal text-2xl tabular-nums">{value}</div>
         {change && (
           <div className="mt-1 flex items-center gap-1 text-xs">
             <HugeiconsIcon

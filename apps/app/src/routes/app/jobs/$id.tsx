@@ -116,7 +116,7 @@ function JobDetailPage() {
 
         <TabsContent className="mt-6 space-y-6" value="overview">
           {/* Stats grid */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard label="Success Rate" value="98.2%" />
             <StatCard label="Total Runs" value="1,247" />
             <StatCard label="Avg Duration" value="4.2s" />
@@ -209,7 +209,7 @@ function JobDetailPage() {
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border p-4 text-center">
-      <p className="font-normal text-2xl">{value}</p>
+      <p className="font-normal text-2xl tabular-nums">{value}</p>
       <p className="text-muted-foreground text-xs">{label}</p>
     </div>
   );

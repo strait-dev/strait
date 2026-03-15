@@ -97,7 +97,7 @@ export function NotificationsSheet() {
         <Button className="relative" size="icon" variant="ghost">
           <HugeiconsIcon icon={BellIcon} size={18} />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-chart-4 font-medium text-white text-xs">
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive font-medium text-destructive-foreground text-xs">
               {unreadCount}
             </span>
           )}

@@ -119,21 +119,21 @@ function RunDetailPage() {
 
       {/* Error banner */}
       {isFailed && run.error && (
-        <div className="mb-6 flex gap-2 rounded-md border border-chart-4/30 bg-chart-4/5 p-4">
+        <div className="mb-6 flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
           <HugeiconsIcon
-            className="mt-0.5 shrink-0 text-chart-4"
+            className="mt-0.5 shrink-0 text-destructive"
             icon={AlertIcon}
             size={16}
           />
           <div>
-            <p className="font-medium text-chart-4 text-sm">Error</p>
+            <p className="font-medium text-destructive text-sm">Error</p>
             <p className="mt-0.5 text-muted-foreground text-xs">{run.error}</p>
           </div>
         </div>
       )}
 
       {/* Execution details */}
-      <div className="mb-6 grid grid-cols-5 gap-4 rounded-md border p-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 rounded-md border p-4 sm:grid-cols-3 lg:grid-cols-5">
         <DetailCell
           label="Duration"
           value={formatDuration(run.started_at, run.finished_at)}
@@ -207,7 +207,7 @@ function DetailCell({ label, value }: { label: string; value: string }) {
       <span className="font-medium text-muted-foreground text-xs uppercase">
         {label}
       </span>
-      <span className="font-mono text-xs capitalize">{value}</span>
+      <span className="font-mono text-xs capitalize tabular-nums">{value}</span>
     </div>
   );
 }
