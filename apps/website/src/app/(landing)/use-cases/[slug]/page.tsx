@@ -4,6 +4,7 @@ import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import LoadingCarousel from "@/components/cultui/loading-carousel.tsx";
 import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
@@ -133,37 +134,14 @@ export default async function UseCasePage({ params }: Props) {
           <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
             How it works
           </h2>
-          <StaggerGroup className="flex flex-col items-start gap-4 lg:flex-row lg:items-center lg:gap-0">
-            {useCase.workflowSteps.map((step, index) => {
-              const isLast = index === useCase.workflowSteps.length - 1;
-              return (
-                <StaggerItem
-                  className="flex flex-1 items-center gap-4 lg:gap-0"
-                  key={step.name}
-                >
-                  <div className="flex min-w-0 flex-1 flex-col items-center text-center">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 font-medium text-primary text-sm">
-                      {index + 1}
-                    </div>
-                    <p className="mt-3 font-medium text-foreground text-sm">
-                      {step.name}
-                    </p>
-                    <p className="mt-1 max-w-[180px] text-muted-foreground text-xs leading-relaxed">
-                      {step.description}
-                    </p>
-                  </div>
-                  {!isLast && (
-                    <div className="hidden shrink-0 px-2 text-muted-foreground/40 lg:block">
-                      <HugeiconsIcon
-                        className="size-5"
-                        icon={ArrowRight02Icon}
-                      />
-                    </div>
-                  )}
-                </StaggerItem>
-              );
-            })}
-          </StaggerGroup>
+          <LoadingCarousel
+            autoplayDelay={4000}
+            slides={useCase.workflowSteps.map((step, index) => ({
+              number: index + 1,
+              name: step.name,
+              description: step.description,
+            }))}
+          />
         </Shell>
       </section>
 
