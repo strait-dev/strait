@@ -140,6 +140,8 @@ type ProjectQuota struct {
 	MaxCostPerRunMicrousd  int64
 	MaxDailyCostMicrousd   int64
 	MaxActiveEventTriggers int // 0 = unlimited
+	RateLimitRequests      int
+	RateLimitWindowSecs    int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.

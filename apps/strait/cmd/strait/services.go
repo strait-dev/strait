@@ -257,7 +257,7 @@ func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -285,6 +285,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		WorkflowCallback: stepCallback,
 		WorkflowEngine:   workflowEngine,
 		TxPool:           txPool,
+		RedisClient:      rdb,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

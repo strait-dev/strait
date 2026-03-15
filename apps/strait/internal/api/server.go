@@ -21,6 +21,7 @@ import (
 	"strait/internal/health"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
+	"strait/internal/ratelimit"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 	"strait/internal/worker"
@@ -29,6 +30,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
+	"github.com/redis/go-redis/v9"
 
 	scalar "github.com/MarceloPetrucio/go-scalar-api-reference"
 )
@@ -333,6 +335,7 @@ type Server struct {
 	oidcVerifier       *oidcVerifier
 	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
+	rateLimiter        *ratelimit.RedisRateLimiter
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -349,7 +352,8 @@ type ServerDeps struct {
 	Metrics          *telemetry.Metrics
 	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer      ActorSyncer
-	PoolStatter      PoolStatter // Optional: enables DB pool backpressure middleware.
+	PoolStatter      PoolStatter   // Optional: enables DB pool backpressure middleware.
+	RedisClient      *redis.Client // Optional: enables per-project/key rate limiting.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -390,6 +394,7 @@ func NewServer(deps ServerDeps) *Server {
 		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
+		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 	}
 
 	if deps.TxPool != nil {
