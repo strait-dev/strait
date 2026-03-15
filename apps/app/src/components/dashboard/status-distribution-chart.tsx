@@ -4,14 +4,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
+import {
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { CHART_COLORS } from "@/lib/status-colors";
+import { ChartTooltip } from "./chart-tooltip";
 
 const MOCK_DATA = [
-  { name: "Completed", value: 342, color: "var(--color-chart-1)" },
-  { name: "Executing", value: 28, color: "var(--color-chart-3)" },
-  { name: "Queued", value: 15, color: "var(--color-chart-2)" },
-  { name: "Failed", value: 12, color: "var(--color-chart-4)" },
+  { name: "Completed", value: 342, fill: CHART_COLORS.success },
+  { name: "Executing", value: 28, fill: CHART_COLORS.active },
+  { name: "Queued", value: 15, fill: CHART_COLORS.neutral },
+  { name: "Failed", value: 12, fill: CHART_COLORS.error },
 ];
+
+const LABEL_MAP = {
+  value: { label: "Runs", color: CHART_COLORS.success },
+};
 
 export function StatusDistributionChart() {
   const total = MOCK_DATA.reduce((sum, d) => sum + d.value, 0);
@@ -25,49 +38,51 @@ export function StatusDistributionChart() {
       </CardHeader>
       <CardContent>
         <div className="flex items-center gap-6">
-          <div className="h-[180px] w-[180px] shrink-0">
+          <div className="h-[180px] flex-1">
             <ResponsiveContainer
               height="100%"
               minHeight={1}
               minWidth={1}
               width="100%"
             >
-              <PieChart>
-                <Pie
-                  cx="50%"
-                  cy="50%"
-                  data={MOCK_DATA}
-                  dataKey="value"
-                  innerRadius={55}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  strokeWidth={0}
-                >
-                  {MOCK_DATA.map((entry) => (
-                    <Cell fill={entry.color} key={entry.name} />
-                  ))}
-                </Pie>
-              </PieChart>
+              <BarChart data={MOCK_DATA} layout="vertical">
+                <XAxis
+                  className="text-muted-foreground"
+                  tick={{ fontSize: 14 }}
+                  type="number"
+                />
+                <YAxis
+                  className="text-muted-foreground"
+                  dataKey="name"
+                  tick={{ fontSize: 14 }}
+                  type="category"
+                  width={80}
+                />
+                <Tooltip
+                  content={<ChartTooltip labelMap={LABEL_MAP} />}
+                  cursor={{ fill: "var(--muted)" }}
+                />
+                <Bar dataKey="value" radius={[0, 4, 4, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             {MOCK_DATA.map((entry) => {
               const pct = ((entry.value / total) * 100).toFixed(1);
               return (
-                <div className="flex items-center gap-2" key={entry.name}>
+                <div
+                  className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-muted"
+                  key={entry.name}
+                >
                   <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: entry.color }}
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: entry.fill }}
                   />
-                  <span className="text-muted-foreground text-sm">
-                    {entry.name}
+                  <span className="text-muted-foreground">{entry.name}</span>
+                  <span className="ml-auto font-medium tabular-nums">
+                    {entry.value.toLocaleString()}
                   </span>
-                  <span className="ml-auto font-medium font-mono text-sm">
-                    {entry.value}
-                  </span>
-                  <span className="text-muted-foreground text-xs">
-                    ({pct}%)
-                  </span>
+                  <span className="text-muted-foreground">({pct}%)</span>
                 </div>
               );
             })}

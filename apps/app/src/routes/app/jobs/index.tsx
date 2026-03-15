@@ -1,8 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -12,7 +18,9 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { zodValidator } from "@tanstack/zod-adapter";
 import { useState } from "react";
+import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { JobDetailSheet } from "@/components/dashboard/job-detail-sheet";
@@ -21,9 +29,19 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
-import { BriefcaseIcon, PlusIcon, SearchIcon } from "@/lib/icons";
+import { BriefcaseIcon, FilterIcon, PlusIcon, SearchIcon } from "@/lib/icons";
+
+const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
+
+const searchSchema = z.object({
+  query: z.string().optional(),
+  status: z.array(z.string()).optional(),
+  page: z.number().optional().default(1),
+  perPage: z.number().optional().default(20),
+});
 
 export const Route = createFileRoute("/app/jobs/")({
+  validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(jobsQueryOptions());
   },
@@ -34,21 +52,24 @@ function JobsPage() {
   const { data } = useSuspenseQuery(jobsQueryOptions()) as {
     data: PaginatedResponse<Job>;
   };
-  const [globalFilter, setGlobalFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">(
-    "all"
-  );
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const selectedStatuses = search.status ?? [];
+
   const filteredData = (data?.data ?? []).filter((job) => {
-    if (statusFilter === "active" && !job.enabled) {
-      return false;
+    if (selectedStatuses.length === 0) {
+      return true;
     }
-    if (statusFilter === "paused" && job.enabled) {
-      return false;
+    if (selectedStatuses.includes("Enabled") && job.enabled) {
+      return true;
     }
-    return true;
+    if (selectedStatuses.includes("Disabled") && !job.enabled) {
+      return true;
+    }
+    return false;
   });
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
@@ -62,14 +83,34 @@ function JobsPage() {
     getPaginationRowModel: getPaginationRowModel(),
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
-    state: { globalFilter, rowSelection },
-    onGlobalFilterChange: setGlobalFilter,
+    state: { globalFilter: search.query ?? "", rowSelection },
+    onGlobalFilterChange: (query) =>
+      navigate({
+        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+      }),
     getRowId: (row) => row.id,
   });
 
   const selectedIds = Object.keys(rowSelection).filter(
     (id) => rowSelection[id]
   );
+
+  function toggleStatus(status: string) {
+    const current = new Set(selectedStatuses);
+    if (current.has(status)) {
+      current.delete(status);
+    } else {
+      current.add(status);
+    }
+    const arr = Array.from(current);
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        status: arr.length > 0 ? arr : undefined,
+        page: 1,
+      }),
+    });
+  }
 
   function handleRowClick(job: Job) {
     setSelectedJob(job);
@@ -99,47 +140,51 @@ function JobsPage() {
           <Input
             aria-label="Search"
             className="pl-9"
-            onChange={(e) => setGlobalFilter(e.target.value)}
+            onChange={(e) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  query: e.target.value || undefined,
+                  page: 1,
+                }),
+              })
+            }
             placeholder="Search jobs..."
-            value={globalFilter}
+            value={search.query ?? ""}
           />
         </div>
 
-        <Tabs
-          onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
-          value={statusFilter}
-        >
-          <TabsList>
-            {(["all", "active", "paused"] as const).map((status) => (
-              <TabsTrigger className="capitalize" key={status} value={status}>
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="outline" />}>
+            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
+            Status
+            {selectedStatuses.length > 0 && (
+              <Badge variant="default">{selectedStatuses.length}</Badge>
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {STATUS_OPTIONS.map((status) => (
+              <DropdownMenuCheckboxItem
+                checked={selectedStatuses.includes(status)}
+                key={status}
+                onCheckedChange={() => toggleStatus(status)}
+              >
                 {status}
-              </TabsTrigger>
+              </DropdownMenuCheckboxItem>
             ))}
-          </TabsList>
-        </Tabs>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
       <div
         className="[&_tbody_tr]:cursor-pointer"
         onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button")) {
+          const row = (e.target as HTMLElement).closest("tr[data-row-index]");
+          if (!row) {
             return;
           }
-          const tr = target.closest("tbody tr");
-          if (!tr) {
-            return;
-          }
-          const tbody = tr.closest("tbody");
-          if (!tbody) {
-            return;
-          }
-          const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
-          const idx = rows.indexOf(tr);
-          if (idx < 0) {
-            return;
-          }
+          const idx = Number(row.getAttribute("data-row-index"));
           const job = table.getRowModel().rows[idx]?.original;
           if (job) {
             handleRowClick(job);

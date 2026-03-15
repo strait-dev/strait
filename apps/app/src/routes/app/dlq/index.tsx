@@ -1,5 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
@@ -25,10 +32,24 @@ import {
   useBulkDiscardDlq,
   useBulkRetryDlq,
 } from "@/hooks/api/use-dlq";
-import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
+import {
+  AlertIcon,
+  FilterIcon,
+  RefreshIcon,
+  SearchIcon,
+  TrashIcon,
+} from "@/lib/icons";
+
+const ERROR_TYPE_OPTIONS = [
+  "timeout",
+  "connection",
+  "validation",
+  "internal",
+] as const;
 
 const searchSchema = z.object({
   query: z.string().optional(),
+  errorType: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
 });
 
@@ -86,6 +107,25 @@ function DlqPage() {
     bulkDiscard.mutate({ ids: selectedIds });
   }, [selectedIds, bulkDiscard]);
 
+  const selectedErrorTypes = search.errorType ?? [];
+
+  function toggleErrorType(errorType: string) {
+    const current = new Set(selectedErrorTypes);
+    if (current.has(errorType)) {
+      current.delete(errorType);
+    } else {
+      current.add(errorType);
+    }
+    const arr = Array.from(current);
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        errorType: arr.length > 0 ? arr : undefined,
+        page: 1,
+      }),
+    });
+  }
+
   const totalCount = data?.total_count ?? 0;
 
   return (
@@ -130,6 +170,27 @@ function DlqPage() {
             value={search.query ?? ""}
           />
         </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="outline" />}>
+            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
+            Error Type
+            {selectedErrorTypes.length > 0 && (
+              <Badge variant="default">{selectedErrorTypes.length}</Badge>
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {ERROR_TYPE_OPTIONS.map((errorType) => (
+              <DropdownMenuCheckboxItem
+                checked={selectedErrorTypes.includes(errorType)}
+                key={errorType}
+                onCheckedChange={() => toggleErrorType(errorType)}
+              >
+                <span className="capitalize">{errorType}</span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {hasSelection && (
           <>

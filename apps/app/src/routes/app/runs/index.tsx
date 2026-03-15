@@ -170,7 +170,7 @@ function RunsPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button disabled size="sm" variant="outline">
+        <Button disabled variant="outline">
           <HugeiconsIcon className="mr-1.5" icon={CalendarIcon} size={14} />
           Date Range
         </Button>
@@ -180,23 +180,11 @@ function RunsPage() {
       <div
         className="[&_tbody_tr]:cursor-pointer"
         onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button")) {
+          const row = (e.target as HTMLElement).closest("tr[data-row-index]");
+          if (!row) {
             return;
           }
-          const tr = target.closest("tbody tr");
-          if (!tr) {
-            return;
-          }
-          const tbody = tr.closest("tbody");
-          if (!tbody) {
-            return;
-          }
-          const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
-          const idx = rows.indexOf(tr);
-          if (idx < 0) {
-            return;
-          }
+          const idx = Number(row.getAttribute("data-row-index"));
           const run = table.getRowModel().rows[idx]?.original;
           if (run) {
             handleRowClick(run);

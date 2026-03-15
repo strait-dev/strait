@@ -2,6 +2,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@strait/ui/components/dropdown-menu";
+import { Input } from "@strait/ui/components/input";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -22,15 +29,25 @@ import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
+import { StatusBadge } from "@/components/dashboard/status-badge";
 import { webhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
-import { GlobeIcon, PlusIcon, WebhookIcon } from "@/lib/icons";
+import {
+  FilterIcon,
+  GlobeIcon,
+  PlusIcon,
+  SearchIcon,
+  WebhookIcon,
+} from "@/lib/icons";
+
+const STATUS_OPTIONS = ["Active", "Inactive"] as const;
 
 const searchSchema = z.object({
   query: z.string().optional(),
+  status: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
 });
 
@@ -44,18 +61,33 @@ export const Route = createFileRoute("/app/webhooks/")({
 
 function WebhooksPage() {
   const search = Route.useSearch();
-  const _navigate = Route.useNavigate();
+  const navigate = Route.useNavigate();
   const { data } = useSuspenseQuery(
     webhooksQueryOptions({ query: search.query, page: search.page })
   );
 
-  const [selectedWebhook, _setSelectedWebhook] =
+  const selectedStatuses = search.status ?? [];
+
+  const filteredData = (data?.data ?? []).filter((webhook) => {
+    if (selectedStatuses.length === 0) {
+      return true;
+    }
+    if (selectedStatuses.includes("Active") && webhook.active) {
+      return true;
+    }
+    if (selectedStatuses.includes("Inactive") && !webhook.active) {
+      return true;
+    }
+    return false;
+  });
+
+  const [selectedWebhook, setSelectedWebhook] =
     useState<WebhookSubscription | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const table = useReactTable({
-    data: data?.data ?? [],
+    data: filteredData,
     columns: webhookColumns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -63,7 +95,11 @@ function WebhooksPage() {
     getPaginationRowModel: getPaginationRowModel(),
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
-    state: { rowSelection },
+    state: { globalFilter: search.query ?? "", rowSelection },
+    onGlobalFilterChange: (query) =>
+      navigate({
+        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+      }),
     getRowId: (row) => row.id,
   });
 
@@ -71,12 +107,34 @@ function WebhooksPage() {
     (id) => rowSelection[id]
   );
 
+  function toggleStatus(status: string) {
+    const current = new Set(selectedStatuses);
+    if (current.has(status)) {
+      current.delete(status);
+    } else {
+      current.add(status);
+    }
+    const arr = Array.from(current);
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        status: arr.length > 0 ? arr : undefined,
+        page: 1,
+      }),
+    });
+  }
+
+  function handleRowClick(webhook: WebhookSubscription) {
+    setSelectedWebhook(webhook);
+    setSheetOpen(true);
+  }
+
   return (
     <Shell>
       <PageHeader
         button={
-          <Button size="sm">
-            <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={14} />
+          <Button>
+            <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={16} />
             Create Webhook
           </Button>
         }
@@ -84,7 +142,67 @@ function WebhooksPage() {
         title="Webhooks"
       />
 
-      <div className="pt-4">
+      <div className="flex items-center gap-3 py-4">
+        <div className="relative flex-1">
+          <HugeiconsIcon
+            className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+            icon={SearchIcon}
+            size={16}
+          />
+          <Input
+            aria-label="Search"
+            className="pl-9"
+            onChange={(e) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  query: e.target.value || undefined,
+                  page: 1,
+                }),
+              })
+            }
+            placeholder="Search webhooks..."
+            value={search.query ?? ""}
+          />
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="outline" />}>
+            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
+            Status
+            {selectedStatuses.length > 0 && (
+              <Badge variant="default">{selectedStatuses.length}</Badge>
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {STATUS_OPTIONS.map((status) => (
+              <DropdownMenuCheckboxItem
+                checked={selectedStatuses.includes(status)}
+                key={status}
+                onCheckedChange={() => toggleStatus(status)}
+              >
+                {status}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
+      <div
+        className="[&_tbody_tr]:cursor-pointer"
+        onClick={(e) => {
+          const row = (e.target as HTMLElement).closest("tr[data-row-index]");
+          if (!row) {
+            return;
+          }
+          const idx = Number(row.getAttribute("data-row-index"));
+          const webhook = table.getRowModel().rows[idx]?.original;
+          if (webhook) {
+            handleRowClick(webhook);
+          }
+        }}
+      >
         <DataTable
           emptyState={
             <div className="py-12 text-center text-muted-foreground">
@@ -141,16 +259,7 @@ function WebhookDetailSheet({
         <div className="mt-4 space-y-6">
           {/* Status */}
           <div className="flex items-center gap-2">
-            <Badge
-              className={
-                webhook.active
-                  ? "border-[hsl(var(--chart-1))] text-[hsl(var(--chart-1))]"
-                  : "text-muted-foreground"
-              }
-              variant="outline"
-            >
-              {webhook.active ? "Active" : "Inactive"}
-            </Badge>
+            <StatusBadge status={webhook.active ? "completed" : "pending"} />
           </div>
 
           {/* Endpoint */}
