@@ -103,29 +103,34 @@ describe("deployment SDK support", () => {
     const recorded: string[] = [];
 
     const client = {
-      createDeployment: () => {
-        recorded.push("create");
-        return Promise.resolve({ id: "dep_42", status: "draft" });
+      operationsPromise: {
+        postV1Deployments: () => {
+          recorded.push("create");
+          return Promise.resolve({ id: "dep_42", status: "draft" });
+        },
+        postV1DeploymentsByDeploymentIDFinalize: (
+          input?: Readonly<Record<string, unknown>>
+        ) => {
+          recorded.push("finalize");
+          const pathParams = input?.pathParams as
+            | { readonly deploymentID?: string }
+            | undefined;
+          const body = input?.body as
+            | { readonly project_id?: string; readonly environment?: string }
+            | undefined;
+
+          expect(pathParams?.deploymentID).toBe("dep_42");
+          expect(body).toEqual({
+            project_id: "proj_1",
+            environment: "staging",
+          });
+          return Promise.resolve({ id: "dep_42", status: "finalized" });
+        },
+        postV1DeploymentsByDeploymentIDPromote: () =>
+          Promise.resolve({ id: "dep_42", status: "promoted" }),
+        postV1DeploymentsByDeploymentIDRollback: () =>
+          Promise.resolve({ id: "dep_42", status: "promoted" }),
       },
-      finalizeDeployment: (input: {
-        readonly pathParams: { readonly deploymentID: string };
-        readonly body: {
-          readonly project_id: string;
-          readonly environment: string;
-        };
-      }) => {
-        recorded.push("finalize");
-        expect(input.pathParams.deploymentID).toBe("dep_42");
-        expect(input.body).toEqual({
-          project_id: "proj_1",
-          environment: "staging",
-        });
-        return Promise.resolve({ id: "dep_42", status: "finalized" });
-      },
-      promoteDeployment: () =>
-        Promise.resolve({ id: "dep_42", status: "promoted" }),
-      rollbackDeployment: () =>
-        Promise.resolve({ id: "dep_42", status: "promoted" }),
     };
 
     const output = await createAndFinalizeDeployment(client, {
@@ -146,13 +151,15 @@ describe("deployment SDK support", () => {
 
   test("createAndFinalizeDeployment result variant captures missing id failures", async () => {
     const client = {
-      createDeployment: () => Promise.resolve({ status: "draft" }),
-      finalizeDeployment: () =>
-        Promise.resolve({ id: "dep", status: "finalized" }),
-      promoteDeployment: () =>
-        Promise.resolve({ id: "dep", status: "promoted" }),
-      rollbackDeployment: () =>
-        Promise.resolve({ id: "dep", status: "promoted" }),
+      operationsPromise: {
+        postV1Deployments: () => Promise.resolve({ status: "draft" }),
+        postV1DeploymentsByDeploymentIDFinalize: () =>
+          Promise.resolve({ id: "dep", status: "finalized" }),
+        postV1DeploymentsByDeploymentIDPromote: () =>
+          Promise.resolve({ id: "dep", status: "promoted" }),
+        postV1DeploymentsByDeploymentIDRollback: () =>
+          Promise.resolve({ id: "dep", status: "promoted" }),
+      },
     };
 
     const result = await createAndFinalizeDeploymentResult(client, {
@@ -179,25 +186,34 @@ describe("deployment SDK support", () => {
     }> = [];
 
     const client = {
-      createDeployment: () => Promise.resolve({ id: "dep_1" }),
-      finalizeDeployment: () => Promise.resolve({ id: "dep_1" }),
-      promoteDeployment: (input: {
-        readonly pathParams: { readonly deploymentID: string };
-      }) => {
-        inputs.push({
-          action: "promote",
-          deploymentID: input.pathParams.deploymentID,
-        });
-        return Promise.resolve({ id: "dep_2", status: "promoted" });
-      },
-      rollbackDeployment: (input: {
-        readonly pathParams: { readonly deploymentID: string };
-      }) => {
-        inputs.push({
-          action: "rollback",
-          deploymentID: input.pathParams.deploymentID,
-        });
-        return Promise.resolve({ id: "dep_1", status: "promoted" });
+      operationsPromise: {
+        postV1Deployments: () => Promise.resolve({ id: "dep_1" }),
+        postV1DeploymentsByDeploymentIDFinalize: () =>
+          Promise.resolve({ id: "dep_1" }),
+        postV1DeploymentsByDeploymentIDPromote: (
+          input?: Readonly<Record<string, unknown>>
+        ) => {
+          const pathParams = input?.pathParams as
+            | { readonly deploymentID?: string }
+            | undefined;
+          inputs.push({
+            action: "promote",
+            deploymentID: pathParams?.deploymentID ?? "",
+          });
+          return Promise.resolve({ id: "dep_2", status: "promoted" });
+        },
+        postV1DeploymentsByDeploymentIDRollback: (
+          input?: Readonly<Record<string, unknown>>
+        ) => {
+          const pathParams = input?.pathParams as
+            | { readonly deploymentID?: string }
+            | undefined;
+          inputs.push({
+            action: "rollback",
+            deploymentID: pathParams?.deploymentID ?? "",
+          });
+          return Promise.resolve({ id: "dep_1", status: "promoted" });
+        },
       },
     };
 

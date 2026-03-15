@@ -1,4 +1,4 @@
-import type { HighLevelOperationInput } from "../high-level/generated";
+import type { OperationInput } from "../domains/index";
 import type { OperationResponseBodyById } from "../internal/schema/_generated/schema";
 import { fromPromise, type SdkResult } from "./result";
 
@@ -22,58 +22,46 @@ export type DeploymentVersionMutationBody = {
   readonly environment: string;
 };
 
-type DeploymentCreateOptions = Omit<
-  HighLevelOperationInput<"postV1Deployments">,
-  "body"
->;
-
-type DeploymentFinalizeOptions = Omit<
-  HighLevelOperationInput<"postV1DeploymentsByDeploymentIDFinalize">,
-  "pathParams" | "body"
->;
-
-type DeploymentPromoteOptions = Omit<
-  HighLevelOperationInput<"postV1DeploymentsByDeploymentIDPromote">,
-  "pathParams" | "body"
->;
-
-type DeploymentRollbackOptions = Omit<
-  HighLevelOperationInput<"postV1DeploymentsByDeploymentIDRollback">,
-  "pathParams" | "body"
->;
-
 type DeploymentVersion = OperationResponseBodyById["postV1Deployments"];
+type FinalizedDeploymentVersion =
+  OperationResponseBodyById["postV1DeploymentsByDeploymentIDFinalize"];
+type PromotedDeploymentVersion =
+  OperationResponseBodyById["postV1DeploymentsByDeploymentIDPromote"];
+type RolledBackDeploymentVersion =
+  OperationResponseBodyById["postV1DeploymentsByDeploymentIDRollback"];
 
-type DeploymentFunctions = {
-  readonly createDeployment: (
-    input: {
-      readonly body: CreateDeploymentVersionBody;
-    } & DeploymentCreateOptions
-  ) => Promise<DeploymentVersion>;
-  readonly finalizeDeployment: (
-    input: {
-      readonly pathParams: { readonly deploymentID: string };
-      readonly body: DeploymentVersionMutationBody;
-    } & DeploymentFinalizeOptions
-  ) => Promise<
-    OperationResponseBodyById["postV1DeploymentsByDeploymentIDFinalize"]
-  >;
-  readonly promoteDeployment: (
-    input: {
-      readonly pathParams: { readonly deploymentID: string };
-      readonly body: DeploymentVersionMutationBody;
-    } & DeploymentPromoteOptions
-  ) => Promise<
-    OperationResponseBodyById["postV1DeploymentsByDeploymentIDPromote"]
-  >;
-  readonly rollbackDeployment: (
-    input: {
-      readonly pathParams: { readonly deploymentID: string };
-      readonly body: DeploymentVersionMutationBody;
-    } & DeploymentRollbackOptions
-  ) => Promise<
-    OperationResponseBodyById["postV1DeploymentsByDeploymentIDRollback"]
-  >;
+type CreateDeploymentOperationInput = OperationInput<
+  CreateDeploymentVersionBody,
+  DeploymentVersion
+>;
+type FinalizeDeploymentOperationInput = OperationInput<
+  DeploymentVersionMutationBody,
+  FinalizedDeploymentVersion
+>;
+type PromoteDeploymentOperationInput = OperationInput<
+  DeploymentVersionMutationBody,
+  PromotedDeploymentVersion
+>;
+type RollbackDeploymentOperationInput = OperationInput<
+  DeploymentVersionMutationBody,
+  RolledBackDeploymentVersion
+>;
+
+type DeploymentOperationClient = {
+  readonly operationsPromise: {
+    readonly postV1Deployments: (
+      input?: CreateDeploymentOperationInput
+    ) => Promise<DeploymentVersion>;
+    readonly postV1DeploymentsByDeploymentIDFinalize: (
+      input?: FinalizeDeploymentOperationInput
+    ) => Promise<FinalizedDeploymentVersion>;
+    readonly postV1DeploymentsByDeploymentIDPromote: (
+      input?: PromoteDeploymentOperationInput
+    ) => Promise<PromotedDeploymentVersion>;
+    readonly postV1DeploymentsByDeploymentIDRollback: (
+      input?: RollbackDeploymentOperationInput
+    ) => Promise<RolledBackDeploymentVersion>;
+  };
 };
 
 const resolveDeploymentID = (deployment: DeploymentVersion): string => {
@@ -98,7 +86,7 @@ export type CreateAndFinalizeDeploymentInput = {
    */
   readonly create: {
     readonly body: CreateDeploymentVersionBody;
-  } & DeploymentCreateOptions;
+  } & Omit<CreateDeploymentOperationInput, "body">;
   /**
    * Optional finalize body override. Defaults to `{ project_id, environment }`
    * from create body.
@@ -107,7 +95,10 @@ export type CreateAndFinalizeDeploymentInput = {
   /**
    * Optional per-call overrides passed to finalize operation.
    */
-  readonly finalize?: DeploymentFinalizeOptions;
+  readonly finalize?: Omit<
+    FinalizeDeploymentOperationInput,
+    "pathParams" | "body"
+  >;
 };
 
 /**
@@ -115,7 +106,7 @@ export type CreateAndFinalizeDeploymentInput = {
  */
 export type CreateAndFinalizeDeploymentOutput = {
   readonly created: DeploymentVersion;
-  readonly finalized: OperationResponseBodyById["postV1DeploymentsByDeploymentIDFinalize"];
+  readonly finalized: FinalizedDeploymentVersion;
 };
 
 /**
@@ -131,12 +122,12 @@ export type DeploymentMutationInput<TOptions> = {
  * Finalizes an existing deployment version.
  */
 export const finalizeDeploymentVersion = async (
-  client: DeploymentFunctions,
-  input: DeploymentMutationInput<DeploymentFinalizeOptions>
-): Promise<
-  OperationResponseBodyById["postV1DeploymentsByDeploymentIDFinalize"]
-> =>
-  client.finalizeDeployment({
+  client: DeploymentOperationClient,
+  input: DeploymentMutationInput<
+    Omit<FinalizeDeploymentOperationInput, "pathParams" | "body">
+  >
+): Promise<FinalizedDeploymentVersion> =>
+  client.operationsPromise.postV1DeploymentsByDeploymentIDFinalize({
     ...input.options,
     pathParams: { deploymentID: input.deploymentID },
     body: input.body,
@@ -146,25 +137,23 @@ export const finalizeDeploymentVersion = async (
  * Result variant of {@link finalizeDeploymentVersion}.
  */
 export const finalizeDeploymentVersionResult = (
-  client: DeploymentFunctions,
-  input: DeploymentMutationInput<DeploymentFinalizeOptions>
-): Promise<
-  SdkResult<
-    OperationResponseBodyById["postV1DeploymentsByDeploymentIDFinalize"],
-    unknown
+  client: DeploymentOperationClient,
+  input: DeploymentMutationInput<
+    Omit<FinalizeDeploymentOperationInput, "pathParams" | "body">
   >
-> => fromPromise(() => finalizeDeploymentVersion(client, input));
+): Promise<SdkResult<FinalizedDeploymentVersion, unknown>> =>
+  fromPromise(() => finalizeDeploymentVersion(client, input));
 
 /**
  * Promotes a finalized deployment version into active state for an environment.
  */
 export const promoteDeploymentVersion = async (
-  client: DeploymentFunctions,
-  input: DeploymentMutationInput<DeploymentPromoteOptions>
-): Promise<
-  OperationResponseBodyById["postV1DeploymentsByDeploymentIDPromote"]
-> =>
-  client.promoteDeployment({
+  client: DeploymentOperationClient,
+  input: DeploymentMutationInput<
+    Omit<PromoteDeploymentOperationInput, "pathParams" | "body">
+  >
+): Promise<PromotedDeploymentVersion> =>
+  client.operationsPromise.postV1DeploymentsByDeploymentIDPromote({
     ...input.options,
     pathParams: { deploymentID: input.deploymentID },
     body: input.body,
@@ -174,25 +163,23 @@ export const promoteDeploymentVersion = async (
  * Result variant of {@link promoteDeploymentVersion}.
  */
 export const promoteDeploymentVersionResult = (
-  client: DeploymentFunctions,
-  input: DeploymentMutationInput<DeploymentPromoteOptions>
-): Promise<
-  SdkResult<
-    OperationResponseBodyById["postV1DeploymentsByDeploymentIDPromote"],
-    unknown
+  client: DeploymentOperationClient,
+  input: DeploymentMutationInput<
+    Omit<PromoteDeploymentOperationInput, "pathParams" | "body">
   >
-> => fromPromise(() => promoteDeploymentVersion(client, input));
+): Promise<SdkResult<PromotedDeploymentVersion, unknown>> =>
+  fromPromise(() => promoteDeploymentVersion(client, input));
 
 /**
  * Rolls back an environment to a previous deployment version.
  */
 export const rollbackDeploymentVersion = async (
-  client: DeploymentFunctions,
-  input: DeploymentMutationInput<DeploymentRollbackOptions>
-): Promise<
-  OperationResponseBodyById["postV1DeploymentsByDeploymentIDRollback"]
-> =>
-  client.rollbackDeployment({
+  client: DeploymentOperationClient,
+  input: DeploymentMutationInput<
+    Omit<RollbackDeploymentOperationInput, "pathParams" | "body">
+  >
+): Promise<RolledBackDeploymentVersion> =>
+  client.operationsPromise.postV1DeploymentsByDeploymentIDRollback({
     ...input.options,
     pathParams: { deploymentID: input.deploymentID },
     body: input.body,
@@ -202,23 +189,23 @@ export const rollbackDeploymentVersion = async (
  * Result variant of {@link rollbackDeploymentVersion}.
  */
 export const rollbackDeploymentVersionResult = (
-  client: DeploymentFunctions,
-  input: DeploymentMutationInput<DeploymentRollbackOptions>
-): Promise<
-  SdkResult<
-    OperationResponseBodyById["postV1DeploymentsByDeploymentIDRollback"],
-    unknown
+  client: DeploymentOperationClient,
+  input: DeploymentMutationInput<
+    Omit<RollbackDeploymentOperationInput, "pathParams" | "body">
   >
-> => fromPromise(() => rollbackDeploymentVersion(client, input));
+): Promise<SdkResult<RolledBackDeploymentVersion, unknown>> =>
+  fromPromise(() => rollbackDeploymentVersion(client, input));
 
 /**
  * Creates a deployment version and immediately finalizes it.
  */
 export const createAndFinalizeDeployment = async (
-  client: DeploymentFunctions,
+  client: DeploymentOperationClient,
   input: CreateAndFinalizeDeploymentInput
 ): Promise<CreateAndFinalizeDeploymentOutput> => {
-  const created = await client.createDeployment(input.create);
+  const created = await client.operationsPromise.postV1Deployments(
+    input.create
+  );
   const deploymentID = resolveDeploymentID(created);
 
   const finalized = await finalizeDeploymentVersion(client, {
@@ -240,7 +227,7 @@ export const createAndFinalizeDeployment = async (
  * Result variant of {@link createAndFinalizeDeployment}.
  */
 export const createAndFinalizeDeploymentResult = (
-  client: DeploymentFunctions,
+  client: DeploymentOperationClient,
   input: CreateAndFinalizeDeploymentInput
 ): Promise<SdkResult<CreateAndFinalizeDeploymentOutput, unknown>> =>
   fromPromise(() => createAndFinalizeDeployment(client, input));
