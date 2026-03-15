@@ -1,3 +1,4 @@
+export * from "./deployments";
 export * from "./idempotency";
 export * from "./result";
 export * from "./retry";
