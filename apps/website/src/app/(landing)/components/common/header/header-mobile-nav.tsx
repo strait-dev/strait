@@ -11,7 +11,75 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { dashboardHref } from "@/lib/urls.ts";
-import { NAV_LINKS } from "./nav-links.ts";
+import { isNavGroup, NAV_ITEMS, type NavGroup } from "./nav-links.ts";
+
+const MobileNavGroup = ({
+  group,
+  onNavigate,
+}: {
+  group: NavGroup;
+  onNavigate: () => void;
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const toggleExpanded = useCallback(() => setExpanded((prev) => !prev), []);
+
+  return (
+    <div>
+      <button
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between rounded-md px-3 py-2 font-medium text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground"
+        onClick={toggleExpanded}
+        type="button"
+      >
+        {group.label}
+        <svg
+          className={`size-4 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          viewBox="0 0 24 24"
+        >
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="mt-1 ml-2 flex flex-col gap-2 border-border/40 border-l pl-3">
+          {group.children.map((section) => (
+            <div key={section.groupLabel}>
+              <p className="mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
+                {section.groupLabel}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {section.links.map((link) => (
+                  <Link
+                    className="rounded-md px-3 py-1.5 text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground"
+                    href={link.href}
+                    key={link.href}
+                    onClick={onNavigate}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {group.featured && (
+            <Link
+              className="inline-flex items-center gap-1 px-3 py-1.5 font-medium text-primary text-sm"
+              href={group.featured.href}
+              onClick={onNavigate}
+            >
+              {group.featured.label}
+              <HugeiconsIcon className="size-3.5" icon={ArrowRight02Icon} />
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MobileNav = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -88,18 +156,30 @@ const MobileNav = () => {
             ref={dropdownRef}
           >
             <div className="flex flex-col gap-1">
-              {NAV_LINKS.map((link) => (
-                <Button
-                  className="justify-start"
-                  key={link.label}
-                  onClick={close}
-                  render={<Link href={link.href} />}
-                  size="default"
-                  variant="ghost"
-                >
-                  {link.label}
-                </Button>
-              ))}
+              {NAV_ITEMS.map((item) => {
+                if (isNavGroup(item)) {
+                  return (
+                    <MobileNavGroup
+                      group={item}
+                      key={item.label}
+                      onNavigate={close}
+                    />
+                  );
+                }
+
+                return (
+                  <Button
+                    className="justify-start"
+                    key={item.label}
+                    onClick={close}
+                    render={<Link href={item.href} />}
+                    size="default"
+                    variant="ghost"
+                  >
+                    {item.label}
+                  </Button>
+                );
+              })}
             </div>
             <div className="mt-3 flex flex-col gap-2 border-border/40 border-t pt-3">
               <Button

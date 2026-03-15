@@ -4,19 +4,31 @@ import Link from "next/link";
 import { siteConfig } from "@/config/site.ts";
 
 const FOOTER_LINKS: Record<string, Array<{ label: string; href: string }>> = {
-  Product: [
-    { label: "Features", href: "/#features" },
-    { label: "Pricing", href: "/pricing" },
+  Platform: [
+    { label: "PostgreSQL Queue", href: "/features/postgresql-queue" },
+    { label: "Workflow DAGs", href: "/features/workflow-dags" },
+    { label: "Retries & DLQ", href: "/features/retries-dlq" },
+    { label: "All Features", href: "/features" },
+  ],
+  Solutions: [
+    { label: "AI Agent Workflows", href: "/use-cases/ai-agent-workflows" },
+    {
+      label: "Background Processing",
+      href: "/use-cases/background-processing",
+    },
+    { label: "vs Temporal", href: "/compare/temporal" },
+    { label: "vs Inngest", href: "/compare/inngest" },
+  ],
+  Resources: [
     { label: "Blog", href: "/blog" },
+    { label: "Pricing", href: "/pricing" },
+    { label: "Documentation", href: "/docs" },
   ],
-  Resources: [{ label: "How it works", href: "/#how-it-works" }],
   Company: [
-    { label: "Twitter", href: siteConfig.links.twitter ?? "#" },
-    { label: "GitHub", href: siteConfig.links.github ?? "#" },
-  ],
-  Legal: [
-    { label: "Privacy Policy", href: "/privacy" },
-    { label: "Terms of Service", href: "/terms" },
+    { label: "Twitter", href: "https://twitter.com/leonardomso" },
+    { label: "GitHub", href: "https://github.com/leonardomso/strait" },
+    { label: "Privacy", href: "/privacy" },
+    { label: "Terms", href: "/terms" },
   ],
 };
 
