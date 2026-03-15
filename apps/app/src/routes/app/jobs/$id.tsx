@@ -76,14 +76,18 @@ function JobDetailPage() {
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <h1 className="font-normal text-2xl tracking-tight">{job.name}</h1>
+            <h1 className="text-balance font-normal text-2xl tracking-tight">
+              {job.name}
+            </h1>
             <StatusBadge
               showDot
               status={job.enabled ? "completed" : "paused"}
             />
           </div>
           {job.description && (
-            <p className="text-muted-foreground text-sm">{job.description}</p>
+            <p className="text-pretty text-muted-foreground text-sm">
+              {job.description}
+            </p>
           )}
         </div>
         <div className="flex gap-2">

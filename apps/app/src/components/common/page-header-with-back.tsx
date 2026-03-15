@@ -33,13 +33,13 @@ const PageHeaderWithBack = ({
       <div className="flex flex-col items-end gap-5 sm:flex-row sm:justify-between">
         <div className="flex flex-col justify-start self-start">
           <h1
-            className="font-normal text-secondary-foreground text-xl tracking-tight"
+            className="text-balance font-normal text-secondary-foreground text-xl tracking-tight"
             data-testid="page-header-title"
           >
             {title}
           </h1>
           <p
-            className="whitespace-normal text-muted-foreground text-sm"
+            className="whitespace-normal text-pretty text-muted-foreground text-sm"
             data-testid="page-header-text"
           >
             {text}

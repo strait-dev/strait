@@ -10,7 +10,7 @@ export const OrganizationsLayout = ({
   title,
 }: OrganizationsLayoutProps) => {
   return (
-    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-gradient-to-br from-accent/30 via-background to-accent/10">
+    <div className="relative flex min-h-dvh w-full items-center justify-center overflow-hidden bg-gradient-to-br from-accent/30 via-background to-accent/10">
       {/* Base grid pattern */}
       <div
         className="absolute inset-0"

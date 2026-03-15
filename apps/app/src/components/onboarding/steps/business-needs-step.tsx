@@ -38,10 +38,10 @@ export const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="font-normal text-secondary-foreground text-xl tracking-tight">
+        <h2 className="text-balance font-normal text-secondary-foreground text-xl tracking-tight">
           What will you use Strait for?
         </h2>
-        <p className="whitespace-normal text-muted-foreground text-sm">
+        <p className="whitespace-normal text-pretty text-muted-foreground text-sm">
           Select your primary use cases and we'll tailor your experience.
         </p>
       </div>

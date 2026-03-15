@@ -32,10 +32,10 @@ export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="font-normal text-secondary-foreground text-xl tracking-tight">
+        <h2 className="text-balance font-normal text-secondary-foreground text-xl tracking-tight">
           Set up your workspace
         </h2>
-        <p className="whitespace-normal text-muted-foreground text-sm">
+        <p className="whitespace-normal text-pretty text-muted-foreground text-sm">
           Configure your workspace to get started with Strait.
         </p>
       </div>

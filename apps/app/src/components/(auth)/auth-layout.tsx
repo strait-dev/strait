@@ -7,7 +7,7 @@ type AuthLayoutProps = {
 
 export const AuthLayout = ({ children, title }: AuthLayoutProps) => {
   return (
-    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-gradient-to-br from-primary/20 via-background to-primary/10">
+    <div className="relative flex min-h-dvh w-full items-center justify-center overflow-hidden bg-gradient-to-br from-primary/20 via-background to-primary/10">
       {/* Base grid pattern */}
       <div
         className="absolute inset-0"

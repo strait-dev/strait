@@ -87,11 +87,11 @@ function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
+    <div className="flex min-h-dvh items-center justify-center bg-background">
       <div className="mx-auto w-full max-w-md space-y-6 p-8">
         <div className="space-y-2 text-center">
-          <h1 className="text-3xl">Welcome to Strait</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-balance text-3xl">Welcome to Strait</h1>
+          <p className="text-pretty text-muted-foreground">
             Sign in to manage your jobs and workflows
           </p>
         </div>
@@ -213,7 +213,7 @@ function LoginPage() {
           </Button>
         </div>
 
-        <p className="text-center text-muted-foreground text-sm">
+        <p className="text-pretty text-center text-muted-foreground text-sm">
           By continuing, you agree to our Terms of Service and Privacy Policy
         </p>
       </div>

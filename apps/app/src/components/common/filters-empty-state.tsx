@@ -30,10 +30,10 @@ const FiltersEmptyState = ({
     </div>
 
     <div className="flex max-w-xs flex-col items-center gap-2 text-center">
-      <h2 className="font-normal text-lg text-secondary-foreground tracking-tight">
+      <h2 className="text-balance font-normal text-lg text-secondary-foreground tracking-tight">
         {title}
       </h2>
-      <p className="text-muted-foreground text-sm">{description}</p>
+      <p className="text-pretty text-muted-foreground text-sm">{description}</p>
     </div>
   </div>
 );

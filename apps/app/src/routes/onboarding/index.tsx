@@ -282,7 +282,7 @@ function OnboardingFlow() {
   }, [currentStep, form, completeOnboarding.isPending]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-dvh flex-col bg-background">
       {/* Fixed Header */}
       <header className="fixed top-0 right-0 left-0 z-30 border-border border-b bg-background">
         <div className="relative flex h-16 items-center justify-center px-4">
