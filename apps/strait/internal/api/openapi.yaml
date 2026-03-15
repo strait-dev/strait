@@ -2497,6 +2497,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/WorkflowStepDecisionListResponse'
 
+  /v1/workflow-runs/{workflowRunID}/timeline:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run timeline for Gantt chart rendering
+      responses:
+        '200':
+          description: Workflow run timeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+
   /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry:
     parameters:
       - name: workflowRunID
@@ -4650,6 +4668,55 @@ components:
         critical_path_remaining_ms:
           type: integer
           format: int64
+
+    TimelineStep:
+      type: object
+      properties:
+        step_run_id:
+          type: string
+        step_ref:
+          type: string
+        status:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+        parallel_with:
+          type: array
+          items:
+            type: string
+        on_critical_path:
+          type: boolean
+        wait_ms:
+          type: integer
+          format: int64
+
+    TimelineResponse:
+      type: object
+      properties:
+        workflow_run_id:
+          type: string
+        status:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        total_ms:
+          type: integer
+          format: int64
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineStep'
 
     WorkflowStepDecision:
       type: object

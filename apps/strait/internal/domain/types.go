@@ -800,6 +800,29 @@ type WorkflowStepDecision struct {
 	CreatedAt     time.Time       `json:"created_at"`
 }
 
+// TimelineStep represents a single step in a Gantt-chart-friendly timeline view.
+type TimelineStep struct {
+	StepRunID      string     `json:"step_run_id"`
+	StepRef        string     `json:"step_ref"`
+	Status         string     `json:"status"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	DurationMs     int64      `json:"duration_ms"`
+	ParallelWith   []string   `json:"parallel_with,omitempty"`
+	OnCriticalPath bool       `json:"on_critical_path"`
+	WaitMs         int64      `json:"wait_ms"`
+}
+
+// TimelineResponse is the response for the workflow run timeline endpoint.
+type TimelineResponse struct {
+	WorkflowRunID string         `json:"workflow_run_id"`
+	Status        string         `json:"status"`
+	StartedAt     *time.Time     `json:"started_at,omitempty"`
+	FinishedAt    *time.Time     `json:"finished_at,omitempty"`
+	TotalMs       int64          `json:"total_ms"`
+	Steps         []TimelineStep `json:"steps"`
+}
+
 // EventTrigger represents a durable wait for an external event signal.
 // Used by wait_for_event workflow steps and SDK wait-for-event on job runs.
 type EventTrigger struct {

@@ -784,6 +784,164 @@ func (s *Server) handleReplayWorkflowSubtree(w http.ResponseWriter, r *http.Requ
 	respondJSON(w, http.StatusOK, map[string]any{"reset_steps": reset})
 }
 
+func (s *Server) handleGetWorkflowRunTimeline(w http.ResponseWriter, r *http.Request) {
+	workflowRunID := chi.URLParam(r, "workflowRunID")
+	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
+		return
+	}
+
+	stepRuns, err := s.store.ListStepRunsByWorkflowRun(r.Context(), workflowRunID, 10000, nil)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list step runs")
+		return
+	}
+
+	// Sort by started_at ASC; steps without started_at go to the end.
+	sort.Slice(stepRuns, func(i, j int) bool {
+		if stepRuns[i].StartedAt == nil && stepRuns[j].StartedAt == nil {
+			return stepRuns[i].StepRef < stepRuns[j].StepRef
+		}
+		if stepRuns[i].StartedAt == nil {
+			return false
+		}
+		if stepRuns[j].StartedAt == nil {
+			return true
+		}
+		return stepRuns[i].StartedAt.Before(*stepRuns[j].StartedAt)
+	})
+
+	// Detect parallelism by overlapping [started_at, finished_at] windows.
+	type window struct {
+		start time.Time
+		end   time.Time
+		ref   string
+	}
+	windows := make([]window, 0, len(stepRuns))
+	now := time.Now()
+	for _, sr := range stepRuns {
+		if sr.StartedAt == nil {
+			continue
+		}
+		end := now
+		if sr.FinishedAt != nil {
+			end = *sr.FinishedAt
+		}
+		windows = append(windows, window{start: *sr.StartedAt, end: end, ref: sr.StepRef})
+	}
+
+	parallelMap := make(map[string][]string, len(windows))
+	for i, a := range windows {
+		for j, b := range windows {
+			if i == j {
+				continue
+			}
+			// Two windows overlap if a.start < b.end AND b.start < a.end
+			if a.start.Before(b.end) && b.start.Before(a.end) {
+				parallelMap[a.ref] = append(parallelMap[a.ref], b.ref)
+			}
+		}
+	}
+
+	// Determine critical path: the step with the longest chain of sequential execution.
+	// We use a simple heuristic: the step(s) with the latest finish time are on the critical path,
+	// plus any step that is not parallel with another step that finishes later.
+	criticalRefs := make(map[string]bool)
+	if len(windows) > 0 {
+		// Find the latest finish time.
+		var latestEnd time.Time
+		for _, w := range windows {
+			if w.end.After(latestEnd) {
+				latestEnd = w.end
+			}
+		}
+		// Steps that finish at the latest time or have no parallel peers finishing later.
+		for _, w := range windows {
+			isOnCritical := true
+			for _, pRef := range parallelMap[w.ref] {
+				for _, w2 := range windows {
+					if w2.ref == pRef && w2.end.After(w.end) {
+						isOnCritical = false
+						break
+					}
+				}
+				if !isOnCritical {
+					break
+				}
+			}
+			if isOnCritical {
+				criticalRefs[w.ref] = true
+			}
+		}
+	}
+
+	// Build timeline steps.
+	timelineSteps := make([]domain.TimelineStep, 0, len(stepRuns))
+	for i, sr := range stepRuns {
+		var durationMs int64
+		if sr.StartedAt != nil {
+			if sr.FinishedAt != nil {
+				durationMs = sr.FinishedAt.Sub(*sr.StartedAt).Milliseconds()
+			} else {
+				durationMs = now.Sub(*sr.StartedAt).Milliseconds()
+			}
+		}
+
+		// Calculate wait_ms: time between the previous step finishing and this step starting.
+		var waitMs int64
+		if sr.StartedAt != nil && i > 0 {
+			// Find the most recent finish time before this step started.
+			for k := i - 1; k >= 0; k-- {
+				if stepRuns[k].FinishedAt != nil {
+					gap := sr.StartedAt.Sub(*stepRuns[k].FinishedAt).Milliseconds()
+					if gap > 0 {
+						waitMs = gap
+					}
+					break
+				}
+			}
+		}
+
+		ts := domain.TimelineStep{
+			StepRunID:      sr.ID,
+			StepRef:        sr.StepRef,
+			Status:         string(sr.Status),
+			StartedAt:      sr.StartedAt,
+			FinishedAt:     sr.FinishedAt,
+			DurationMs:     durationMs,
+			ParallelWith:   parallelMap[sr.StepRef],
+			OnCriticalPath: criticalRefs[sr.StepRef],
+			WaitMs:         waitMs,
+		}
+		timelineSteps = append(timelineSteps, ts)
+	}
+
+	var totalMs int64
+	if run.StartedAt != nil {
+		if run.FinishedAt != nil {
+			totalMs = run.FinishedAt.Sub(*run.StartedAt).Milliseconds()
+		} else {
+			totalMs = now.Sub(*run.StartedAt).Milliseconds()
+		}
+	}
+
+	resp := domain.TimelineResponse{
+		WorkflowRunID: run.ID,
+		Status:        string(run.Status),
+		StartedAt:     run.StartedAt,
+		FinishedAt:    run.FinishedAt,
+		TotalMs:       totalMs,
+		Steps:         timelineSteps,
+	}
+
+	respondJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleBulkCancelWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		WorkflowRunIDs []string `json:"workflow_run_ids" validate:"required,min=1,max=100"`
