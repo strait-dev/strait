@@ -4,6 +4,7 @@ import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
@@ -180,8 +181,9 @@ export default async function UseCasePage({ params }: Props) {
       </section>
 
       {/* CTA */}
-      <section className="border-border/40 border-t bg-primary py-16 sm:py-20">
-        <Shell className="text-center" variant="wide">
+      <section className="relative border-border/40 border-t bg-primary py-16 sm:py-20">
+        <MeshGradientBg />
+        <Shell className="relative z-10 text-center" variant="wide">
           <h2 className="text-2xl text-primary-foreground tracking-tight sm:text-3xl">
             Ready to build {useCase.title.toLowerCase()}?
           </h2>

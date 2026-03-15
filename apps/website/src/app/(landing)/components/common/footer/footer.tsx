@@ -106,7 +106,7 @@ const Footer = () => {
       >
         <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
           <p
-            className="w-full text-center text-transparent uppercase leading-[0.8]"
+            className="w-full text-center font-heading text-transparent uppercase leading-[0.8]"
             style={{
               fontSize: "clamp(3rem, 18vw, 19rem)",
               WebkitTextStroke: "1.5px var(--color-foreground)",
