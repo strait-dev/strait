@@ -118,16 +118,15 @@ const safeResult = await fromPromise(() => client.deleteJob({
 
 ### Deployment lifecycle helpers
 
-> Helpers consume the generated `operationsPromise` deployment operations and provide a typed workflow for create/finalize/promote/rollback.
+> Helpers consume the generated `operationsPromise` deployment operations and provide typed workflows for create/finalize/promote/rollback.
 
 ```ts
 import {
-  createAndFinalizeDeployment,
-  promoteDeploymentVersion,
+  createFinalizePromoteDeployment,
   rollbackDeploymentVersion,
 } from "@strait/ts";
 
-const created = await createAndFinalizeDeployment(client, {
+const promoted = await createFinalizePromoteDeployment(client, {
   create: {
     body: {
       project_id: "proj_1",
@@ -138,19 +137,8 @@ const created = await createAndFinalizeDeployment(client, {
   },
 });
 
-const deploymentID = created.finalized.id;
-if (!deploymentID) throw new Error("deployment id missing");
-
-await promoteDeploymentVersion(client, {
-  deploymentID,
-  body: {
-    project_id: "proj_1",
-    environment: "staging",
-  },
-});
-
 await rollbackDeploymentVersion(client, {
-  deploymentID: "dep_previous",
+  deploymentID: promoted.promoted.id!,
   body: {
     project_id: "proj_1",
     environment: "staging",
