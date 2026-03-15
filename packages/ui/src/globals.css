@@ -4,6 +4,8 @@
 
 @config "../tailwind.config.ts";
 
+@source "./components/**/*.{ts,tsx}";
+
 @custom-variant dark (&:is(.dark *));
 
 @font-face {
