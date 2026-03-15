@@ -1,4 +1,3 @@
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { BadgeProps } from "@strait/ui/components/badge";
 import { Badge } from "@strait/ui/components/badge";
@@ -17,6 +16,7 @@ import { Link } from "@tanstack/react-router";
 import type React from "react";
 import { Fragment } from "react";
 import type { TabConfig } from "@/hooks/use-entity-sheet";
+import { ArrowLeftIcon } from "@/lib/icons";
 
 export type BreadcrumbConfig = {
   label: string;
@@ -160,7 +160,7 @@ export const EntityDetailLayout = ({
       {/* Back Button */}
       <div>
         <Button render={<Link to={backHref} />} size="sm" variant="ghost">
-          <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
+          <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
           {backLabel}
         </Button>
       </div>
@@ -340,7 +340,7 @@ const EntityDetailError = ({ error, backHref }: EntityDetailErrorProps) => {
               Try again
             </Button>
             <Button render={<Link to={backHref} />}>
-              <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
+              <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
               Back
             </Button>
           </div>

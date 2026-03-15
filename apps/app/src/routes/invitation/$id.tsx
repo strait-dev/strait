@@ -1,4 +1,3 @@
-import { Loading03Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { toast } from "@strait/ui/components/toast/index";
@@ -13,6 +12,7 @@ import {
 } from "@/hooks/auth/use-invitation";
 import { authClient } from "@/lib/auth-client";
 import { getSession } from "@/lib/auth-handler";
+import { LoadingIcon, UsersAltIcon } from "@/lib/icons";
 import { captureException, captureSentryAuthError } from "@/lib/sentry";
 
 const searchParamsSchema = z.object({
@@ -218,7 +218,7 @@ function RouteComponent() {
             <div className="rounded-full bg-primary/10 p-3">
               <HugeiconsIcon
                 className="h-8 w-8 text-primary"
-                icon={UserMultipleIcon}
+                icon={UsersAltIcon}
               />
             </div>
             <div>
@@ -246,7 +246,7 @@ function RouteComponent() {
               <>
                 <HugeiconsIcon
                   className="size-4 shrink-0 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
                 <span>Signing in...</span>
               </>
@@ -277,7 +277,7 @@ function RouteComponent() {
           <div className="rounded-full bg-primary/10 p-3">
             <HugeiconsIcon
               className="h-8 w-8 text-primary"
-              icon={UserMultipleIcon}
+              icon={UsersAltIcon}
             />
           </div>
           <div>
@@ -313,7 +313,7 @@ function RouteComponent() {
               <>
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
                 Accepting invitation...
               </>
@@ -364,7 +364,7 @@ function RouteComponent() {
               {isSigningOut ? (
                 <HugeiconsIcon
                   className="size-3 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : null}
               {isSigningOut

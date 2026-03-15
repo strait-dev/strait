@@ -1,9 +1,3 @@
-import {
-  ArrowRight01Icon,
-  Loading03Icon,
-  Logout05Icon,
-  Settings01Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Avatar,
@@ -29,6 +23,12 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { authClient } from "@/lib/auth-client";
+import {
+  ArrowRightIcon,
+  LoadingIcon,
+  LogOutIcon,
+  SettingsOutlineIcon,
+} from "@/lib/icons";
 import { captureException, clearSentryUser } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
 
@@ -106,7 +106,7 @@ const UserDropdownMenu = ({ user }: Props) => {
               <span className="truncate font-medium text-sm">{user.name} </span>
               <span className="truncate text-xs">{user.email}</span>
             </div>
-            <HugeiconsIcon className="ml-auto size-4" icon={ArrowRight01Icon} />
+            <HugeiconsIcon className="ml-auto size-4" icon={ArrowRightIcon} />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
@@ -141,7 +141,7 @@ const UserDropdownMenu = ({ user }: Props) => {
               <DropdownMenuItem
                 render={<Link preload="intent" to="/app/settings" />}
               >
-                <HugeiconsIcon className="size-4" icon={Settings01Icon} />
+                <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />
                 Settings
               </DropdownMenuItem>
             </DropdownMenuGroup>
@@ -150,10 +150,10 @@ const UserDropdownMenu = ({ user }: Props) => {
               {isSigningOut ? (
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : (
-                <HugeiconsIcon className="size-4" icon={Logout05Icon} />
+                <HugeiconsIcon className="size-4" icon={LogOutIcon} />
               )}
               {isSigningOut ? "Signing out..." : "Sign out"}
             </DropdownMenuItem>

@@ -1,8 +1,8 @@
-import { SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { SparklesIcon } from "@/lib/icons";
 
 /**
  * Premium Trial Feature Badge

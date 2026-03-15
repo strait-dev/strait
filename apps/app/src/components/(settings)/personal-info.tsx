@@ -1,4 +1,3 @@
-import { Loading03Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -16,6 +15,7 @@ import { useForm } from "@tanstack/react-form";
 import { useTransition } from "react";
 import { z } from "zod";
 import { useUpdateUser } from "@/hooks/auth/use-user";
+import { LoadingIcon, PencilEditIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
 
@@ -146,10 +146,10 @@ const PersonalInfo = ({ user }: Props) => {
             {isProcessing ? (
               <HugeiconsIcon
                 className="size-4 animate-spin"
-                icon={Loading03Icon}
+                icon={LoadingIcon}
               />
             ) : (
-              <HugeiconsIcon className="size-4" icon={PencilEdit02Icon} />
+              <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
             )}
             Save changes
           </Button>

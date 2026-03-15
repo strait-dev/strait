@@ -1,4 +1,3 @@
-import { Add01Icon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
@@ -20,6 +19,7 @@ import { z } from "zod";
 import { UnsavedChangesDialog } from "@/components/common/unsaved-changes-dialog";
 import { useCreateOrganization } from "@/hooks/auth/use-organization";
 import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
+import { LoadingIcon, PlusIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants";
 import {
@@ -370,10 +370,10 @@ const CreateOrganizationForm = ({ user }: Props) => {
                 {isSubmitting || createOrganization.isPending ? (
                   <HugeiconsIcon
                     className="size-4 animate-spin"
-                    icon={Loading03Icon}
+                    icon={LoadingIcon}
                   />
                 ) : (
-                  <HugeiconsIcon className="size-4" icon={Add01Icon} />
+                  <HugeiconsIcon className="size-4" icon={PlusIcon} />
                 )}
                 Create new store
               </Button>

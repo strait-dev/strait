@@ -1,5 +1,4 @@
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { BubbleChatIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Feedback } from "@strait/transactional";
 import { Button } from "@strait/ui/components/button";
@@ -35,6 +34,7 @@ import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { ChatIcon, LoadingIcon } from "@/lib/icons";
 import { resend } from "@/lib/resend.server";
 import { FeedbackFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
@@ -153,11 +153,7 @@ const FeedbackDialog = ({ user }: Props) => {
           />
         }
       >
-        <HugeiconsIcon
-          aria-hidden="true"
-          className="size-4"
-          icon={BubbleChatIcon}
-        />
+        <HugeiconsIcon aria-hidden="true" className="size-4" icon={ChatIcon} />
       </CredenzaTrigger>
 
       <CredenzaContent>
@@ -259,7 +255,7 @@ const FeedbackDialog = ({ user }: Props) => {
                 {form.formState.isSubmitting || isPending ? (
                   <HugeiconsIcon
                     className="size-4 animate-spin"
-                    icon={Loading03Icon}
+                    icon={LoadingIcon}
                   />
                 ) : null}
                 Send feedback {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}

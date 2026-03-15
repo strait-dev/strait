@@ -22,6 +22,7 @@ import {
   ShieldKeyIcon as _ShieldKeyIcon,
   SparklesIcon as _SparklesIcon,
   StarIcon as _StarIcon,
+  UnfoldMoreIcon as _UnfoldMoreIcon,
   UserIcon as _UserIcon,
   Activity01Icon,
   Add01Icon,
@@ -29,14 +30,19 @@ import {
   ArrowDown01Icon,
   ArrowDownRight01Icon,
   ArrowLeft01Icon,
+  ArrowLeftDoubleIcon,
   ArrowRight01Icon,
+  ArrowRightDoubleIcon,
+  ArrowUp01Icon,
   ArrowUpRight01Icon,
   Briefcase01Icon,
+  BubbleChatIcon,
   Building02Icon,
   Calendar03Icon,
   Cancel01Icon,
   ChartIncreaseIcon,
   CheckmarkCircle01Icon,
+  CheckmarkCircle02Icon,
   CheckmarkSquare01Icon,
   Clock01Icon,
   Copy01Icon,
@@ -53,27 +59,32 @@ import {
   Layers01Icon,
   Link01Icon,
   Loading03Icon,
-  Logout01Icon,
+  Logout05Icon,
   Mail01Icon,
   Menu01Icon,
   MinusSignIcon,
   Moon02Icon,
   Notification03Icon,
   PauseIcon,
+  PencilEdit02Icon,
   PlayIcon,
   Refresh01Icon,
   RotateLeft01Icon,
   Search01Icon,
   SecurityCheckIcon,
   ServerStack01Icon,
+  Settings01Icon,
   Settings05Icon,
   SortingAZ01Icon,
   SortingZA01Icon,
+  SquareLock02Icon,
+  Store01Icon,
   Sun01Icon,
   Tag01Icon,
   Tick02Icon,
   UserAdd01Icon,
   UserMultiple02Icon,
+  UserMultipleIcon,
   ViewIcon,
   ViewOffIcon,
 } from "@hugeicons/core-free-icons";
@@ -96,6 +107,7 @@ export const FilterIcon = _FilterIcon;
 export const RefreshIcon = Refresh01Icon;
 export const RotateCcwIcon = RotateLeft01Icon;
 export const SearchIcon = Search01Icon;
+export const PencilEditIcon = PencilEdit02Icon;
 
 // Status / feedback
 export const AlertIcon = Alert02Icon;
@@ -106,6 +118,9 @@ export const InfoIcon = InformationCircleIcon;
 export const HelpCircleIcon = _HelpCircleIcon;
 export const ClockIcon = Clock01Icon;
 export const ActivityIcon = Activity01Icon;
+export const CheckCircle2Icon = CheckmarkCircle02Icon;
+export const ChatIcon = BubbleChatIcon;
+export const LockSquareIcon = SquareLock02Icon;
 
 // Arrows / navigation
 export const ChevronDownIcon = ArrowDown01Icon;
@@ -117,6 +132,9 @@ export const ExternalLinkIcon = ArrowUpRight01Icon;
 export const ArrowUpRightIcon = ArrowUpRight01Icon;
 export const ArrowDownRightIcon = ArrowDownRight01Icon;
 export const ArrowUpDownIcon = _ArrowUpDownIcon;
+export const ChevronUpIcon = ArrowUp01Icon;
+export const ChevronsLeftIcon = ArrowLeftDoubleIcon;
+export const ChevronsRightIcon = ArrowRightDoubleIcon;
 
 // Content / files
 export const FileTextIcon = File01Icon;
@@ -144,17 +162,19 @@ export const KeyIcon = Key01Icon;
 export const ShieldKeyIcon = _ShieldKeyIcon;
 export const ShieldCheckIcon = SecurityCheckIcon;
 export const LockIcon = _LockIcon;
-export const LogOutIcon = Logout01Icon;
+export const LogOutIcon = Logout05Icon;
 
 // Infrastructure
 export const ServerIcon = ServerStack01Icon;
 export const CpuIcon = _CpuIcon;
 export const HardDriveIcon = _HardDriveIcon;
 export const CommandIcon = _CommandIcon;
+export const SettingsOutlineIcon = Settings01Icon;
 
 // Commerce / billing
 export const CreditCardIcon = _CreditCardIcon;
 export const CrownIcon = Crown03Icon;
+export const StoreIcon = Store01Icon;
 
 // Communication
 export const BellIcon = Notification03Icon;
@@ -174,3 +194,5 @@ export const AlertCircleIcon = _AlertCircleIcon;
 export const LinkSquareIcon = _LinkSquare01Icon;
 export const SparklesIcon = _SparklesIcon;
 export const LoadingIcon = Loading03Icon;
+export const UnfoldMoreIcon = _UnfoldMoreIcon;
+export const UsersAltIcon = UserMultipleIcon;

@@ -1,8 +1,3 @@
-import {
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  Loading03Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Progress } from "@strait/ui/components/progress";
@@ -17,6 +12,7 @@ import type { OnboardingStepProps } from "@/components/onboarding/types";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
 import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding";
 import { getSession } from "@/lib/auth-handler";
+import { ArrowLeftIcon, ArrowRightIcon, LoadingIcon } from "@/lib/icons";
 import type { OnboardingFormData } from "@/lib/schema";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
@@ -130,10 +126,7 @@ function OnboardingFlow() {
     if (completeOnboarding.isPending) {
       return (
         <>
-          <HugeiconsIcon
-            className="h-4 w-4 animate-spin"
-            icon={Loading03Icon}
-          />
+          <HugeiconsIcon className="h-4 w-4 animate-spin" icon={LoadingIcon} />
           <span>Setting up...</span>
         </>
       );
@@ -144,7 +137,7 @@ function OnboardingFlow() {
     return (
       <>
         Continue
-        <HugeiconsIcon className="h-4 w-4" icon={ArrowRight01Icon} />
+        <HugeiconsIcon className="h-4 w-4" icon={ArrowRightIcon} />
       </>
     );
   }, [currentStep, completeOnboarding.isPending]);
@@ -294,7 +287,7 @@ function OnboardingFlow() {
             size="icon"
             variant="ghost"
           >
-            <HugeiconsIcon className="size-5" icon={ArrowLeft01Icon} />
+            <HugeiconsIcon className="size-5" icon={ArrowLeftIcon} />
           </Button>
 
           <img
@@ -339,7 +332,7 @@ function OnboardingFlow() {
                 onClick={handleBack}
                 variant="outline"
               >
-                <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
+                <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
                 Back
                 <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground text-xs sm:inline-block">
                   ⌘⌫

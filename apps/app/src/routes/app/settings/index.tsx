@@ -1,9 +1,3 @@
-import {
-  CreditCardIcon,
-  Key01Icon,
-  UserIcon,
-  UserMultiple02Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -27,6 +21,7 @@ import SubscriptionOverview from "@/components/(settings)/subscription-overview"
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import PageHeader from "@/components/common/page-header";
+import { CreditCardIcon, KeyIcon, UserIcon, UsersIcon } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 
 export const Route = createFileRoute("/app/settings/")({
@@ -308,11 +303,11 @@ function RouteComponent() {
               Subscription
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="api-keys">
-              <HugeiconsIcon className="size-4" icon={Key01Icon} />
+              <HugeiconsIcon className="size-4" icon={KeyIcon} />
               API Keys
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="team">
-              <HugeiconsIcon className="size-4" icon={UserMultiple02Icon} />
+              <HugeiconsIcon className="size-4" icon={UsersIcon} />
               Team
             </TabsTrigger>
           </TabsList>

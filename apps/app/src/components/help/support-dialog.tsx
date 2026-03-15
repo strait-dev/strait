@@ -1,5 +1,4 @@
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { HelpCircleIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Support } from "@strait/transactional";
 import { Button } from "@strait/ui/components/button";
@@ -35,6 +34,7 @@ import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { HelpCircleIcon, LoadingIcon } from "@/lib/icons";
 import { resend } from "@/lib/resend.server";
 import { SupportFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
@@ -392,7 +392,7 @@ const SupportDialog = ({ user }: Props) => {
               {form.formState.isSubmitting || isPending ? (
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : null}
               Send Request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}

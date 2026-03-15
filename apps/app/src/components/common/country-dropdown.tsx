@@ -1,8 +1,3 @@
-import {
-  ArrowDown01Icon,
-  Search01Icon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Command,
@@ -19,6 +14,7 @@ import {
 import { cn } from "@strait/ui/utils/index";
 import { useCallback, useState } from "react";
 import { CircleFlag } from "react-circle-flags";
+import { CheckIcon, ChevronDownIcon, SearchIcon } from "@/lib/icons";
 import { countries } from "@/utils/data";
 
 export type Country = {
@@ -99,7 +95,7 @@ const CountryDropdown = ({
         )}
         <HugeiconsIcon
           className="size-4 shrink-0 text-muted-foreground/80"
-          icon={ArrowDown01Icon}
+          icon={ChevronDownIcon}
         />
       </PopoverTrigger>
       <PopoverContent
@@ -111,7 +107,7 @@ const CountryDropdown = ({
             <div className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
               <HugeiconsIcon
                 className="text-muted-foreground/80"
-                icon={Search01Icon}
+                icon={SearchIcon}
               />
             </div>
             <input
@@ -156,7 +152,7 @@ const CountryDropdown = ({
                           ? "opacity-100"
                           : "opacity-0"
                       )}
-                      icon={Tick02Icon}
+                      icon={CheckIcon}
                     />
                   </CommandItem>
                 ))}

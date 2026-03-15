@@ -1,9 +1,3 @@
-import {
-  ArrowLeft01Icon,
-  ArrowLeftDoubleIcon,
-  ArrowRight01Icon,
-  ArrowRightDoubleIcon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -15,6 +9,12 @@ import {
 } from "@strait/ui/components/select";
 import type { Table } from "@tanstack/react-table";
 import { useEffect, useState } from "react";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
+} from "@/lib/icons";
 
 const PAGE_SIZE_TEN = 10;
 const PAGE_SIZE_TWENTY = 20;
@@ -93,7 +93,7 @@ export const DataTablePagination = <TData,>({
             <HugeiconsIcon
               aria-hidden="true"
               className="size-4"
-              icon={ArrowLeftDoubleIcon}
+              icon={ChevronsLeftIcon}
             />
           </Button>
           <Button
@@ -107,7 +107,7 @@ export const DataTablePagination = <TData,>({
             <HugeiconsIcon
               aria-hidden="true"
               className="size-4"
-              icon={ArrowLeft01Icon}
+              icon={ChevronLeftIcon}
             />
           </Button>
           <Button
@@ -121,7 +121,7 @@ export const DataTablePagination = <TData,>({
             <HugeiconsIcon
               aria-hidden="true"
               className="size-4"
-              icon={ArrowRight01Icon}
+              icon={ChevronRightIcon}
             />
           </Button>
           <Button
@@ -135,7 +135,7 @@ export const DataTablePagination = <TData,>({
             <HugeiconsIcon
               aria-hidden="true"
               className="size-4"
-              icon={ArrowRightDoubleIcon}
+              icon={ChevronsRightIcon}
             />
           </Button>
         </div>

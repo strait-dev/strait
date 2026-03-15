@@ -1,4 +1,3 @@
-import { LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { ScrollArea } from "@strait/ui/components/scroll-area";
@@ -13,6 +12,7 @@ import {
 } from "@strait/ui/components/sheet";
 import { Link } from "@tanstack/react-router";
 import { memo, type ReactNode, useMemo } from "react";
+import { LinkSquareIcon } from "@/lib/icons";
 
 export type EntitySheetProps = {
   open: boolean;
@@ -122,7 +122,7 @@ export const EntitySheet = memo<EntitySheetProps>(
               Close
             </SheetClose>
             <Button className="flex-1" render={<Link to={viewAllHref} />}>
-              <HugeiconsIcon className="size-4" icon={LinkSquare01Icon} />
+              <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
               {viewAllLabel}
             </Button>
           </div>

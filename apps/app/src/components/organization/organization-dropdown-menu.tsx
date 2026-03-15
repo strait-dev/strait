@@ -1,9 +1,3 @@
-import {
-  Add01Icon,
-  Settings01Icon,
-  Store01Icon,
-  UnfoldMoreIcon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Avatar,
@@ -31,6 +25,12 @@ import {
   useOrganizations,
   useSetDefaultOrganization,
 } from "@/hooks/auth/use-organization";
+import {
+  PlusIcon,
+  SettingsOutlineIcon,
+  StoreIcon,
+  UnfoldMoreIcon,
+} from "@/lib/icons";
 import type { AuthUser, Session } from "@/routes/__root";
 import { CreateOrganizationLimitGate } from "./create-organization-limit-gate";
 import CreateOrganizationSheet from "./create-organization-sheet";
@@ -113,7 +113,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
         >
           <Avatar className="h-10 w-10">
             <AvatarFallback>
-              <HugeiconsIcon className="size-4" icon={Add01Icon} />
+              <HugeiconsIcon className="size-4" icon={PlusIcon} />
             </AvatarFallback>
           </Avatar>
           <div className="grid flex-1 text-left text-sm leading-tight">
@@ -158,7 +158,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
               <AvatarImage src={activeOrganization.logo} />
             ) : null}
             <AvatarFallback>
-              <HugeiconsIcon className="size-4" icon={Store01Icon} />
+              <HugeiconsIcon className="size-4" icon={StoreIcon} />
             </AvatarFallback>
           </Avatar>
 
@@ -187,7 +187,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
                     <AvatarImage src={activeOrganization.logo} />
                   ) : null}
                   <AvatarFallback>
-                    <HugeiconsIcon className="size-4" icon={Store01Icon} />
+                    <HugeiconsIcon className="size-4" icon={StoreIcon} />
                   </AvatarFallback>
                 </Avatar>
 
@@ -224,7 +224,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
               navigate({ to: "/app/settings" });
             }}
           >
-            <HugeiconsIcon className="size-4" icon={Settings01Icon} />
+            <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />
             Settings
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -245,7 +245,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
                 />
               }
             >
-              <HugeiconsIcon className="size-4" icon={Add01Icon} />
+              <HugeiconsIcon className="size-4" icon={PlusIcon} />
               Create new store
             </SheetTrigger>
           </CreateOrganizationLimitGate>

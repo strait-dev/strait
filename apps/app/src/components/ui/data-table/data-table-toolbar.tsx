@@ -1,8 +1,3 @@
-import {
-  Cancel01Icon,
-  FilterIcon,
-  Search01Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
@@ -20,6 +15,7 @@ import { Input } from "@strait/ui/components/input";
 import { Separator } from "@strait/ui/components/separator";
 import type { Table } from "@tanstack/react-table";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FilterIcon, SearchIcon, XCircleIcon } from "@/lib/icons";
 import type { DataTableFilterField } from "@/types/index";
 import { DataTableViewOptions } from "./data-table-view-options";
 
@@ -91,7 +87,7 @@ export function DataTableToolbar<TData>({
             <HugeiconsIcon
               aria-hidden="true"
               className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-              icon={Search01Icon}
+              icon={SearchIcon}
             />
             <Input
               className="h-8 w-full pl-8 sm:w-96 lg:w-128"
@@ -114,7 +110,7 @@ export function DataTableToolbar<TData>({
             <HugeiconsIcon
               aria-hidden="true"
               className="ml-1 size-4"
-              icon={Cancel01Icon}
+              icon={XCircleIcon}
             />
           </Button>
         ) : null}

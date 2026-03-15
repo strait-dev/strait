@@ -1,4 +1,3 @@
-import { AlertCircleIcon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
@@ -20,6 +19,7 @@ import * as z from "zod";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -201,7 +201,7 @@ function RouteComponent() {
           <Card className="border-primary/20 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <HugeiconsIcon className="h-5 w-5" icon={LinkSquare01Icon} />
+                <HugeiconsIcon className="h-5 w-5" icon={LinkSquareIcon} />
                 Customer Portal
               </CardTitle>
               <CardDescription>
@@ -214,7 +214,7 @@ function RouteComponent() {
                 disabled={isPortalLoading}
                 onClick={handleOpenPortal}
               >
-                <HugeiconsIcon className="size-4" icon={LinkSquare01Icon} />
+                <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
                 {isPortalLoading ? "Opening..." : "Access Customer Portal"}
               </Button>
             </CardContent>

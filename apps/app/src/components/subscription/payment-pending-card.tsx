@@ -1,4 +1,3 @@
-import { CreditCardIcon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { toast } from "@strait/ui/components/toast/index";
@@ -6,6 +5,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { CreditCardIcon, LinkSquareIcon } from "@/lib/icons";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 
 const PaymentPendingCard = () => {
@@ -56,7 +56,7 @@ const PaymentPendingCard = () => {
           onClick={handleOpenPortal}
           size="sm"
         >
-          <HugeiconsIcon className="size-3" icon={LinkSquare01Icon} />
+          <HugeiconsIcon className="size-3" icon={LinkSquareIcon} />
           {isLoading ? "Opening..." : "Manage"}
         </Button>
 

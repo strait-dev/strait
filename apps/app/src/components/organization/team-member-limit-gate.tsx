@@ -1,7 +1,7 @@
-import { Crown03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import type React from "react";
+import { CrownIcon } from "@/lib/icons";
 import { AddMoreGate } from "../feature-gates/limit-gate";
 
 type TeamMemberLimitGateProps = {
@@ -31,7 +31,7 @@ export const TeamMemberLimitGate = ({
         <Alert className="border-accent bg-accent/50">
           <HugeiconsIcon
             className="h-4 w-4 text-accent-foreground"
-            icon={Crown03Icon}
+            icon={CrownIcon}
           />
           <AlertDescription className="text-accent-foreground">
             <div className="space-y-2">
@@ -53,7 +53,7 @@ export const TeamMemberLimitGate = ({
                   onClick={onUpgradeClick}
                   type="button"
                 >
-                  <HugeiconsIcon className="size-3" icon={Crown03Icon} />
+                  <HugeiconsIcon className="size-3" icon={CrownIcon} />
                   Upgrade Plan
                 </button>
               ) : null}

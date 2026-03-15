@@ -1,4 +1,3 @@
-import { AlertCircleIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Checkbox } from "@strait/ui/components/checkbox";
@@ -36,6 +35,7 @@ import {
   useResendOrganizationDeletionCode,
   useVerifyOrganizationDeletion,
 } from "@/hooks/auth/use-organization";
+import { AlertCircleIcon, LoadingIcon } from "@/lib/icons";
 
 import {
   DeleteOrganizationSchema,
@@ -370,7 +370,7 @@ const DeleteOrganizationDialog = ({
     if (requestDeletionMutation.isPending || cooldownSeconds > 0) {
       return (
         <span className="flex items-center gap-1">
-          <HugeiconsIcon className="size-4 animate-spin" icon={Loading03Icon} />
+          <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
           <span>Processing...</span>
         </span>
       );
@@ -392,7 +392,7 @@ const DeleteOrganizationDialog = ({
     if (isProcessing) {
       return (
         <span className="flex items-center gap-1">
-          <HugeiconsIcon className="size-4 animate-spin" icon={Loading03Icon} />
+          <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
           <span>Verifying...</span>
         </span>
       );
@@ -465,7 +465,7 @@ const DeleteOrganizationDialog = ({
               <span className="flex items-center gap-1">
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
                 <span>Resending...</span>
               </span>

@@ -1,9 +1,9 @@
-import { ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Checkbox } from "@strait/ui/components/checkbox";
 import { cn } from "@strait/ui/utils/index";
 import { useCallback } from "react";
+import { ChevronDownIcon, ChevronUpIcon } from "@/lib/icons";
 
 interface DataTableColumnHeaderProps
   extends React.HTMLAttributes<HTMLDivElement> {
@@ -70,13 +70,13 @@ export const DataTableColumnHeader = ({
           {sortDirection === "asc" && (
             <HugeiconsIcon
               className="size-4 text-foreground"
-              icon={ArrowDown01Icon}
+              icon={ChevronDownIcon}
             />
           )}
           {sortDirection === "desc" && (
             <HugeiconsIcon
               className="size-4 text-foreground"
-              icon={ArrowUp01Icon}
+              icon={ChevronUpIcon}
             />
           )}
         </Button>

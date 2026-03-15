@@ -1,8 +1,3 @@
-import {
-  Add01Icon,
-  Loading03Icon,
-  Search01Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
@@ -34,6 +29,7 @@ import { nanoid } from "nanoid";
 import { useId, useMemo, useTransition } from "react";
 import { z } from "zod/v4";
 import { useCreateOrganization } from "@/hooks/auth/use-organization";
+import { LoadingIcon, PlusIcon, SearchIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants";
 import { countries } from "@/utils/data";
@@ -625,7 +621,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                           icon={
                             <HugeiconsIcon
                               className="size-4"
-                              icon={Search01Icon}
+                              icon={SearchIcon}
                             />
                           }
                           id={field.name}
@@ -861,10 +857,10 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                 {isSubmitting || createOrganization.isPending || isPending ? (
                   <HugeiconsIcon
                     className="size-4 animate-spin"
-                    icon={Loading03Icon}
+                    icon={LoadingIcon}
                   />
                 ) : (
-                  <HugeiconsIcon className="size-4" icon={Add01Icon} />
+                  <HugeiconsIcon className="size-4" icon={PlusIcon} />
                 )}
                 Create new store
               </Button>
