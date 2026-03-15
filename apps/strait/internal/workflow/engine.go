@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	otelTrace "go.opentelemetry.io/otel/trace"
 )
 
 // DefaultMaxNestingDepth is the nesting limit when none is specified on the step.
@@ -210,6 +211,18 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		maps.Copy(runTags, extraTags)
 	}
 
+	// Capture W3C trace context from the current OTel span for propagation.
+	var traceCtx map[string]string
+	spanCtx := otelTrace.SpanContextFromContext(ctx)
+	if spanCtx.IsValid() {
+		traceCtx = map[string]string{
+			"traceparent": fmt.Sprintf("00-%s-%s-%s", spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags()),
+		}
+		if spanCtx.TraceState().Len() > 0 {
+			traceCtx["tracestate"] = spanCtx.TraceState().String()
+		}
+	}
+
 	wfRun := &domain.WorkflowRun{
 		WorkflowID:          workflowID,
 		ProjectID:           projectID,
@@ -222,6 +235,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		Payload:             payload,
 		ParentWorkflowRunID: parentWorkflowRunID,
 		ParentStepRunID:     parentStepRunID,
+		TraceContext:        traceCtx,
 	}
 	if wfRun.ID == "" {
 		wfRun.ID = uuid.Must(uuid.NewV7()).String()

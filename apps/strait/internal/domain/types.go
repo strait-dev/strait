@@ -758,6 +758,7 @@ type WorkflowRun struct {
 	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
 	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
+	TraceContext        map[string]string `json:"trace_context,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
 

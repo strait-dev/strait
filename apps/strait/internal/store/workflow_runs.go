@@ -43,15 +43,24 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		}
 	}
 
+	var traceContextJSON []byte
+	if len(run.TraceContext) > 0 {
+		var marshalErr error
+		traceContextJSON, marshalErr = json.Marshal(run.TraceContext)
+		if marshalErr != nil {
+			return fmt.Errorf("create workflow run: marshal trace_context: %w", marshalErr)
+		}
+	}
+
 	query := `
 		INSERT INTO workflow_runs (
 			id, workflow_id, project_id, status, triggered_by, payload,
 			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
 			retry_of_run_id, parent_workflow_run_id, parent_step_run_id,
-			tags, workflow_version_id, created_by
+			tags, workflow_version_id, created_by, trace_context
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-			$16::jsonb, $17, $18)
+			$16::jsonb, $17, $18, $19::jsonb)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -75,6 +84,7 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		tagsJSON,
 		dbscan.NilIfEmptyString(run.WorkflowVersionID),
 		dbscan.NilIfEmptyString(run.CreatedBy),
+		traceContextJSON,
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow run: %w", err)
@@ -90,7 +100,7 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -162,7 +172,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -316,7 +326,7 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
 		ORDER BY created_at ASC`
@@ -356,6 +366,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	var parentStepRunID *string
 	var workflowVersionID *string
 	var createdBy *string
+	var traceContextJSON []byte
 
 	err := scanner.Scan(
 		&run.ID,
@@ -377,6 +388,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 		&tagsJSON,
 		&workflowVersionID,
 		&createdBy,
+		&traceContextJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -410,6 +422,11 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	}
 	if createdBy != nil {
 		run.CreatedBy = *createdBy
+	}
+	if len(traceContextJSON) > 0 && string(traceContextJSON) != "{}" {
+		if err := json.Unmarshal(traceContextJSON, &run.TraceContext); err != nil {
+			return nil, err
+		}
 	}
 
 	return &run, nil
@@ -460,7 +477,7 @@ func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Du
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs wr
 		WHERE wr.status = 'running'
 		  AND wr.started_at IS NOT NULL
@@ -501,7 +518,7 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 	base := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE project_id = $1`
 

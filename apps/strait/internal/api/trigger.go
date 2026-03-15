@@ -293,6 +293,17 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	run.ConcurrencyKey = req.ConcurrencyKey
 
+	// Capture W3C trace context from incoming request headers.
+	if tp := r.Header.Get("Traceparent"); tp != "" {
+		if run.Metadata == nil {
+			run.Metadata = make(map[string]string)
+		}
+		run.Metadata["_trace_parent"] = tp
+		if ts := r.Header.Get("Tracestate"); ts != "" {
+			run.Metadata["_trace_state"] = ts
+		}
+	}
+
 	if status == domain.StatusQueued {
 		satisfied, depErr := s.store.AreJobDependenciesSatisfied(r.Context(), run)
 		if depErr != nil {
