@@ -95,3 +95,188 @@ pub fn validate_dag(steps: &[Step]) -> Result<Vec<String>, StraitError> {
 
     Ok(sorted)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::authoring::steps::{job_step, BaseStepOptions};
+
+    #[test]
+    fn test_valid_linear_dag() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions::default()),
+            job_step("s2", "j2", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
+            job_step("s3", "j3", BaseStepOptions { depends_on: vec!["s2".to_string()], ..Default::default() }),
+        ];
+        let result = validate_dag(&steps);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), vec!["s1", "s2", "s3"]);
+    }
+
+    #[test]
+    fn test_valid_diamond_dag() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions::default()),
+            job_step("s2", "j2", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
+            job_step("s3", "j3", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
+            job_step("s4", "j4", BaseStepOptions { depends_on: vec!["s2".to_string(), "s3".to_string()], ..Default::default() }),
+        ];
+        let result = validate_dag(&steps);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_single_step() {
+        let steps = vec![job_step("s1", "j1", BaseStepOptions::default())];
+        assert!(validate_dag(&steps).is_ok());
+    }
+
+    #[test]
+    fn test_empty_steps() {
+        let steps: Vec<Step> = vec![];
+        assert!(validate_dag(&steps).is_ok());
+    }
+
+    #[test]
+    fn test_cycle_detection_two_nodes() {
+        let steps = vec![
+            job_step("a", "j1", BaseStepOptions { depends_on: vec!["b".to_string()], ..Default::default() }),
+            job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
+        ];
+        let result = validate_dag(&steps);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StraitError::DagValidation { cycles, .. } => {
+                assert!(!cycles.is_empty());
+            }
+            _ => panic!("expected DagValidation error"),
+        }
+    }
+
+    #[test]
+    fn test_three_node_cycle() {
+        let steps = vec![
+            job_step("a", "j1", BaseStepOptions { depends_on: vec!["c".to_string()], ..Default::default() }),
+            job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
+            job_step("c", "j3", BaseStepOptions { depends_on: vec!["b".to_string()], ..Default::default() }),
+        ];
+        assert!(validate_dag(&steps).is_err());
+    }
+
+    #[test]
+    fn test_duplicate_refs() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions::default()),
+            job_step("s1", "j2", BaseStepOptions::default()),
+        ];
+        let result = validate_dag(&steps);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StraitError::DagValidation { duplicate_refs, .. } => {
+                assert!(duplicate_refs.contains(&"s1".to_string()));
+            }
+            _ => panic!("expected DagValidation error"),
+        }
+    }
+
+    #[test]
+    fn test_missing_refs() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions { depends_on: vec!["nonexistent".to_string()], ..Default::default() }),
+        ];
+        let result = validate_dag(&steps);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StraitError::DagValidation { missing_refs, .. } => {
+                assert!(missing_refs.contains(&"nonexistent".to_string()));
+            }
+            _ => panic!("expected DagValidation error"),
+        }
+    }
+
+    #[test]
+    fn test_parallel_steps_no_deps() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions::default()),
+            job_step("s2", "j2", BaseStepOptions::default()),
+            job_step("s3", "j3", BaseStepOptions::default()),
+        ];
+        assert!(validate_dag(&steps).is_ok());
+    }
+
+    #[test]
+    fn test_self_dependency() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
+        ];
+        assert!(validate_dag(&steps).is_err());
+    }
+
+    #[test]
+    fn test_multiple_missing_refs() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions { depends_on: vec!["x".to_string(), "y".to_string()], ..Default::default() }),
+        ];
+        let result = validate_dag(&steps);
+        match result.unwrap_err() {
+            StraitError::DagValidation { missing_refs, .. } => {
+                assert_eq!(missing_refs.len(), 2);
+            }
+            _ => panic!("expected DagValidation error"),
+        }
+    }
+
+    #[test]
+    fn test_topological_order_preserved() {
+        let steps = vec![
+            job_step("a", "j1", BaseStepOptions::default()),
+            job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
+        ];
+        let sorted = validate_dag(&steps).unwrap();
+        let a_pos = sorted.iter().position(|s| s == "a").unwrap();
+        let b_pos = sorted.iter().position(|s| s == "b").unwrap();
+        assert!(a_pos < b_pos);
+    }
+
+    #[test]
+    fn test_diamond_topological_order() {
+        let steps = vec![
+            job_step("root", "j1", BaseStepOptions::default()),
+            job_step("left", "j2", BaseStepOptions { depends_on: vec!["root".to_string()], ..Default::default() }),
+            job_step("right", "j3", BaseStepOptions { depends_on: vec!["root".to_string()], ..Default::default() }),
+            job_step("sink", "j4", BaseStepOptions { depends_on: vec!["left".to_string(), "right".to_string()], ..Default::default() }),
+        ];
+        let sorted = validate_dag(&steps).unwrap();
+        let root_pos = sorted.iter().position(|s| s == "root").unwrap();
+        let sink_pos = sorted.iter().position(|s| s == "sink").unwrap();
+        assert!(root_pos < sink_pos);
+    }
+
+    #[test]
+    fn test_cycle_error_message_contains_involved_nodes() {
+        let steps = vec![
+            job_step("x", "j1", BaseStepOptions { depends_on: vec!["y".to_string()], ..Default::default() }),
+            job_step("y", "j2", BaseStepOptions { depends_on: vec!["x".to_string()], ..Default::default() }),
+        ];
+        match validate_dag(&steps).unwrap_err() {
+            StraitError::DagValidation { message, .. } => {
+                assert!(message.contains("cycles"));
+            }
+            _ => panic!("expected DagValidation"),
+        }
+    }
+
+    #[test]
+    fn test_duplicate_error_message() {
+        let steps = vec![
+            job_step("dup", "j1", BaseStepOptions::default()),
+            job_step("dup", "j2", BaseStepOptions::default()),
+        ];
+        match validate_dag(&steps).unwrap_err() {
+            StraitError::DagValidation { message, .. } => {
+                assert!(message.contains("duplicate"));
+            }
+            _ => panic!("expected DagValidation"),
+        }
+    }
+}

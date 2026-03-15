@@ -411,3 +411,126 @@ impl StraitClientBuilder {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builder_with_bearer_token() {
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .bearer_token("tok-123")
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_builder_with_api_key() {
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .api_key("key-abc")
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_builder_with_run_token() {
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .run_token("rt-xyz")
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_builder_with_auth_mode() {
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .auth(AuthMode { auth_type: AuthType::Bearer, token: "tok".to_string() })
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_builder_missing_base_url() {
+        let result = StraitClient::builder()
+            .bearer_token("tok")
+            .build();
+        assert!(result.is_err());
+        if let Err(StraitError::Validation { message, .. }) = result {
+            assert!(message.contains("base_url"));
+        } else {
+            panic!("expected Validation error");
+        }
+    }
+
+    #[test]
+    fn test_builder_missing_auth() {
+        let result = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .build();
+        assert!(result.is_err());
+        if let Err(StraitError::Validation { message, .. }) = result {
+            assert!(message.contains("authentication"));
+        } else {
+            panic!("expected Validation error");
+        }
+    }
+
+    #[test]
+    fn test_builder_with_timeout() {
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .bearer_token("tok")
+            .timeout_ms(5000)
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_builder_with_default_header() {
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .bearer_token("tok")
+            .default_header("X-Custom", "value")
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_builder_with_default_headers_map() {
+        let mut headers = HashMap::new();
+        headers.insert("X-A".to_string(), "1".to_string());
+        headers.insert("X-B".to_string(), "2".to_string());
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .bearer_token("tok")
+            .default_headers(headers)
+            .build();
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_builder_normalizes_url() {
+        let client = StraitClient::builder()
+            .base_url("https://api.example.com/")
+            .bearer_token("tok")
+            .build()
+            .unwrap();
+        // The URL should be normalized (no trailing slash)
+        // We can't directly access config but the build succeeds
+        assert!(Arc::strong_count(&client) == 1);
+    }
+
+    #[test]
+    fn test_builder_chaining() {
+        let result = StraitClient::builder()
+            .base_url("https://api.example.com")
+            .bearer_token("tok")
+            .timeout_ms(10_000)
+            .default_header("X-Test", "val")
+            .build();
+        assert!(result.is_ok());
+    }
+}

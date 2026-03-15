@@ -168,3 +168,202 @@ pub fn wait_for_event_step(ref_name: impl Into<String>, event_key: impl Into<Str
 pub fn sleep_step(ref_name: impl Into<String>, duration_secs: u32, options: BaseStepOptions) -> Step {
     Step::Sleep { ref_name: ref_name.into(), sleep_duration_secs: duration_secs, options }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_job_step_ref() {
+        let step = job_step("s1", "j1", BaseStepOptions::default());
+        assert_eq!(step.step_ref(), "s1");
+    }
+
+    #[test]
+    fn test_job_step_type() {
+        let step = job_step("s1", "j1", BaseStepOptions::default());
+        assert_eq!(step.step_type(), "job");
+    }
+
+    #[test]
+    fn test_approval_step_type() {
+        let step = approval_step("s1", BaseStepOptions::default());
+        assert_eq!(step.step_type(), "approval");
+    }
+
+    #[test]
+    fn test_sub_workflow_step_type() {
+        let step = sub_workflow_step("s1", "wf1", BaseStepOptions::default());
+        assert_eq!(step.step_type(), "sub_workflow");
+    }
+
+    #[test]
+    fn test_wait_for_event_step_type() {
+        let step = wait_for_event_step("s1", "evt-key", BaseStepOptions::default());
+        assert_eq!(step.step_type(), "wait_for_event");
+    }
+
+    #[test]
+    fn test_sleep_step_type() {
+        let step = sleep_step("s1", 30, BaseStepOptions::default());
+        assert_eq!(step.step_type(), "sleep");
+    }
+
+    #[test]
+    fn test_job_step_to_api_basic() {
+        let step = job_step("s1", "job-1", BaseStepOptions::default());
+        let api = step.to_api();
+        assert_eq!(api["ref"], "s1");
+        assert_eq!(api["type"], "job");
+        assert_eq!(api["job_id"], "job-1");
+    }
+
+    #[test]
+    fn test_step_with_depends_on() {
+        let step = job_step("s2", "job-2", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() });
+        let api = step.to_api();
+        assert_eq!(api["depends_on"], json!(["s1"]));
+    }
+
+    #[test]
+    fn test_step_depends_on_accessor() {
+        let step = job_step("s2", "j", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() });
+        assert_eq!(step.depends_on(), &["s1".to_string()]);
+    }
+
+    #[test]
+    fn test_step_empty_depends_on() {
+        let step = job_step("s1", "j1", BaseStepOptions::default());
+        assert!(step.depends_on().is_empty());
+    }
+
+    #[test]
+    fn test_sleep_step_to_api() {
+        let step = sleep_step("delay", 30, BaseStepOptions::default());
+        let api = step.to_api();
+        assert_eq!(api["type"], "sleep");
+        assert_eq!(api["sleep_duration_secs"], 30);
+        assert_eq!(api["ref"], "delay");
+    }
+
+    #[test]
+    fn test_approval_step_to_api() {
+        let step = approval_step("approve", BaseStepOptions::default());
+        let api = step.to_api();
+        assert_eq!(api["type"], "approval");
+        assert_eq!(api["ref"], "approve");
+    }
+
+    #[test]
+    fn test_sub_workflow_step_to_api() {
+        let step = sub_workflow_step("sub", "wf-1", BaseStepOptions::default());
+        let api = step.to_api();
+        assert_eq!(api["type"], "sub_workflow");
+        assert_eq!(api["sub_workflow_id"], "wf-1");
+    }
+
+    #[test]
+    fn test_wait_for_event_step_to_api() {
+        let step = wait_for_event_step("wait", "my-event", BaseStepOptions::default());
+        let api = step.to_api();
+        assert_eq!(api["type"], "wait_for_event");
+        assert_eq!(api["event_key"], "my-event");
+    }
+
+    #[test]
+    fn test_step_with_retry_options() {
+        let opts = BaseStepOptions {
+            retry_max_attempts: Some(3),
+            retry_backoff: Some("exponential".to_string()),
+            retry_initial_delay_secs: Some(1),
+            retry_max_delay_secs: Some(60),
+            ..Default::default()
+        };
+        let step = job_step("s1", "j1", opts);
+        let api = step.to_api();
+        assert_eq!(api["retry_max_attempts"], 3);
+        assert_eq!(api["retry_backoff"], "exponential");
+        assert_eq!(api["retry_initial_delay_secs"], 1);
+        assert_eq!(api["retry_max_delay_secs"], 60);
+    }
+
+    #[test]
+    fn test_step_with_resource_class() {
+        let opts = BaseStepOptions { resource_class: Some("large".to_string()), ..Default::default() };
+        let step = job_step("s1", "j1", opts);
+        let api = step.to_api();
+        assert_eq!(api["resource_class"], "large");
+    }
+
+    #[test]
+    fn test_step_with_condition() {
+        let opts = BaseStepOptions { condition: Some("output.status == 'ok'".to_string()), ..Default::default() };
+        let step = job_step("s1", "j1", opts);
+        let api = step.to_api();
+        assert_eq!(api["condition"], "output.status == 'ok'");
+    }
+
+    #[test]
+    fn test_step_with_on_failure() {
+        let opts = BaseStepOptions { on_failure: Some("skip_dependents".to_string()), ..Default::default() };
+        let step = job_step("s1", "j1", opts);
+        let api = step.to_api();
+        assert_eq!(api["on_failure"], "skip_dependents");
+    }
+
+    #[test]
+    fn test_step_with_payload() {
+        let opts = BaseStepOptions { payload: Some(json!({"key": "value"})), ..Default::default() };
+        let step = job_step("s1", "j1", opts);
+        let api = step.to_api();
+        assert_eq!(api["payload"]["key"], "value");
+    }
+
+    #[test]
+    fn test_step_with_timeout_override() {
+        let opts = BaseStepOptions { timeout_secs_override: Some(120), ..Default::default() };
+        let step = job_step("s1", "j1", opts);
+        let api = step.to_api();
+        assert_eq!(api["timeout_secs_override"], 120);
+    }
+
+    #[test]
+    fn test_step_omits_none_fields() {
+        let step = job_step("s1", "j1", BaseStepOptions::default());
+        let api = step.to_api();
+        assert!(api.get("depends_on").is_none());
+        assert!(api.get("condition").is_none());
+        assert!(api.get("on_failure").is_none());
+        assert!(api.get("retry_max_attempts").is_none());
+        assert!(api.get("resource_class").is_none());
+    }
+
+    #[test]
+    fn test_step_constants() {
+        assert_eq!(STEP_TYPE_JOB, "job");
+        assert_eq!(STEP_TYPE_APPROVAL, "approval");
+        assert_eq!(STEP_TYPE_SUB_WORKFLOW, "sub_workflow");
+        assert_eq!(STEP_TYPE_WAIT_FOR_EVENT, "wait_for_event");
+        assert_eq!(STEP_TYPE_SLEEP, "sleep");
+    }
+
+    #[test]
+    fn test_on_failure_constants() {
+        assert_eq!(ON_FAILURE_FAIL_WORKFLOW, "fail_workflow");
+        assert_eq!(ON_FAILURE_SKIP_DEPENDENTS, "skip_dependents");
+        assert_eq!(ON_FAILURE_CONTINUE, "continue");
+    }
+
+    #[test]
+    fn test_resource_class_constants() {
+        assert_eq!(RESOURCE_CLASS_SMALL, "small");
+        assert_eq!(RESOURCE_CLASS_MEDIUM, "medium");
+        assert_eq!(RESOURCE_CLASS_LARGE, "large");
+    }
+
+    #[test]
+    fn test_retry_backoff_constants() {
+        assert_eq!(RETRY_BACKOFF_EXPONENTIAL, "exponential");
+        assert_eq!(RETRY_BACKOFF_FIXED, "fixed");
+    }
+}

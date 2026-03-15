@@ -95,3 +95,168 @@ pub fn config_from_env() -> Result<Config, StraitError> {
         timeout_ms,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_auth_type_display_bearer() {
+        assert_eq!(format!("{}", AuthType::Bearer), "bearer");
+    }
+
+    #[test]
+    fn test_auth_type_display_api_key() {
+        assert_eq!(format!("{}", AuthType::ApiKey), "apiKey");
+    }
+
+    #[test]
+    fn test_auth_type_display_run_token() {
+        assert_eq!(format!("{}", AuthType::RunToken), "runToken");
+    }
+
+    #[test]
+    fn test_auth_type_from_str_bearer() {
+        let at: AuthType = "bearer".parse().unwrap();
+        assert_eq!(at, AuthType::Bearer);
+    }
+
+    #[test]
+    fn test_auth_type_from_str_api_key() {
+        let at: AuthType = "apiKey".parse().unwrap();
+        assert_eq!(at, AuthType::ApiKey);
+    }
+
+    #[test]
+    fn test_auth_type_from_str_run_token() {
+        let at: AuthType = "runToken".parse().unwrap();
+        assert_eq!(at, AuthType::RunToken);
+    }
+
+    #[test]
+    fn test_auth_type_from_str_invalid() {
+        let result: Result<AuthType, _> = "invalid".parse();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_auth_type_from_str_error_message() {
+        let result: Result<AuthType, _> = "bad".parse();
+        match result.unwrap_err() {
+            StraitError::Validation { message, issues } => {
+                assert!(message.contains("invalid auth type"));
+                assert!(!issues.is_empty());
+            }
+            _ => panic!("expected Validation error"),
+        }
+    }
+
+    #[test]
+    fn test_normalize_base_url_strips_trailing_slash() {
+        assert_eq!(normalize_base_url("https://api.example.com/"), "https://api.example.com");
+    }
+
+    #[test]
+    fn test_normalize_base_url_strips_multiple_slashes() {
+        assert_eq!(normalize_base_url("https://api.example.com///"), "https://api.example.com");
+    }
+
+    #[test]
+    fn test_normalize_base_url_no_trailing_slash() {
+        assert_eq!(normalize_base_url("https://api.example.com"), "https://api.example.com");
+    }
+
+    #[test]
+    fn test_normalize_base_url_empty() {
+        assert_eq!(normalize_base_url(""), "");
+    }
+
+    #[test]
+    fn test_normalize_base_url_single_slash() {
+        assert_eq!(normalize_base_url("/"), "");
+    }
+
+    #[test]
+    fn test_get_authorization_header_bearer() {
+        let auth = AuthMode { auth_type: AuthType::Bearer, token: "tok123".to_string() };
+        assert_eq!(get_authorization_header(&auth), "Bearer tok123");
+    }
+
+    #[test]
+    fn test_get_authorization_header_api_key() {
+        let auth = AuthMode { auth_type: AuthType::ApiKey, token: "key-abc".to_string() };
+        assert_eq!(get_authorization_header(&auth), "Bearer key-abc");
+    }
+
+    #[test]
+    fn test_config_default_timeout() {
+        let config = Config {
+            base_url: "https://api.example.com".to_string(),
+            auth: AuthMode { auth_type: AuthType::ApiKey, token: "key".to_string() },
+            default_headers: HashMap::new(),
+            timeout_ms: 30_000,
+        };
+        assert_eq!(config.timeout_ms, 30_000);
+    }
+
+    #[test]
+    fn test_auth_mode_creation() {
+        let auth = AuthMode { auth_type: AuthType::ApiKey, token: "my-key".to_string() };
+        assert_eq!(auth.token, "my-key");
+        assert_eq!(format!("{}", auth.auth_type), "apiKey");
+    }
+
+    #[test]
+    fn test_config_base_url_stored() {
+        let config = Config {
+            base_url: "https://test.io".to_string(),
+            auth: AuthMode { auth_type: AuthType::Bearer, token: "t".to_string() },
+            default_headers: HashMap::new(),
+            timeout_ms: 5000,
+        };
+        assert_eq!(config.base_url, "https://test.io");
+    }
+
+    #[test]
+    fn test_config_default_headers_empty() {
+        let config = Config {
+            base_url: "https://test.io".to_string(),
+            auth: AuthMode { auth_type: AuthType::Bearer, token: "t".to_string() },
+            default_headers: HashMap::new(),
+            timeout_ms: 5000,
+        };
+        assert!(config.default_headers.is_empty());
+    }
+
+    #[test]
+    fn test_config_default_headers_with_entries() {
+        let mut headers = HashMap::new();
+        headers.insert("X-Custom".to_string(), "value".to_string());
+        let config = Config {
+            base_url: "https://test.io".to_string(),
+            auth: AuthMode { auth_type: AuthType::Bearer, token: "t".to_string() },
+            default_headers: headers,
+            timeout_ms: 5000,
+        };
+        assert_eq!(config.default_headers.get("X-Custom").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_auth_type_serde_roundtrip() {
+        let json = serde_json::to_string(&AuthType::Bearer).unwrap();
+        let deserialized: AuthType = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, AuthType::Bearer);
+    }
+
+    #[test]
+    fn test_auth_type_serde_api_key() {
+        let json = serde_json::to_string(&AuthType::ApiKey).unwrap();
+        assert_eq!(json, "\"apiKey\"");
+    }
+
+    #[test]
+    fn test_auth_type_serde_run_token() {
+        let json = serde_json::to_string(&AuthType::RunToken).unwrap();
+        assert_eq!(json, "\"runToken\"");
+    }
+}

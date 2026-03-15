@@ -80,3 +80,115 @@ pub fn define_workflow(opts: WorkflowOptions) -> WorkflowDefinition {
         last_registered_workflow_id: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::authoring::steps::{job_step, BaseStepOptions};
+
+    #[test]
+    fn test_define_workflow_kind() {
+        let wf = define_workflow(WorkflowOptions::default());
+        assert_eq!(wf.kind, "workflow");
+    }
+
+    #[test]
+    fn test_define_workflow_slug() {
+        let wf = define_workflow(WorkflowOptions { slug: Some("wf".to_string()), ..Default::default() });
+        assert_eq!(wf.slug, Some("wf".to_string()));
+    }
+
+    #[test]
+    fn test_define_workflow_slug_none() {
+        let wf = define_workflow(WorkflowOptions::default());
+        assert!(wf.slug.is_none());
+    }
+
+    #[test]
+    fn test_define_workflow_last_registered_none() {
+        let wf = define_workflow(WorkflowOptions::default());
+        assert!(wf.last_registered_workflow_id.is_none());
+    }
+
+    #[test]
+    fn test_registration_body_name() {
+        let wf = define_workflow(WorkflowOptions { name: Some("WF".to_string()), ..Default::default() });
+        let body = wf.to_registration_body(None).unwrap();
+        assert_eq!(body["name"], "WF");
+    }
+
+    #[test]
+    fn test_registration_body_project_id() {
+        let wf = define_workflow(WorkflowOptions::default());
+        let body = wf.to_registration_body(Some("proj-1")).unwrap();
+        assert_eq!(body["project_id"], "proj-1");
+    }
+
+    #[test]
+    fn test_registration_body_project_from_opts() {
+        let wf = define_workflow(WorkflowOptions { project_id: Some("proj-2".to_string()), ..Default::default() });
+        let body = wf.to_registration_body(None).unwrap();
+        assert_eq!(body["project_id"], "proj-2");
+    }
+
+    #[test]
+    fn test_registration_body_with_steps() {
+        let steps = vec![
+            job_step("s1", "j1", BaseStepOptions::default()),
+            job_step("s2", "j2", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
+        ];
+        let wf = define_workflow(WorkflowOptions { name: Some("WF".to_string()), steps: Some(steps), ..Default::default() });
+        let body = wf.to_registration_body(None).unwrap();
+        assert!(body.get("steps").is_some());
+        assert_eq!(body["steps"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_registration_body_invalid_dag() {
+        let steps = vec![
+            job_step("a", "j1", BaseStepOptions { depends_on: vec!["b".to_string()], ..Default::default() }),
+            job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
+        ];
+        let wf = define_workflow(WorkflowOptions { steps: Some(steps), ..Default::default() });
+        assert!(wf.to_registration_body(None).is_err());
+    }
+
+    #[test]
+    fn test_registration_body_no_steps() {
+        let wf = define_workflow(WorkflowOptions::default());
+        let body = wf.to_registration_body(None).unwrap();
+        assert!(body.get("steps").is_none());
+    }
+
+    #[test]
+    fn test_registration_body_timeout() {
+        let wf = define_workflow(WorkflowOptions { timeout_secs: Some(300), ..Default::default() });
+        let body = wf.to_registration_body(None).unwrap();
+        assert_eq!(body["timeout_secs"], 300);
+    }
+
+    #[test]
+    fn test_registration_body_cron() {
+        let wf = define_workflow(WorkflowOptions { cron: Some("0 * * * *".to_string()), ..Default::default() });
+        let body = wf.to_registration_body(None).unwrap();
+        assert_eq!(body["cron"], "0 * * * *");
+    }
+
+    #[test]
+    fn test_registration_body_omits_none() {
+        let wf = define_workflow(WorkflowOptions { name: Some("WF".to_string()), ..Default::default() });
+        let body = wf.to_registration_body(None).unwrap();
+        assert!(body.get("cron").is_none());
+        assert!(body.get("timeout_secs").is_none());
+        assert!(body.get("max_attempts").is_none());
+    }
+
+    #[test]
+    fn test_trigger_workflow_input_default() {
+        let input = TriggerWorkflowInput::default();
+        assert!(input.workflow_id.is_none());
+        assert!(input.payload.is_none());
+        assert!(input.idempotency_key.is_none());
+        assert!(input.step_overrides.is_none());
+    }
+}
