@@ -110,6 +110,40 @@ export type CreateAndFinalizeDeploymentOutput = {
 };
 
 /**
+ * Input contract for create/finalize/promote helper.
+ */
+export type CreateFinalizePromoteDeploymentInput =
+  CreateAndFinalizeDeploymentInput & {
+    /**
+     * Optional promote body override. Defaults to `finalizeBody`, then falls
+     * back to `{ project_id, environment }` from create body.
+     */
+    readonly promoteBody?: DeploymentVersionMutationBody;
+    /**
+     * Optional per-call overrides passed to promote operation.
+     */
+    readonly promote?: Omit<
+      PromoteDeploymentOperationInput,
+      "pathParams" | "body"
+    >;
+  };
+
+/**
+ * Output payload for create/finalize/promote helper.
+ */
+export type CreateFinalizePromoteDeploymentOutput =
+  CreateAndFinalizeDeploymentOutput & {
+    readonly promoted: PromotedDeploymentVersion;
+  };
+
+const inferMutationBodyFromCreate = (
+  create: CreateDeploymentVersionBody
+): DeploymentVersionMutationBody => ({
+  project_id: create.project_id,
+  environment: create.environment,
+});
+
+/**
  * Input contract for mutation operations that target one deployment version.
  */
 export type DeploymentMutationInput<TOptions> = {
@@ -210,10 +244,7 @@ export const createAndFinalizeDeployment = async (
 
   const finalized = await finalizeDeploymentVersion(client, {
     deploymentID,
-    body: input.finalizeBody ?? {
-      project_id: input.create.body.project_id,
-      environment: input.create.body.environment,
-    },
+    body: input.finalizeBody ?? inferMutationBodyFromCreate(input.create.body),
     options: input.finalize,
   });
 
@@ -231,3 +262,38 @@ export const createAndFinalizeDeploymentResult = (
   input: CreateAndFinalizeDeploymentInput
 ): Promise<SdkResult<CreateAndFinalizeDeploymentOutput, unknown>> =>
   fromPromise(() => createAndFinalizeDeployment(client, input));
+
+/**
+ * Creates, finalizes, and promotes a deployment version using one contract.
+ */
+export const createFinalizePromoteDeployment = async (
+  client: DeploymentOperationClient,
+  input: CreateFinalizePromoteDeploymentInput
+): Promise<CreateFinalizePromoteDeploymentOutput> => {
+  const { created, finalized } = await createAndFinalizeDeployment(client, input);
+  const deploymentID = resolveDeploymentID(finalized);
+
+  const promoted = await promoteDeploymentVersion(client, {
+    deploymentID,
+    body:
+      input.promoteBody ??
+      input.finalizeBody ??
+      inferMutationBodyFromCreate(input.create.body),
+    options: input.promote,
+  });
+
+  return {
+    created,
+    finalized,
+    promoted,
+  };
+};
+
+/**
+ * Result variant of {@link createFinalizePromoteDeployment}.
+ */
+export const createFinalizePromoteDeploymentResult = (
+  client: DeploymentOperationClient,
+  input: CreateFinalizePromoteDeploymentInput
+): Promise<SdkResult<CreateFinalizePromoteDeploymentOutput, unknown>> =>
+  fromPromise(() => createFinalizePromoteDeployment(client, input));
