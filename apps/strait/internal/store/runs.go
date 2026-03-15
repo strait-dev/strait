@@ -1034,6 +1034,14 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	}
 
 	if tag.RowsAffected() == 0 {
+		var currentStatus domain.RunStatus
+		err := q.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&currentStatus)
+		if err != nil {
+			return fmt.Errorf("checking current status: %w", err)
+		}
+		if currentStatus == to {
+			return nil // idempotent: already in target state
+		}
 		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 	}
 
@@ -1800,6 +1808,14 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 	err := q.db.QueryRow(ctx, query, args...).Scan(&oldStatus)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			var currentStatus domain.RunStatus
+			rerr := q.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&currentStatus)
+			if rerr != nil {
+				return "", fmt.Errorf("checking current status: %w", rerr)
+			}
+			if currentStatus == to {
+				return from, nil // idempotent: already in target state
+			}
 			return "", fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 		}
 		return "", fmt.Errorf("update run status: %w", err)

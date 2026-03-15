@@ -294,6 +294,14 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, 
 	}
 
 	if tag.RowsAffected() == 0 {
+		var currentStatus domain.WorkflowRunStatus
+		err := q.db.QueryRow(ctx, "SELECT status FROM workflow_runs WHERE id = $1", id).Scan(&currentStatus)
+		if err != nil {
+			return fmt.Errorf("checking current workflow status: %w", err)
+		}
+		if currentStatus == to {
+			return nil // idempotent: already in target state
+		}
 		return fmt.Errorf("update workflow run status conflict: id %s from %s", id, from)
 	}
 
