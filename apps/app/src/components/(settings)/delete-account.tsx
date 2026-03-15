@@ -212,8 +212,11 @@ const DeleteAccount = ({ user }: Props) => {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <div className="flex justify-end gap-4">
+                  <AlertDialogCancel className="w-fit">
+                    Cancel
+                  </AlertDialogCancel>
                   <AlertDialogAction
-                    className="w-fit"
+                    className="w-fit bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     disabled={isPending}
                     onClick={onDelete}
                   >
@@ -227,9 +230,6 @@ const DeleteAccount = ({ user }: Props) => {
                     )}
                     Yes, delete my account
                   </AlertDialogAction>
-                  <AlertDialogCancel className="w-fit">
-                    Cancel
-                  </AlertDialogCancel>
                 </div>
               </AlertDialogFooter>
             </AlertDialogContent>

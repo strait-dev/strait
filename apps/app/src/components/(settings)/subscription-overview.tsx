@@ -1,11 +1,3 @@
-import {
-  AlarmClockIcon,
-  AlertCircleIcon,
-  CheckmarkCircle01Icon,
-  CreditCardIcon,
-  LinkSquare01Icon,
-  SparklesIcon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { BadgeProps } from "@strait/ui/components/badge";
 import { Badge } from "@strait/ui/components/badge";
@@ -22,6 +14,14 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import {
+  AlarmClockIcon,
+  AlertCircleIcon,
+  CheckCircleIcon,
+  CreditCardIcon,
+  LinkSquareIcon,
+  SparklesIcon,
+} from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 
@@ -84,9 +84,7 @@ const SubscriptionOverview = () => {
       case "active":
         return {
           message: "Active",
-          icon: (
-            <HugeiconsIcon className="size-4" icon={CheckmarkCircle01Icon} />
-          ),
+          icon: <HugeiconsIcon className="size-4" icon={CheckCircleIcon} />,
           variant: "success" as const,
           bgGradient: "from-primary/30 to-primary/10",
         };
@@ -172,10 +170,9 @@ const SubscriptionOverview = () => {
     return (
       <div className="space-y-6">
         <Card className="overflow-hidden border shadow-sm">
-          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-muted-foreground/30 to-muted-foreground/10" />
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <HugeiconsIcon className="h-5 w-5" icon={CreditCardIcon} />
+              <HugeiconsIcon className="size-5" icon={CreditCardIcon} />
               No Active Subscription
             </CardTitle>
             <CardDescription>
@@ -200,14 +197,11 @@ const SubscriptionOverview = () => {
     <div className="space-y-6">
       {/* Plan Status Overview */}
       <Card className="overflow-hidden border shadow-sm">
-        <div
-          className={`absolute top-0 left-0 h-1 w-full bg-gradient-to-r ${planInfo.statusInfo.bgGradient}`}
-        />
         <CardHeader>
           <div className="flex items-start justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <HugeiconsIcon className="h-5 w-5" icon={CreditCardIcon} />
+                <HugeiconsIcon className="size-5" icon={CreditCardIcon} />
                 {planInfo.planName} Plan
               </CardTitle>
               <CardDescription className="mt-1">
@@ -274,7 +268,7 @@ const SubscriptionOverview = () => {
               onClick={handleOpenPortal}
               size="lg"
             >
-              <HugeiconsIcon className="size-4" icon={LinkSquare01Icon} />
+              <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
               {isLoading === "portal" ? "Opening..." : "Customer Portal"}
             </Button>
 
@@ -315,7 +309,7 @@ const SubscriptionOverview = () => {
           <div className="rounded-lg border bg-muted/30 p-4">
             <div className="flex gap-3">
               <HugeiconsIcon
-                className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground"
+                className="mt-0.5 size-5 shrink-0 text-muted-foreground"
                 icon={AlertCircleIcon}
               />
               <div className="space-y-1">

@@ -21,6 +21,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { createFileRoute } from "@tanstack/react-router";
+import { Suspense } from "react";
 import Account from "@/components/(settings)/account";
 import SubscriptionOverview from "@/components/(settings)/subscription-overview";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
@@ -117,64 +118,84 @@ function ApiKeysTab() {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Name
-                </th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Key
-                </th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Scopes
-                </th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Created
-                </th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Last Used
-                </th>
-                <th className="px-4 py-2 text-right font-medium text-muted-foreground" />
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_API_KEYS.map((key) => (
-                <tr className="border-b last:border-b-0" key={key.id}>
-                  <td className="px-4 py-3 font-medium">{key.name}</td>
-                  <td className="px-4 py-3">
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                      {key.prefix}
-                    </code>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1">
-                      {key.scopes.map((scope) => (
-                        <span
-                          className="inline-flex rounded-full border px-2 py-0.5 font-medium text-muted-foreground text-xs"
-                          key={scope}
-                        >
-                          {scope}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {formatDate(key.createdAt)}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {key.lastUsed ? formatDate(key.lastUsed) : "Never"}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Button size="sm" variant="destructive">
-                      Revoke
-                    </Button>
-                  </td>
+        <div className="overflow-x-auto">
+          <div className="rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Name
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Key
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Scopes
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Created
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Last Used
+                  </th>
+                  <th
+                    className="px-4 py-2 text-right font-medium text-muted-foreground"
+                    scope="col"
+                  />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {MOCK_API_KEYS.map((key) => (
+                  <tr className="border-b last:border-b-0" key={key.id}>
+                    <td className="px-4 py-3 font-medium">{key.name}</td>
+                    <td className="px-4 py-3">
+                      <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                        {key.prefix}
+                      </code>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1">
+                        {key.scopes.map((scope) => (
+                          <span
+                            className="inline-flex rounded-full border px-2 py-0.5 font-medium text-muted-foreground text-xs"
+                            key={scope}
+                          >
+                            {scope}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {formatDate(key.createdAt)}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {key.lastUsed ? formatDate(key.lastUsed) : "Never"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button size="sm" variant="destructive">
+                        Revoke
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -196,52 +217,66 @@ function TeamTab() {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Member
-                </th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Role
-                </th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  Joined
-                </th>
-                <th className="px-4 py-2 text-right font-medium text-muted-foreground" />
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_TEAM_MEMBERS.map((member) => (
-                <tr className="border-b last:border-b-0" key={member.id}>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col">
-                      <span className="font-medium">{member.name}</span>
-                      <span className="text-muted-foreground text-xs">
-                        {member.email}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex rounded-full border px-2 py-0.5 font-medium text-muted-foreground text-xs">
-                      {member.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {formatDate(member.joinedAt)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {member.role !== "Owner" && (
-                      <Button size="sm" variant="outline">
-                        Remove
-                      </Button>
-                    )}
-                  </td>
+        <div className="overflow-x-auto">
+          <div className="rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Member
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Role
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left font-medium text-muted-foreground"
+                    scope="col"
+                  >
+                    Joined
+                  </th>
+                  <th
+                    className="px-4 py-2 text-right font-medium text-muted-foreground"
+                    scope="col"
+                  />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {MOCK_TEAM_MEMBERS.map((member) => (
+                  <tr className="border-b last:border-b-0" key={member.id}>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{member.name}</span>
+                        <span className="text-muted-foreground text-xs">
+                          {member.email}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex rounded-full border px-2 py-0.5 font-medium text-muted-foreground text-xs">
+                        {member.role}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {formatDate(member.joinedAt)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {member.role !== "Owner" && (
+                        <Button size="sm" variant="outline">
+                          Remove
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -282,19 +317,27 @@ function RouteComponent() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent className="space-y-6" value="account">
+          <TabsContent className="mt-6 space-y-6" value="account">
             <Account user={session.user} />
           </TabsContent>
 
-          <TabsContent className="space-y-6" value="subscription">
-            <SubscriptionOverview />
+          <TabsContent className="mt-6 space-y-6" value="subscription">
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
+                  Loading subscription...
+                </div>
+              }
+            >
+              <SubscriptionOverview />
+            </Suspense>
           </TabsContent>
 
-          <TabsContent className="space-y-6" value="api-keys">
+          <TabsContent className="mt-6 space-y-6" value="api-keys">
             <ApiKeysTab />
           </TabsContent>
 
-          <TabsContent className="space-y-6" value="team">
+          <TabsContent className="mt-6 space-y-6" value="team">
             <TeamTab />
           </TabsContent>
         </Tabs>

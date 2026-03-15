@@ -7,6 +7,8 @@
 // matches that existing usage to keep a single canonical import per concept.
 
 import {
+  AlarmClockIcon as _AlarmClockIcon,
+  AlertCircleIcon as _AlertCircleIcon,
   ArrowUpDownIcon as _ArrowUpDownIcon,
   CommandIcon as _CommandIcon,
   CpuIcon as _CpuIcon,
@@ -14,9 +16,11 @@ import {
   FilterIcon as _FilterIcon,
   HardDriveIcon as _HardDriveIcon,
   HelpCircleIcon as _HelpCircleIcon,
+  LinkSquare01Icon as _LinkSquare01Icon,
   LockIcon as _LockIcon,
   MoreVerticalIcon as _MoreVerticalIcon,
   ShieldKeyIcon as _ShieldKeyIcon,
+  SparklesIcon as _SparklesIcon,
   StarIcon as _StarIcon,
   UserIcon as _UserIcon,
   Activity01Icon,
@@ -164,3 +168,7 @@ export const SortDescIcon = SortingZA01Icon;
 export const CheckSquareIcon = CheckmarkSquare01Icon;
 export const ZapIcon = FlashIcon;
 export const TrendingUpIcon = ChartIncreaseIcon;
+export const AlarmClockIcon = _AlarmClockIcon;
+export const AlertCircleIcon = _AlertCircleIcon;
+export const LinkSquareIcon = _LinkSquare01Icon;
+export const SparklesIcon = _SparklesIcon;
