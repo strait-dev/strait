@@ -200,7 +200,7 @@ const mapJsonConfigToClientInput = (json: Record<string, unknown>): unknown => {
   return {
     baseUrl,
     auth: { type: authType, token },
-    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
   };
 };
 

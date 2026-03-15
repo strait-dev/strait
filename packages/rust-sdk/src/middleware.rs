@@ -106,7 +106,9 @@ mod tests {
         let called = Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
         let mw = Middleware {
-            on_request: Some(Box::new(move |_ctx| { called_clone.store(true, Ordering::SeqCst); })),
+            on_request: Some(Box::new(move |_ctx| {
+                called_clone.store(true, Ordering::SeqCst);
+            })),
             on_response: None,
             on_error: None,
         };
@@ -127,7 +129,9 @@ mod tests {
         let s = status_seen.clone();
         let mw = Middleware {
             on_request: None,
-            on_response: Some(Box::new(move |ctx| { s.store(ctx.status, Ordering::SeqCst); })),
+            on_response: Some(Box::new(move |ctx| {
+                s.store(ctx.status, Ordering::SeqCst);
+            })),
             on_error: None,
         };
         let ctx = ResponseContext {

@@ -1,26 +1,24 @@
-use strait_sdk::config::{normalize_base_url, get_authorization_header, AuthMode, AuthType, Config};
+use strait_sdk::authoring::dag_validation::validate_dag;
+use strait_sdk::authoring::job::{define_job, JobOptions};
+use strait_sdk::authoring::steps::{approval_step, job_step, sleep_step, BaseStepOptions};
+use strait_sdk::authoring::workflow::{define_workflow, WorkflowOptions};
+use strait_sdk::composition::idempotency::{with_idempotency, with_idempotency_header};
+use strait_sdk::composition::result::{from_fn, StraitResult};
+use strait_sdk::composition::retry::{JitterStrategy, RetryOptions};
+use strait_sdk::config::{
+    get_authorization_header, normalize_base_url, AuthMode, AuthType, Config,
+};
 use strait_sdk::errors::map_http_error;
-use strait_sdk::http::substitute_path_params;
 use strait_sdk::fsm::run::{
     can_transition_run, is_terminal_run_status, transition_run, RunEvent, RunStatus,
 };
-use strait_sdk::fsm::workflow::{
-    is_terminal_workflow_run_status, transition_workflow_run,
-    WorkflowRunEvent, WorkflowRunStatus,
-};
 use strait_sdk::fsm::step::{
-    is_terminal_step_run_status, transition_step_run, StepRunEvent,
-    StepRunStatus,
+    is_terminal_step_run_status, transition_step_run, StepRunEvent, StepRunStatus,
 };
-use strait_sdk::authoring::steps::{
-    job_step, approval_step, sleep_step, BaseStepOptions,
+use strait_sdk::fsm::workflow::{
+    is_terminal_workflow_run_status, transition_workflow_run, WorkflowRunEvent, WorkflowRunStatus,
 };
-use strait_sdk::authoring::dag_validation::validate_dag;
-use strait_sdk::authoring::job::{define_job, JobOptions};
-use strait_sdk::authoring::workflow::{define_workflow, WorkflowOptions};
-use strait_sdk::composition::result::{from_fn, StraitResult};
-use strait_sdk::composition::idempotency::{with_idempotency, with_idempotency_header};
-use strait_sdk::composition::retry::{JitterStrategy, RetryOptions};
+use strait_sdk::http::substitute_path_params;
 use strait_sdk::StraitClient;
 
 use std::collections::HashMap;
@@ -75,7 +73,13 @@ fn test_error_mapping_comprehensive() {
     for (status, expected_variant) in test_cases {
         let err = map_http_error(status, format!("error {}", status), None);
         let debug = format!("{:?}", err);
-        assert!(debug.contains(expected_variant), "status {} should map to {}, got {:?}", status, expected_variant, err);
+        assert!(
+            debug.contains(expected_variant),
+            "status {} should map to {}, got {:?}",
+            status,
+            expected_variant,
+            err
+        );
     }
 }
 
@@ -88,7 +92,10 @@ fn test_path_substitution_real_paths() {
         "/v1/jobs/job-abc-123/trigger"
     );
     assert_eq!(
-        substitute_path_params("/v1/jobs/{jobID}/versions/{versionID}", &[("jobID", "j1"), ("versionID", "v2")]),
+        substitute_path_params(
+            "/v1/jobs/{jobID}/versions/{versionID}",
+            &[("jobID", "j1"), ("versionID", "v2")]
+        ),
         "/v1/jobs/j1/versions/v2"
     );
     assert_eq!(
@@ -205,18 +212,29 @@ fn test_step_lifecycle_wait_then_run() {
 fn test_complex_dag_with_multiple_step_types() {
     let steps = vec![
         job_step("fetch", "fetch-job", BaseStepOptions::default()),
-        sleep_step("pause", 10, BaseStepOptions {
-            depends_on: vec!["fetch".to_string()],
-            ..Default::default()
-        }),
-        approval_step("approve", BaseStepOptions {
-            depends_on: vec!["pause".to_string()],
-            ..Default::default()
-        }),
-        job_step("deploy", "deploy-job", BaseStepOptions {
-            depends_on: vec!["approve".to_string()],
-            ..Default::default()
-        }),
+        sleep_step(
+            "pause",
+            10,
+            BaseStepOptions {
+                depends_on: vec!["fetch".to_string()],
+                ..Default::default()
+            },
+        ),
+        approval_step(
+            "approve",
+            BaseStepOptions {
+                depends_on: vec!["pause".to_string()],
+                ..Default::default()
+            },
+        ),
+        job_step(
+            "deploy",
+            "deploy-job",
+            BaseStepOptions {
+                depends_on: vec!["approve".to_string()],
+                ..Default::default()
+            },
+        ),
     ];
     let sorted = validate_dag(&steps).unwrap();
     assert_eq!(sorted, vec!["fetch", "pause", "approve", "deploy"]);
@@ -226,13 +244,42 @@ fn test_complex_dag_with_multiple_step_types() {
 fn test_dag_with_fan_out_fan_in() {
     let steps = vec![
         job_step("start", "j1", BaseStepOptions::default()),
-        job_step("branch-a", "j2", BaseStepOptions { depends_on: vec!["start".to_string()], ..Default::default() }),
-        job_step("branch-b", "j3", BaseStepOptions { depends_on: vec!["start".to_string()], ..Default::default() }),
-        job_step("branch-c", "j4", BaseStepOptions { depends_on: vec!["start".to_string()], ..Default::default() }),
-        job_step("join", "j5", BaseStepOptions {
-            depends_on: vec!["branch-a".to_string(), "branch-b".to_string(), "branch-c".to_string()],
-            ..Default::default()
-        }),
+        job_step(
+            "branch-a",
+            "j2",
+            BaseStepOptions {
+                depends_on: vec!["start".to_string()],
+                ..Default::default()
+            },
+        ),
+        job_step(
+            "branch-b",
+            "j3",
+            BaseStepOptions {
+                depends_on: vec!["start".to_string()],
+                ..Default::default()
+            },
+        ),
+        job_step(
+            "branch-c",
+            "j4",
+            BaseStepOptions {
+                depends_on: vec!["start".to_string()],
+                ..Default::default()
+            },
+        ),
+        job_step(
+            "join",
+            "j5",
+            BaseStepOptions {
+                depends_on: vec![
+                    "branch-a".to_string(),
+                    "branch-b".to_string(),
+                    "branch-c".to_string(),
+                ],
+                ..Default::default()
+            },
+        ),
     ];
     let sorted = validate_dag(&steps).unwrap();
     let start_idx = sorted.iter().position(|s| s == "start").unwrap();
@@ -266,10 +313,14 @@ fn test_job_define_and_register() {
 fn test_workflow_define_with_valid_steps() {
     let steps = vec![
         job_step("s1", "j1", BaseStepOptions::default()),
-        job_step("s2", "j2", BaseStepOptions {
-            depends_on: vec!["s1".to_string()],
-            ..Default::default()
-        }),
+        job_step(
+            "s2",
+            "j2",
+            BaseStepOptions {
+                depends_on: vec!["s1".to_string()],
+                ..Default::default()
+            },
+        ),
     ];
     let wf = define_workflow(WorkflowOptions {
         name: Some("My Workflow".to_string()),
@@ -286,8 +337,22 @@ fn test_workflow_define_with_valid_steps() {
 #[test]
 fn test_workflow_define_with_invalid_steps_fails() {
     let steps = vec![
-        job_step("a", "j1", BaseStepOptions { depends_on: vec!["b".to_string()], ..Default::default() }),
-        job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
+        job_step(
+            "a",
+            "j1",
+            BaseStepOptions {
+                depends_on: vec!["b".to_string()],
+                ..Default::default()
+            },
+        ),
+        job_step(
+            "b",
+            "j2",
+            BaseStepOptions {
+                depends_on: vec!["a".to_string()],
+                ..Default::default()
+            },
+        ),
     ];
     let wf = define_workflow(WorkflowOptions {
         name: Some("Bad WF".to_string()),
@@ -302,16 +367,20 @@ fn test_workflow_define_with_invalid_steps_fails() {
 
 #[test]
 fn test_step_to_api_comprehensive() {
-    let step = job_step("process", "job-process", BaseStepOptions {
-        depends_on: vec!["fetch".to_string()],
-        condition: Some("steps.fetch.output.status == 'ok'".to_string()),
-        on_failure: Some("skip_dependents".to_string()),
-        retry_max_attempts: Some(3),
-        retry_backoff: Some("exponential".to_string()),
-        resource_class: Some("large".to_string()),
-        timeout_secs_override: Some(120),
-        ..Default::default()
-    });
+    let step = job_step(
+        "process",
+        "job-process",
+        BaseStepOptions {
+            depends_on: vec!["fetch".to_string()],
+            condition: Some("steps.fetch.output.status == 'ok'".to_string()),
+            on_failure: Some("skip_dependents".to_string()),
+            retry_max_attempts: Some(3),
+            retry_backoff: Some("exponential".to_string()),
+            resource_class: Some("large".to_string()),
+            timeout_secs_override: Some(120),
+            ..Default::default()
+        },
+    );
     let api = step.to_api();
     assert_eq!(api["ref"], "process");
     assert_eq!(api["type"], "job");
@@ -358,7 +427,10 @@ fn test_strait_result_comprehensive() {
     assert_eq!(value, "success");
 
     let err_result = from_fn(|| -> Result<i32, std::io::Error> {
-        Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied",
+        ))
     });
     assert!(err_result.is_err());
     let err = err_result.unwrap_err();
@@ -380,9 +452,7 @@ fn test_client_builder_full_configuration() {
 
 #[test]
 fn test_client_builder_validation_no_url() {
-    let result = StraitClient::builder()
-        .bearer_token("tok")
-        .build();
+    let result = StraitClient::builder().bearer_token("tok").build();
     assert!(result.is_err());
 }
 
@@ -404,13 +474,20 @@ fn test_all_terminal_statuses_prevent_further_transitions() {
         RunStatus::Expired,
     ];
     let events = vec![
-        RunEvent::Enqueue, RunEvent::Dequeue, RunEvent::Execute,
-        RunEvent::Complete, RunEvent::Wait,
+        RunEvent::Enqueue,
+        RunEvent::Dequeue,
+        RunEvent::Execute,
+        RunEvent::Complete,
+        RunEvent::Wait,
     ];
     for status in &terminal_statuses {
         for event in &events {
-            assert!(!can_transition_run(*status, *event),
-                "Terminal status {:?} should not transition on {:?}", status, event);
+            assert!(
+                !can_transition_run(*status, *event),
+                "Terminal status {:?} should not transition on {:?}",
+                status,
+                event
+            );
         }
     }
 }
@@ -426,7 +503,10 @@ fn test_workflow_terminal_statuses_exhaustive() {
         WorkflowRunStatus::TimedOut,
         WorkflowRunStatus::Canceled,
     ];
-    let terminal_count = all.iter().filter(|s| is_terminal_workflow_run_status(**s)).count();
+    let terminal_count = all
+        .iter()
+        .filter(|s| is_terminal_workflow_run_status(**s))
+        .count();
     assert_eq!(terminal_count, 4);
 }
 
@@ -441,6 +521,9 @@ fn test_step_terminal_statuses_exhaustive() {
         StepRunStatus::Skipped,
         StepRunStatus::Canceled,
     ];
-    let terminal_count = all.iter().filter(|s| is_terminal_step_run_status(**s)).count();
+    let terminal_count = all
+        .iter()
+        .filter(|s| is_terminal_step_run_status(**s))
+        .count();
     assert_eq!(terminal_count, 4);
 }

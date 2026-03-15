@@ -168,7 +168,9 @@ mod tests {
         let body = Some(serde_json::json!({"reason": "token expired"}));
         let err = map_http_error(401, "unauth".to_string(), body.clone());
         match err {
-            StraitError::Unauthorized { body: b, message, .. } => {
+            StraitError::Unauthorized {
+                body: b, message, ..
+            } => {
                 assert_eq!(b, body);
                 assert_eq!(message, "unauth");
             }
@@ -196,67 +198,108 @@ mod tests {
 
     #[test]
     fn test_error_display_transport() {
-        let err = StraitError::Transport { message: "conn refused".to_string(), cause: None };
+        let err = StraitError::Transport {
+            message: "conn refused".to_string(),
+            cause: None,
+        };
         assert_eq!(format!("{}", err), "transport error: conn refused");
     }
 
     #[test]
     fn test_error_display_decode() {
-        let err = StraitError::Decode { message: "invalid json".to_string(), body: None };
+        let err = StraitError::Decode {
+            message: "invalid json".to_string(),
+            body: None,
+        };
         assert_eq!(format!("{}", err), "decode error: invalid json");
     }
 
     #[test]
     fn test_error_display_validation() {
-        let err = StraitError::Validation { message: "bad input".to_string(), issues: vec!["field required".to_string()] };
+        let err = StraitError::Validation {
+            message: "bad input".to_string(),
+            issues: vec!["field required".to_string()],
+        };
         assert_eq!(format!("{}", err), "validation error: bad input");
     }
 
     #[test]
     fn test_error_display_unauthorized() {
-        let err = StraitError::Unauthorized { status: 401, message: "no token".to_string(), body: None };
+        let err = StraitError::Unauthorized {
+            status: 401,
+            message: "no token".to_string(),
+            body: None,
+        };
         assert_eq!(format!("{}", err), "unauthorized: no token");
     }
 
     #[test]
     fn test_error_display_not_found() {
-        let err = StraitError::NotFound { status: 404, message: "missing".to_string(), body: None };
+        let err = StraitError::NotFound {
+            status: 404,
+            message: "missing".to_string(),
+            body: None,
+        };
         assert_eq!(format!("{}", err), "not found: missing");
     }
 
     #[test]
     fn test_error_display_conflict() {
-        let err = StraitError::Conflict { status: 409, message: "dup".to_string(), body: None };
+        let err = StraitError::Conflict {
+            status: 409,
+            message: "dup".to_string(),
+            body: None,
+        };
         assert_eq!(format!("{}", err), "conflict: dup");
     }
 
     #[test]
     fn test_error_display_rate_limited() {
-        let err = StraitError::RateLimited { status: 429, message: "slow".to_string(), body: None };
+        let err = StraitError::RateLimited {
+            status: 429,
+            message: "slow".to_string(),
+            body: None,
+        };
         assert_eq!(format!("{}", err), "rate limited: slow");
     }
 
     #[test]
     fn test_error_display_api() {
-        let err = StraitError::Api { status: 500, message: "oops".to_string(), body: None };
+        let err = StraitError::Api {
+            status: 500,
+            message: "oops".to_string(),
+            body: None,
+        };
         assert_eq!(format!("{}", err), "api error: oops");
     }
 
     #[test]
     fn test_error_display_timeout() {
-        let err = StraitError::Timeout { message: "timed out".to_string(), run_id: Some("r1".to_string()), elapsed_ms: Some(5000) };
+        let err = StraitError::Timeout {
+            message: "timed out".to_string(),
+            run_id: Some("r1".to_string()),
+            elapsed_ms: Some(5000),
+        };
         assert_eq!(format!("{}", err), "timeout: timed out");
     }
 
     #[test]
     fn test_error_display_dag() {
-        let err = StraitError::DagValidation { message: "cycles".to_string(), cycles: vec!["a".to_string()], missing_refs: vec![], duplicate_refs: vec![] };
+        let err = StraitError::DagValidation {
+            message: "cycles".to_string(),
+            cycles: vec!["a".to_string()],
+            missing_refs: vec![],
+            duplicate_refs: vec![],
+        };
         assert_eq!(format!("{}", err), "DAG validation error: cycles");
     }
 
     #[test]
     fn test_transport_error_cause() {
-        let err = StraitError::Transport { message: "fail".to_string(), cause: Some("dns".to_string()) };
+        let err = StraitError::Transport {
+            message: "fail".to_string(),
+            cause: Some("dns".to_string()),
+        };
         match err {
             StraitError::Transport { cause, .. } => assert_eq!(cause, Some("dns".to_string())),
             _ => panic!("expected Transport"),
@@ -265,7 +308,10 @@ mod tests {
 
     #[test]
     fn test_decode_error_body() {
-        let err = StraitError::Decode { message: "parse".to_string(), body: Some("raw text".to_string()) };
+        let err = StraitError::Decode {
+            message: "parse".to_string(),
+            body: Some("raw text".to_string()),
+        };
         match err {
             StraitError::Decode { body, .. } => assert_eq!(body, Some("raw text".to_string())),
             _ => panic!("expected Decode"),
@@ -274,7 +320,10 @@ mod tests {
 
     #[test]
     fn test_validation_issues() {
-        let err = StraitError::Validation { message: "bad".to_string(), issues: vec!["a".to_string(), "b".to_string()] };
+        let err = StraitError::Validation {
+            message: "bad".to_string(),
+            issues: vec!["a".to_string(), "b".to_string()],
+        };
         match err {
             StraitError::Validation { issues, .. } => assert_eq!(issues.len(), 2),
             _ => panic!("expected Validation"),
@@ -283,9 +332,15 @@ mod tests {
 
     #[test]
     fn test_timeout_fields() {
-        let err = StraitError::Timeout { message: "slow".to_string(), run_id: Some("run-1".to_string()), elapsed_ms: Some(10000) };
+        let err = StraitError::Timeout {
+            message: "slow".to_string(),
+            run_id: Some("run-1".to_string()),
+            elapsed_ms: Some(10000),
+        };
         match err {
-            StraitError::Timeout { run_id, elapsed_ms, .. } => {
+            StraitError::Timeout {
+                run_id, elapsed_ms, ..
+            } => {
                 assert_eq!(run_id, Some("run-1".to_string()));
                 assert_eq!(elapsed_ms, Some(10000));
             }
@@ -302,7 +357,12 @@ mod tests {
             duplicate_refs: vec!["d1".to_string()],
         };
         match err {
-            StraitError::DagValidation { cycles, missing_refs, duplicate_refs, .. } => {
+            StraitError::DagValidation {
+                cycles,
+                missing_refs,
+                duplicate_refs,
+                ..
+            } => {
                 assert_eq!(cycles, vec!["c1"]);
                 assert_eq!(missing_refs, vec!["m1"]);
                 assert_eq!(duplicate_refs, vec!["d1"]);

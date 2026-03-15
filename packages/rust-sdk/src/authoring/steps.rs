@@ -99,32 +99,66 @@ impl Step {
 
     pub fn to_api(&self) -> Value {
         match self {
-            Step::Job { ref_name, job_id, options } => {
+            Step::Job {
+                ref_name,
+                job_id,
+                options,
+            } => {
                 let mut h = json!({ "ref": ref_name, "type": STEP_TYPE_JOB, "job_id": job_id });
                 add_base_options(&mut h, options);
                 h
             }
-            Step::Approval { ref_name, approval_timeout_secs, approvers, options } => {
+            Step::Approval {
+                ref_name,
+                approval_timeout_secs,
+                approvers,
+                options,
+            } => {
                 let mut h = json!({ "ref": ref_name, "type": STEP_TYPE_APPROVAL });
-                if let Some(t) = approval_timeout_secs { h["approval_timeout_secs"] = json!(t); }
-                if let Some(a) = approvers { h["approvers"] = json!(a); }
+                if let Some(t) = approval_timeout_secs {
+                    h["approval_timeout_secs"] = json!(t);
+                }
+                if let Some(a) = approvers {
+                    h["approvers"] = json!(a);
+                }
                 add_base_options(&mut h, options);
                 h
             }
-            Step::SubWorkflow { ref_name, sub_workflow_id, max_nesting_depth, options } => {
+            Step::SubWorkflow {
+                ref_name,
+                sub_workflow_id,
+                max_nesting_depth,
+                options,
+            } => {
                 let mut h = json!({ "ref": ref_name, "type": STEP_TYPE_SUB_WORKFLOW, "sub_workflow_id": sub_workflow_id });
-                if let Some(d) = max_nesting_depth { h["max_nesting_depth"] = json!(d); }
+                if let Some(d) = max_nesting_depth {
+                    h["max_nesting_depth"] = json!(d);
+                }
                 add_base_options(&mut h, options);
                 h
             }
-            Step::WaitForEvent { ref_name, event_key, event_timeout_secs, event_notify_url, options } => {
+            Step::WaitForEvent {
+                ref_name,
+                event_key,
+                event_timeout_secs,
+                event_notify_url,
+                options,
+            } => {
                 let mut h = json!({ "ref": ref_name, "type": STEP_TYPE_WAIT_FOR_EVENT, "event_key": event_key });
-                if let Some(t) = event_timeout_secs { h["event_timeout_secs"] = json!(t); }
-                if let Some(u) = event_notify_url { h["event_notify_url"] = json!(u); }
+                if let Some(t) = event_timeout_secs {
+                    h["event_timeout_secs"] = json!(t);
+                }
+                if let Some(u) = event_notify_url {
+                    h["event_notify_url"] = json!(u);
+                }
                 add_base_options(&mut h, options);
                 h
             }
-            Step::Sleep { ref_name, sleep_duration_secs, options } => {
+            Step::Sleep {
+                ref_name,
+                sleep_duration_secs,
+                options,
+            } => {
                 let mut h = json!({ "ref": ref_name, "type": STEP_TYPE_SLEEP, "sleep_duration_secs": sleep_duration_secs });
                 add_base_options(&mut h, options);
                 h
@@ -134,39 +168,103 @@ impl Step {
 }
 
 fn add_base_options(h: &mut Value, opts: &BaseStepOptions) {
-    if !opts.depends_on.is_empty() { h["depends_on"] = json!(opts.depends_on); }
-    if let Some(c) = &opts.condition { h["condition"] = json!(c); }
-    if let Some(f) = &opts.on_failure { h["on_failure"] = json!(f); }
-    if let Some(p) = &opts.payload { h["payload"] = p.clone(); }
-    if let Some(r) = opts.retry_max_attempts { h["retry_max_attempts"] = json!(r); }
-    if let Some(b) = &opts.retry_backoff { h["retry_backoff"] = json!(b); }
-    if let Some(d) = opts.retry_initial_delay_secs { h["retry_initial_delay_secs"] = json!(d); }
-    if let Some(d) = opts.retry_max_delay_secs { h["retry_max_delay_secs"] = json!(d); }
-    if let Some(t) = opts.timeout_secs_override { h["timeout_secs_override"] = json!(t); }
-    if let Some(o) = &opts.output_transform { h["output_transform"] = json!(o); }
-    if let Some(k) = &opts.concurrency_key { h["concurrency_key"] = json!(k); }
-    if let Some(r) = &opts.resource_class { h["resource_class"] = json!(r); }
+    if !opts.depends_on.is_empty() {
+        h["depends_on"] = json!(opts.depends_on);
+    }
+    if let Some(c) = &opts.condition {
+        h["condition"] = json!(c);
+    }
+    if let Some(f) = &opts.on_failure {
+        h["on_failure"] = json!(f);
+    }
+    if let Some(p) = &opts.payload {
+        h["payload"] = p.clone();
+    }
+    if let Some(r) = opts.retry_max_attempts {
+        h["retry_max_attempts"] = json!(r);
+    }
+    if let Some(b) = &opts.retry_backoff {
+        h["retry_backoff"] = json!(b);
+    }
+    if let Some(d) = opts.retry_initial_delay_secs {
+        h["retry_initial_delay_secs"] = json!(d);
+    }
+    if let Some(d) = opts.retry_max_delay_secs {
+        h["retry_max_delay_secs"] = json!(d);
+    }
+    if let Some(t) = opts.timeout_secs_override {
+        h["timeout_secs_override"] = json!(t);
+    }
+    if let Some(o) = &opts.output_transform {
+        h["output_transform"] = json!(o);
+    }
+    if let Some(k) = &opts.concurrency_key {
+        h["concurrency_key"] = json!(k);
+    }
+    if let Some(r) = &opts.resource_class {
+        h["resource_class"] = json!(r);
+    }
 }
 
 // Builder functions
-pub fn job_step(ref_name: impl Into<String>, job_id: impl Into<String>, options: BaseStepOptions) -> Step {
-    Step::Job { ref_name: ref_name.into(), job_id: job_id.into(), options }
+pub fn job_step(
+    ref_name: impl Into<String>,
+    job_id: impl Into<String>,
+    options: BaseStepOptions,
+) -> Step {
+    Step::Job {
+        ref_name: ref_name.into(),
+        job_id: job_id.into(),
+        options,
+    }
 }
 
 pub fn approval_step(ref_name: impl Into<String>, options: BaseStepOptions) -> Step {
-    Step::Approval { ref_name: ref_name.into(), approval_timeout_secs: None, approvers: None, options }
+    Step::Approval {
+        ref_name: ref_name.into(),
+        approval_timeout_secs: None,
+        approvers: None,
+        options,
+    }
 }
 
-pub fn sub_workflow_step(ref_name: impl Into<String>, sub_workflow_id: impl Into<String>, options: BaseStepOptions) -> Step {
-    Step::SubWorkflow { ref_name: ref_name.into(), sub_workflow_id: sub_workflow_id.into(), max_nesting_depth: None, options }
+pub fn sub_workflow_step(
+    ref_name: impl Into<String>,
+    sub_workflow_id: impl Into<String>,
+    options: BaseStepOptions,
+) -> Step {
+    Step::SubWorkflow {
+        ref_name: ref_name.into(),
+        sub_workflow_id: sub_workflow_id.into(),
+        max_nesting_depth: None,
+        options,
+    }
 }
 
-pub fn wait_for_event_step(ref_name: impl Into<String>, event_key: impl Into<String>, options: BaseStepOptions) -> Step {
-    Step::WaitForEvent { ref_name: ref_name.into(), event_key: event_key.into(), event_timeout_secs: None, event_notify_url: None, options }
+pub fn wait_for_event_step(
+    ref_name: impl Into<String>,
+    event_key: impl Into<String>,
+    options: BaseStepOptions,
+) -> Step {
+    Step::WaitForEvent {
+        ref_name: ref_name.into(),
+        event_key: event_key.into(),
+        event_timeout_secs: None,
+        event_notify_url: None,
+        options,
+    }
 }
 
-pub fn sleep_step(ref_name: impl Into<String>, duration_secs: u32, options: BaseStepOptions) -> Step {
-    Step::Sleep { ref_name: ref_name.into(), sleep_duration_secs: duration_secs, options }
+pub fn sleep_step(
+    ref_name: impl Into<String>,
+    duration_secs: u32,
+    options: BaseStepOptions,
+) -> Step {
+    Step::Sleep {
+        ref_name: ref_name.into(),
+        sleep_duration_secs: duration_secs,
+        options,
+    }
 }
 
 #[cfg(test)]
@@ -220,14 +318,28 @@ mod tests {
 
     #[test]
     fn test_step_with_depends_on() {
-        let step = job_step("s2", "job-2", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() });
+        let step = job_step(
+            "s2",
+            "job-2",
+            BaseStepOptions {
+                depends_on: vec!["s1".to_string()],
+                ..Default::default()
+            },
+        );
         let api = step.to_api();
         assert_eq!(api["depends_on"], json!(["s1"]));
     }
 
     #[test]
     fn test_step_depends_on_accessor() {
-        let step = job_step("s2", "j", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() });
+        let step = job_step(
+            "s2",
+            "j",
+            BaseStepOptions {
+                depends_on: vec!["s1".to_string()],
+                ..Default::default()
+            },
+        );
         assert_eq!(step.depends_on(), &["s1".to_string()]);
     }
 
@@ -289,7 +401,10 @@ mod tests {
 
     #[test]
     fn test_step_with_resource_class() {
-        let opts = BaseStepOptions { resource_class: Some("large".to_string()), ..Default::default() };
+        let opts = BaseStepOptions {
+            resource_class: Some("large".to_string()),
+            ..Default::default()
+        };
         let step = job_step("s1", "j1", opts);
         let api = step.to_api();
         assert_eq!(api["resource_class"], "large");
@@ -297,7 +412,10 @@ mod tests {
 
     #[test]
     fn test_step_with_condition() {
-        let opts = BaseStepOptions { condition: Some("output.status == 'ok'".to_string()), ..Default::default() };
+        let opts = BaseStepOptions {
+            condition: Some("output.status == 'ok'".to_string()),
+            ..Default::default()
+        };
         let step = job_step("s1", "j1", opts);
         let api = step.to_api();
         assert_eq!(api["condition"], "output.status == 'ok'");
@@ -305,7 +423,10 @@ mod tests {
 
     #[test]
     fn test_step_with_on_failure() {
-        let opts = BaseStepOptions { on_failure: Some("skip_dependents".to_string()), ..Default::default() };
+        let opts = BaseStepOptions {
+            on_failure: Some("skip_dependents".to_string()),
+            ..Default::default()
+        };
         let step = job_step("s1", "j1", opts);
         let api = step.to_api();
         assert_eq!(api["on_failure"], "skip_dependents");
@@ -313,7 +434,10 @@ mod tests {
 
     #[test]
     fn test_step_with_payload() {
-        let opts = BaseStepOptions { payload: Some(json!({"key": "value"})), ..Default::default() };
+        let opts = BaseStepOptions {
+            payload: Some(json!({"key": "value"})),
+            ..Default::default()
+        };
         let step = job_step("s1", "j1", opts);
         let api = step.to_api();
         assert_eq!(api["payload"]["key"], "value");
@@ -321,7 +445,10 @@ mod tests {
 
     #[test]
     fn test_step_with_timeout_override() {
-        let opts = BaseStepOptions { timeout_secs_override: Some(120), ..Default::default() };
+        let opts = BaseStepOptions {
+            timeout_secs_override: Some(120),
+            ..Default::default()
+        };
         let step = job_step("s1", "j1", opts);
         let api = step.to_api();
         assert_eq!(api["timeout_secs_override"], 120);

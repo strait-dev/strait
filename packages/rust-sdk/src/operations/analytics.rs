@@ -11,7 +11,12 @@ impl AnalyticsService {
         Self { client }
     }
 
-    pub async fn get_performance(&self, query: Option<&[(&str, &str)]>) -> Result<serde_json::Value, StraitError> {
-        self.client.do_request("GET", "/v1/analytics/performance", query, None, None).await
+    pub async fn get_performance(
+        &self,
+        query: Option<&[(&str, &str)]>,
+    ) -> Result<serde_json::Value, StraitError> {
+        self.client
+            .do_request("GET", "/v1/analytics/performance", query, None, None)
+            .await
     }
 }

@@ -29,7 +29,11 @@ impl<T> StraitResult<T> {
         }
     }
 
-    pub fn match_result<R>(self, on_ok: impl FnOnce(T) -> R, on_err: impl FnOnce(Box<dyn std::error::Error + Send + Sync>) -> R) -> R {
+    pub fn match_result<R>(
+        self,
+        on_ok: impl FnOnce(T) -> R,
+        on_err: impl FnOnce(Box<dyn std::error::Error + Send + Sync>) -> R,
+    ) -> R {
         match self {
             StraitResult::Ok(v) => on_ok(v),
             StraitResult::Err(e) => on_err(e),
@@ -46,7 +50,9 @@ impl<T: fmt::Display> fmt::Display for StraitResult<T> {
     }
 }
 
-pub fn from_fn<T, E: std::error::Error + Send + Sync + 'static>(f: impl FnOnce() -> Result<T, E>) -> StraitResult<T> {
+pub fn from_fn<T, E: std::error::Error + Send + Sync + 'static>(
+    f: impl FnOnce() -> Result<T, E>,
+) -> StraitResult<T> {
     match f() {
         Ok(v) => StraitResult::Ok(v),
         Err(e) => StraitResult::Err(Box::new(e)),
@@ -72,13 +78,15 @@ mod tests {
 
     #[test]
     fn test_err_is_err() {
-        let r: StraitResult<i32> = StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
+        let r: StraitResult<i32> =
+            StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
         assert!(r.is_err());
     }
 
     #[test]
     fn test_err_is_not_ok() {
-        let r: StraitResult<i32> = StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
+        let r: StraitResult<i32> =
+            StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
         assert!(!r.is_ok());
     }
 
@@ -91,13 +99,15 @@ mod tests {
     #[test]
     #[should_panic(expected = "called unwrap on an Err")]
     fn test_unwrap_err_panics() {
-        let r: StraitResult<i32> = StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
+        let r: StraitResult<i32> =
+            StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
         r.unwrap();
     }
 
     #[test]
     fn test_unwrap_err() {
-        let r: StraitResult<i32> = StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
+        let r: StraitResult<i32> =
+            StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
         let e = r.unwrap_err();
         assert_eq!(format!("{}", e), "fail");
     }
@@ -118,7 +128,8 @@ mod tests {
 
     #[test]
     fn test_match_result_err() {
-        let r: StraitResult<i32> = StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
+        let r: StraitResult<i32> =
+            StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
         let v = r.match_result(|v| v * 2, |_| -1);
         assert_eq!(v, -1);
     }
@@ -131,7 +142,8 @@ mod tests {
 
     #[test]
     fn test_display_err() {
-        let r: StraitResult<i32> = StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
+        let r: StraitResult<i32> =
+            StraitResult::Err(Box::new(io::Error::new(io::ErrorKind::Other, "fail")));
         assert_eq!(format!("{}", r), "Err(fail)");
     }
 
@@ -144,13 +156,17 @@ mod tests {
 
     #[test]
     fn test_from_fn_err() {
-        let r = from_fn(|| -> Result<i32, io::Error> { Err(io::Error::new(io::ErrorKind::Other, "fail")) });
+        let r = from_fn(|| -> Result<i32, io::Error> {
+            Err(io::Error::new(io::ErrorKind::Other, "fail"))
+        });
         assert!(r.is_err());
     }
 
     #[test]
     fn test_from_fn_err_message() {
-        let r = from_fn(|| -> Result<i32, io::Error> { Err(io::Error::new(io::ErrorKind::NotFound, "not found")) });
+        let r = from_fn(|| -> Result<i32, io::Error> {
+            Err(io::Error::new(io::ErrorKind::NotFound, "not found"))
+        });
         let e = r.unwrap_err();
         assert_eq!(format!("{}", e), "not found");
     }

@@ -97,13 +97,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_collect_all_single_page() {
-        let result = collect_all(|_q| async {
-            Ok::<_, StraitError>(PaginatedResponse {
-                data: vec![1, 2, 3],
-                next_cursor: None,
-                has_more: false,
-            })
-        }, None).await;
+        let result = collect_all(
+            |_q| async {
+                Ok::<_, StraitError>(PaginatedResponse {
+                    data: vec![1, 2, 3],
+                    next_cursor: None,
+                    has_more: false,
+                })
+            },
+            None,
+        )
+        .await;
         assert_eq!(result.unwrap(), vec![1, 2, 3]);
     }
 
@@ -111,44 +115,59 @@ mod tests {
     async fn test_collect_all_multiple_pages() {
         let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
         let cc = call_count.clone();
-        let result = collect_all(move |_q| {
-            let cc = cc.clone();
-            async move {
-                let n = cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                match n {
-                    0 => Ok::<_, StraitError>(PaginatedResponse {
-                        data: vec![1, 2],
-                        next_cursor: Some("c1".to_string()),
-                        has_more: true,
-                    }),
-                    _ => Ok(PaginatedResponse {
-                        data: vec![3],
-                        next_cursor: None,
-                        has_more: false,
-                    }),
+        let result = collect_all(
+            move |_q| {
+                let cc = cc.clone();
+                async move {
+                    let n = cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    match n {
+                        0 => Ok::<_, StraitError>(PaginatedResponse {
+                            data: vec![1, 2],
+                            next_cursor: Some("c1".to_string()),
+                            has_more: true,
+                        }),
+                        _ => Ok(PaginatedResponse {
+                            data: vec![3],
+                            next_cursor: None,
+                            has_more: false,
+                        }),
+                    }
                 }
-            }
-        }, None).await;
+            },
+            None,
+        )
+        .await;
         assert_eq!(result.unwrap(), vec![1, 2, 3]);
     }
 
     #[tokio::test]
     async fn test_collect_all_empty() {
-        let result = collect_all(|_q| async {
-            Ok::<_, StraitError>(PaginatedResponse::<i32> {
-                data: vec![],
-                next_cursor: None,
-                has_more: false,
-            })
-        }, None).await;
+        let result = collect_all(
+            |_q| async {
+                Ok::<_, StraitError>(PaginatedResponse::<i32> {
+                    data: vec![],
+                    next_cursor: None,
+                    has_more: false,
+                })
+            },
+            None,
+        )
+        .await;
         assert_eq!(result.unwrap(), Vec::<i32>::new());
     }
 
     #[tokio::test]
     async fn test_collect_all_error() {
-        let result = collect_all::<i32, _, _>(|_q| async {
-            Err(StraitError::Transport { message: "fail".to_string(), cause: None })
-        }, None).await;
+        let result = collect_all::<i32, _, _>(
+            |_q| async {
+                Err(StraitError::Transport {
+                    message: "fail".to_string(),
+                    cause: None,
+                })
+            },
+            None,
+        )
+        .await;
         assert!(result.is_err());
     }
 }

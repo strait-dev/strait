@@ -52,29 +52,75 @@ impl JobDefinition {
             .map(|s| s.to_string())
             .or_else(|| self.opts.project_id.clone());
         let mut body = json!({});
-        if let Some(v) = &self.opts.name { body["name"] = json!(v); }
-        if let Some(v) = &self.opts.slug { body["slug"] = json!(v); }
-        if let Some(v) = &self.opts.endpoint_url { body["endpoint_url"] = json!(v); }
-        if let Some(v) = &pid { body["project_id"] = json!(v); }
-        if let Some(v) = &self.opts.description { body["description"] = json!(v); }
-        if let Some(v) = &self.opts.group_id { body["group_id"] = json!(v); }
-        if let Some(v) = &self.opts.tags { body["tags"] = json!(v); }
-        if let Some(v) = &self.opts.environment_id { body["environment_id"] = json!(v); }
-        if let Some(v) = &self.opts.cron { body["cron"] = json!(v); }
-        if let Some(v) = &self.opts.timezone { body["timezone"] = json!(v); }
-        if let Some(v) = &self.opts.execution_window_cron { body["execution_window_cron"] = json!(v); }
-        if let Some(v) = self.opts.max_concurrency { body["max_concurrency"] = json!(v); }
-        if let Some(v) = self.opts.rate_limit_max { body["rate_limit_max"] = json!(v); }
-        if let Some(v) = self.opts.rate_limit_window_secs { body["rate_limit_window_secs"] = json!(v); }
-        if let Some(v) = self.opts.max_attempts { body["max_attempts"] = json!(v); }
-        if let Some(v) = &self.opts.retry_strategy { body["retry_strategy"] = json!(v); }
-        if let Some(v) = &self.opts.retry_delays_secs { body["retry_delays_secs"] = json!(v); }
-        if let Some(v) = self.opts.timeout_secs { body["timeout_secs"] = json!(v); }
-        if let Some(v) = self.opts.run_ttl_secs { body["run_ttl_secs"] = json!(v); }
-        if let Some(v) = self.opts.dedup_window_secs { body["dedup_window_secs"] = json!(v); }
-        if let Some(v) = &self.opts.webhook_url { body["webhook_url"] = json!(v); }
-        if let Some(v) = &self.opts.webhook_secret { body["webhook_secret"] = json!(v); }
-        if let Some(v) = &self.opts.fallback_endpoint_url { body["fallback_endpoint_url"] = json!(v); }
+        if let Some(v) = &self.opts.name {
+            body["name"] = json!(v);
+        }
+        if let Some(v) = &self.opts.slug {
+            body["slug"] = json!(v);
+        }
+        if let Some(v) = &self.opts.endpoint_url {
+            body["endpoint_url"] = json!(v);
+        }
+        if let Some(v) = &pid {
+            body["project_id"] = json!(v);
+        }
+        if let Some(v) = &self.opts.description {
+            body["description"] = json!(v);
+        }
+        if let Some(v) = &self.opts.group_id {
+            body["group_id"] = json!(v);
+        }
+        if let Some(v) = &self.opts.tags {
+            body["tags"] = json!(v);
+        }
+        if let Some(v) = &self.opts.environment_id {
+            body["environment_id"] = json!(v);
+        }
+        if let Some(v) = &self.opts.cron {
+            body["cron"] = json!(v);
+        }
+        if let Some(v) = &self.opts.timezone {
+            body["timezone"] = json!(v);
+        }
+        if let Some(v) = &self.opts.execution_window_cron {
+            body["execution_window_cron"] = json!(v);
+        }
+        if let Some(v) = self.opts.max_concurrency {
+            body["max_concurrency"] = json!(v);
+        }
+        if let Some(v) = self.opts.rate_limit_max {
+            body["rate_limit_max"] = json!(v);
+        }
+        if let Some(v) = self.opts.rate_limit_window_secs {
+            body["rate_limit_window_secs"] = json!(v);
+        }
+        if let Some(v) = self.opts.max_attempts {
+            body["max_attempts"] = json!(v);
+        }
+        if let Some(v) = &self.opts.retry_strategy {
+            body["retry_strategy"] = json!(v);
+        }
+        if let Some(v) = &self.opts.retry_delays_secs {
+            body["retry_delays_secs"] = json!(v);
+        }
+        if let Some(v) = self.opts.timeout_secs {
+            body["timeout_secs"] = json!(v);
+        }
+        if let Some(v) = self.opts.run_ttl_secs {
+            body["run_ttl_secs"] = json!(v);
+        }
+        if let Some(v) = self.opts.dedup_window_secs {
+            body["dedup_window_secs"] = json!(v);
+        }
+        if let Some(v) = &self.opts.webhook_url {
+            body["webhook_url"] = json!(v);
+        }
+        if let Some(v) = &self.opts.webhook_secret {
+            body["webhook_secret"] = json!(v);
+        }
+        if let Some(v) = &self.opts.fallback_endpoint_url {
+            body["fallback_endpoint_url"] = json!(v);
+        }
         body
     }
 }
@@ -100,7 +146,10 @@ mod tests {
 
     #[test]
     fn test_define_job_slug() {
-        let job = define_job(JobOptions { slug: Some("test-slug".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            slug: Some("test-slug".to_string()),
+            ..Default::default()
+        });
         assert_eq!(job.slug, Some("test-slug".to_string()));
     }
 
@@ -118,14 +167,20 @@ mod tests {
 
     #[test]
     fn test_registration_body_name() {
-        let job = define_job(JobOptions { name: Some("Test".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            name: Some("Test".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["name"], "Test");
     }
 
     #[test]
     fn test_registration_body_slug() {
-        let job = define_job(JobOptions { slug: Some("test".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            slug: Some("test".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["slug"], "test");
     }
@@ -139,42 +194,60 @@ mod tests {
 
     #[test]
     fn test_registration_body_project_id_from_opts() {
-        let job = define_job(JobOptions { project_id: Some("proj-2".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            project_id: Some("proj-2".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["project_id"], "proj-2");
     }
 
     #[test]
     fn test_registration_body_param_overrides_opts() {
-        let job = define_job(JobOptions { project_id: Some("proj-opts".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            project_id: Some("proj-opts".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(Some("proj-param"));
         assert_eq!(body["project_id"], "proj-param");
     }
 
     #[test]
     fn test_registration_body_cron() {
-        let job = define_job(JobOptions { cron: Some("*/5 * * * *".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            cron: Some("*/5 * * * *".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["cron"], "*/5 * * * *");
     }
 
     #[test]
     fn test_registration_body_max_attempts() {
-        let job = define_job(JobOptions { max_attempts: Some(3), ..Default::default() });
+        let job = define_job(JobOptions {
+            max_attempts: Some(3),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["max_attempts"], 3);
     }
 
     #[test]
     fn test_registration_body_timeout_secs() {
-        let job = define_job(JobOptions { timeout_secs: Some(60), ..Default::default() });
+        let job = define_job(JobOptions {
+            timeout_secs: Some(60),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["timeout_secs"], 60);
     }
 
     #[test]
     fn test_registration_body_omits_none() {
-        let job = define_job(JobOptions { name: Some("Test".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            name: Some("Test".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert!(body.get("cron").is_none());
         assert!(body.get("timeout_secs").is_none());
@@ -183,21 +256,30 @@ mod tests {
 
     #[test]
     fn test_registration_body_endpoint_url() {
-        let job = define_job(JobOptions { endpoint_url: Some("https://example.com/handler".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            endpoint_url: Some("https://example.com/handler".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["endpoint_url"], "https://example.com/handler");
     }
 
     #[test]
     fn test_registration_body_tags() {
-        let job = define_job(JobOptions { tags: Some(vec!["a".to_string(), "b".to_string()]), ..Default::default() });
+        let job = define_job(JobOptions {
+            tags: Some(vec!["a".to_string(), "b".to_string()]),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["tags"], json!(["a", "b"]));
     }
 
     #[test]
     fn test_registration_body_description() {
-        let job = define_job(JobOptions { description: Some("My job".to_string()), ..Default::default() });
+        let job = define_job(JobOptions {
+            description: Some("My job".to_string()),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["description"], "My job");
     }
@@ -216,7 +298,10 @@ mod tests {
 
     #[test]
     fn test_registration_body_max_concurrency() {
-        let job = define_job(JobOptions { max_concurrency: Some(5), ..Default::default() });
+        let job = define_job(JobOptions {
+            max_concurrency: Some(5),
+            ..Default::default()
+        });
         let body = job.to_registration_body(None);
         assert_eq!(body["max_concurrency"], 5);
     }

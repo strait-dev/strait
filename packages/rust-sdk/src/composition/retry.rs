@@ -43,10 +43,7 @@ fn compute_delay(base_delay: u64, jitter: JitterStrategy) -> u64 {
     }
 }
 
-pub async fn with_retry<T, F, Fut>(
-    f: F,
-    opts: Option<&RetryOptions>,
-) -> Result<T, StraitError>
+pub async fn with_retry<T, F, Fut>(f: F, opts: Option<&RetryOptions>) -> Result<T, StraitError>
 where
     F: Fn() -> Fut,
     Fut: Future<Output = Result<T, StraitError>>,
@@ -140,26 +137,54 @@ mod tests {
     async fn test_retry_succeeds_after_failures() {
         let counter = Arc::new(AtomicU32::new(0));
         let c = counter.clone();
-        let opts = RetryOptions { attempts: 3, delay_ms: 1, factor: 1.0, max_delay_ms: 10, jitter: JitterStrategy::None };
-        let result = with_retry(move || {
-            let c = c.clone();
-            async move {
-                let n = c.fetch_add(1, Ordering::SeqCst);
-                if n < 2 {
-                    Err(StraitError::Transport { message: "fail".to_string(), cause: None })
-                } else {
-                    Ok(42)
+        let opts = RetryOptions {
+            attempts: 3,
+            delay_ms: 1,
+            factor: 1.0,
+            max_delay_ms: 10,
+            jitter: JitterStrategy::None,
+        };
+        let result = with_retry(
+            move || {
+                let c = c.clone();
+                async move {
+                    let n = c.fetch_add(1, Ordering::SeqCst);
+                    if n < 2 {
+                        Err(StraitError::Transport {
+                            message: "fail".to_string(),
+                            cause: None,
+                        })
+                    } else {
+                        Ok(42)
+                    }
                 }
-            }
-        }, Some(&opts)).await;
+            },
+            Some(&opts),
+        )
+        .await;
         assert_eq!(result.unwrap(), 42);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]
     async fn test_retry_exhausts_attempts() {
-        let opts = RetryOptions { attempts: 2, delay_ms: 1, factor: 1.0, max_delay_ms: 10, jitter: JitterStrategy::None };
-        let result = with_retry(|| async { Err::<i32, _>(StraitError::Transport { message: "fail".to_string(), cause: None }) }, Some(&opts)).await;
+        let opts = RetryOptions {
+            attempts: 2,
+            delay_ms: 1,
+            factor: 1.0,
+            max_delay_ms: 10,
+            jitter: JitterStrategy::None,
+        };
+        let result = with_retry(
+            || async {
+                Err::<i32, _>(StraitError::Transport {
+                    message: "fail".to_string(),
+                    cause: None,
+                })
+            },
+            Some(&opts),
+        )
+        .await;
         assert!(result.is_err());
     }
 
@@ -167,14 +192,27 @@ mod tests {
     async fn test_retry_single_attempt() {
         let counter = Arc::new(AtomicU32::new(0));
         let c = counter.clone();
-        let opts = RetryOptions { attempts: 1, delay_ms: 1, factor: 1.0, max_delay_ms: 10, jitter: JitterStrategy::None };
-        let result = with_retry(move || {
-            let c = c.clone();
-            async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                Err::<i32, _>(StraitError::Transport { message: "fail".to_string(), cause: None })
-            }
-        }, Some(&opts)).await;
+        let opts = RetryOptions {
+            attempts: 1,
+            delay_ms: 1,
+            factor: 1.0,
+            max_delay_ms: 10,
+            jitter: JitterStrategy::None,
+        };
+        let result = with_retry(
+            move || {
+                let c = c.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    Err::<i32, _>(StraitError::Transport {
+                        message: "fail".to_string(),
+                        cause: None,
+                    })
+                }
+            },
+            Some(&opts),
+        )
+        .await;
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }

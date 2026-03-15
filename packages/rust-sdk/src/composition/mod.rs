@@ -1,15 +1,15 @@
+pub mod deployments;
+pub mod idempotency;
+pub mod paginate;
 pub mod result;
 pub mod retry;
-pub mod wait;
 pub mod trigger;
-pub mod paginate;
-pub mod idempotency;
-pub mod deployments;
+pub mod wait;
 
+pub use deployments::*;
+pub use idempotency::*;
+pub use paginate::*;
 pub use result::*;
 pub use retry::*;
-pub use wait::*;
 pub use trigger::*;
-pub use paginate::*;
-pub use idempotency::*;
-pub use deployments::*;
+pub use wait::*;

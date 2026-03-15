@@ -1,8 +1,17 @@
-use crate::errors::StraitError;
 use super::wait::{wait_for_run, WaitForRunOptions};
+use crate::errors::StraitError;
 use std::future::Future;
 
-pub async fn trigger_and_wait<TInput, TRun, TriggerFut, GetRunFut, TriggerFn, GetRunFn, GetIdFn, GetStatusFn>(
+pub async fn trigger_and_wait<
+    TInput,
+    TRun,
+    TriggerFut,
+    GetRunFut,
+    TriggerFn,
+    GetRunFn,
+    GetIdFn,
+    GetStatusFn,
+>(
     input: TInput,
     trigger_fn: TriggerFn,
     get_run: GetRunFn,

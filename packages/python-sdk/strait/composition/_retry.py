@@ -63,8 +63,8 @@ async def with_retry_async(
         try:
             result = fn()
             if asyncio.iscoroutine(result):
-                return await result  # type: ignore[misc]
-            return result  # type: ignore[return-value]
+                return await result  # type: ignore[no-any-return]
+            return result
         except Exception as err:
             if attempt >= o.attempts:
                 raise

@@ -5,9 +5,9 @@ use std::time::Instant;
 use reqwest::Client;
 use serde_json::Value;
 
+use crate::config::config_from_env;
 use crate::config::{normalize_base_url, AuthMode, AuthType, Config};
 use crate::config_file::config_from_file;
-use crate::config::config_from_env;
 use crate::errors::{map_http_error, StraitError};
 use crate::middleware::{ErrorContext, Middleware, RequestContext, ResponseContext};
 use crate::operations::analytics::AnalyticsService;
@@ -78,7 +78,10 @@ impl StraitClient {
         }))
     }
 
-    pub fn from_file(path: Option<&str>, search_dir: Option<&str>) -> Result<Arc<StraitClient>, StraitError> {
+    pub fn from_file(
+        path: Option<&str>,
+        search_dir: Option<&str>,
+    ) -> Result<Arc<StraitClient>, StraitError> {
         let config = config_from_file(path, search_dir)?;
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_millis(config.timeout_ms))
@@ -337,7 +340,8 @@ impl StraitClientBuilder {
     }
 
     pub fn default_header(mut self, key: &str, value: &str) -> Self {
-        self.default_headers.insert(key.to_string(), value.to_string());
+        self.default_headers
+            .insert(key.to_string(), value.to_string());
         self
     }
 
@@ -447,16 +451,17 @@ mod tests {
     fn test_builder_with_auth_mode() {
         let client = StraitClient::builder()
             .base_url("https://api.example.com")
-            .auth(AuthMode { auth_type: AuthType::Bearer, token: "tok".to_string() })
+            .auth(AuthMode {
+                auth_type: AuthType::Bearer,
+                token: "tok".to_string(),
+            })
             .build();
         assert!(client.is_ok());
     }
 
     #[test]
     fn test_builder_missing_base_url() {
-        let result = StraitClient::builder()
-            .bearer_token("tok")
-            .build();
+        let result = StraitClient::builder().bearer_token("tok").build();
         assert!(result.is_err());
         if let Err(StraitError::Validation { message, .. }) = result {
             assert!(message.contains("base_url"));

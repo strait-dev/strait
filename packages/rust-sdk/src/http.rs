@@ -29,7 +29,10 @@ mod tests {
 
     #[test]
     fn test_substitute_multiple_params() {
-        let result = substitute_path_params("/v1/jobs/{jobID}/versions/{versionID}", &[("jobID", "j1"), ("versionID", "v2")]);
+        let result = substitute_path_params(
+            "/v1/jobs/{jobID}/versions/{versionID}",
+            &[("jobID", "j1"), ("versionID", "v2")],
+        );
         assert_eq!(result, "/v1/jobs/j1/versions/v2");
     }
 

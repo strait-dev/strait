@@ -35,7 +35,9 @@ impl std::str::FromStr for AuthType {
             "runToken" => Ok(AuthType::RunToken),
             _ => Err(StraitError::Validation {
                 message: format!("invalid auth type: {s}"),
-                issues: vec![format!("expected one of: bearer, apiKey, runToken; got: {s}")],
+                issues: vec![format!(
+                    "expected one of: bearer, apiKey, runToken; got: {s}"
+                )],
             }),
         }
     }
@@ -153,17 +155,26 @@ mod tests {
 
     #[test]
     fn test_normalize_base_url_strips_trailing_slash() {
-        assert_eq!(normalize_base_url("https://api.example.com/"), "https://api.example.com");
+        assert_eq!(
+            normalize_base_url("https://api.example.com/"),
+            "https://api.example.com"
+        );
     }
 
     #[test]
     fn test_normalize_base_url_strips_multiple_slashes() {
-        assert_eq!(normalize_base_url("https://api.example.com///"), "https://api.example.com");
+        assert_eq!(
+            normalize_base_url("https://api.example.com///"),
+            "https://api.example.com"
+        );
     }
 
     #[test]
     fn test_normalize_base_url_no_trailing_slash() {
-        assert_eq!(normalize_base_url("https://api.example.com"), "https://api.example.com");
+        assert_eq!(
+            normalize_base_url("https://api.example.com"),
+            "https://api.example.com"
+        );
     }
 
     #[test]
@@ -178,13 +189,19 @@ mod tests {
 
     #[test]
     fn test_get_authorization_header_bearer() {
-        let auth = AuthMode { auth_type: AuthType::Bearer, token: "tok123".to_string() };
+        let auth = AuthMode {
+            auth_type: AuthType::Bearer,
+            token: "tok123".to_string(),
+        };
         assert_eq!(get_authorization_header(&auth), "Bearer tok123");
     }
 
     #[test]
     fn test_get_authorization_header_api_key() {
-        let auth = AuthMode { auth_type: AuthType::ApiKey, token: "key-abc".to_string() };
+        let auth = AuthMode {
+            auth_type: AuthType::ApiKey,
+            token: "key-abc".to_string(),
+        };
         assert_eq!(get_authorization_header(&auth), "Bearer key-abc");
     }
 
@@ -192,7 +209,10 @@ mod tests {
     fn test_config_default_timeout() {
         let config = Config {
             base_url: "https://api.example.com".to_string(),
-            auth: AuthMode { auth_type: AuthType::ApiKey, token: "key".to_string() },
+            auth: AuthMode {
+                auth_type: AuthType::ApiKey,
+                token: "key".to_string(),
+            },
             default_headers: HashMap::new(),
             timeout_ms: 30_000,
         };
@@ -201,7 +221,10 @@ mod tests {
 
     #[test]
     fn test_auth_mode_creation() {
-        let auth = AuthMode { auth_type: AuthType::ApiKey, token: "my-key".to_string() };
+        let auth = AuthMode {
+            auth_type: AuthType::ApiKey,
+            token: "my-key".to_string(),
+        };
         assert_eq!(auth.token, "my-key");
         assert_eq!(format!("{}", auth.auth_type), "apiKey");
     }
@@ -210,7 +233,10 @@ mod tests {
     fn test_config_base_url_stored() {
         let config = Config {
             base_url: "https://test.io".to_string(),
-            auth: AuthMode { auth_type: AuthType::Bearer, token: "t".to_string() },
+            auth: AuthMode {
+                auth_type: AuthType::Bearer,
+                token: "t".to_string(),
+            },
             default_headers: HashMap::new(),
             timeout_ms: 5000,
         };
@@ -221,7 +247,10 @@ mod tests {
     fn test_config_default_headers_empty() {
         let config = Config {
             base_url: "https://test.io".to_string(),
-            auth: AuthMode { auth_type: AuthType::Bearer, token: "t".to_string() },
+            auth: AuthMode {
+                auth_type: AuthType::Bearer,
+                token: "t".to_string(),
+            },
             default_headers: HashMap::new(),
             timeout_ms: 5000,
         };
@@ -234,7 +263,10 @@ mod tests {
         headers.insert("X-Custom".to_string(), "value".to_string());
         let config = Config {
             base_url: "https://test.io".to_string(),
-            auth: AuthMode { auth_type: AuthType::Bearer, token: "t".to_string() },
+            auth: AuthMode {
+                auth_type: AuthType::Bearer,
+                token: "t".to_string(),
+            },
             default_headers: headers,
             timeout_ms: 5000,
         };

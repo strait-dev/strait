@@ -44,8 +44,13 @@ where
 
         // Check if terminal (simple string match since we don't parse into enum here)
         let terminal_statuses = [
-            "completed", "failed", "timed_out", "crashed",
-            "system_failed", "canceled", "expired",
+            "completed",
+            "failed",
+            "timed_out",
+            "crashed",
+            "system_failed",
+            "canceled",
+            "expired",
         ];
         if terminal_statuses.contains(&status_str) {
             return Ok(run);
@@ -85,7 +90,8 @@ mod tests {
             |_id| async { Ok::<_, StraitError>("completed") },
             |s| *s,
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(result.unwrap(), "completed");
     }
 
@@ -96,7 +102,8 @@ mod tests {
             |_id| async { Ok::<_, StraitError>("failed") },
             |s| *s,
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(result.unwrap(), "failed");
     }
 
@@ -113,7 +120,8 @@ mod tests {
             |_id| async { Ok::<_, StraitError>("running") },
             |s| *s,
             Some(&opts),
-        ).await;
+        )
+        .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             StraitError::Timeout { run_id, .. } => {
@@ -127,10 +135,17 @@ mod tests {
     async fn test_wait_for_run_get_error() {
         let result = wait_for_run(
             "run-1",
-            |_id| async { Err::<String, _>(StraitError::NotFound { status: 404, message: "not found".to_string(), body: None }) },
+            |_id| async {
+                Err::<String, _>(StraitError::NotFound {
+                    status: 404,
+                    message: "not found".to_string(),
+                    body: None,
+                })
+            },
             |s: &String| s.as_str(),
             None,
-        ).await;
+        )
+        .await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), StraitError::NotFound { .. }));
     }
@@ -142,7 +157,8 @@ mod tests {
             |_id| async { Ok::<_, StraitError>("canceled") },
             |s| *s,
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(result.unwrap(), "canceled");
     }
 
@@ -153,7 +169,8 @@ mod tests {
             |_id| async { Ok::<_, StraitError>("timed_out") },
             |s| *s,
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(result.unwrap(), "timed_out");
     }
 }

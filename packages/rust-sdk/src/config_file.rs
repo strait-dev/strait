@@ -57,7 +57,10 @@ fn find_config_file(path: Option<&str>, search_dir: Option<&str>) -> Option<Path
     }
 }
 
-fn read_config_file(path: Option<&str>, search_dir: Option<&str>) -> Result<Option<ConfigFileSchema>, StraitError> {
+fn read_config_file(
+    path: Option<&str>,
+    search_dir: Option<&str>,
+) -> Result<Option<ConfigFileSchema>, StraitError> {
     let file_path = match find_config_file(path, search_dir) {
         Some(p) => p,
         None => return Ok(None),
@@ -68,15 +71,19 @@ fn read_config_file(path: Option<&str>, search_dir: Option<&str>) -> Result<Opti
         cause: Some(e.to_string()),
     })?;
 
-    let schema: ConfigFileSchema = serde_json::from_str(&contents).map_err(|e| StraitError::Decode {
-        message: format!("failed to parse config file: {}", file_path.display()),
-        body: Some(e.to_string()),
-    })?;
+    let schema: ConfigFileSchema =
+        serde_json::from_str(&contents).map_err(|e| StraitError::Decode {
+            message: format!("failed to parse config file: {}", file_path.display()),
+            body: Some(e.to_string()),
+        })?;
 
     Ok(Some(schema))
 }
 
-pub fn config_from_file(path: Option<&str>, search_dir: Option<&str>) -> Result<Config, StraitError> {
+pub fn config_from_file(
+    path: Option<&str>,
+    search_dir: Option<&str>,
+) -> Result<Config, StraitError> {
     let schema = read_config_file(path, search_dir)?;
 
     let env_base_url = env::var("STRAIT_BASE_URL").ok();
@@ -89,7 +96,8 @@ pub fn config_from_file(path: Option<&str>, search_dir: Option<&str>) -> Result<
     let base_url = env_base_url
         .or_else(|| sdk.and_then(|s| s.base_url.clone()))
         .ok_or_else(|| StraitError::Validation {
-            message: "base_url is required (set STRAIT_BASE_URL or configure in strait.json)".to_string(),
+            message: "base_url is required (set STRAIT_BASE_URL or configure in strait.json)"
+                .to_string(),
             issues: vec!["base_url not found in environment or config file".to_string()],
         })?;
 
@@ -119,7 +127,10 @@ pub fn config_from_file(path: Option<&str>, search_dir: Option<&str>) -> Result<
     })
 }
 
-pub fn project_id_from_file(path: Option<&str>, search_dir: Option<&str>) -> Result<Option<String>, StraitError> {
+pub fn project_id_from_file(
+    path: Option<&str>,
+    search_dir: Option<&str>,
+) -> Result<Option<String>, StraitError> {
     let schema = read_config_file(path, search_dir)?;
     Ok(schema.and_then(|s| s.project).and_then(|p| p.id))
 }

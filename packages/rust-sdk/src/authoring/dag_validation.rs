@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use crate::errors::StraitError;
 use super::steps::Step;
+use crate::errors::StraitError;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub fn validate_dag(steps: &[Step]) -> Result<Vec<String>, StraitError> {
     let refs: Vec<String> = steps.iter().map(|s| s.step_ref().to_string()).collect();
@@ -105,8 +105,22 @@ mod tests {
     fn test_valid_linear_dag() {
         let steps = vec![
             job_step("s1", "j1", BaseStepOptions::default()),
-            job_step("s2", "j2", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
-            job_step("s3", "j3", BaseStepOptions { depends_on: vec!["s2".to_string()], ..Default::default() }),
+            job_step(
+                "s2",
+                "j2",
+                BaseStepOptions {
+                    depends_on: vec!["s1".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "s3",
+                "j3",
+                BaseStepOptions {
+                    depends_on: vec!["s2".to_string()],
+                    ..Default::default()
+                },
+            ),
         ];
         let result = validate_dag(&steps);
         assert!(result.is_ok());
@@ -117,9 +131,30 @@ mod tests {
     fn test_valid_diamond_dag() {
         let steps = vec![
             job_step("s1", "j1", BaseStepOptions::default()),
-            job_step("s2", "j2", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
-            job_step("s3", "j3", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
-            job_step("s4", "j4", BaseStepOptions { depends_on: vec!["s2".to_string(), "s3".to_string()], ..Default::default() }),
+            job_step(
+                "s2",
+                "j2",
+                BaseStepOptions {
+                    depends_on: vec!["s1".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "s3",
+                "j3",
+                BaseStepOptions {
+                    depends_on: vec!["s1".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "s4",
+                "j4",
+                BaseStepOptions {
+                    depends_on: vec!["s2".to_string(), "s3".to_string()],
+                    ..Default::default()
+                },
+            ),
         ];
         let result = validate_dag(&steps);
         assert!(result.is_ok());
@@ -140,8 +175,22 @@ mod tests {
     #[test]
     fn test_cycle_detection_two_nodes() {
         let steps = vec![
-            job_step("a", "j1", BaseStepOptions { depends_on: vec!["b".to_string()], ..Default::default() }),
-            job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
+            job_step(
+                "a",
+                "j1",
+                BaseStepOptions {
+                    depends_on: vec!["b".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "b",
+                "j2",
+                BaseStepOptions {
+                    depends_on: vec!["a".to_string()],
+                    ..Default::default()
+                },
+            ),
         ];
         let result = validate_dag(&steps);
         assert!(result.is_err());
@@ -156,9 +205,30 @@ mod tests {
     #[test]
     fn test_three_node_cycle() {
         let steps = vec![
-            job_step("a", "j1", BaseStepOptions { depends_on: vec!["c".to_string()], ..Default::default() }),
-            job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
-            job_step("c", "j3", BaseStepOptions { depends_on: vec!["b".to_string()], ..Default::default() }),
+            job_step(
+                "a",
+                "j1",
+                BaseStepOptions {
+                    depends_on: vec!["c".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "b",
+                "j2",
+                BaseStepOptions {
+                    depends_on: vec!["a".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "c",
+                "j3",
+                BaseStepOptions {
+                    depends_on: vec!["b".to_string()],
+                    ..Default::default()
+                },
+            ),
         ];
         assert!(validate_dag(&steps).is_err());
     }
@@ -181,9 +251,14 @@ mod tests {
 
     #[test]
     fn test_missing_refs() {
-        let steps = vec![
-            job_step("s1", "j1", BaseStepOptions { depends_on: vec!["nonexistent".to_string()], ..Default::default() }),
-        ];
+        let steps = vec![job_step(
+            "s1",
+            "j1",
+            BaseStepOptions {
+                depends_on: vec!["nonexistent".to_string()],
+                ..Default::default()
+            },
+        )];
         let result = validate_dag(&steps);
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -206,17 +281,27 @@ mod tests {
 
     #[test]
     fn test_self_dependency() {
-        let steps = vec![
-            job_step("s1", "j1", BaseStepOptions { depends_on: vec!["s1".to_string()], ..Default::default() }),
-        ];
+        let steps = vec![job_step(
+            "s1",
+            "j1",
+            BaseStepOptions {
+                depends_on: vec!["s1".to_string()],
+                ..Default::default()
+            },
+        )];
         assert!(validate_dag(&steps).is_err());
     }
 
     #[test]
     fn test_multiple_missing_refs() {
-        let steps = vec![
-            job_step("s1", "j1", BaseStepOptions { depends_on: vec!["x".to_string(), "y".to_string()], ..Default::default() }),
-        ];
+        let steps = vec![job_step(
+            "s1",
+            "j1",
+            BaseStepOptions {
+                depends_on: vec!["x".to_string(), "y".to_string()],
+                ..Default::default()
+            },
+        )];
         let result = validate_dag(&steps);
         match result.unwrap_err() {
             StraitError::DagValidation { missing_refs, .. } => {
@@ -230,7 +315,14 @@ mod tests {
     fn test_topological_order_preserved() {
         let steps = vec![
             job_step("a", "j1", BaseStepOptions::default()),
-            job_step("b", "j2", BaseStepOptions { depends_on: vec!["a".to_string()], ..Default::default() }),
+            job_step(
+                "b",
+                "j2",
+                BaseStepOptions {
+                    depends_on: vec!["a".to_string()],
+                    ..Default::default()
+                },
+            ),
         ];
         let sorted = validate_dag(&steps).unwrap();
         let a_pos = sorted.iter().position(|s| s == "a").unwrap();
@@ -242,9 +334,30 @@ mod tests {
     fn test_diamond_topological_order() {
         let steps = vec![
             job_step("root", "j1", BaseStepOptions::default()),
-            job_step("left", "j2", BaseStepOptions { depends_on: vec!["root".to_string()], ..Default::default() }),
-            job_step("right", "j3", BaseStepOptions { depends_on: vec!["root".to_string()], ..Default::default() }),
-            job_step("sink", "j4", BaseStepOptions { depends_on: vec!["left".to_string(), "right".to_string()], ..Default::default() }),
+            job_step(
+                "left",
+                "j2",
+                BaseStepOptions {
+                    depends_on: vec!["root".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "right",
+                "j3",
+                BaseStepOptions {
+                    depends_on: vec!["root".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "sink",
+                "j4",
+                BaseStepOptions {
+                    depends_on: vec!["left".to_string(), "right".to_string()],
+                    ..Default::default()
+                },
+            ),
         ];
         let sorted = validate_dag(&steps).unwrap();
         let root_pos = sorted.iter().position(|s| s == "root").unwrap();
@@ -255,8 +368,22 @@ mod tests {
     #[test]
     fn test_cycle_error_message_contains_involved_nodes() {
         let steps = vec![
-            job_step("x", "j1", BaseStepOptions { depends_on: vec!["y".to_string()], ..Default::default() }),
-            job_step("y", "j2", BaseStepOptions { depends_on: vec!["x".to_string()], ..Default::default() }),
+            job_step(
+                "x",
+                "j1",
+                BaseStepOptions {
+                    depends_on: vec!["y".to_string()],
+                    ..Default::default()
+                },
+            ),
+            job_step(
+                "y",
+                "j2",
+                BaseStepOptions {
+                    depends_on: vec!["x".to_string()],
+                    ..Default::default()
+                },
+            ),
         ];
         match validate_dag(&steps).unwrap_err() {
             StraitError::DagValidation { message, .. } => {
