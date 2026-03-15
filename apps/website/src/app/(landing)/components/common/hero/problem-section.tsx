@@ -1,5 +1,6 @@
 "use client";
 
+import Highlighter from "@/components/cultui/highlighter.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import {
   StaggerGroup,
@@ -18,25 +19,53 @@ const SPRAWL_BOXES = [
   "Shell Scripts",
 ];
 
-const PAIN_QUOTES = [
+const PAIN_QUOTES: Array<{ quote: React.ReactNode; role: string }> = [
   {
-    quote:
-      "We have 4 different queue systems and none agree on retry semantics.",
+    quote: (
+      <>
+        We have{" "}
+        <Highlighter color="var(--destructive)" isView type="underline">
+          4 different queue systems
+        </Highlighter>{" "}
+        and none agree on retry semantics.
+      </>
+    ),
     role: "Platform Engineer",
   },
   {
-    quote:
-      "When a job fails, I spend 30 minutes joining logs from three services.",
+    quote: (
+      <>
+        When a job fails, I spend{" "}
+        <Highlighter color="var(--destructive)" isView type="underline">
+          30 minutes joining logs
+        </Highlighter>{" "}
+        from three services.
+      </>
+    ),
     role: "SRE Lead",
   },
   {
-    quote:
-      "Our workflow dependencies are shell scripts calling other shell scripts.",
+    quote: (
+      <>
+        Our workflow dependencies are{" "}
+        <Highlighter color="var(--destructive)" isView type="underline">
+          shell scripts calling other shell scripts
+        </Highlighter>
+        .
+      </>
+    ),
     role: "Backend Tech Lead",
   },
   {
-    quote:
-      "Every new service reinvents the same job infrastructure from scratch.",
+    quote: (
+      <>
+        Every new service{" "}
+        <Highlighter color="var(--destructive)" isView type="underline">
+          reinvents the same job infrastructure
+        </Highlighter>{" "}
+        from scratch.
+      </>
+    ),
     role: "Engineering Manager",
   },
 ];
@@ -99,7 +128,7 @@ const ProblemSection = () => (
 
         {/* Right: Strait */}
         <div className="flex items-center justify-center">
-          <Reveal variant="scale" spring>
+          <Reveal spring variant="scale">
             <div className="flex flex-col items-center gap-4">
               <div className="rounded-xl border border-foreground/10 bg-card px-8 py-6 text-center shadow-sm">
                 <p className="font-heading font-semibold text-foreground text-lg">
@@ -128,8 +157,8 @@ const ProblemSection = () => (
       <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2">
         {PAIN_QUOTES.map((item, i) => (
           <Reveal
-            key={item.role}
             delay={i * 0.08}
+            key={item.role}
             variant={i % 2 === 0 ? "fade-left" : "fade-right"}
           >
             <div
