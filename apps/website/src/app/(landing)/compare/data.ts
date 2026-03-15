@@ -31,7 +31,7 @@ const comparisons: ComparisonPageData[] = [
     differentiators: [
       {
         title: "Infrastructure footprint",
-        strait: "Single Postgres instance with SKIP LOCKED queuing",
+        strait: "Single Postgres instance with Postgres-backed queuing",
         competitor:
           "Requires a multi-node cluster with Cassandra/MySQL and Elasticsearch",
       },
@@ -110,14 +110,14 @@ const comparisons: ComparisonPageData[] = [
     switchingSteps: [
       "Export your Temporal workflow definitions and map them to Strait DAG steps with conditions and approval gates.",
       "Point Strait at your existing Postgres database — no Cassandra, Elasticsearch, or cluster provisioning needed.",
-      "Deploy workers using the Go SDK and validate runs through the built-in observability dashboard.",
+      "Deploy workers using the Strait SDK and validate runs through the built-in observability dashboard.",
       "Decommission your Temporal cluster and reclaim infrastructure spend.",
     ],
   },
   {
     slug: "inngest",
     competitor: "Inngest",
-    tagline: "Self-hosted, no vendor lock-in, Go-native",
+    tagline: "Self-hosted, no vendor lock-in, multi-language SDKs",
     description:
       "Inngest offers a polished developer experience but locks you into their managed cloud. Strait gives you full control — self-host on your own infrastructure, own your data, and build workflows in Go without vendor dependencies.",
     differentiators: [
@@ -129,8 +129,8 @@ const comparisons: ComparisonPageData[] = [
       },
       {
         title: "Language ecosystem",
-        strait: "Go-native SDK with first-class concurrency and type safety",
-        competitor: "TypeScript-first with Go support as a secondary citizen",
+        strait: "TypeScript, Go & Python SDKs with first-class concurrency and type safety",
+        competitor: "TypeScript-first with limited Go support",
       },
       {
         title: "Data ownership",
@@ -169,7 +169,7 @@ const comparisons: ComparisonPageData[] = [
         name: "Developer Experience",
         features: [
           {
-            feature: "Go-native SDK",
+            feature: "Multi-language SDKs (TS, Go, Python)",
             strait: true,
             competitor: "Limited",
           },
@@ -211,7 +211,7 @@ const comparisons: ComparisonPageData[] = [
     differentiators: [
       {
         title: "Queue backend",
-        strait: "Postgres with SKIP LOCKED — no Redis to provision or maintain",
+        strait: "Postgres with Postgres-backed — no Redis to provision or maintain",
         competitor:
           "Requires a dedicated Redis instance with persistence configured",
       },
@@ -244,7 +244,7 @@ const comparisons: ComparisonPageData[] = [
             competitor: false,
           },
           {
-            feature: "13-state run lifecycle",
+            feature: "Full run lifecycle tracking",
             strait: true,
             competitor: "Limited states",
           },
@@ -287,7 +287,7 @@ const comparisons: ComparisonPageData[] = [
       },
     ],
     switchingSteps: [
-      "Replace BullMQ job definitions with Strait task and workflow configurations using the Go SDK.",
+      "Replace BullMQ job definitions with Strait task and workflow configurations using the Strait SDK.",
       "Remove your Redis dependency and connect Strait to your existing Postgres database.",
       "Convert job chains to Strait DAGs with step conditions, approval gates, and retry policies.",
     ],
@@ -297,7 +297,7 @@ const comparisons: ComparisonPageData[] = [
     competitor: "Celery",
     tagline: "Modern, type-safe, built-in observability",
     description:
-      "Celery has served the Python ecosystem well, but its broker-dependent architecture and limited observability show their age. Strait offers a modern, type-safe Go runtime with built-in dashboards, structured logging, and a 13-state lifecycle — no Flower or external monitoring needed.",
+      "Celery has served the Python ecosystem well, but its broker-dependent architecture and limited observability show their age. Strait offers a modern runtime with built-in dashboards, structured logging, and full lifecycle tracking — no Flower or external monitoring needed.",
     differentiators: [
       {
         title: "Observability",
@@ -309,7 +309,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Type safety",
         strait:
-          "Go SDK with compile-time type checking and structured task definitions",
+          "TypeScript, Go & Python SDKs with type checking and structured task definitions",
         competitor:
           "Dynamic Python with runtime errors and no task schema validation",
       },
@@ -335,7 +335,7 @@ const comparisons: ComparisonPageData[] = [
             competitor: false,
           },
           {
-            feature: "13-state run lifecycle",
+            feature: "Full run lifecycle tracking",
             strait: true,
             competitor: "Limited states",
           },
@@ -381,26 +381,26 @@ const comparisons: ComparisonPageData[] = [
       "Map Celery tasks and Canvas chains to Strait workflow DAGs with step conditions.",
       "Remove your RabbitMQ or Redis broker and point Strait at your Postgres database.",
       "Replace Flower with Strait's built-in observability dashboard for run tracing and debugging.",
-      "Deploy Go workers and validate end-to-end with the CLI and TUI tools.",
+      "Deploy workers and validate end-to-end with the CLI and TUI tools.",
     ],
   },
   {
     slug: "sidekiq",
     competitor: "Sidekiq",
-    tagline: "Go ecosystem, no Redis, workflow orchestration",
+    tagline: "Multi-language, no Redis, workflow orchestration",
     description:
       "Sidekiq is the go-to for Ruby background jobs, but it ties you to Redis and the Ruby runtime. Strait brings workflow orchestration to the Go ecosystem with Postgres-backed queues, DAG support, and approval gates — no Redis or Ruby required.",
     differentiators: [
       {
         title: "Runtime ecosystem",
         strait:
-          "Go-native with lightweight goroutine-based workers and compile-time safety",
+          "TypeScript, Go & Python SDKs with lightweight workers and compile-time safety",
         competitor: "Ruby-only with GIL limitations and runtime type errors",
       },
       {
         title: "Queue backend",
         strait:
-          "Postgres with SKIP LOCKED — no Redis memory limits or persistence concerns",
+          "Postgres with Postgres-backed — no Redis memory limits or persistence concerns",
         competitor:
           "Redis-dependent with memory-based queuing and AOF/RDB persistence trade-offs",
       },
@@ -469,7 +469,7 @@ const comparisons: ComparisonPageData[] = [
       },
     ],
     switchingSteps: [
-      "Translate Sidekiq worker classes to Strait task definitions using the Go SDK.",
+      "Translate Sidekiq worker classes to Strait task definitions using the Strait SDK.",
       "Replace Redis with your existing Postgres database as the queue backend.",
       "Convert Sidekiq Pro batches to Strait DAG workflows with step conditions and approval gates.",
     ],
@@ -498,7 +498,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Workflow definition",
         strait:
-          "Go SDK with type-safe DAGs, step conditions, and approval gates",
+          "Multi-language SDKs with type-safe DAGs, step conditions, and approval gates",
         competitor:
           "JSON-based Amazon States Language with limited IDE support",
       },
@@ -561,7 +561,7 @@ const comparisons: ComparisonPageData[] = [
       },
     ],
     switchingSteps: [
-      "Convert Amazon States Language definitions to Strait DAG workflows using the Go SDK.",
+      "Convert Amazon States Language definitions to Strait DAG workflows using the Strait SDK.",
       "Deploy Strait on your preferred infrastructure and connect it to Postgres.",
       "Replace AWS service integrations with Strait task steps that call your services directly.",
       "Remove Step Functions resources and reclaim per-transition costs.",

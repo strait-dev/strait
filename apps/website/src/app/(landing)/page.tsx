@@ -54,7 +54,7 @@ const HOW_TO_STEPS = [
   {
     title: "Trigger and execute",
     description:
-      "Trigger runs through API or CLI. Workers claim runs from PostgreSQL using SKIP LOCKED and execute safely in parallel.",
+      "Trigger runs through API or CLI. Workers claim runs from PostgreSQL and execute safely in parallel.",
   },
   {
     title: "Observe and control",

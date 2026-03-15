@@ -399,18 +399,18 @@ const PipelineDemo = () => {
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5">
             <p className="font-heading font-semibold text-2xl text-foreground">
-              13 run states
+              Full lifecycle tracking
             </p>
             <p className="mt-1 text-muted-foreground text-sm">
-              Full lifecycle tracking from queued to completed
+              Every run state visible from queued to completed
             </p>
           </div>
           <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5">
             <p className="font-heading font-semibold text-2xl text-foreground">
-              Real-time CDC
+              Real-time streaming
             </p>
             <p className="mt-1 text-muted-foreground text-sm">
-              Stream state changes instantly via Postgres WAL
+              Stream state changes instantly to your webhooks
             </p>
           </div>
           <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5">

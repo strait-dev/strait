@@ -41,7 +41,7 @@ export const USE_CASE_PAGES: UseCasePageData[] = [
         name: "SDK & API",
         slug: "sdk-endpoints",
         description:
-          "Heartbeats, checkpoints, and structured logs through the Go SDK.",
+          "Heartbeats, checkpoints, and structured logs through the TypeScript, Go & Python SDKs.",
       },
       {
         name: "Workflow DAGs",
@@ -90,7 +90,7 @@ export const USE_CASE_PAGES: UseCasePageData[] = [
         name: "PostgreSQL Queue",
         slug: "postgresql-queue",
         description:
-          "SKIP LOCKED turns your existing Postgres into a high-throughput job queue.",
+          "Your existing Postgres becomes a high-throughput job queue — no extra infrastructure.",
       },
       {
         name: "Retries & DLQ",
@@ -108,7 +108,7 @@ export const USE_CASE_PAGES: UseCasePageData[] = [
         name: "Real-time CDC",
         slug: "real-time-cdc",
         description:
-          "Stream every state change from the Postgres WAL to your webhooks.",
+          "Stream every state change to your webhooks in real time.",
       },
     ],
     workflowSteps: [
@@ -124,7 +124,7 @@ export const USE_CASE_PAGES: UseCasePageData[] = [
       {
         name: "Worker claims",
         description:
-          "A worker picks up the job using SKIP LOCKED for exactly-once delivery.",
+          "A worker picks up the job with exactly-once delivery guarantees.",
       },
       {
         name: "Execute",
@@ -305,7 +305,7 @@ export const USE_CASE_PAGES: UseCasePageData[] = [
       {
         name: "Claim job",
         description:
-          "A worker claims the run with SKIP LOCKED for exactly-once execution.",
+          "A worker claims the run with exactly-once execution guarantees.",
       },
       {
         name: "Execute",

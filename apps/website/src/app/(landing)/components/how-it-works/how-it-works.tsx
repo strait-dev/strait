@@ -20,7 +20,7 @@ const StepDefine = () => (
   <div className="flex h-full flex-col justify-center gap-3 px-6 py-8">
     <div className="mb-1 flex items-center gap-2">
       <span className="font-medium text-primary-foreground/50 text-xs">
-        workflow.go
+        workflow.ts
       </span>
     </div>
 
@@ -147,10 +147,10 @@ const StepObserve = () => (
 const STEPS: Step[] = [
   {
     description:
-      "Write your workflow as plain Go code. Define steps, retries, and timeouts — no YAML, no config files.",
+      "Write your workflow in TypeScript, Go, or Python. Define steps, retries, and timeouts — no YAML, no config files.",
     label: "Define",
     number: "01",
-    title: "Define your workflow in Go",
+    title: "Define your workflow in code",
     visual: StepDefine,
   },
   {

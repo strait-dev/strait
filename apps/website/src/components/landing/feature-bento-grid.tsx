@@ -338,10 +338,10 @@ const HealthAnimation = () => {
 
 /* ── 8. SDK & API ─────────────────────────────────────── */
 const SdkAnimation = () => {
-  const code = `client.Runs.Create(ctx, strait.RunInput{
-  JobID:      "process-order",
-  WorkflowID: "checkout-flow",
-  Payload:    orderJSON,
+  const code = `await strait.runs.create({
+  jobId: "process-order",
+  workflowId: "checkout-flow",
+  payload: orderData,
 })`;
   const [chars, setChars] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -385,7 +385,7 @@ const FEATURES: FeatureCard[] = [
     title: "PostgreSQL Queue",
     subtitle: "Queue without a broker",
     description:
-      "SKIP LOCKED turns your existing Postgres into a high-throughput job queue. No Redis, no RabbitMQ, no extra infrastructure.",
+      "Your existing Postgres becomes a high-throughput job queue. No Redis, no RabbitMQ, no extra infrastructure.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: QueueAnimation,
   },
@@ -427,10 +427,10 @@ const FEATURES: FeatureCard[] = [
   },
   {
     id: "real-time-cdc",
-    title: "Real-time CDC",
+    title: "Real-time Streaming",
     subtitle: "Stream every state change",
     description:
-      "Postgres WAL via Sequin streams run state changes to webhooks with HMAC-SHA256 signatures.",
+      "Real-time event streaming delivers run state changes to your webhooks with secure signed payloads.",
     span: "sm:col-span-2 lg:col-span-8",
     Animation: CdcAnimation,
   },
@@ -445,10 +445,10 @@ const FEATURES: FeatureCard[] = [
   },
   {
     id: "sdk-api",
-    title: "SDK & API",
-    subtitle: "First-class Go SDK",
+    title: "TypeScript, Go & Python SDKs",
+    subtitle: "First-class multi-language SDKs",
     description:
-      "Logging, heartbeats, checkpoints, and continuation — all through a clean Go client.",
+      "Logging, heartbeats, checkpoints, and continuation — all through clean, idiomatic clients for TypeScript, Go, and Python.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: SdkAnimation,
   },

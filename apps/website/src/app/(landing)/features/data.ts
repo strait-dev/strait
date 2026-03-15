@@ -19,13 +19,13 @@ export const FEATURE_PAGES: FeaturePageData[] = [
     name: "PostgreSQL Queue",
     headline: "Queue without a broker.",
     subheadline:
-      "SKIP LOCKED turns your existing Postgres into a high-throughput, exactly-once job queue.",
+      "Your existing Postgres becomes a high-throughput, exactly-once job queue.",
     description:
-      "Strait uses PostgreSQL advisory locks and SKIP LOCKED to provide a durable, transactional job queue. No Redis, no RabbitMQ, no SQS — just the database you already run.",
+      "Strait uses PostgreSQL advisory locks to provide a durable, transactional job queue. No Redis, no RabbitMQ, no SQS — just the database you already run.",
     specs: [
-      { label: "Queue mechanism", value: "SELECT ... FOR UPDATE SKIP LOCKED" },
+      { label: "Queue mechanism", value: "Postgres-backed advisory locks" },
       { label: "Scheduling", value: "Cron expressions + one-off" },
-      { label: "Run states", value: "13-state FSM" },
+      { label: "Run states", value: "Full lifecycle tracking" },
       { label: "Deduplication", value: "Idempotency keys" },
       { label: "Concurrency", value: "Configurable per-job limits" },
       { label: "Priority", value: "Numeric priority queues" },
@@ -182,19 +182,19 @@ sdk.ReportUsage(ctx, strait.Usage{
   },
   {
     slug: "real-time-cdc",
-    name: "Real-time CDC",
+    name: "Real-time Streaming",
     headline: "Stream every state change.",
     subheadline:
-      "Postgres WAL via Sequin streams run state changes to webhooks with HMAC-SHA256 signatures.",
+      "Real-time event streaming delivers run state changes to your webhooks with secure signed payloads.",
     description:
-      "Change Data Capture captures every run state transition from the Postgres WAL and delivers it to your webhooks. No polling, no missed events.",
+      "Every run state transition is captured and delivered to your webhooks in real time. No polling, no missed events.",
     specs: [
-      { label: "Source", value: "Postgres WAL (logical replication)" },
+      { label: "Source", value: "Real-time event streaming" },
       { label: "Delivery", value: "Webhooks with retry" },
-      { label: "Security", value: "HMAC-SHA256 signatures" },
+      { label: "Security", value: "Secure signed payloads" },
       { label: "Latency", value: "Sub-second" },
       { label: "Filtering", value: "Per-job and per-status" },
-      { label: "Provider", value: "Sequin integration" },
+      { label: "Integration", value: "Any webhook endpoint" },
     ],
     codeExample: {
       title: "Register a webhook for CDC events",
@@ -212,19 +212,19 @@ sdk.ReportUsage(ctx, strait.Usage{
   },
   {
     slug: "sdk-endpoints",
-    name: "SDK & API",
-    headline: "First-class Go SDK.",
+    name: "TypeScript, Go & Python SDKs",
+    headline: "SDKs for every stack.",
     subheadline:
-      "Logging, heartbeats, checkpoints, continuation, and health scoring through a clean Go client.",
+      "Logging, heartbeats, checkpoints, continuation, and health scoring through clean, idiomatic clients.",
     description:
-      "The Strait SDK gives workers a rich telemetry API. Report progress, save checkpoints for resumption, and emit structured logs — all queryable in the dashboard.",
+      "The Strait SDKs give workers a rich telemetry API in TypeScript, Go, and Python. Report progress, save checkpoints for resumption, and emit structured logs — all queryable in the dashboard.",
     specs: [
       { label: "Heartbeats", value: "Configurable interval" },
       { label: "Checkpoints", value: "Durable state snapshots" },
       { label: "Logging", value: "Structured key-value logs" },
       { label: "Continuation", value: "Resume from last checkpoint" },
       { label: "Health scoring", value: "Auto-computed from telemetry" },
-      { label: "Client", value: "Go SDK + REST API" },
+      { label: "Clients", value: "TypeScript, Go, Python + REST API" },
     ],
     codeExample: {
       title: "Worker SDK usage",

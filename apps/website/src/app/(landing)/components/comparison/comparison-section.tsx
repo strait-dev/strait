@@ -27,17 +27,17 @@ app.post('/webhook', customRetryWrapper(handler));
 // monitoring.js
 setupCustomMetrics(prometheus, redis, postgres);`;
 
-const WITH_CODE = `// main.go
-client.Jobs.Create(ctx, strait.JobInput{
-  Name:       "process-order",
-  WorkflowID: "checkout-flow",
-  Retries:    3,
-  Backoff:    strait.Exponential,
-  Budget:     "$12/run",
+const WITH_CODE = `// workflow.ts
+await strait.jobs.create({
+  name: "process-order",
+  workflowId: "checkout-flow",
+  retries: 3,
+  backoff: "exponential",
+  budget: "$12/run",
 })
 
 // That's it. Retries, DLQ, events,
-// health scoring, and CDC are built in.`;
+// health scoring, and streaming are built in.`;
 
 const METRICS = [
   { label: "Lines of infra code", without: 2400, with: 120, unit: "" },
@@ -96,7 +96,7 @@ const ComparisonSection = () => {
               <span className="size-3 rounded-full bg-border" />
               <span className="size-3 rounded-full bg-border" />
               <span className="ml-3 text-muted-foreground/50 text-xs">
-                {showStrait ? "main.go" : "infrastructure/"}
+                {showStrait ? "workflow.ts" : "infrastructure/"}
               </span>
             </div>
           </div>

@@ -29,7 +29,7 @@ export const NAV_ITEMS: NavItem[] = [
           {
             label: "PostgreSQL Queue",
             href: "/features/postgresql-queue",
-            description: "SKIP LOCKED job queue",
+            description: "Postgres-backed job queue",
           },
           {
             label: "Workflow DAGs",

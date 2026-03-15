@@ -246,8 +246,8 @@ export function getSoftwareApplicationSchema() {
     },
     offers,
     featureList: [
-      "PostgreSQL queue with SKIP LOCKED",
-      "13-state run lifecycle management",
+      "Postgres-backed job queue",
+      "Full lifecycle tracking",
       "Workflow DAG orchestration",
       "Step conditions and approval gates",
       "Retry strategies with jitter",

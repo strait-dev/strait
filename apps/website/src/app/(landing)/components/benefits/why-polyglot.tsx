@@ -144,7 +144,7 @@ const CARDS = [
     id: "zero-broker",
     title: "Drop the message broker",
     description:
-      "SKIP LOCKED turns Postgres into your job queue. No Redis cluster, no RabbitMQ, no extra infrastructure to monitor.",
+      "Postgres becomes your job queue. No Redis cluster, no RabbitMQ, no extra infrastructure to monitor.",
     Visual: StackCollapseVisual,
   },
   {

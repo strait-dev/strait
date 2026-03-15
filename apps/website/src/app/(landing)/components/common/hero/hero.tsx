@@ -26,8 +26,8 @@ const Hero = () => (
               Ship background workflows that don&apos;t wake you up at 3 AM.
             </span>{" "}
             <span className="text-muted-foreground">
-              PostgreSQL-native queueing, DAG orchestration, and failure
-              recovery in a single Go runtime.
+              Reliable queueing, workflow orchestration, and automatic failure
+              recovery — all backed by your existing database.
             </span>
           </h1>
 
@@ -54,10 +54,10 @@ const Hero = () => (
 
           <div className="mt-6 flex animate-delay-400 animate-fade-in-up flex-wrap items-start gap-2.5">
             <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-              PostgreSQL-native
+              Built on Postgres
             </span>
             <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-              13-state FSM
+              Full lifecycle tracking
             </span>
             <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
               Apache 2.0 licensed

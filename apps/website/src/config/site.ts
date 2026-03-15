@@ -7,7 +7,7 @@ export const siteConfig: SiteConfig = {
   name: "Strait",
   title: "Strait - Postgres-Native Job Orchestration",
   description:
-    "Strait is a production-grade Go job orchestration platform for engineering teams and AI agents. Queue runs in PostgreSQL with SKIP LOCKED, orchestrate workflow DAGs, and ship reliable background execution without managing a broker.",
+    "Strait is a production-grade job orchestration platform for engineering teams and AI agents. Queue runs in PostgreSQL, orchestrate workflow DAGs, and ship reliable background execution without managing a broker.",
   url: websiteUrl,
   ogImage: "/og.png",
   logo: {
@@ -28,7 +28,7 @@ export const siteConfig: SiteConfig = {
       "PostgreSQL job queue",
       "background job processing",
       "workflow DAG engine",
-      "SKIP LOCKED queue",
+      "Postgres-backed job queue",
       "job retries and dead letter queue",
       "workflow approvals",
       "AI agent runtime",

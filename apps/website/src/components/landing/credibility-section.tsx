@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import Shell from "@/components/layout/shell.tsx";
 
 const ARCHITECTURE = [
-  "PostgreSQL SKIP LOCKED queue",
-  "13-state run lifecycle FSM",
+  "Postgres-backed job queue",
+  "Full lifecycle tracking",
   "DAG workflow orchestration",
   "Exponential backoff + jitter retries",
   "Dead letter queue with replay",
-  "HMAC-SHA256 signed webhooks",
-  "Go SDK with heartbeats & checkpoints",
+  "Secure signed webhooks",
+  "TypeScript, Go & Python SDKs",
   "Per-run and daily cost budgets",
 ];
 
@@ -101,7 +101,7 @@ const CredibilitySection = () => (
           </p>
           <div className="mt-4 flex items-center gap-4">
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs">
-              Go
+              TS · Go · Python
             </span>
             <span className="text-muted-foreground/60 text-xs">
               Apache 2.0 License
@@ -148,7 +148,7 @@ const CredibilitySection = () => (
                 Strait
               </p>
               <span className="rounded bg-success/10 px-2 py-0.5 text-success text-xs">
-                Single Go binary + Postgres
+                Single lightweight runtime + Postgres
               </span>
               <p className="mt-2 text-muted-foreground/60 text-xs">
                 1 service to maintain
