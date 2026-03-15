@@ -162,6 +162,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dependency-status", s.handleGetRunDependencyStatus)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/idempotency-key", s.handleResetIdempotencyKey)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/reschedule", s.handleRescheduleRun)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", s.handleListRunState)
 			})
 		})
 
@@ -334,6 +335,10 @@ func (s *Server) routes() chi.Router {
 			r.Post("/spawn", s.handleSDKSpawn)
 			r.Post("/continue", s.handleSDKContinue)
 			r.Post("/wait-for-event", s.handleSDKWaitForEvent)
+			r.Post("/state", s.handleSDKSetState)
+			r.Get("/state", s.handleSDKListState)
+			r.Get("/state/{key}", s.handleSDKGetState)
+			r.Delete("/state/{key}", s.handleSDKDeleteState)
 		})
 	})
 

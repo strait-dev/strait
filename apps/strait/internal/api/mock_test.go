@@ -1476,3 +1476,12 @@ func (m *mockAPIStore) CountBatchBufferItems(_ context.Context, _, _ string) (in
 func (m *mockAPIStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
 	return nil, nil
 }
+
+func (m *mockAPIStore) UpsertRunState(_ context.Context, _ *domain.RunState) error { return nil }
+func (m *mockAPIStore) GetRunState(_ context.Context, _, _ string) (*domain.RunState, error) {
+	return nil, nil
+}
+func (m *mockAPIStore) ListRunState(_ context.Context, _ string) ([]domain.RunState, error) {
+	return nil, nil
+}
+func (m *mockAPIStore) DeleteRunState(_ context.Context, _, _ string) error { return nil }

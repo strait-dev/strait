@@ -153,6 +153,10 @@ type RunStore interface {
 	InsertBatchBufferItem(ctx context.Context, item *domain.BatchBufferItem) error
 	CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error)
 	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
+	UpsertRunState(ctx context.Context, s *domain.RunState) error
+	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
+	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
+	DeleteRunState(ctx context.Context, runID, key string) error
 }
 
 type LogDrainStore interface {
