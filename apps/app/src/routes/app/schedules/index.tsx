@@ -15,6 +15,7 @@ import PageHeader from "@/components/common/page-header";
 import { ScheduleDetailSheet } from "@/components/dashboard/schedule-detail-sheet";
 import { scheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
 import { SearchIcon } from "@/lib/icons";
@@ -34,6 +35,7 @@ function SchedulesPage() {
   const [selectedSchedule, setSelectedSchedule] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const table = useReactTable({
     data: data?.data ?? [],
     columns: scheduleColumns,
@@ -41,9 +43,16 @@ function SchedulesPage() {
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    state: { globalFilter },
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    state: { globalFilter, rowSelection },
     onGlobalFilterChange: setGlobalFilter,
+    getRowId: (row) => row.id,
   });
+
+  const selectedIds = Object.keys(rowSelection).filter(
+    (id) => rowSelection[id]
+  );
 
   return (
     <Shell>
@@ -84,7 +93,17 @@ function SchedulesPage() {
           }
         }}
       >
-        <DataTable emptyState={<div>No schedules found</div>} table={table} />
+        <DataTable
+          emptyState={<div>No schedules found</div>}
+          floatingBar={
+            <DataTableFloatingBar
+              actions={[]}
+              onClearSelection={() => setRowSelection({})}
+              selectedCount={selectedIds.length}
+            />
+          }
+          table={table}
+        />
       </div>
 
       <ScheduleDetailSheet

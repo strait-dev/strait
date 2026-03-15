@@ -2,8 +2,11 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import type { Job } from "@/hooks/api/types";
+import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
+import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 export const jobColumns: ColumnDef<Job>[] = [
+  createSelectColumn<Job>(),
   {
     accessorKey: "name",
     header: "Name",
@@ -52,4 +55,9 @@ export const jobColumns: ColumnDef<Job>[] = [
         addSuffix: true,
       }),
   },
+  createActionsColumn<Job>([
+    { label: "View", icon: EyeIcon, onClick: () => undefined },
+    { label: "Trigger", icon: PlayActionIcon, onClick: () => undefined },
+    { label: "Pause", icon: PauseActionIcon, onClick: () => undefined },
+  ]),
 ];

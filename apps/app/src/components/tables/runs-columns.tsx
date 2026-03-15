@@ -4,6 +4,8 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import type { JobRun } from "@/hooks/api/types";
+import { EyeIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
+import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 /** Compute human-readable duration between two ISO timestamps. */
 function formatDuration(
@@ -26,6 +28,7 @@ function formatDuration(
 }
 
 export const runColumns: ColumnDef<JobRun>[] = [
+  createSelectColumn<JobRun>(),
   {
     accessorKey: "id",
     header: "Run ID",
@@ -80,4 +83,9 @@ export const runColumns: ColumnDef<JobRun>[] = [
         addSuffix: true,
       }),
   },
+  createActionsColumn<JobRun>([
+    { label: "View", icon: EyeIcon, onClick: () => undefined },
+    { label: "Retry", icon: RefreshIcon, onClick: () => undefined },
+    { label: "Cancel", icon: XCircleIcon, onClick: () => undefined },
+  ]),
 ];

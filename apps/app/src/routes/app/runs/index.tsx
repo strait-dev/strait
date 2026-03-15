@@ -26,6 +26,7 @@ import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { CalendarIcon, FilterIcon, SearchIcon } from "@/lib/icons";
@@ -65,6 +66,7 @@ function RunsPage() {
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const selectedStatuses = (search.status ?? []) as RunStatus[];
 
   const table = useReactTable({
@@ -74,12 +76,19 @@ function RunsPage() {
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    state: { globalFilter: search.query ?? "" },
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
       navigate({
         search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
       }),
+    getRowId: (row) => row.id,
   });
+
+  const selectedIds = Object.keys(rowSelection).filter(
+    (id) => rowSelection[id]
+  );
 
   function toggleStatus(status: RunStatus) {
     const current = new Set(selectedStatuses);
@@ -191,7 +200,17 @@ function RunsPage() {
           }
         }}
       >
-        <DataTable emptyState={<div>No runs found</div>} table={table} />
+        <DataTable
+          emptyState={<div>No runs found</div>}
+          floatingBar={
+            <DataTableFloatingBar
+              actions={[]}
+              onClearSelection={() => setRowSelection({})}
+              selectedCount={selectedIds.length}
+            />
+          }
+          table={table}
+        />
       </div>
 
       <RunDetailSheet

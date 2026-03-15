@@ -1,8 +1,11 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import type { JobRun } from "@/hooks/api/types";
+import { EyeIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
+import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 export const dlqColumns: ColumnDef<JobRun>[] = [
+  createSelectColumn<JobRun>(),
   {
     accessorKey: "id",
     header: "Run ID",
@@ -45,4 +48,14 @@ export const dlqColumns: ColumnDef<JobRun>[] = [
         addSuffix: true,
       }),
   },
+  createActionsColumn<JobRun>([
+    { label: "View", icon: EyeIcon, onClick: () => undefined },
+    { label: "Retry", icon: RefreshIcon, onClick: () => undefined },
+    {
+      label: "Discard",
+      icon: TrashIcon,
+      onClick: () => undefined,
+      variant: "destructive",
+    },
+  ]),
 ];

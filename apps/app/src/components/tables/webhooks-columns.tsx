@@ -2,8 +2,11 @@ import { Badge } from "@strait/ui/components/badge";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import type { WebhookSubscription } from "@/hooks/api/types";
+import { EyeIcon, TrashIcon } from "@/lib/icons";
+import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 export const webhookColumns: ColumnDef<WebhookSubscription>[] = [
+  createSelectColumn<WebhookSubscription>(),
   {
     accessorKey: "webhook_url",
     header: "Endpoint",
@@ -50,4 +53,13 @@ export const webhookColumns: ColumnDef<WebhookSubscription>[] = [
         addSuffix: true,
       }),
   },
+  createActionsColumn<WebhookSubscription>([
+    { label: "View", icon: EyeIcon, onClick: () => undefined },
+    {
+      label: "Delete",
+      icon: TrashIcon,
+      onClick: () => undefined,
+      variant: "destructive",
+    },
+  ]),
 ];

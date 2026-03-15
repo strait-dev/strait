@@ -17,6 +17,7 @@ import PageHeader from "@/components/common/page-header";
 import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet";
 import { workflowColumns } from "@/components/tables/workflows-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Workflow } from "@/hooks/api/types";
 import { workflowsQueryOptions } from "@/hooks/api/use-workflows";
 import { PlusIcon, SearchIcon } from "@/lib/icons";
@@ -39,6 +40,7 @@ function WorkflowsPage() {
   );
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const filteredData = (data?.data ?? []).filter((workflow) => {
     if (statusFilter === "active" && !workflow.enabled) {
       return false;
@@ -56,9 +58,16 @@ function WorkflowsPage() {
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    state: { globalFilter },
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    state: { globalFilter, rowSelection },
     onGlobalFilterChange: setGlobalFilter,
+    getRowId: (row) => row.id,
   });
+
+  const selectedIds = Object.keys(rowSelection).filter(
+    (id) => rowSelection[id]
+  );
 
   function handleRowClick(workflow: Workflow) {
     setSelectedWorkflow(workflow);
@@ -121,7 +130,17 @@ function WorkflowsPage() {
           }
         }}
       >
-        <DataTable emptyState={<div>No workflows found</div>} table={table} />
+        <DataTable
+          emptyState={<div>No workflows found</div>}
+          floatingBar={
+            <DataTableFloatingBar
+              actions={[]}
+              onClearSelection={() => setRowSelection({})}
+              selectedCount={selectedIds.length}
+            />
+          }
+          table={table}
+        />
       </div>
 
       <WorkflowDetailSheet

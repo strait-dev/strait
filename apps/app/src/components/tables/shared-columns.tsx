@@ -1,0 +1,73 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@strait/ui/components/button";
+import { Checkbox } from "@strait/ui/components/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@strait/ui/components/dropdown-menu";
+import type { ColumnDef, Row } from "@tanstack/react-table";
+import { MoreVerticalIcon } from "@/lib/icons";
+
+export function createSelectColumn<T>(): ColumnDef<T> {
+  return {
+    id: "select",
+    header: ({ table }) => (
+      <Checkbox
+        aria-label="Select all"
+        checked={table.getIsAllPageRowsSelected()}
+        indeterminate={
+          table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()
+        }
+        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+      />
+    ),
+    cell: ({ row }) => (
+      <Checkbox
+        aria-label="Select row"
+        checked={row.getIsSelected()}
+        onCheckedChange={(value) => row.toggleSelected(!!value)}
+      />
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  };
+}
+
+type ActionItem<T> = {
+  label: string;
+  icon?: any;
+  onClick: (row: Row<T>) => void;
+  variant?: "default" | "destructive";
+};
+
+export function createActionsColumn<T>(actions: ActionItem<T>[]): ColumnDef<T> {
+  return {
+    id: "actions",
+    cell: ({ row }) => (
+      <DropdownMenu>
+        <DropdownMenuTrigger>
+          <Button aria-label="Row actions" size="icon" variant="ghost">
+            <HugeiconsIcon icon={MoreVerticalIcon} size={16} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {actions.map((action) => (
+            <DropdownMenuItem
+              key={action.label}
+              onClick={() => action.onClick(row)}
+            >
+              {action.icon && (
+                <HugeiconsIcon className="mr-2" icon={action.icon} size={14} />
+              )}
+              {action.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  };
+}

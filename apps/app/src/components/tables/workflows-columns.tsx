@@ -2,8 +2,11 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import type { Workflow } from "@/hooks/api/types";
+import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
+import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 export const workflowColumns: ColumnDef<Workflow>[] = [
+  createSelectColumn<Workflow>(),
   {
     accessorKey: "name",
     header: "Name",
@@ -50,4 +53,9 @@ export const workflowColumns: ColumnDef<Workflow>[] = [
         addSuffix: true,
       }),
   },
+  createActionsColumn<Workflow>([
+    { label: "View", icon: EyeIcon, onClick: () => undefined },
+    { label: "Trigger", icon: PlayActionIcon, onClick: () => undefined },
+    { label: "Pause", icon: PauseActionIcon, onClick: () => undefined },
+  ]),
 ];

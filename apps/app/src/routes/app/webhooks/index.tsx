@@ -24,6 +24,7 @@ import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
 import { webhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
 import { GlobeIcon, PlusIcon, WebhookIcon } from "@/lib/icons";
@@ -52,6 +53,7 @@ function WebhooksPage() {
     useState<WebhookSubscription | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const table = useReactTable({
     data: data?.data ?? [],
     columns: webhookColumns,
@@ -59,7 +61,15 @@ function WebhooksPage() {
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    state: { rowSelection },
+    getRowId: (row) => row.id,
   });
+
+  const selectedIds = Object.keys(rowSelection).filter(
+    (id) => rowSelection[id]
+  );
 
   return (
     <Shell>
@@ -80,6 +90,13 @@ function WebhooksPage() {
             <div className="py-12 text-center text-muted-foreground">
               No webhooks configured.
             </div>
+          }
+          floatingBar={
+            <DataTableFloatingBar
+              actions={[]}
+              onClearSelection={() => setRowSelection({})}
+              selectedCount={selectedIds.length}
+            />
           }
           table={table}
         />

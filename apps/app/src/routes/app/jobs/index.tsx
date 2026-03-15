@@ -17,6 +17,7 @@ import PageHeader from "@/components/common/page-header";
 import { JobDetailSheet } from "@/components/dashboard/job-detail-sheet";
 import { jobColumns } from "@/components/tables/jobs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
 import { PlusIcon, SearchIcon } from "@/lib/icons";
@@ -49,6 +50,8 @@ function JobsPage() {
     return true;
   });
 
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+
   const table = useReactTable({
     data: filteredData,
     columns: jobColumns,
@@ -56,9 +59,16 @@ function JobsPage() {
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    state: { globalFilter },
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    state: { globalFilter, rowSelection },
     onGlobalFilterChange: setGlobalFilter,
+    getRowId: (row) => row.id,
   });
+
+  const selectedIds = Object.keys(rowSelection).filter(
+    (id) => rowSelection[id]
+  );
 
   function handleRowClick(job: Job) {
     setSelectedJob(job);
@@ -134,7 +144,17 @@ function JobsPage() {
           }
         }}
       >
-        <DataTable emptyState={<div>No jobs found</div>} table={table} />
+        <DataTable
+          emptyState={<div>No jobs found</div>}
+          floatingBar={
+            <DataTableFloatingBar
+              actions={[]}
+              onClearSelection={() => setRowSelection({})}
+              selectedCount={selectedIds.length}
+            />
+          }
+          table={table}
+        />
       </div>
 
       <JobDetailSheet
