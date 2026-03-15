@@ -107,6 +107,12 @@ type mockAPIStore struct {
 	getWorkflowPolicyByProjectFn        func(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
 	listWorkflowVersionsFn              func(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
 	getWorkflowVersionByVersionIDFn     func(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
+	createDeploymentVersionFn           func(ctx context.Context, deployment *domain.DeploymentVersion) error
+	getDeploymentVersionFn              func(ctx context.Context, deploymentID, projectID string) (*domain.DeploymentVersion, error)
+	listDeploymentVersionsFn            func(ctx context.Context, projectID, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
+	finalizeDeploymentVersionFn         func(ctx context.Context, deploymentID, projectID, updatedBy string) (*domain.DeploymentVersion, error)
+	promoteDeploymentVersionFn          func(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
+	rollbackDeploymentVersionFn         func(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
 	updateWorkflowRunStatusFn           func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn               func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getStepRunByRunAndRefFn             func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
@@ -150,11 +156,6 @@ type mockAPIStore struct {
 	deleteEventTriggersFinishedBeforeFn func(ctx context.Context, before time.Time, limit int) (int64, error)
 	countEventTriggersFinishedBeforeFn  func(ctx context.Context, before time.Time) (int64, error)
 	countActiveEventTriggersByProjectFn func(ctx context.Context, projectID string) (int, error)
-	upsertRunStateFn                    func(ctx context.Context, s *domain.RunState) error
-	getRunStateFn                       func(ctx context.Context, runID, key string) (*domain.RunState, error)
-	listRunStateFn                      func(ctx context.Context, runID string) ([]domain.RunState, error)
-	deleteRunStateFn                    func(ctx context.Context, runID, key string) error
-	replayWebhookDeliveryFn             func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	getWebhookDeliveryFn                func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	retryWebhookDeliveryFn              func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
@@ -972,17 +973,6 @@ func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
-func (m *mockQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
-	if m.enqueueFn != nil {
-		for _, run := range runs {
-			if err := m.enqueueFn(ctx, run); err != nil {
-				return 0, err
-			}
-		}
-	}
-	return int64(len(runs)), nil
-}
-
 func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	if m.dequeueFn != nil {
 		return m.dequeueFn(ctx)
@@ -995,10 +985,6 @@ func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error
 		return m.dequeueNFn(ctx, n)
 	}
 	return nil, nil
-}
-
-func (m *mockQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
-	return m.DequeueN(ctx, n)
 }
 
 func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
@@ -1470,52 +1456,44 @@ func (m *mockAPIStore) DeleteEventSubscription(ctx context.Context, subID string
 	return nil
 }
 
-func (m *mockAPIStore) UpsertDebouncePending(_ context.Context, _ *domain.DebouncePending) error {
+func (m *mockAPIStore) CreateDeploymentVersion(ctx context.Context, deployment *domain.DeploymentVersion) error {
+	if m.createDeploymentVersionFn != nil {
+		return m.createDeploymentVersionFn(ctx, deployment)
+	}
 	return nil
 }
 
-func (m *mockAPIStore) InsertBatchBufferItem(_ context.Context, _ *domain.BatchBufferItem) error {
-	return nil
+func (m *mockAPIStore) GetDeploymentVersion(ctx context.Context, deploymentID, projectID string) (*domain.DeploymentVersion, error) {
+	if m.getDeploymentVersionFn != nil {
+		return m.getDeploymentVersionFn(ctx, deploymentID, projectID)
+	}
+	return nil, store.ErrDeploymentVersionNotFound
 }
 
-func (m *mockAPIStore) CountBatchBufferItems(_ context.Context, _, _ string) (int, error) {
-	return 0, nil
-}
-
-func (m *mockAPIStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+func (m *mockAPIStore) ListDeploymentVersions(ctx context.Context, projectID, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error) {
+	if m.listDeploymentVersionsFn != nil {
+		return m.listDeploymentVersionsFn(ctx, projectID, environment, limit, cursor)
+	}
 	return nil, nil
 }
 
-func (m *mockAPIStore) UpsertRunState(ctx context.Context, s *domain.RunState) error {
-	if m.upsertRunStateFn != nil {
-		return m.upsertRunStateFn(ctx, s)
+func (m *mockAPIStore) FinalizeDeploymentVersion(ctx context.Context, deploymentID, projectID, updatedBy string) (*domain.DeploymentVersion, error) {
+	if m.finalizeDeploymentVersionFn != nil {
+		return m.finalizeDeploymentVersionFn(ctx, deploymentID, projectID, updatedBy)
 	}
-	return nil
+	return nil, store.ErrDeploymentVersionNotFound
 }
-func (m *mockAPIStore) GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error) {
-	if m.getRunStateFn != nil {
-		return m.getRunStateFn(ctx, runID, key)
+
+func (m *mockAPIStore) PromoteDeploymentVersion(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error) {
+	if m.promoteDeploymentVersionFn != nil {
+		return m.promoteDeploymentVersionFn(ctx, deploymentID, projectID, environment, updatedBy)
 	}
-	return nil, nil
+	return nil, store.ErrDeploymentVersionNotFound
 }
-func (m *mockAPIStore) ListRunState(ctx context.Context, runID string) ([]domain.RunState, error) {
-	if m.listRunStateFn != nil {
-		return m.listRunStateFn(ctx, runID)
+
+func (m *mockAPIStore) RollbackDeploymentVersion(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error) {
+	if m.rollbackDeploymentVersionFn != nil {
+		return m.rollbackDeploymentVersionFn(ctx, deploymentID, projectID, environment, updatedBy)
 	}
-	return nil, nil
-}
-func (m *mockAPIStore) DeleteRunState(ctx context.Context, runID, key string) error {
-	if m.deleteRunStateFn != nil {
-		return m.deleteRunStateFn(ctx, runID, key)
-	}
-	return nil
-}
-func (m *mockAPIStore) CreateWebhookDelivery(_ context.Context, _ *domain.WebhookDelivery) error {
-	return nil
-}
-func (m *mockAPIStore) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
-	if m.replayWebhookDeliveryFn != nil {
-		return m.replayWebhookDeliveryFn(ctx, id)
-	}
-	return &domain.WebhookDelivery{}, nil
+	return nil, store.ErrDeploymentVersionNotFound
 }

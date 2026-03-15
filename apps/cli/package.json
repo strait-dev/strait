@@ -1,0 +1,32 @@
+{
+  "name": "@apps/cli",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "bin": {
+    "strait": "./dist/bin/strait.js"
+  },
+  "scripts": {
+    "dev": "bun run ./src/bin/strait.ts",
+    "build": "tsgo -p tsconfig.json",
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit",
+    "biome:lint": "biome lint src test",
+    "biome:format": "biome format --write src test",
+    "biome:write": "biome check --write src test",
+    "biome:fix:unsafe": "biome check --fix --unsafe src test",
+    "run-all": "bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck",
+    "clean": "git clean -xdf .turbo node_modules dist"
+  },
+  "dependencies": {
+    "@effect/platform": "^0.94.5",
+    "@effect/platform-node": "^0.104.1",
+    "@stricli/core": "^1.0.0",
+    "effect": "^3.19.19"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.5.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260314.1"
+  }
+}
