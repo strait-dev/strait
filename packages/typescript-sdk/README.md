@@ -11,7 +11,7 @@ In active implementation.
 - Generated low-level operation/domain clients from `docs/openapi.yaml`
 - Promise-first high-level API (`client.createJob(...)`, `client.jobs.create(...)`)
 - Result variants for non-GET operations (`client.createJobResult(...)`)
-- Composition helpers for retries, idempotency headers, and run polling
+- Composition helpers for retries, idempotency headers, run polling, and deployment lifecycle orchestration
 - Authoring DSL helpers for defining jobs/workflows/DAGs
 - Schema adapter bridge helpers for Effect and Zod-like schemas
 
@@ -115,6 +115,49 @@ const safeResult = await fromPromise(() => client.deleteJob({
   pathParams: { jobID: "job_123" },
 }));
 ```
+
+### Deployment lifecycle helpers
+
+> Helpers consume the generated `operationsPromise` deployment operations and provide a typed workflow for create/finalize/promote/rollback.
+
+```ts
+import {
+  createAndFinalizeDeployment,
+  promoteDeploymentVersion,
+  rollbackDeploymentVersion,
+} from "@strait/ts";
+
+const created = await createAndFinalizeDeployment(client, {
+  create: {
+    body: {
+      project_id: "proj_1",
+      environment: "staging",
+      runtime: "node",
+      artifact_uri: "file:///tmp/manifest.json",
+    },
+  },
+});
+
+const deploymentID = created.finalized.id;
+if (!deploymentID) throw new Error("deployment id missing");
+
+await promoteDeploymentVersion(client, {
+  deploymentID,
+  body: {
+    project_id: "proj_1",
+    environment: "staging",
+  },
+});
+
+await rollbackDeploymentVersion(client, {
+  deploymentID: "dep_previous",
+  body: {
+    project_id: "proj_1",
+    environment: "staging",
+  },
+});
+```
+
 
 ## Authoring DSL
 
