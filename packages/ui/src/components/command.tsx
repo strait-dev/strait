@@ -4,15 +4,15 @@ import { SearchIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Command as CommandPrimitive } from "cmdk";
 import type * as React from "react";
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "./dialog.tsx";
-import { InputGroup, InputGroupAddon } from "./input-group.tsx";
+} from "./dialog";
+import { InputGroup, InputGroupAddon } from "./input-group";
 
 function Command({
   className,
@@ -191,11 +191,11 @@ function CommandShortcut({
 export {
   Command,
   CommandDialog,
-  CommandInput,
-  CommandList,
   CommandEmpty,
   CommandGroup,
+  CommandInput,
   CommandItem,
-  CommandShortcut,
+  CommandList,
   CommandSeparator,
+  CommandShortcut,
 };

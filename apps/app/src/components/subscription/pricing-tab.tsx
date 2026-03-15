@@ -1,5 +1,5 @@
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+import { Badge } from "@strait/ui/components/badge";
+import { cn } from "@strait/ui/utils/index";
 
 type TabProps = {
   text: string;
@@ -16,7 +16,7 @@ const PricingTab = ({
 }: TabProps) => (
   <button
     className={cn(
-      "relative w-fit px-3 py-1.5 font-semibold text-sm capitalize",
+      "relative w-fit px-3 py-1.5 font-normal text-sm capitalize",
       "text-foreground transition-colors",
       "rounded-custom",
       !!discount && "flex items-center justify-center gap-2.5",

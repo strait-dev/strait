@@ -3,7 +3,7 @@ import {
   SidebarMenuButton,
   SidebarProvider,
   SidebarTrigger,
-} from "@strait/ui/components/sidebar.tsx";
+} from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
@@ -12,29 +12,29 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import * as z from "zod";
-import ErrorComponent from "@/components/common/error-component.tsx";
-import { RequireOrganization } from "@/components/common/require-organization.tsx";
-import Sidebar from "@/components/common/sidebar.tsx";
-import { ThemeToggle } from "@/components/common/theme-toggle.tsx";
-import FeedbackDialog from "@/components/help/feedback-dialog.tsx";
-import SupportDialog from "@/components/help/support-dialog.tsx";
-import OrganizationDropdownMenu from "@/components/organization/organization-dropdown-menu.tsx";
-import { usePostHog } from "@/components/providers/posthog-provider.tsx";
-import UpgradeBanner from "@/components/subscription/trial-upgrade-banner.tsx";
-import { TrialStartedModal } from "@/components/upgrade/trial-started-modal.tsx";
+import ErrorComponent from "@/components/common/error-component";
+import { RequireOrganization } from "@/components/common/require-organization";
+import Sidebar from "@/components/common/sidebar";
+import { ThemeToggle } from "@/components/common/theme-toggle";
+import FeedbackDialog from "@/components/help/feedback-dialog";
+import SupportDialog from "@/components/help/support-dialog";
+import OrganizationDropdownMenu from "@/components/organization/organization-dropdown-menu";
+import { usePostHog } from "@/components/providers/posthog-provider";
+import UpgradeBanner from "@/components/subscription/trial-upgrade-banner";
+import { TrialStartedModal } from "@/components/upgrade/trial-started-modal";
 import {
   organizationQueryOptions,
   organizationsQueryOptions,
-} from "@/hooks/auth/use-organization.ts";
+} from "@/hooks/auth/use-organization";
 import {
   subscriptionQueryOptions,
   subscriptionStateQueryOptions,
-} from "@/hooks/subscription/use-subscription.ts";
-import { ensureSession } from "@/lib/auth-server.ts";
-import { setSentryUser } from "@/lib/sentry.ts";
-import type { AuthUser, Session } from "@/routes/__root.tsx";
+} from "@/hooks/subscription/use-subscription";
+import { ensureSession } from "@/lib/auth-handler";
+import { setSentryUser } from "@/lib/sentry";
+import type { AuthUser, Session } from "@/routes/__root";
 
 const appSearchSchema = z.object({
   trial_started: z.coerce.boolean().optional(),
@@ -66,6 +66,10 @@ export const Route = createFileRoute("/app")({
       user: sessionData.user as AuthUser,
       session: sessionData.session,
     };
+
+    if (session.user.onboarded !== true) {
+      throw redirect({ to: "/onboarding" });
+    }
 
     return { session };
   },
@@ -112,7 +116,7 @@ function RouteComponent() {
   const search = Route.useSearch() as SearchParams;
   const navigate = useNavigate();
   const posthog = usePostHog();
-  const [showTrialModal, setShowTrialModal] = useState(false);
+  const showTrialModal = Boolean(search.trial_started);
   const hasIdentifiedRef = useRef(false);
 
   const { data: subscription } = useSuspenseQuery(subscriptionQueryOptions());
@@ -150,15 +154,8 @@ function RouteComponent() {
     hasIdentifiedRef.current = true;
   }, [posthog, session, subscription, subscriptionState]);
 
-  useEffect(() => {
-    if (search.trial_started) {
-      setShowTrialModal(true);
-    }
-  }, [search.trial_started]);
-
   const handleTrialModalClose = (open: boolean) => {
-    setShowTrialModal(open);
-    if (!open && search.trial_started) {
+    if (!open) {
       navigate({
         to: "/app",
         search: {} as SearchParams,
@@ -183,9 +180,7 @@ function RouteComponent() {
                       size="lg"
                     >
                       <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-semibold">
-                          Loading...
-                        </span>
+                        <span className="truncate font-normal">Loading...</span>
                       </div>
                     </SidebarMenuButton>
                   }

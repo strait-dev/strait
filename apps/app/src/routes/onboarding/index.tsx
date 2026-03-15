@@ -1,77 +1,58 @@
-import {
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  Loading03Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Progress } from "@strait/ui/components/progress.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+import { Button } from "@strait/ui/components/button";
+import { Progress } from "@strait/ui/components/progress";
+import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { BusinessNeedsStep } from "@/components/onboarding/steps/business-needs-step.tsx";
-import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step.tsx";
-import type { OnboardingStepProps } from "@/components/onboarding/types.ts";
-import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics.ts";
-import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding.ts";
-import { auth } from "@/lib/auth.ts";
-import type { OnboardingFormData } from "@/lib/schema.ts";
-import { captureException } from "@/lib/sentry.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
-import { useOnboardingStore } from "@/stores/onboarding.ts";
-import { PERCENTAGE_MULTIPLIER } from "@/utils/constants.ts";
-
-const getAuthUserFn = createServerFn({ method: "GET" }).handler(async () => {
-  try {
-    const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
-    return (session?.user as AuthUser) ?? null;
-  } catch {
-    return null;
-  }
-});
+import { BusinessNeedsStep } from "@/components/onboarding/steps/business-needs-step";
+import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step";
+import type { OnboardingStepProps } from "@/components/onboarding/types";
+import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
+import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding";
+import { getSession } from "@/lib/auth-handler";
+import { ArrowLeftIcon, ArrowRightIcon, LoadingIcon } from "@/lib/icons";
+import type { OnboardingFormData } from "@/lib/schema";
+import { captureException } from "@/lib/sentry";
+import type { AuthUser } from "@/routes/__root";
+import { useOnboardingStore } from "@/stores/onboarding";
+import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 
 const FINAL_STEP = 2;
 
 /**
- * Validates and tracks the business needs step (Step 1)
+ * Validates and tracks the use cases step (Step 1)
  */
-function validateBusinessNeedsStep(
+function validateUseCasesStep(
   formValues: OnboardingFormData,
   analytics: ReturnType<typeof useOnboardingAnalytics>
 ): boolean {
-  const businessNeeds = formValues.businessNeeds;
-  const isValid = businessNeeds && businessNeeds.length >= 1;
+  const useCases = formValues.useCases;
+  const isValid = useCases && useCases.length >= 1;
   if (isValid) {
-    analytics.trackBusinessNeedsCompleted(businessNeeds);
+    analytics.trackBusinessNeedsCompleted(useCases);
   }
   return isValid;
 }
 
 /**
- * Validates and tracks the company info step (Step 2)
+ * Validates and tracks the workspace setup step (Step 2)
  */
-function validateCompanyInfoStep(
+function validateWorkspaceSetupStep(
   formValues: OnboardingFormData,
   analytics: ReturnType<typeof useOnboardingAnalytics>
 ): boolean {
   const isValid = !!(
-    formValues.companyName &&
-    formValues.companyName.length >= 2 &&
-    formValues.industry &&
-    formValues.companySize &&
-    formValues.businessType &&
-    formValues.country
+    formValues.workspaceName &&
+    formValues.workspaceName.length >= 2 &&
+    formValues.teamSize &&
+    formValues.environment
   );
   if (isValid) {
     analytics.trackCompanyInfoCompleted({
-      organizationName: formValues.companyName,
-      organizationCountry: formValues.country,
-      numberOfEmployees: formValues.companySize,
+      organizationName: formValues.workspaceName,
+      numberOfEmployees: formValues.teamSize,
     });
   }
   return isValid;
@@ -83,9 +64,10 @@ export const Route = createFileRoute("/onboarding/")({
       throw redirect({ to: "/login" });
     }
 
-    const authUser = await getAuthUserFn();
+    const session = await getSession();
+    const authUser = session?.user as AuthUser | undefined;
 
-    if (authUser?.defaultOrganizationId) {
+    if (authUser?.onboarded === true) {
       throw redirect({ to: "/app" });
     }
 
@@ -107,15 +89,10 @@ function OnboardingFlow() {
 
   const defaultValues = useMemo(
     (): OnboardingFormData => ({
-      businessNeeds: [],
-      companyName: "",
-      companyPhone: "",
-      industry: "",
-      companySize: "",
-      businessType: "",
-      annualRevenue: undefined,
-      country: "United States",
-      website: "",
+      useCases: [],
+      workspaceName: "",
+      teamSize: "",
+      environment: "",
       primaryGoals: "",
     }),
     []
@@ -132,16 +109,14 @@ function OnboardingFlow() {
   const getIsStepValid = useCallback(() => {
     const values = form.state.values;
     if (currentStep === 1) {
-      return values.businessNeeds && values.businessNeeds.length >= 1;
+      return values.useCases && values.useCases.length >= 1;
     }
     if (currentStep === 2) {
       return !!(
-        values.companyName &&
-        values.companyName.length >= 2 &&
-        values.industry &&
-        values.companySize &&
-        values.businessType &&
-        values.country
+        values.workspaceName &&
+        values.workspaceName.length >= 2 &&
+        values.teamSize &&
+        values.environment
       );
     }
     return true;
@@ -151,11 +126,8 @@ function OnboardingFlow() {
     if (completeOnboarding.isPending) {
       return (
         <>
-          <HugeiconsIcon
-            className="h-4 w-4 animate-spin"
-            icon={Loading03Icon}
-          />
-          <span>Creating your store...</span>
+          <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
+          <span>Setting up...</span>
         </>
       );
     }
@@ -165,7 +137,7 @@ function OnboardingFlow() {
     return (
       <>
         Continue
-        <HugeiconsIcon className="h-4 w-4" icon={ArrowRight01Icon} />
+        <HugeiconsIcon className="size-4" icon={ArrowRightIcon} />
       </>
     );
   }, [currentStep, completeOnboarding.isPending]);
@@ -205,10 +177,10 @@ function OnboardingFlow() {
   const validateCurrentStep = useCallback((): boolean => {
     const values = form.state.values;
     if (currentStep === 1) {
-      return validateBusinessNeedsStep(values, analytics);
+      return validateUseCasesStep(values, analytics);
     }
     if (currentStep === 2) {
-      return validateCompanyInfoStep(values, analytics);
+      return validateWorkspaceSetupStep(values, analytics);
     }
     return false;
   }, [currentStep, form, analytics]);
@@ -217,21 +189,20 @@ function OnboardingFlow() {
     const formData = form.state.values;
 
     analytics.trackOnboardingCompleted({
-      businessNeeds: formData.businessNeeds,
-      organizationName: formData.companyName,
-      organizationCountry: formData.country,
+      useCases: formData.useCases,
+      organizationName: formData.workspaceName,
     });
 
     toast.promise(completeOnboarding.mutateAsync(formData), {
-      loading: "Creating your store...",
-      success: "Store created! Let's choose your plan.",
+      loading: "Setting up your workspace...",
+      success: "Workspace created! Let's get started.",
       error: (error: unknown) => {
         captureException(error);
         analytics.trackOnboardingError(
           error instanceof Error ? error.message : "Unknown error",
           currentStep
         );
-        return "Failed to create store. Please try again.";
+        return "Failed to create workspace. Please try again.";
       },
     });
   }, [form, analytics, completeOnboarding, currentStep]);
@@ -304,7 +275,7 @@ function OnboardingFlow() {
   }, [currentStep, form, completeOnboarding.isPending]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-dvh flex-col bg-background">
       {/* Fixed Header */}
       <header className="fixed top-0 right-0 left-0 z-30 border-border border-b bg-background">
         <div className="relative flex h-16 items-center justify-center px-4">
@@ -316,7 +287,7 @@ function OnboardingFlow() {
             size="icon"
             variant="ghost"
           >
-            <HugeiconsIcon className="size-5" icon={ArrowLeft01Icon} />
+            <HugeiconsIcon className="size-5" icon={ArrowLeftIcon} />
           </Button>
 
           <img
@@ -361,7 +332,7 @@ function OnboardingFlow() {
                 onClick={handleBack}
                 variant="outline"
               >
-                <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
+                <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
                 Back
                 <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground text-xs sm:inline-block">
                   ⌘⌫

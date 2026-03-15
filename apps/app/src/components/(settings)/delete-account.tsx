@@ -1,8 +1,3 @@
-import {
-  Alert02Icon,
-  Delete02Icon,
-  Loading03Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertDialog,
@@ -14,8 +9,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@strait/ui/components/alert-dialog.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+} from "@strait/ui/components/alert-dialog";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -23,17 +18,18 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { Checkbox } from "@strait/ui/components/checkbox.tsx";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { InputWithShowHidePassword } from "@strait/ui/components/input-with-show-hide-password.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/card";
+import { Checkbox } from "@strait/ui/components/checkbox";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Input } from "@strait/ui/components/input";
+import { InputWithShowHidePassword } from "@strait/ui/components/input-with-show-hide-password";
+import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useState, useTransition } from "react";
 import * as z from "zod";
-import { authClient } from "@/lib/auth-client.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
+import { authClient } from "@/lib/auth-client";
+import { AlertIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
 
 type Props = {
   user: AuthUser;
@@ -105,7 +101,7 @@ const DeleteAccount = ({ user }: Props) => {
         <CardContent>
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 rounded-custom border border-destructive/50 bg-destructive/5 px-3 py-2 text-destructive text-sm">
-              <HugeiconsIcon className="size-4" icon={Alert02Icon} />
+              <HugeiconsIcon className="size-4" icon={AlertIcon} />
               <span>
                 Warning: This action is irreversible and all your data will be
                 permanently lost.
@@ -193,10 +189,10 @@ const DeleteAccount = ({ user }: Props) => {
               {isPending ? (
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : (
-                <HugeiconsIcon className="size-4" icon={Delete02Icon} />
+                <HugeiconsIcon className="size-4" icon={TrashIcon} />
               )}
               Delete my account
             </AlertDialogTrigger>
@@ -212,24 +208,24 @@ const DeleteAccount = ({ user }: Props) => {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <div className="flex justify-end gap-4">
+                  <AlertDialogCancel className="w-fit">
+                    Cancel
+                  </AlertDialogCancel>
                   <AlertDialogAction
-                    className="w-fit"
+                    className="w-fit bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     disabled={isPending}
                     onClick={onDelete}
                   >
                     {isPending ? (
                       <HugeiconsIcon
                         className="size-4 animate-spin"
-                        icon={Loading03Icon}
+                        icon={LoadingIcon}
                       />
                     ) : (
-                      <HugeiconsIcon className="size-4" icon={Delete02Icon} />
+                      <HugeiconsIcon className="size-4" icon={TrashIcon} />
                     )}
                     Yes, delete my account
                   </AlertDialogAction>
-                  <AlertDialogCancel className="w-fit">
-                    Cancel
-                  </AlertDialogCancel>
                 </div>
               </AlertDialogFooter>
             </AlertDialogContent>

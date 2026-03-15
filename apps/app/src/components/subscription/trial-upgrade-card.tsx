@@ -1,11 +1,11 @@
-import { AlarmClockIcon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+import { Button } from "@strait/ui/components/button";
+import { cn } from "@strait/ui/utils/index";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { AlarmClockIcon, SparklesIcon } from "@/lib/icons";
 
 const TRIAL_CRITICAL_DAYS = 2; // 1-2 days left = critical (destructive/red)
 const TRIAL_WARNING_DAYS = 5; // 3-5 days left = warning (orange)
@@ -139,7 +139,7 @@ const TrialUpgradeCard = () => {
       red: {
         container:
           "bg-destructive/15 border-destructive/30 dark:bg-red-950/30 dark:border-red-800",
-        title: "text-destructive dark:text-red-300 font-semibold",
+        title: "text-destructive dark:text-red-300 font-normal",
         message: "text-destructive/80 dark:text-red-400",
         buttonVariant: "destructive" as const,
         buttonClass: "",

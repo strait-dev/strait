@@ -1,21 +1,21 @@
-import { Alert02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@strait/ui/components/accordion.tsx";
+} from "@strait/ui/components/accordion";
 import {
   Alert,
   AlertDescription,
   AlertTitle,
-} from "@strait/ui/components/alert.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+} from "@strait/ui/components/alert";
+import { Button } from "@strait/ui/components/button";
 import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { captureException } from "@/lib/sentry.ts";
+import { AlertIcon } from "@/lib/icons";
+import { captureException } from "@/lib/sentry";
 
 const ErrorComponent = ({ error }: { error: Error }) => {
   const router = useRouter();
@@ -41,7 +41,7 @@ const ErrorComponent = ({ error }: { error: Error }) => {
     <div className="mt-8 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <Alert variant={"destructive"}>
-          <HugeiconsIcon className="size-4" icon={Alert02Icon} />
+          <HugeiconsIcon className="size-4" icon={AlertIcon} />
           <AlertTitle>Oops! Something went wrong</AlertTitle>
           <AlertDescription>
             We're sorry, but the website has encountered an unexpected issue
@@ -69,9 +69,9 @@ const ErrorComponent = ({ error }: { error: Error }) => {
                 <AccordionTrigger>View error details</AccordionTrigger>
                 <AccordionContent>
                   <div className="rounded-md bg-muted p-4">
-                    <h3 className="mb-2 font-semibold">Error details:</h3>
+                    <h3 className="mb-2 font-normal">Error details:</h3>
                     <p className="mb-4 text-sm">{error.message}</p>
-                    <h3 className="mb-2 font-semibold">Error trace:</h3>
+                    <h3 className="mb-2 font-normal">Error trace:</h3>
                     <pre className="overflow-x-auto whitespace-pre-wrap text-xs">
                       {error.stack}
                     </pre>

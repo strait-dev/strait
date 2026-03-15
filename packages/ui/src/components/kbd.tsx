@@ -1,4 +1,4 @@
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 
 function Kbd({ className, ...props }: React.ComponentProps<"kbd">) {
   return (

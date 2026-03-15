@@ -1,6 +1,6 @@
-import { cn } from "../utils/index.ts";
-import { Button } from "./button.tsx";
-import { Input } from "./input.tsx";
+import { cn } from "../utils/index";
+import { Button } from "./button";
+import { Input } from "./input";
 
 type InputWithInlineButtonProps = React.ComponentProps<"input"> & {
   button?: React.ReactNode;
@@ -62,5 +62,5 @@ function InputWithInlineButton({
   );
 }
 
-export { InputWithInlineButton };
 export type { InputWithInlineButtonProps };
+export { InputWithInlineButton };

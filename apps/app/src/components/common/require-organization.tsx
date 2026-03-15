@@ -1,14 +1,14 @@
-import { Add01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
+} from "@strait/ui/components/card";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { PlusIcon } from "@/lib/icons";
 
 type RequireOrganizationProps = {
   children: ReactNode;
@@ -33,10 +33,10 @@ export const RequireOrganization = ({
     <div className="flex h-[450px] items-center justify-center p-8">
       <Card className="max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-muted">
             <HugeiconsIcon
-              className="h-6 w-6 text-muted-foreground"
-              icon={Add01Icon}
+              className="size-6 text-muted-foreground"
+              icon={PlusIcon}
             />
           </div>
           <CardTitle>Create an Organization</CardTitle>
@@ -49,7 +49,7 @@ export const RequireOrganization = ({
             className="w-full"
             render={<Link preload="intent" to="/app" />}
           >
-            <HugeiconsIcon className="size-4" icon={Add01Icon} />
+            <HugeiconsIcon className="size-4" icon={PlusIcon} />
             Create Organization
           </Button>
           <p className="mt-4 text-muted-foreground text-sm">

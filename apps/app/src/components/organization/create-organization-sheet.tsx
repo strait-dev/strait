@@ -1,23 +1,18 @@
-import {
-  Add01Icon,
-  Loading03Icon,
-  Search01Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { InputWithLoader } from "@strait/ui/components/input-with-loader.tsx";
-import { PhoneInput } from "@strait/ui/components/phone-input.tsx";
-import { ScrollArea } from "@strait/ui/components/scroll-area.tsx";
+import { Button } from "@strait/ui/components/button";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Input } from "@strait/ui/components/input";
+import { InputWithLoader } from "@strait/ui/components/input-with-loader";
+import { PhoneInput } from "@strait/ui/components/phone-input";
+import { ScrollArea } from "@strait/ui/components/scroll-area";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@strait/ui/components/select.tsx";
-import { Separator } from "@strait/ui/components/separator.tsx";
+} from "@strait/ui/components/select";
+import { Separator } from "@strait/ui/components/separator";
 import {
   type Sheet,
   SheetClose,
@@ -26,24 +21,25 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
-} from "@strait/ui/components/sheet.tsx";
-import { Textarea } from "@strait/ui/components/textarea.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/sheet";
+import { Textarea } from "@strait/ui/components/textarea";
+import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { nanoid } from "nanoid";
 import { useId, useMemo, useTransition } from "react";
 import { z } from "zod/v4";
-import { useCreateOrganization } from "@/hooks/auth/use-organization.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
-import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants.ts";
-import { countries } from "@/utils/data.ts";
+import { useCreateOrganization } from "@/hooks/auth/use-organization";
+import { LoadingIcon, PlusIcon, SearchIcon } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
+import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants";
+import { countries } from "@/utils/data";
 import {
   activities,
   company_size,
   employees_size,
   fiscal_types,
   segments,
-} from "@/utils/options.tsx";
+} from "@/utils/options";
 
 const insertOrganizationSchema = z.object({
   id: z.string().optional(),
@@ -323,7 +319,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col justify-between gap-2 lg:flex-row">
                   <div className="flex flex-col gap-1">
-                    <h3 className="font-semibold text-base text-secondary-foreground tracking-normal">
+                    <h3 className="font-normal text-base text-secondary-foreground tracking-normal">
                       Tax Information
                     </h3>
                     <p className="text-muted-foreground text-sm">
@@ -604,7 +600,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col justify-between gap-2 lg:flex-row">
                   <div className="flex flex-col gap-1">
-                    <h3 className="font-semibold text-base text-secondary-foreground tracking-normal">
+                    <h3 className="font-normal text-base text-secondary-foreground tracking-normal">
                       Address
                     </h3>
                     <p className="text-muted-foreground text-sm">
@@ -625,7 +621,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                           icon={
                             <HugeiconsIcon
                               className="size-4"
-                              icon={Search01Icon}
+                              icon={SearchIcon}
                             />
                           }
                           id={field.name}
@@ -861,10 +857,10 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                 {isSubmitting || createOrganization.isPending || isPending ? (
                   <HugeiconsIcon
                     className="size-4 animate-spin"
-                    icon={Loading03Icon}
+                    icon={LoadingIcon}
                   />
                 ) : (
-                  <HugeiconsIcon className="size-4" icon={Add01Icon} />
+                  <HugeiconsIcon className="size-4" icon={PlusIcon} />
                 )}
                 Create new store
               </Button>

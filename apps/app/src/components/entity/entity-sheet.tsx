@@ -1,8 +1,7 @@
-import { LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { ScrollArea } from "@strait/ui/components/scroll-area.tsx";
-import { Separator } from "@strait/ui/components/separator.tsx";
+import { Button } from "@strait/ui/components/button";
+import { ScrollArea } from "@strait/ui/components/scroll-area";
+import { Separator } from "@strait/ui/components/separator";
 import {
   Sheet,
   SheetClose,
@@ -10,9 +9,10 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@strait/ui/components/sheet.tsx";
+} from "@strait/ui/components/sheet";
 import { Link } from "@tanstack/react-router";
 import { memo, type ReactNode, useMemo } from "react";
+import { LinkSquareIcon } from "@/lib/icons";
 
 export type EntitySheetProps = {
   open: boolean;
@@ -122,7 +122,7 @@ export const EntitySheet = memo<EntitySheetProps>(
               Close
             </SheetClose>
             <Button className="flex-1" render={<Link to={viewAllHref} />}>
-              <HugeiconsIcon className="size-4" icon={LinkSquare01Icon} />
+              <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
               {viewAllLabel}
             </Button>
           </div>
@@ -168,7 +168,7 @@ const EntitySheetSkeleton = memo(() => {
       {/* Metrics skeleton */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          <div className="size-3/4 animate-pulse rounded bg-muted" />
           <div className="h-6 w-full animate-pulse rounded bg-muted" />
         </div>
         <div className="space-y-2">
@@ -239,7 +239,7 @@ export type EntitySheetMetricProps = {
 export const EntitySheetMetric = memo<EntitySheetMetricProps>(
   ({ label, value, className = "" }) => (
     <div className={`text-center ${className}`}>
-      <div className="font-semibold text-lg text-secondary-foreground">
+      <div className="font-normal text-lg text-secondary-foreground">
         {value}
       </div>
       <div className="text-muted-foreground text-sm">{label}</div>

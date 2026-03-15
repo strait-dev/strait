@@ -2,8 +2,8 @@
 
 import { createContext, useContext } from "react";
 
-import { useMediaQuery } from "../hooks/use-media-query.ts";
-import { cn } from "../utils/index.ts";
+import { useMediaQuery } from "../hooks/use-media-query";
+import { cn } from "../utils/index";
 import {
   Dialog,
   DialogClose,
@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "./dialog.tsx";
+} from "./dialog";
 import {
   Drawer,
   DrawerClose,
@@ -23,7 +23,7 @@ import {
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
-} from "./drawer.tsx";
+} from "./drawer";
 
 type BaseProps = {
   children: React.ReactNode;
@@ -165,12 +165,12 @@ const CredenzaFooter = ({ className, children, ...props }: CredenzaProps) => {
 
 export {
   Credenza,
-  CredenzaTrigger,
+  CredenzaBody,
   CredenzaClose,
   CredenzaContent,
   CredenzaDescription,
+  CredenzaFooter,
   CredenzaHeader,
   CredenzaTitle,
-  CredenzaBody,
-  CredenzaFooter,
+  CredenzaTrigger,
 };

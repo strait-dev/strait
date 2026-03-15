@@ -1,44 +1,30 @@
-import { Loading03Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+import { Button } from "@strait/ui/components/button";
+import { toast } from "@strait/ui/components/toast/index";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useState } from "react";
 import z from "zod/v4";
-import { AuthLayout } from "@/components/(auth)/auth-layout.tsx";
+import { AuthLayout } from "@/components/(auth)/auth-layout";
 import {
   getPublicInvitationServerFn,
   type PublicInvitationData,
-} from "@/hooks/auth/use-invitation.ts";
-import { auth } from "@/lib/auth.ts";
-import { authClient } from "@/lib/auth-client.ts";
-import { captureException, captureSentryAuthError } from "@/lib/sentry.ts";
-
-const getSessionServerFn = createServerFn({ method: "GET" }).handler(
-  async () => {
-    try {
-      const headers = getRequestHeaders();
-      const session = await auth.api.getSession({ headers });
-      return session ?? null;
-    } catch {
-      return null;
-    }
-  }
-);
+} from "@/hooks/auth/use-invitation";
+import { authClient } from "@/lib/auth-client";
+import { getSession } from "@/lib/auth-handler";
+import { LoadingIcon, UsersAltIcon } from "@/lib/icons";
+import { captureException, captureSentryAuthError } from "@/lib/sentry";
 
 const searchParamsSchema = z.object({
   error: z.string().optional(),
 });
 
-type SessionData = Awaited<ReturnType<typeof getSessionServerFn>>;
+type SessionData = Awaited<ReturnType<typeof getSession>>;
 
 export const Route = createFileRoute("/invitation/$id")({
   validateSearch: zodValidator(searchParamsSchema),
   beforeLoad: async () => {
-    const session = await getSessionServerFn();
+    const session = await getSession();
     return { session };
   },
   loader: async ({
@@ -231,12 +217,12 @@ function RouteComponent() {
           <div className="flex flex-col items-center gap-4 text-center">
             <div className="rounded-full bg-primary/10 p-3">
               <HugeiconsIcon
-                className="h-8 w-8 text-primary"
-                icon={UserMultipleIcon}
+                className="size-8 text-primary"
+                icon={UsersAltIcon}
               />
             </div>
             <div>
-              <h2 className="font-semibold text-lg">
+              <h2 className="font-normal text-lg">
                 You have been invited to join{" "}
                 {invitation.organization?.name || "a store"}
               </h2>
@@ -260,7 +246,7 @@ function RouteComponent() {
               <>
                 <HugeiconsIcon
                   className="size-4 shrink-0 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
                 <span>Signing in...</span>
               </>
@@ -290,12 +276,12 @@ function RouteComponent() {
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="rounded-full bg-primary/10 p-3">
             <HugeiconsIcon
-              className="h-8 w-8 text-primary"
-              icon={UserMultipleIcon}
+              className="size-8 text-primary"
+              icon={UsersAltIcon}
             />
           </div>
           <div>
-            <h2 className="font-semibold text-lg">
+            <h2 className="font-normal text-lg">
               You have been invited to join{" "}
               {invitation.organization?.name || "a store"}
             </h2>
@@ -327,7 +313,7 @@ function RouteComponent() {
               <>
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
                 Accepting invitation...
               </>
@@ -378,7 +364,7 @@ function RouteComponent() {
               {isSigningOut ? (
                 <HugeiconsIcon
                   className="size-3 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : null}
               {isSigningOut

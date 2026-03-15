@@ -1,5 +1,5 @@
-import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { SearchIcon, XCircleIcon } from "@/lib/icons";
 
 type FiltersEmptyStateProps = {
   title?: string;
@@ -17,23 +17,23 @@ const FiltersEmptyState = ({
       <div className="flex aspect-square h-14 items-center justify-center rounded-xl bg-muted/70">
         {icon === "search" ? (
           <HugeiconsIcon
-            className="h-6 w-6 text-muted-foreground"
-            icon={Search01Icon}
+            className="size-6 text-muted-foreground"
+            icon={SearchIcon}
           />
         ) : (
           <HugeiconsIcon
-            className="h-6 w-6 text-muted-foreground"
-            icon={Cancel01Icon}
+            className="size-6 text-muted-foreground"
+            icon={XCircleIcon}
           />
         )}
       </div>
     </div>
 
     <div className="flex max-w-xs flex-col items-center gap-2 text-center">
-      <h2 className="font-semibold text-lg text-secondary-foreground tracking-tight">
+      <h2 className="text-balance font-normal text-lg text-secondary-foreground tracking-tight">
         {title}
       </h2>
-      <p className="text-muted-foreground text-sm">{description}</p>
+      <p className="text-pretty text-muted-foreground text-sm">{description}</p>
     </div>
   </div>
 );

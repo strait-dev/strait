@@ -1,6 +1,6 @@
 import { Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 
 function Spinner({
   className,

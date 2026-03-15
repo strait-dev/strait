@@ -30,21 +30,22 @@
     "update-all": "bunx npm-check-updates -ui -ws"
   },
   "overrides": {
-    "better-auth": "1.4.18",
+    "better-auth": "1.5.5",
     "@tanstack/query-core": "5.90.20",
     "@tanstack/react-query": "5.90.21"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.6",
+    "@better-auth/passkey": "^1.5.5",
+    "@biomejs/biome": "2.4.7",
     "@commitlint/cli": "^20.4.4",
     "@commitlint/config-conventional": "^20.4.4",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260313.1",
-    "baseline-browser-mapping": "^2.10.7",
+    "@typescript/native-preview": "^7.0.0-dev.20260315.1",
+    "baseline-browser-mapping": "^2.10.8",
+    "better-auth": "^1.5.5",
     "knip": "^5.86.0",
     "lefthook": "^2.1.4",
-    "turbo": "^2.8.16",
-    "typescript": "^5.9.3",
-    "ultracite": "7.3.0"
+    "turbo": "^2.8.17",
+    "ultracite": "7.3.1"
   }
 }

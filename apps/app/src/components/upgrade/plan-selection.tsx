@@ -1,15 +1,15 @@
-import { StarIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CheckIcon } from "@radix-ui/react-icons";
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { CardCheckboxItem } from "@strait/ui/components/card-checkbox.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+import { CheckIcon as RadixCheckIcon } from "@radix-ui/react-icons";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import { CardCheckboxItem } from "@strait/ui/components/card-checkbox";
+import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
+import { cn } from "@strait/ui/utils/index";
 import { formatCurrency } from "@strait/utils/money";
 import { useCallback, useState } from "react";
-import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
-import { useUpgradeStore } from "@/stores/upgrade.ts";
-import { PERCENTAGE_MULTIPLIER } from "@/utils/constants.ts";
+import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { CheckIcon, StarIcon } from "@/lib/icons";
+import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;
@@ -39,6 +39,8 @@ type PricingPlan = {
 
 type UpgradeMode = "new_user" | "trial_ended" | "checkout_recovery";
 type PlanSlug = "starter" | "growth" | "professional" | "enterprise";
+
+type BillingInterval = "monthly" | "yearly";
 
 const PRICING_PLANS: PricingPlan[] = [
   {
@@ -122,7 +124,11 @@ type PlanSelectionProps = {
   mode: UpgradeMode;
   isLoading?: boolean;
   onStartCheckout?: () => void;
-  currentPlanSlug?: PlanSlug; // User's current subscription plan (if any)
+  currentPlanSlug?: PlanSlug;
+  selectedPlan: PlanType;
+  billingInterval: BillingInterval;
+  onPlanChange: (plan: PlanType) => void;
+  onBillingIntervalChange: (interval: BillingInterval) => void;
 };
 
 const BILLING_INTERVALS = [
@@ -170,8 +176,8 @@ const PricingCardBadges = ({
           className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
           variant="success-light"
         >
-          <HugeiconsIcon className="h-3 w-3" icon={Tick02Icon} />
-          <span className="font-semibold text-xs">Current plan</span>
+          <HugeiconsIcon className="size-3" icon={CheckIcon} />
+          <span className="font-normal text-xs">Current plan</span>
         </Badge>
       );
     }
@@ -181,8 +187,8 @@ const PricingCardBadges = ({
           className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
           variant="info-light"
         >
-          <HugeiconsIcon className="h-3 w-3" icon={StarIcon} />
-          <span className="font-semibold text-xs">Most Popular</span>
+          <HugeiconsIcon className="size-3" icon={StarIcon} />
+          <span className="font-normal text-xs">Most Popular</span>
         </Badge>
       );
     }
@@ -196,8 +202,8 @@ const PricingCardBadges = ({
           className="absolute -top-2 right-2 flex items-center gap-1 shadow-sm"
           variant="success-light"
         >
-          <HugeiconsIcon className="h-3 w-3" icon={Tick02Icon} />
-          <span className="font-semibold text-xs">
+          <HugeiconsIcon className="size-3" icon={CheckIcon} />
+          <span className="font-normal text-xs">
             Save{" "}
             {Math.round(
               ((plan.prices.monthly * MONTHS_IN_A_YEAR - plan.prices.yearly) /
@@ -217,8 +223,8 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
   <div className="mt-4 grow space-y-2">
     {plan.includesFromPrevious ? (
       <div className="flex items-start gap-2 border-border/50 border-b pb-2">
-        <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-custom text-primary">
-          <CheckIcon className="h-3 w-3" />
+        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-primary">
+          <RadixCheckIcon className="size-3" />
         </div>
         <span className="font-medium text-muted-foreground/80 text-xs">
           {plan.includesFromPrevious}
@@ -230,8 +236,8 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
       .slice(0, 5)
       .map((feature: PricingFeature) => (
         <div className="flex items-start gap-2" key={feature.name}>
-          <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-custom text-primary">
-            <CheckIcon className="h-3 w-3" />
+          <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-primary">
+            <RadixCheckIcon className="size-3" />
           </div>
           <span className="text-muted-foreground/80 text-xs">
             {feature.description ? feature.description : feature.name}
@@ -340,17 +346,17 @@ const PricingCard = ({
             </h3>
             <div
               className={cn(
-                "flex h-4 w-4 items-center justify-center rounded-full border-2 transition-colors",
+                "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
                 isSelected
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-muted-foreground/30"
               )}
             >
-              {isSelected ? <CheckIcon className="h-2.5 w-2.5" /> : null}
+              {isSelected ? <RadixCheckIcon className="h-2.5 w-2.5" /> : null}
             </div>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="font-semibold text-2xl text-foreground tracking-tighter">
+            <span className="font-normal text-2xl text-foreground tracking-tighter">
               <span className="tabular-nums">
                 {formatCurrency(currentPrice / CENTS_TO_DOLLARS)}
               </span>
@@ -401,9 +407,11 @@ export const PlanSelection = ({
   isLoading,
   onStartCheckout,
   currentPlanSlug,
+  selectedPlan,
+  billingInterval,
+  onPlanChange,
+  onBillingIntervalChange,
 }: PlanSelectionProps) => {
-  const { selectedPlan, billingInterval, setSelectedPlan, setBillingInterval } =
-    useUpgradeStore();
   const { trackSubscription } = useAnalytics();
 
   const [trialReminderOptIn, setTrialReminderOptIn] = useState(true);
@@ -411,11 +419,11 @@ export const PlanSelection = ({
   const messaging = MESSAGING[mode];
 
   const handleBillingIntervalChange = useCallback(
-    (interval: "monthly" | "yearly") => {
-      setBillingInterval(interval);
+    (interval: BillingInterval) => {
+      onBillingIntervalChange(interval);
       trackSubscription("BILLING_INTERVAL_CHANGED", { interval });
     },
-    [setBillingInterval, trackSubscription]
+    [onBillingIntervalChange, trackSubscription]
   );
 
   // Check if user already has a subscription
@@ -424,16 +432,16 @@ export const PlanSelection = ({
   const handlePlanSelect = useCallback(
     (planSlug: PlanType) => {
       if (!isLoading) {
-        setSelectedPlan(planSlug);
+        onPlanChange(planSlug);
       }
     },
-    [isLoading, setSelectedPlan]
+    [isLoading, onPlanChange]
   );
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="font-semibold text-secondary-foreground text-xl tracking-tight">
+        <h1 className="font-normal text-secondary-foreground text-xl tracking-tight">
           {messaging.title}
         </h1>
         <p className="whitespace-normal text-muted-foreground text-sm">
@@ -443,26 +451,23 @@ export const PlanSelection = ({
 
       {/* Billing Toggle */}
       <div className="flex justify-center">
-        <div className="flex w-fit items-center gap-1 rounded-custom bg-muted p-1">
-          {BILLING_INTERVALS.map((option) => (
-            <button
-              className={cn(
-                "relative flex items-center gap-2 rounded-custom px-3 py-1.5 font-semibold text-sm transition-colors",
-                billingInterval === option.value
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-foreground/80 hover:bg-muted-foreground/10"
-              )}
-              key={option.value}
-              onClick={() => handleBillingIntervalChange(option.value)}
-              type="button"
-            >
-              <span>{option.label}</span>
-              {option.helper ? (
-                <Badge variant="success-light">{option.helper}</Badge>
-              ) : null}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          onValueChange={(v) =>
+            handleBillingIntervalChange(v as BillingInterval)
+          }
+          value={billingInterval}
+        >
+          <TabsList>
+            {BILLING_INTERVALS.map((option) => (
+              <TabsTrigger key={option.value} value={option.value}>
+                {option.label}
+                {option.helper ? (
+                  <Badge variant="success-light">{option.helper}</Badge>
+                ) : null}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Plan Cards */}
@@ -500,4 +505,4 @@ export const PlanSelection = ({
   );
 };
 
-export type { UpgradeMode };
+export type { BillingInterval, PlanType, UpgradeMode };

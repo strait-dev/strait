@@ -1,15 +1,9 @@
-import {
-  ArrowRight01Icon,
-  Loading03Icon,
-  Logout05Icon,
-  Settings01Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-} from "@strait/ui/components/avatar.tsx";
+} from "@strait/ui/components/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,19 +12,25 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu.tsx";
+} from "@strait/ui/components/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@strait/ui/components/sidebar.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/sidebar";
+import { toast } from "@strait/ui/components/toast/index";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
-import { authClient } from "@/lib/auth-client.ts";
-import { captureException, clearSentryUser } from "@/lib/sentry.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
+import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { authClient } from "@/lib/auth-client";
+import {
+  ArrowRightIcon,
+  LoadingIcon,
+  LogOutIcon,
+  SettingsOutlineIcon,
+} from "@/lib/icons";
+import { captureException, clearSentryUser } from "@/lib/sentry";
+import type { AuthUser } from "@/routes/__root";
 
 type Props = {
   user: AuthUser;
@@ -93,7 +93,7 @@ const UserDropdownMenu = ({ user }: Props) => {
               />
             }
           >
-            <Avatar className="h-10 w-10">
+            <Avatar className="size-10">
               {user.image ? (
                 <AvatarImage alt="User Avatar" src={user.image} />
               ) : (
@@ -106,7 +106,7 @@ const UserDropdownMenu = ({ user }: Props) => {
               <span className="truncate font-medium text-sm">{user.name} </span>
               <span className="truncate text-xs">{user.email}</span>
             </div>
-            <HugeiconsIcon className="ml-auto size-4" icon={ArrowRight01Icon} />
+            <HugeiconsIcon className="ml-auto size-4" icon={ArrowRightIcon} />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
@@ -118,7 +118,7 @@ const UserDropdownMenu = ({ user }: Props) => {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="p-0 font-normal">
                 <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                  <Avatar className="h-10 w-10">
+                  <Avatar className="size-10">
                     {user.image ? (
                       <AvatarImage alt="User Avatar" src={user.image} />
                     ) : (
@@ -141,7 +141,7 @@ const UserDropdownMenu = ({ user }: Props) => {
               <DropdownMenuItem
                 render={<Link preload="intent" to="/app/settings" />}
               >
-                <HugeiconsIcon className="size-4" icon={Settings01Icon} />
+                <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />
                 Settings
               </DropdownMenuItem>
             </DropdownMenuGroup>
@@ -150,10 +150,10 @@ const UserDropdownMenu = ({ user }: Props) => {
               {isSigningOut ? (
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : (
-                <HugeiconsIcon className="size-4" icon={Logout05Icon} />
+                <HugeiconsIcon className="size-4" icon={LogOutIcon} />
               )}
               {isSigningOut ? "Signing out..." : "Sign out"}
             </DropdownMenuItem>

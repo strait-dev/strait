@@ -1,11 +1,6 @@
-import {
-  CheckmarkCircle02Icon,
-  CreditCardIcon,
-  SparklesIcon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import {
   Credenza,
   CredenzaContent,
@@ -13,8 +8,9 @@ import {
   CredenzaFooter,
   CredenzaHeader,
   CredenzaTitle,
-} from "@strait/ui/components/credenza.tsx";
+} from "@strait/ui/components/credenza";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2Icon, CreditCardIcon, SparklesIcon } from "@/lib/icons";
 
 type SubscriptionSuccessDialogProps = {
   timestamp?: string;
@@ -76,8 +72,8 @@ const SubscriptionSuccessDialog = ({
           <div className="mb-6 flex justify-center">
             <div className="rounded-full bg-green-100 p-4 dark:bg-green-900/20">
               <HugeiconsIcon
-                className="h-12 w-12 text-green-600 dark:text-green-400"
-                icon={CheckmarkCircle02Icon}
+                className="size-12 text-green-600 dark:text-green-400"
+                icon={CheckCircle2Icon}
               />
             </div>
           </div>
@@ -102,14 +98,14 @@ const SubscriptionSuccessDialog = ({
               className="flex items-center gap-1 px-3 py-1"
               variant="success"
             >
-              <HugeiconsIcon className="h-3 w-3" icon={SparklesIcon} />
+              <HugeiconsIcon className="size-3" icon={SparklesIcon} />
               Premium Features
             </Badge>
             <Badge
               className="flex items-center gap-1 px-3 py-1"
               variant="info-light"
             >
-              <HugeiconsIcon className="h-3 w-3" icon={CreditCardIcon} />
+              <HugeiconsIcon className="size-3" icon={CreditCardIcon} />
               Manage Billing
             </Badge>
           </div>

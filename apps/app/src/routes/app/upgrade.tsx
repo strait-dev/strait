@@ -1,35 +1,37 @@
-import { AlertCircleIcon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert, AlertDescription } from "@strait/ui/components/alert.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { Shell } from "@strait/ui/components/shell.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/card";
+import { Shell } from "@strait/ui/components/shell";
+import { toast } from "@strait/ui/components/toast/index";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import PageHeader from "@/components/common/page-header.tsx";
-import { PlanSelection } from "@/components/upgrade/plan-selection.tsx";
-import { useAnalytics } from "@/hooks/analytics/use-analytics.ts";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
-import { getCustomerPortalUrlServerFn } from "@/lib/subscription.ts";
-import { authMiddleware } from "@/middlewares/auth.ts";
-import { useUpgradeStore } from "@/stores/upgrade.ts";
+import { PlanSelection } from "@/components/upgrade/plan-selection";
+import { useAnalytics } from "@/hooks/analytics/use-analytics";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
+import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
+import { authMiddleware } from "@/middlewares/auth";
 
 const PLAN_SLUGS: Record<string, string> = {
   "starter-monthly": "starter-monthly",
   "starter-yearly": "starter-yearly",
+  "growth-monthly": "growth-monthly",
+  "growth-yearly": "growth-yearly",
   "professional-monthly": "professional-monthly",
   "professional-yearly": "professional-yearly",
+  "enterprise-monthly": "enterprise-monthly",
+  "enterprise-yearly": "enterprise-yearly",
 };
 
 type StartCheckoutInput = {
@@ -81,7 +83,6 @@ export const Route = createFileRoute("/app/upgrade")({
 
 function RouteComponent() {
   const search = Route.useSearch();
-  const { selectedPlan, billingInterval, setSelectedPlan } = useUpgradeStore();
   const { data: subscriptionState } = useSuspenseQuery(
     subscriptionStateQueryOptions()
   );
@@ -91,6 +92,12 @@ function RouteComponent() {
     | "growth"
     | "professional"
     | "enterprise";
+  const [selectedPlan, setSelectedPlan] = useState<
+    "starter" | "growth" | "professional" | "enterprise"
+  >(currentPlan || "growth");
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">(
+    "monthly"
+  );
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const { trackSubscription } = useAnalytics();
   const hasTrackedPageView = useRef(false);
@@ -105,13 +112,6 @@ function RouteComponent() {
       hasTrackedPageView.current = true;
     }
   }, [trackSubscription, currentPlan, isTrialing]);
-
-  // Pre-select user's current plan on mount (so they upgrade to the plan they're trialing)
-  useEffect(() => {
-    if (currentPlan) {
-      setSelectedPlan(currentPlan);
-    }
-  }, [currentPlan, setSelectedPlan]);
 
   const startCheckout = useMutation({
     mutationFn: () =>
@@ -162,16 +162,11 @@ function RouteComponent() {
 
   return (
     <Shell>
-      <PageHeader
-        text="Here you can find all our plans. Choose the plan that best fits your needs and start selling more today."
-        title="Upgrade Plan"
-      />
-
       {/* Show cancellation message if user canceled checkout */}
       {search.canceled ? (
         <Alert className="mb-6 border-yellow-200 bg-yellow-50">
           <HugeiconsIcon
-            className="h-4 w-4 text-yellow-600"
+            className="size-4 text-yellow-600"
             icon={AlertCircleIcon}
           />
           <AlertDescription className="text-yellow-800">
@@ -184,7 +179,7 @@ function RouteComponent() {
       {search.error ? (
         <Alert className="mb-6 border-red-200 bg-red-50">
           <HugeiconsIcon
-            className="h-4 w-4 text-red-600"
+            className="size-4 text-red-600"
             icon={AlertCircleIcon}
           />
           <AlertDescription className="text-red-800">
@@ -199,7 +194,7 @@ function RouteComponent() {
           <Card className="border-primary/20 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <HugeiconsIcon className="h-5 w-5" icon={LinkSquare01Icon} />
+                <HugeiconsIcon className="size-5" icon={LinkSquareIcon} />
                 Customer Portal
               </CardTitle>
               <CardDescription>
@@ -212,7 +207,7 @@ function RouteComponent() {
                 disabled={isPortalLoading}
                 onClick={handleOpenPortal}
               >
-                <HugeiconsIcon className="size-4" icon={LinkSquare01Icon} />
+                <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
                 {isPortalLoading ? "Opening..." : "Access Customer Portal"}
               </Button>
             </CardContent>
@@ -221,10 +216,14 @@ function RouteComponent() {
 
         {/* Plan Selection */}
         <PlanSelection
+          billingInterval={billingInterval}
           currentPlanSlug={currentPlan}
           isLoading={startCheckout.isPending}
           mode="trial_ended"
+          onBillingIntervalChange={setBillingInterval}
+          onPlanChange={setSelectedPlan}
           onStartCheckout={handleStartCheckout}
+          selectedPlan={selectedPlan}
         />
       </div>
     </Shell>

@@ -6,8 +6,8 @@ import { toast } from "@strait/ui/toast";
 import copy from "copy-to-clipboard";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
-import { Button } from "./button.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip.tsx";
+import { Button } from "./button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 
 interface IdCellProps {
   id: string;

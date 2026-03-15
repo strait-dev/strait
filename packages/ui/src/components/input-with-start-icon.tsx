@@ -1,7 +1,7 @@
 "use client";
 
-import { Input } from "../components/input.tsx";
-import { cn } from "../utils/index.ts";
+import { Input } from "../components/input";
+import { cn } from "../utils/index";
 
 export type InputWithStartIconProps =
   React.InputHTMLAttributes<HTMLInputElement> & {

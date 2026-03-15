@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/tanstackstart-react";
 import type { AnyRouter } from "@tanstack/react-router";
-import type { AuthUser } from "@/routes/__root.tsx";
+import type { AuthUser } from "@/routes/__root";
 
 /**
  * Re-exported Sentry APIs for use across the application.
@@ -154,7 +154,7 @@ export function captureSentryAuthError(
 
   // Get user agent for additional debugging context
   const userAgent =
-    typeof navigator !== "undefined" ? navigator.userAgent : undefined;
+    typeof navigator === "undefined" ? undefined : navigator.userAgent;
   const isMobile = userAgent
     ? ANDROID_WEBOS_IPHONE_IPAD_IPOD_BLACKBERRY_IEMOBILE_OPERA_MINI_REGEX.test(
         userAgent

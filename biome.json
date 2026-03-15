@@ -35,7 +35,8 @@
           "level": "error",
           "fix": "none"
         },
-        "noUnresolvedImports": "off"
+        "noUnresolvedImports": "off",
+        "useImportExtensions": "off"
       },
       "style": {
         "useFilenamingConvention": "off",

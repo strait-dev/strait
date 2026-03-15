@@ -1,12 +1,12 @@
-import type { BadgeProps } from "@strait/ui/components/badge.tsx";
-import { Badge } from "@strait/ui/components/badge.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Separator } from "@strait/ui/components/separator.tsx";
-import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs.tsx";
+import type { BadgeProps } from "@strait/ui/components/badge";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import { Separator } from "@strait/ui/components/separator";
+import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { Link } from "@tanstack/react-router";
 import type * as React from "react";
-import type { TabConfig } from "@/hooks/use-entity-sheet.ts";
-import PageHeaderWithBack from "../common/page-header-with-back.tsx";
+import type { TabConfig } from "@/hooks/use-entity-sheet";
+import PageHeaderWithBack from "../common/page-header-with-back";
 
 export type EntityAction = {
   label: string;
@@ -155,7 +155,7 @@ export const EntityViewLayout = ({
             >
               {tab.label}
               {tab.badge ? (
-                <Badge className="ml-1 text-xs" variant="secondary-light">
+                <Badge className="ml-1" variant="secondary-light">
                   {tab.badge}
                 </Badge>
               ) : null}
@@ -227,7 +227,7 @@ const EntityViewError = ({ error, backHref }: EntityViewErrorProps) => {
     <div className="w-full">
       <div className="flex flex-col items-center justify-center py-12">
         <div className="space-y-4 text-center">
-          <h2 className="font-heading font-semibold text-lg text-secondary-foreground">
+          <h2 className="font-heading font-normal text-lg text-secondary-foreground">
             Error loading data
           </h2>
           <p className="max-w-md text-muted-foreground text-sm">

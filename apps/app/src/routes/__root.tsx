@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { Toaster } from "@strait/ui/components/toast/index.ts";
+import { Toaster } from "@strait/ui/components/toast/index";
 import css from "@strait/ui/globals.css?url";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
-import { getSession } from "@/lib/auth-server.ts";
+import { getSession } from "@/lib/auth-handler";
 
 export type AuthUser = {
   id: string;
@@ -22,6 +22,7 @@ export type AuthUser = {
   emailVerified: boolean;
   image?: string | null;
   defaultOrganizationId?: string;
+  onboarded?: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -119,10 +120,10 @@ function RootComponent() {
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="light"
+      defaultTheme="dark"
       disableTransitionOnChange
       enableColorScheme={false}
-      enableSystem
+      enableSystem={false}
       themes={["light", "dark"]}
     >
       <RootDocument>
@@ -135,7 +136,7 @@ function RootComponent() {
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html
-      className="min-h-screen bg-background antialiased"
+      className="dark min-h-screen bg-background antialiased"
       lang="en"
       suppressHydrationWarning
     >
@@ -150,7 +151,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                const theme = localStorage.getItem('theme') || 'light';
+                const theme = localStorage.getItem('theme') || 'dark';
                 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
                 const effectiveTheme = theme === 'system' ? systemTheme : theme;
                 document.documentElement.classList.add(effectiveTheme);

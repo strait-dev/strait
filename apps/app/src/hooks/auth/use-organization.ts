@@ -7,8 +7,8 @@ import {
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import type z from "zod/v4";
-import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils.ts";
-import { auth } from "@/lib/auth.ts";
+import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { auth } from "@/lib/auth.server";
 import {
   deleteLastOrganizationWithTokenServerFn,
   deleteOrganizationWithTokenServerFn,
@@ -17,7 +17,7 @@ import {
   resendOrganizationDeletionCodeServerFn,
   setActiveOrganizationAuth,
   verifyOrganizationDeletionServerFn,
-} from "@/lib/organization-server.ts";
+} from "@/lib/organization-handler";
 import type {
   DeleteLastOrganizationWithTokenSchema,
   DeleteOrganizationWithTokenSchema,
@@ -27,7 +27,7 @@ import type {
   ResendOrganizationDeletionCodeSchema,
   VerifyOrganizationDeletionResponseSchema,
   VerifyOrganizationDeletionSchema,
-} from "@/lib/schema.ts";
+} from "@/lib/schema";
 
 export type OrganizationData = {
   id: string;
@@ -180,9 +180,9 @@ const updateOrganizationServerFn = createServerFn({ method: "POST" })
       body: {
         organizationId,
         data: {
-          ...(name != null ? { name } : {}),
-          ...(slug != null ? { slug } : {}),
-          ...(logo != null ? { logo } : {}),
+          ...(name == null ? {} : { name }),
+          ...(slug == null ? {} : { slug }),
+          ...(logo == null ? {} : { logo }),
           ...(metadata
             ? {
                 metadata:

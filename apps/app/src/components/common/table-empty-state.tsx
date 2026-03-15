@@ -1,8 +1,8 @@
-import { Add01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import { Link } from "@tanstack/react-router";
 import type * as React from "react";
+import { PlusIcon } from "@/lib/icons";
 
 type TableEmptyStateProps = {
   icon: React.ReactNode;
@@ -31,10 +31,10 @@ const TableEmptyState = ({
     </div>
 
     <div className="flex max-w-xs flex-col items-center gap-2 text-center">
-      <h2 className="font-semibold text-lg text-secondary-foreground tracking-tight">
+      <h2 className="text-balance font-normal text-lg text-secondary-foreground tracking-tight">
         {title}
       </h2>
-      <p className="text-muted-foreground text-sm">{description}</p>
+      <p className="text-pretty text-muted-foreground text-sm">{description}</p>
     </div>
 
     {!hideButton &&
@@ -46,7 +46,7 @@ const TableEmptyState = ({
           <HugeiconsIcon
             aria-hidden="true"
             className="size-4"
-            icon={Add01Icon}
+            icon={PlusIcon}
           />
           <span className="leading-none">{buttonText}</span>
         </Button>

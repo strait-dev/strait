@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth.ts";
-import { createOrganizationServerFn } from "@/lib/organization-server.ts";
-import { type OnboardingFormData, onboardingSchema } from "@/lib/schema.ts";
-import { authMiddleware } from "@/middlewares/auth.ts";
-import { transformOnboardingToOrgData } from "@/utils/onboarding.ts";
+import { auth } from "@/lib/auth.server";
+import { createOrganizationServerFn } from "@/lib/organization-handler";
+import { type OnboardingFormData, onboardingSchema } from "@/lib/schema";
+import { authMiddleware } from "@/middlewares/auth";
+import { transformOnboardingToOrgData } from "@/utils/onboarding";
 
 type CompleteOnboardingResult = Awaited<
   ReturnType<typeof completeOnboardingServerFn>
@@ -31,6 +31,7 @@ const completeOnboardingServerFn = createServerFn({ method: "POST" })
       await auth.api.updateUser({
         body: {
           defaultOrganizationId: organization.id,
+          onboarded: true,
         },
         headers,
       });
@@ -48,7 +49,7 @@ const completeOnboardingServerFn = createServerFn({ method: "POST" })
 
 /**
  * Hook to complete onboarding (create organization only).
- * After success, redirects to /upgrade for plan selection and checkout.
+ * After success, redirects to /app.
  */
 export const useCompleteOnboarding = () => {
   const queryClient = useQueryClient();
@@ -65,8 +66,8 @@ export const useCompleteOnboarding = () => {
         queryKey: ["organizations"],
       });
 
-      // Redirect to upgrade page for plan selection and checkout
-      router.navigate({ to: "/upgrade" });
+      // Redirect to app after onboarding
+      router.navigate({ to: "/app" });
     },
     onError: (_error) => {
       // Error handled by toast in the component

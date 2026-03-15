@@ -1,8 +1,8 @@
-import { SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge.tsx";
+import { Badge } from "@strait/ui/components/badge";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { SparklesIcon } from "@/lib/icons";
 
 /**
  * Premium Trial Feature Badge
@@ -24,7 +24,7 @@ export const PremiumFeatureBadge = ({ className }: { className?: string }) => {
       title="Premium trial feature"
       variant="secondary"
     >
-      <HugeiconsIcon className="h-3 w-3" icon={SparklesIcon} />
+      <HugeiconsIcon className="size-3" icon={SparklesIcon} />
       <span className="font-medium">Premium</span>
     </Badge>
   );

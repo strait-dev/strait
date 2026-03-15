@@ -13,8 +13,8 @@ import {
   getDefaultClassNames,
   type Locale,
 } from "react-day-picker";
-import { cn } from "../utils/index.ts";
-import { Button, buttonVariants } from "./button.tsx";
+import { cn } from "../utils/index";
+import { Button, buttonVariants } from "./button";
 
 function Calendar({
   className,

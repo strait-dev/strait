@@ -1,4 +1,4 @@
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 
 export type InputWithAddonsProps =
   React.InputHTMLAttributes<HTMLInputElement> & {

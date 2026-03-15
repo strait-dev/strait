@@ -1,4 +1,3 @@
-// biome-ignore lint/suspicious/noDeprecatedImports: useBlocker has deprecated overloads but the UseBlockerOpts object syntax used here is the current API
 import { useBlocker, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 

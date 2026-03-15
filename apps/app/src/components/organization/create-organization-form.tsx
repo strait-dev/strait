@@ -1,33 +1,33 @@
-import { Add01Icon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
+import { Button } from "@strait/ui/components/button";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Input } from "@strait/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@strait/ui/components/select.tsx";
-import { Separator } from "@strait/ui/components/separator.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/select";
+import { Separator } from "@strait/ui/components/separator";
+import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { nanoid } from "nanoid";
 import { useId, useMemo } from "react";
 import { z } from "zod";
-import { UnsavedChangesDialog } from "@/components/common/unsaved-changes-dialog.tsx";
-import { useCreateOrganization } from "@/hooks/auth/use-organization.ts";
-import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
-import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants.ts";
+import { UnsavedChangesDialog } from "@/components/common/unsaved-changes-dialog";
+import { useCreateOrganization } from "@/hooks/auth/use-organization";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
+import { LoadingIcon, PlusIcon } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
+import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants";
 import {
   activities,
   company_size,
   fiscal_types,
   segments,
-} from "@/utils/options.tsx";
+} from "@/utils/options";
 
 const insertOrganizationSchema = z.object({
   id: z.string().optional(),
@@ -370,10 +370,10 @@ const CreateOrganizationForm = ({ user }: Props) => {
                 {isSubmitting || createOrganization.isPending ? (
                   <HugeiconsIcon
                     className="size-4 animate-spin"
-                    icon={Loading03Icon}
+                    icon={LoadingIcon}
                   />
                 ) : (
-                  <HugeiconsIcon className="size-4" icon={Add01Icon} />
+                  <HugeiconsIcon className="size-4" icon={PlusIcon} />
                 )}
                 Create new store
               </Button>

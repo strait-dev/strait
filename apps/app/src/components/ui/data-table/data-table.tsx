@@ -1,4 +1,3 @@
-import { UserMultiple02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Table,
@@ -7,13 +6,14 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@strait/ui/components/table.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/table";
+import { cn } from "@strait/ui/utils/index";
 import { flexRender, type Table as TanstackTable } from "@tanstack/react-table";
 import type * as React from "react";
-import FiltersEmptyState from "@/components/common/filters-empty-state.tsx";
-import TableEmptyState from "@/components/common/table-empty-state.tsx";
-import { DataTablePagination } from "./data-table-pagination.tsx";
+import FiltersEmptyState from "@/components/common/filters-empty-state";
+import TableEmptyState from "@/components/common/table-empty-state";
+import { UsersIcon } from "@/lib/icons";
+import { DataTablePagination } from "./data-table-pagination";
 
 const DEFAULT_EMPTY_FILTER_STATE = (
   <FiltersEmptyState
@@ -28,12 +28,7 @@ const DEFAULT_EMPTY_STATE = (
     buttonText="Create"
     description="There is no data available for display."
     href="/app/customers/add"
-    icon={
-      <HugeiconsIcon
-        className="size-6 text-primary"
-        icon={UserMultiple02Icon}
-      />
-    }
+    icon={<HugeiconsIcon className="size-6 text-primary" icon={UsersIcon} />}
     title="No data found"
   />
 );

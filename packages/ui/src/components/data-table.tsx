@@ -19,9 +19,9 @@ import {
 } from "@tanstack/react-table";
 
 import { useState } from "react";
-import { cn } from "../utils/index.ts";
-import { Button } from "./button.tsx";
-import { Checkbox } from "./checkbox.tsx";
+import { cn } from "../utils/index";
+import { Button } from "./button";
+import { Checkbox } from "./checkbox";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -30,8 +30,8 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
-} from "./dropdown-menu.tsx";
-import { Input } from "./input.tsx";
+} from "./dropdown-menu";
+import { Input } from "./input";
 import {
   Table,
   TableBody,
@@ -39,7 +39,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "./table.tsx";
+} from "./table";
 
 type DataTableProps<TData, TValue> = {
   columns: ColumnDef<TData, TValue>[];

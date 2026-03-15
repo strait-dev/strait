@@ -1,8 +1,3 @@
-import {
-  ArrowDown01Icon,
-  Search01Icon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Command,
@@ -10,16 +5,17 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
-} from "@strait/ui/components/command.tsx";
+} from "@strait/ui/components/command";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@strait/ui/components/popover.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/popover";
+import { cn } from "@strait/ui/utils/index";
 import { useCallback, useState } from "react";
 import { CircleFlag } from "react-circle-flags";
-import { countries } from "@/utils/data.ts";
+import { CheckIcon, ChevronDownIcon, SearchIcon } from "@/lib/icons";
+import { countries } from "@/utils/data";
 
 export type Country = {
   value: string;
@@ -84,7 +80,7 @@ const CountryDropdown = ({
       >
         {selectedCountry ? (
           <div className="flex w-0 grow items-center gap-2 overflow-hidden">
-            <div className="inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
+            <div className="inline-flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
               <CircleFlag
                 countryCode={selectedCountry.iso.toLowerCase()}
                 height={16}
@@ -99,7 +95,7 @@ const CountryDropdown = ({
         )}
         <HugeiconsIcon
           className="size-4 shrink-0 text-muted-foreground/80"
-          icon={ArrowDown01Icon}
+          icon={ChevronDownIcon}
         />
       </PopoverTrigger>
       <PopoverContent
@@ -108,10 +104,10 @@ const CountryDropdown = ({
       >
         <Command>
           <div className="flex items-center border-input border-b px-3 py-2">
-            <div className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+            <div className="inline-flex size-4 shrink-0 items-center justify-center">
               <HugeiconsIcon
                 className="text-muted-foreground/80"
-                icon={Search01Icon}
+                icon={SearchIcon}
               />
             </div>
             <input
@@ -140,7 +136,7 @@ const CountryDropdown = ({
                     key={option.iso}
                     onSelect={() => handleSelect(option)}
                   >
-                    <div className="inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                    <div className="inline-flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-full">
                       <CircleFlag
                         countryCode={option.iso.toLowerCase()}
                         height={16}
@@ -151,12 +147,12 @@ const CountryDropdown = ({
                     </span>
                     <HugeiconsIcon
                       className={cn(
-                        "ml-auto h-4 w-4 shrink-0",
+                        "ml-auto size-4 shrink-0",
                         option.value === selectedCountry?.value
                           ? "opacity-100"
                           : "opacity-0"
                       )}
-                      icon={Tick02Icon}
+                      icon={CheckIcon}
                     />
                   </CommandItem>
                 ))}

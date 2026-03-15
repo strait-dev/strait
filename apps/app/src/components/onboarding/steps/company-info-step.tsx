@@ -1,34 +1,23 @@
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { PhoneInput } from "@strait/ui/components/phone-input.tsx";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Input } from "@strait/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@strait/ui/components/select.tsx";
-import { Textarea } from "@strait/ui/components/textarea.tsx";
+} from "@strait/ui/components/select";
+import { Textarea } from "@strait/ui/components/textarea";
 import { useCallback, useId, useRef } from "react";
-import { CountryDropdown } from "@/components/common/country-dropdown.tsx";
-import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics.ts";
-import { countries } from "@/utils/data.ts";
-import {
-  annualRevenues,
-  businessTypes,
-  companySizes,
-} from "../data/company-sizes.ts";
-import { industries } from "../data/industries.ts";
-import type { OnboardingStepProps } from "../types.ts";
+import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
+import { environments, teamSizes } from "../data/company-sizes";
+import type { OnboardingStepProps } from "../types";
 
-export const CompanyInfoStep = ({ form, isLoading }: OnboardingStepProps) => {
+export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
   const { trackCompanyInfoFieldFilled } = useOnboardingAnalytics();
-  // Track which fields have been filled to avoid duplicate events
   const trackedFieldsRef = useRef<Set<string>>(new Set());
-  const industrySelectId = useId();
-  const sizeSelectId = useId();
-  const businessTypeSelectId = useId();
-  const revenueSelectId = useId();
+  const teamSizeSelectId = useId();
+  const environmentSelectId = useId();
 
   const handleFieldFilled = useCallback(
     (fieldName: string) => {
@@ -40,136 +29,62 @@ export const CompanyInfoStep = ({ form, isLoading }: OnboardingStepProps) => {
     [trackCompanyInfoFieldFilled]
   );
 
-  const handleCountryChange = useCallback(
-    (countryCode: string | undefined) => {
-      if (!countryCode) {
-        return;
-      }
-
-      const matchingCountry = countries.find(
-        (country) => country.iso === countryCode
-      );
-      if (matchingCountry) {
-        form.setFieldValue("country", matchingCountry.value);
-      }
-    },
-    [form]
-  );
-
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="font-semibold text-secondary-foreground text-xl tracking-tight">
-          Tell us about your company
+        <h2 className="text-balance font-normal text-secondary-foreground text-xl tracking-tight">
+          Set up your workspace
         </h2>
-        <p className="whitespace-normal text-muted-foreground text-sm">
-          This helps us personalize your experience
+        <p className="whitespace-normal text-pretty text-muted-foreground text-sm">
+          Configure your workspace to get started with Strait.
         </p>
       </div>
 
       <div className="space-y-5">
-        {/* Company Name and Phone - Row 1 */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <form.Field name="companyName">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor={field.name}>Name</FieldLabel>
-                <Input
-                  id={field.name}
-                  onBlur={(e) => {
-                    field.handleBlur();
-                    if (e.target.value) {
-                      handleFieldFilled("companyName");
-                    }
-                  }}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="Enter company name"
-                  value={field.state.value}
-                />
-                {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
-                )}
-              </Field>
-            )}
-          </form.Field>
+        {/* Workspace Name - Row 1 */}
+        <form.Field name="workspaceName">
+          {(field) => (
+            <Field>
+              <FieldLabel htmlFor={field.name}>Workspace Name</FieldLabel>
+              <Input
+                id={field.name}
+                onBlur={(e) => {
+                  field.handleBlur();
+                  if (e.target.value) {
+                    handleFieldFilled("workspaceName");
+                  }
+                }}
+                onChange={(e) => field.handleChange(e.target.value)}
+                placeholder="e.g. Acme Engineering"
+                value={field.state.value}
+              />
+              {field.state.meta.errors.length > 0 && (
+                <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
+              )}
+            </Field>
+          )}
+        </form.Field>
 
-          <form.Field name="companyPhone">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor={field.name}>Phone (optional)</FieldLabel>
-                <PhoneInput
-                  defaultCountry="US"
-                  id={field.name}
-                  onBlur={field.handleBlur}
-                  onChange={(value) => {
-                    field.handleChange(value);
-                    if (value) {
-                      handleFieldFilled("companyPhone");
-                    }
-                  }}
-                  onCountryChange={handleCountryChange}
-                  placeholder="Enter phone number"
-                  value={field.state.value ?? ""}
-                />
-                {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
-                )}
-              </Field>
-            )}
-          </form.Field>
-        </div>
-
-        {/* Industry and Company Size - Row 2 */}
+        {/* Team Size + Environment - Row 2 */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <form.Field name="industry">
+          <form.Field name="teamSize">
             {(field) => (
               <Field>
-                <FieldLabel htmlFor={industrySelectId}>Industry</FieldLabel>
+                <FieldLabel htmlFor={teamSizeSelectId}>Team Size</FieldLabel>
                 <Select
                   onValueChange={(value) => {
                     if (value) {
                       field.handleChange(value);
-                      handleFieldFilled("industry");
+                      handleFieldFilled("teamSize");
                     }
                   }}
                   value={field.state.value}
                 >
-                  <SelectTrigger id={industrySelectId}>
-                    <SelectValue placeholder="Select your industry" />
+                  <SelectTrigger id={teamSizeSelectId}>
+                    <SelectValue placeholder="Select team size" />
                   </SelectTrigger>
                   <SelectContent>
-                    {industries.map((industry) => (
-                      <SelectItem key={industry.value} value={industry.value}>
-                        {industry.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
-                )}
-              </Field>
-            )}
-          </form.Field>
-
-          <form.Field name="companySize">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor={sizeSelectId}>Size</FieldLabel>
-                <Select
-                  onValueChange={(value) => {
-                    if (value) {
-                      field.handleChange(value);
-                      handleFieldFilled("companySize");
-                    }
-                  }}
-                  value={field.state.value}
-                >
-                  <SelectTrigger id={sizeSelectId}>
-                    <SelectValue placeholder="Select size" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companySizes.map((size) => (
+                    {teamSizes.map((size) => (
                       <SelectItem key={size.value} value={size.value}>
                         {size.label}
                       </SelectItem>
@@ -182,63 +97,29 @@ export const CompanyInfoStep = ({ form, isLoading }: OnboardingStepProps) => {
               </Field>
             )}
           </form.Field>
-        </div>
 
-        {/* Business Type and Annual Revenue - Row 3 */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <form.Field name="businessType">
+          <form.Field name="environment">
             {(field) => (
               <Field>
-                <FieldLabel htmlFor={businessTypeSelectId}>
-                  Business Type
+                <FieldLabel htmlFor={environmentSelectId}>
+                  Primary Environment
                 </FieldLabel>
                 <Select
                   onValueChange={(value) => {
                     if (value) {
                       field.handleChange(value);
-                      handleFieldFilled("businessType");
+                      handleFieldFilled("environment");
                     }
                   }}
                   value={field.state.value}
                 >
-                  <SelectTrigger id={businessTypeSelectId}>
-                    <SelectValue placeholder="Select business type" />
+                  <SelectTrigger id={environmentSelectId}>
+                    <SelectValue placeholder="Select environment" />
                   </SelectTrigger>
                   <SelectContent>
-                    {businessTypes.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
-                )}
-              </Field>
-            )}
-          </form.Field>
-
-          <form.Field name="annualRevenue">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor={revenueSelectId}>
-                  Annual Revenue (optional)
-                </FieldLabel>
-                <Select
-                  onValueChange={(value) => {
-                    field.handleChange(value as typeof field.state.value);
-                    handleFieldFilled("annualRevenue");
-                  }}
-                  value={field.state.value ?? undefined}
-                >
-                  <SelectTrigger id={revenueSelectId}>
-                    <SelectValue placeholder="Select revenue range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {annualRevenues.map((revenue) => (
-                      <SelectItem key={revenue.value} value={revenue.value}>
-                        {revenue.label}
+                    {environments.map((env) => (
+                      <SelectItem key={env.value} value={env.value}>
+                        {env.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -251,59 +132,12 @@ export const CompanyInfoStep = ({ form, isLoading }: OnboardingStepProps) => {
           </form.Field>
         </div>
 
-        {/* Country and Website - Row 4 */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <form.Field name="country">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor={field.name}>Country</FieldLabel>
-                <CountryDropdown
-                  disabled={isLoading}
-                  onValueChange={(value) => {
-                    field.handleChange(value);
-                    handleFieldFilled("country");
-                  }}
-                  placeholder="Select your country"
-                  value={field.state.value}
-                />
-                {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
-                )}
-              </Field>
-            )}
-          </form.Field>
-
-          <form.Field name="website">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor={field.name}>Website (optional)</FieldLabel>
-                <Input
-                  id={field.name}
-                  onBlur={(e) => {
-                    field.handleBlur();
-                    if (e.target.value) {
-                      handleFieldFilled("website");
-                    }
-                  }}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="https://example.com"
-                  type="url"
-                  value={field.state.value ?? ""}
-                />
-                {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
-                )}
-              </Field>
-            )}
-          </form.Field>
-        </div>
-
-        {/* Primary Goals - Full Width */}
+        {/* Primary Goals - Row 3 */}
         <form.Field name="primaryGoals">
           {(field) => (
             <Field>
               <FieldLabel htmlFor={field.name}>
-                What are your primary goals? (optional)
+                What do you want to achieve? (optional)
               </FieldLabel>
               <Textarea
                 className="min-h-20"

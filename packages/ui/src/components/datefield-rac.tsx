@@ -13,7 +13,7 @@ import {
   TimeField as TimeFieldRac,
   type TimeValue as TimeValueRac,
 } from "react-aria-components";
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 
 function DateField<T extends DateValueRac>({
   className,
@@ -85,5 +85,5 @@ function DateInput({
   );
 }
 
-export { DateField, DateInput, DateSegment, TimeField, dateInputStyle };
 export type { DateInputProps };
+export { DateField, DateInput, DateSegment, dateInputStyle, TimeField };

@@ -1,10 +1,10 @@
-import { AlarmClockIcon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription.ts";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { AlarmClockIcon, SparklesIcon } from "@/lib/icons";
 
 const TRIAL_CRITICAL_DAYS = 2;
 const TRIAL_WARNING_DAYS = 5;
@@ -144,7 +144,7 @@ const UpgradeBanner = () => {
         bg: "bg-destructive/15",
         border: "border-destructive/30",
         text: "text-destructive dark:text-red-400",
-        titleText: "text-destructive dark:text-red-300 font-semibold",
+        titleText: "text-destructive dark:text-red-300 font-normal",
         icon: "bg-destructive/20 text-destructive",
         buttonVariant: "destructive" as const,
         buttonClass: "",

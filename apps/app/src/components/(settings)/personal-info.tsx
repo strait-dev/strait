@@ -1,6 +1,5 @@
-import { Loading03Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -8,16 +7,17 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
-import { Field, FieldError, FieldLabel } from "@strait/ui/components/field.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/card";
+import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Input } from "@strait/ui/components/input";
+import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useTransition } from "react";
 import { z } from "zod";
-import { useUpdateUser } from "@/hooks/auth/use-user.ts";
-import { captureException } from "@/lib/sentry.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
+import { useUpdateUser } from "@/hooks/auth/use-user";
+import { LoadingIcon, PencilEditIcon } from "@/lib/icons";
+import { captureException } from "@/lib/sentry";
+import type { AuthUser } from "@/routes/__root";
 
 const userFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -146,10 +146,10 @@ const PersonalInfo = ({ user }: Props) => {
             {isProcessing ? (
               <HugeiconsIcon
                 className="size-4 animate-spin"
-                icon={Loading03Icon}
+                icon={LoadingIcon}
               />
             ) : (
-              <HugeiconsIcon className="size-4" icon={PencilEdit02Icon} />
+              <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
             )}
             Save changes
           </Button>

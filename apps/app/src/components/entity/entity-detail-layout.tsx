@@ -1,7 +1,6 @@
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { BadgeProps } from "@strait/ui/components/badge.tsx";
-import { Badge } from "@strait/ui/components/badge.tsx";
+import type { BadgeProps } from "@strait/ui/components/badge";
+import { Badge } from "@strait/ui/components/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -9,14 +8,15 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { Separator } from "@strait/ui/components/separator.tsx";
-import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs.tsx";
+} from "@strait/ui/components/breadcrumb";
+import { Button } from "@strait/ui/components/button";
+import { Separator } from "@strait/ui/components/separator";
+import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { Link } from "@tanstack/react-router";
 import type React from "react";
 import { Fragment } from "react";
-import type { TabConfig } from "@/hooks/use-entity-sheet.ts";
+import type { TabConfig } from "@/hooks/use-entity-sheet";
+import { ArrowLeftIcon } from "@/lib/icons";
 
 export type BreadcrumbConfig = {
   label: string;
@@ -160,7 +160,7 @@ export const EntityDetailLayout = ({
       {/* Back Button */}
       <div>
         <Button render={<Link to={backHref} />} size="sm" variant="ghost">
-          <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
+          <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
           {backLabel}
         </Button>
       </div>
@@ -249,7 +249,7 @@ export const EntityDetailLayout = ({
             >
               {tab.label}
               {tab.badge ? (
-                <Badge className="ml-1 text-xs" variant="secondary-light">
+                <Badge className="ml-1" variant="secondary-light">
                   {tab.badge}
                 </Badge>
               ) : null}
@@ -328,7 +328,7 @@ const EntityDetailError = ({ error, backHref }: EntityDetailErrorProps) => {
     <div className="w-full">
       <div className="flex flex-col items-center justify-center py-12">
         <div className="space-y-4 text-center">
-          <h2 className="font-heading font-semibold text-lg text-secondary-foreground">
+          <h2 className="font-heading font-normal text-lg text-secondary-foreground">
             Error loading data
           </h2>
           <p className="max-w-md text-muted-foreground text-sm">
@@ -340,7 +340,7 @@ const EntityDetailError = ({ error, backHref }: EntityDetailErrorProps) => {
               Try again
             </Button>
             <Button render={<Link to={backHref} />}>
-              <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />
+              <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
               Back
             </Button>
           </div>

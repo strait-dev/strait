@@ -1,6 +1,5 @@
-import { Settings05Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -9,8 +8,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu.tsx";
+} from "@strait/ui/components/dropdown-menu";
 import type { Table } from "@tanstack/react-table";
+import { SettingsIcon } from "@/lib/icons";
 
 const CAMEL_CASE_BOUNDARY = /([A-Z])/g;
 const FIRST_CHAR = /^./;
@@ -43,7 +43,7 @@ export function DataTableViewOptions<TData>({
         <HugeiconsIcon
           aria-hidden="true"
           className="size-4"
-          icon={Settings05Icon}
+          icon={SettingsIcon}
         />
         View
       </DropdownMenuTrigger>

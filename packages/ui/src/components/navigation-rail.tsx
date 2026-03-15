@@ -2,14 +2,14 @@
 
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type React from "react";
-import { cn } from "../utils/index.ts";
-import { Button } from "./button.tsx";
+import { cn } from "../utils/index";
+import { Button } from "./button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "./tooltip.tsx";
+} from "./tooltip";
 
 export type NavigationRailProps = React.HTMLAttributes<HTMLDivElement> & {
   orientation?: "left" | "right";

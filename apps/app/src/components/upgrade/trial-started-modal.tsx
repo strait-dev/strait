@@ -1,6 +1,5 @@
-import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +7,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@strait/ui/components/dialog.tsx";
+} from "@strait/ui/components/dialog";
+import { CheckIcon } from "@/lib/icons";
 
 type TrialStartedModalProps = {
   open: boolean;
@@ -23,8 +23,8 @@ export const TrialStartedModal = ({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <HugeiconsIcon className="h-6 w-6 text-primary" icon={Tick02Icon} />
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10">
+            <HugeiconsIcon className="size-6 text-primary" icon={CheckIcon} />
           </div>
           <DialogTitle className="text-center">Welcome to Strait!</DialogTitle>
           <DialogDescription className="text-center">
@@ -35,33 +35,24 @@ export const TrialStartedModal = ({
 
         <div className="space-y-3 py-4">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <HugeiconsIcon
-                className="h-3 w-3 text-primary"
-                icon={Tick02Icon}
-              />
+            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <HugeiconsIcon className="size-3 text-primary" icon={CheckIcon} />
             </div>
             <p className="text-muted-foreground text-sm">
               Full access to all features during your trial
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <HugeiconsIcon
-                className="h-3 w-3 text-primary"
-                icon={Tick02Icon}
-              />
+            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <HugeiconsIcon className="size-3 text-primary" icon={CheckIcon} />
             </div>
             <p className="text-muted-foreground text-sm">
               No credit card required until trial ends
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <HugeiconsIcon
-                className="h-3 w-3 text-primary"
-                icon={Tick02Icon}
-              />
+            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <HugeiconsIcon className="size-3 text-primary" icon={CheckIcon} />
             </div>
             <p className="text-muted-foreground text-sm">
               Cancel anytime before your trial ends

@@ -1,12 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "./auth.ts";
-
-/**
- * Better Auth handler for the API route.
- * Processes all /api/auth/* requests.
- */
-export const handler = (request: Request) => auth.handler(request);
+import { auth } from "./auth.server";
 
 /**
  * Retrieves the current user session from request headers.

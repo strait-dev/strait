@@ -1,7 +1,7 @@
-import type { AuthUser } from "@/routes/__root.tsx";
+import type { AuthUser } from "@/routes/__root";
 
-import DeleteAccount from "./delete-account.tsx";
-import PersonalInfo from "./personal-info.tsx";
+import DeleteAccount from "./delete-account";
+import PersonalInfo from "./personal-info";
 
 type Props = {
   user: AuthUser;

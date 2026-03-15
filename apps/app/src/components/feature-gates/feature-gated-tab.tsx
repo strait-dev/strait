@@ -1,4 +1,3 @@
-import { Crown03Icon, SquareLock02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertDialog,
@@ -9,15 +8,16 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@strait/ui/components/alert-dialog.tsx";
-import { Button } from "@strait/ui/components/button.tsx";
-import { TabsContent, TabsTrigger } from "@strait/ui/components/tabs.tsx";
-import { cn } from "@strait/ui/utils/index.ts";
+} from "@strait/ui/components/alert-dialog";
+import { Button } from "@strait/ui/components/button";
+import { TabsContent, TabsTrigger } from "@strait/ui/components/tabs";
+import { cn } from "@strait/ui/utils/index";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
-import type { FeatureFlagKey } from "@/hooks/posthog/flags.ts";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag.ts";
+import type { FeatureFlagKey } from "@/hooks/posthog/flags";
+import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
+import { CrownIcon, LockSquareIcon } from "@/lib/icons";
 
 type FeatureGatedTabTriggerProps = {
   value: string;
@@ -85,7 +85,7 @@ export const FeatureGatedTabTrigger = ({
         {showLock ? (
           <HugeiconsIcon
             className="size-3.5 text-muted-foreground"
-            icon={SquareLock02Icon}
+            icon={LockSquareIcon}
           />
         ) : null}
       </TabsTrigger>
@@ -96,7 +96,7 @@ export const FeatureGatedTabTrigger = ({
             <AlertDialogTitle className="flex items-center gap-2">
               <HugeiconsIcon
                 className="size-5 text-primary"
-                icon={SquareLock02Icon}
+                icon={LockSquareIcon}
               />
               Premium Feature
             </AlertDialogTitle>
@@ -108,7 +108,7 @@ export const FeatureGatedTabTrigger = ({
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleClose}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleUpgrade}>
-              <HugeiconsIcon className="size-4" icon={Crown03Icon} />
+              <HugeiconsIcon className="size-4" icon={CrownIcon} />
               Upgrade now
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -155,19 +155,19 @@ export const FeatureGatedTabContent = ({
   return (
     <TabsContent className={cn("space-y-6", className)} value={value}>
       <div className="flex min-h-[300px] flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent">
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-accent">
           <HugeiconsIcon
-            className="h-6 w-6 text-accent-foreground"
-            icon={SquareLock02Icon}
+            className="size-6 text-accent-foreground"
+            icon={LockSquareIcon}
           />
         </div>
-        <h3 className="mb-2 font-semibold text-lg">Premium Feature</h3>
+        <h3 className="mb-2 font-normal text-lg">Premium Feature</h3>
         <p className="mb-4 max-w-md text-muted-foreground text-sm">
           This report requires a higher subscription tier. Upgrade your plan to
           access advanced analytics and insights.
         </p>
         <Button onClick={handleUpgrade}>
-          <HugeiconsIcon className="size-4" icon={Crown03Icon} />
+          <HugeiconsIcon className="size-4" icon={CrownIcon} />
           Upgrade Plan
         </Button>
       </div>

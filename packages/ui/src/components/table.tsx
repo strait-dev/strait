@@ -2,7 +2,7 @@
 
 import type * as React from "react";
 
-import { cn } from "../utils/index.ts";
+import { cn } from "../utils/index";
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
@@ -106,11 +106,11 @@ function TableCaption({
 
 export {
   Table,
-  TableHeader,
   TableBody,
+  TableCaption,
+  TableCell,
   TableFooter,
   TableHead,
+  TableHeader,
   TableRow,
-  TableCell,
-  TableCaption,
 };

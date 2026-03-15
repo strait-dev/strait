@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
-import ErrorComponent from "@/components/common/error-component.tsx";
-import NotFound from "@/components/common/not-found.tsx";
-import { initializeSentry } from "@/lib/sentry.ts";
-import { routeTree } from "./routeTree.gen.ts";
+import ErrorComponent from "@/components/common/error-component";
+import NotFound from "@/components/common/not-found";
+import { initializeSentry } from "@/lib/sentry";
+import { routeTree } from "./routeTree.gen";
 
 export const getRouter = () => {
   const queryClient: QueryClient = new QueryClient({

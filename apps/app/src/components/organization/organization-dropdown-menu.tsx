@@ -1,15 +1,9 @@
-import {
-  Add01Icon,
-  Settings01Icon,
-  Store01Icon,
-  UnfoldMoreIcon,
-} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-} from "@strait/ui/components/avatar.tsx";
+} from "@strait/ui/components/avatar";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -19,21 +13,27 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu.tsx";
-import { Sheet, SheetTrigger } from "@strait/ui/components/sheet.tsx";
-import { SidebarMenuButton } from "@strait/ui/components/sidebar.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/dropdown-menu";
+import { Sheet, SheetTrigger } from "@strait/ui/components/sheet";
+import { SidebarMenuButton } from "@strait/ui/components/sidebar";
+import { toast } from "@strait/ui/components/toast/index";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import type { OrganizationData } from "@/hooks/auth/use-organization.ts";
+import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
   useOrganization,
   useOrganizations,
   useSetDefaultOrganization,
-} from "@/hooks/auth/use-organization.ts";
-import type { AuthUser, Session } from "@/routes/__root.tsx";
-import { CreateOrganizationLimitGate } from "./create-organization-limit-gate.tsx";
-import CreateOrganizationSheet from "./create-organization-sheet.tsx";
+} from "@/hooks/auth/use-organization";
+import {
+  PlusIcon,
+  SettingsOutlineIcon,
+  StoreIcon,
+  UnfoldMoreIcon,
+} from "@/lib/icons";
+import type { AuthUser, Session } from "@/routes/__root";
+import { CreateOrganizationLimitGate } from "./create-organization-limit-gate";
+import CreateOrganizationSheet from "./create-organization-sheet";
 
 type Props = {
   user: AuthUser;
@@ -111,13 +111,13 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
             <SidebarMenuButton className="w-full max-w-[200px]" size="lg" />
           }
         >
-          <Avatar className="h-10 w-10">
+          <Avatar className="size-10">
             <AvatarFallback>
-              <HugeiconsIcon className="size-4" icon={Add01Icon} />
+              <HugeiconsIcon className="size-4" icon={PlusIcon} />
             </AvatarFallback>
           </Avatar>
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">
+            <span className="truncate font-normal">
               Create first organization
             </span>
             <span className="truncate text-muted-foreground text-xs">
@@ -153,17 +153,17 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
             <SidebarMenuButton className="w-full max-w-[200px]" size="lg" />
           }
         >
-          <Avatar className="h-10 w-10">
+          <Avatar className="size-10">
             {activeOrganization.logo ? (
               <AvatarImage src={activeOrganization.logo} />
             ) : null}
             <AvatarFallback>
-              <HugeiconsIcon className="size-4" icon={Store01Icon} />
+              <HugeiconsIcon className="size-4" icon={StoreIcon} />
             </AvatarFallback>
           </Avatar>
 
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">
+            <span className="truncate font-normal">
               {activeOrganization.name}
             </span>
             <span className="truncate text-muted-foreground text-xs">
@@ -182,17 +182,17 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
           <DropdownMenuGroup>
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-10 w-10">
+                <Avatar className="size-10">
                   {activeOrganization.logo ? (
                     <AvatarImage src={activeOrganization.logo} />
                   ) : null}
                   <AvatarFallback>
-                    <HugeiconsIcon className="size-4" icon={Store01Icon} />
+                    <HugeiconsIcon className="size-4" icon={StoreIcon} />
                   </AvatarFallback>
                 </Avatar>
 
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">
+                  <span className="truncate font-normal">
                     {activeOrganization.name}
                   </span>
                   <span className="truncate text-muted-foreground text-xs">
@@ -224,7 +224,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
               navigate({ to: "/app/settings" });
             }}
           >
-            <HugeiconsIcon className="size-4" icon={Settings01Icon} />
+            <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />
             Settings
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -245,7 +245,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
                 />
               }
             >
-              <HugeiconsIcon className="size-4" icon={Add01Icon} />
+              <HugeiconsIcon className="size-4" icon={PlusIcon} />
               Create new store
             </SheetTrigger>
           </CreateOrganizationLimitGate>

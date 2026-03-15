@@ -1,9 +1,8 @@
-import { isValidPhoneNumber } from "react-phone-number-input";
 import * as z from "zod";
 
 const DEFAULT_MIN_CODE_LENGTH = 6;
-const DEFAULT_MAX_COMPANY_LENGTH = 100;
-const DEFAULT_MAX_PRIORITY_LENGTH = 8;
+const DEFAULT_MAX_WORKSPACE_LENGTH = 100;
+const DEFAULT_MAX_USE_CASE_LENGTH = 8;
 const DEFAULT_MAX_DESCRIPTION_LENGTH = 500;
 
 export const FeedbackFormSchema = z.object({
@@ -98,69 +97,25 @@ export const DeleteLastOrganizationWithTokenSchema = z.object({
   verificationToken: z.string({ message: "Invalid verification token" }),
 });
 
-// Step 1: Business Needs
-const businessNeedsSchema = z.object({
-  businessNeeds: z
+// Step 1: Use Cases
+const useCasesSchema = z.object({
+  useCases: z
     .array(z.string())
-    .min(1, "Please select at least one business priority")
-    .max(DEFAULT_MAX_PRIORITY_LENGTH, "Please select up to 8 priorities"),
+    .min(1, "Please select at least one use case")
+    .max(DEFAULT_MAX_USE_CASE_LENGTH, "Please select up to 8 use cases"),
 });
 
-// Step 2: Company Information
-const companyInfoSchema = z.object({
-  companyName: z
+// Step 2: Workspace Setup
+const workspaceSetupSchema = z.object({
+  workspaceName: z
     .string()
-    .min(2, "Company name must be at least 2 characters")
+    .min(2, "Workspace name must be at least 2 characters")
     .max(
-      DEFAULT_MAX_COMPANY_LENGTH,
-      "Company name must be less than 100 characters"
+      DEFAULT_MAX_WORKSPACE_LENGTH,
+      "Workspace name must be less than 100 characters"
     ),
-  companyPhone: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (!val || val === "") {
-          return true;
-        }
-        return isValidPhoneNumber(val);
-      },
-      { message: "Please enter a valid phone number" }
-    ),
-  industry: z.string().min(1, "Please select your industry"),
-  companySize: z.string().min(1, "Please select your company size"),
-  businessType: z.string().min(1, "Please select your business type"),
-  annualRevenue: z
-    .enum([
-      "under_50k",
-      "50k_to_100k",
-      "100k_to_500k",
-      "500k_to_1m",
-      "1m_to_5m",
-      "5m_to_10m",
-      "10m_to_50m",
-      "over_50m",
-      "prefer_not_to_say",
-    ])
-    .optional(),
-  country: z.string().min(1, "Please select your country"),
-  website: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (!val || val === "") {
-          return true;
-        }
-        try {
-          new URL(val);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      { message: "Please enter a valid URL" }
-    ),
+  teamSize: z.string().min(1, "Please select your team size"),
+  environment: z.string().min(1, "Please select your primary environment"),
   primaryGoals: z
     .string()
     .optional()
@@ -177,8 +132,8 @@ const companyInfoSchema = z.object({
 
 // Combined schema for the entire onboarding form
 export const onboardingSchema = z.object({
-  ...businessNeedsSchema.shape,
-  ...companyInfoSchema.shape,
+  ...useCasesSchema.shape,
+  ...workspaceSetupSchema.shape,
 });
 
 export type OnboardingFormData = z.infer<typeof onboardingSchema>;

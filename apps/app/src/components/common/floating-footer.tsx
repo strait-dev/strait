@@ -1,8 +1,8 @@
-import { Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { LoadingIcon } from "@/lib/icons";
 
 type FloatingFooterProps = {
   to: string;
@@ -59,7 +59,7 @@ const FloatingFooter = ({
               return (
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               );
             }

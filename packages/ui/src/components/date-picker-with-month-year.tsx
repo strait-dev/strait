@@ -7,17 +7,17 @@ import { ptBR } from "date-fns/locale";
 import { useCallback, useMemo, useState } from "react";
 import type { DropdownNavProps, DropdownProps } from "react-day-picker";
 
-import { cn } from "../utils/index.ts";
-import { Button } from "./button.tsx";
-import { Calendar } from "./calendar.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
+import { cn } from "../utils/index";
+import { Button } from "./button";
+import { Calendar } from "./calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./select.tsx";
+} from "./select";
 
 // Set date-fns to preserve the date values without timezone conversion
 setDefaultOptions({
@@ -168,7 +168,7 @@ function DatePickerWithMonthYear({
   );
 
   // Use either controlled value or internal state
-  const selectedDate = value !== undefined ? value : internalDate;
+  const selectedDate = value === undefined ? internalDate : value;
 
   // Format date for display
   const formattedDate = useMemo(() => {

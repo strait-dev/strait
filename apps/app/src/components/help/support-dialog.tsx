@@ -1,9 +1,7 @@
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { HelpCircleIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { resend } from "@strait/mail/index.ts";
 import { Support } from "@strait/transactional";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Credenza,
   CredenzaContent,
@@ -11,7 +9,7 @@ import {
   CredenzaHeader,
   CredenzaTitle,
   CredenzaTrigger,
-} from "@strait/ui/components/credenza.tsx";
+} from "@strait/ui/components/credenza";
 import {
   Form,
   FormControl,
@@ -20,29 +18,28 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@strait/ui/components/form.tsx";
-import { Input } from "@strait/ui/components/input.tsx";
+} from "@strait/ui/components/form";
+import { Input } from "@strait/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@strait/ui/components/select.tsx";
-import { Textarea } from "@strait/ui/components/textarea.tsx";
-import { toast } from "@strait/ui/components/toast/index.ts";
+} from "@strait/ui/components/select";
+import { Textarea } from "@strait/ui/components/textarea";
+import { toast } from "@strait/ui/components/toast/index";
 import { createServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type z from "zod/v4";
-import { SupportFormSchema } from "@/lib/schema.ts";
-import { authMiddleware } from "@/middlewares/auth.ts";
-import type { AuthUser } from "@/routes/__root.tsx";
-import {
-  MILLISECONDS_PER_SECOND,
-  TIMER_INTERVAL_MS,
-} from "@/utils/constants.ts";
+import { HelpCircleIcon, LoadingIcon } from "@/lib/icons";
+import { resend } from "@/lib/resend.server";
+import { SupportFormSchema } from "@/lib/schema";
+import { authMiddleware } from "@/middlewares/auth";
+import type { AuthUser } from "@/routes/__root";
+import { MILLISECONDS_PER_SECOND, TIMER_INTERVAL_MS } from "@/utils/constants";
 
 const supportAction = createServerFn({ method: "POST" })
   .inputValidator(SupportFormSchema)
@@ -386,7 +383,7 @@ const SupportDialog = ({ user }: Props) => {
             </div>
 
             <Button
-              className="mt-2 inline-flex w-full flex-none justify-center rounded-custom px-3 py-2 font-semibold"
+              className="mt-2 inline-flex w-full flex-none justify-center rounded-custom px-3 py-2 font-normal"
               disabled={
                 form.formState.isSubmitting || isPending || cooldownTime > 0
               }
@@ -395,7 +392,7 @@ const SupportDialog = ({ user }: Props) => {
               {form.formState.isSubmitting || isPending ? (
                 <HugeiconsIcon
                   className="size-4 animate-spin"
-                  icon={Loading03Icon}
+                  icon={LoadingIcon}
                 />
               ) : null}
               Send Request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}

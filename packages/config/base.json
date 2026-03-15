@@ -23,7 +23,6 @@
     "noImplicitOverride": true,
     "allowUnreachableCode": false,
     "noFallthroughCasesInSwitch": true,
-    "newLine": "lf",
-    "allowImportingTsExtensions": true
+    "newLine": "lf"
   }
 }

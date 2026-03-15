@@ -11,7 +11,7 @@ const PageHeader = ({ title, text, button }: Props) => (
     <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-end sm:justify-between">
       <div className="flex flex-col justify-start self-start">
         <h1
-          className="text-balance font-semibold text-2xl text-secondary-foreground tracking-tight"
+          className="text-balance font-normal text-2xl text-secondary-foreground tracking-tight"
           data-testid="page-header-title"
         >
           {title}

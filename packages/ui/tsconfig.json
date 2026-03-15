@@ -2,7 +2,6 @@
   "extends": "../config/react-library.json",
   "display": "@strait/ui",
   "compilerOptions": {
-    "baseUrl": ".",
     "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./src/*"]

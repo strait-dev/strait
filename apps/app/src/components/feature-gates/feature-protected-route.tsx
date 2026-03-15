@@ -1,19 +1,19 @@
-import { Crown03Icon, SquareLock02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button.tsx";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@strait/ui/components/card.tsx";
+} from "@strait/ui/components/card";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useMemo } from "react";
-import { FEATURE_FLAGS, type FeatureFlagKey } from "@/hooks/posthog/flags.ts";
-import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag.ts";
-import type { Session } from "@/routes/__root.tsx";
+import { FEATURE_FLAGS, type FeatureFlagKey } from "@/hooks/posthog/flags";
+import { useFeatureFlag } from "@/hooks/posthog/use-feature-flag";
+import { CrownIcon, LockSquareIcon } from "@/lib/icons";
+import type { Session } from "@/routes/__root";
 
 /**
  * Feature keys that can be used with FeatureProtectedRoute.
@@ -151,10 +151,10 @@ export const FeatureProtectedRoute = ({
       <div className="flex min-h-[60vh] items-center justify-center p-8">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent">
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-accent">
               <HugeiconsIcon
-                className="h-6 w-6 text-accent-foreground"
-                icon={SquareLock02Icon}
+                className="size-6 text-accent-foreground"
+                icon={LockSquareIcon}
               />
             </div>
             <CardTitle className="text-xl">
@@ -170,7 +170,7 @@ export const FeatureProtectedRoute = ({
               plan to access this functionality.
             </p>
             <Button className="w-full" onClick={handleUpgrade}>
-              <HugeiconsIcon className="size-4" icon={Crown03Icon} />
+              <HugeiconsIcon className="size-4" icon={CrownIcon} />
               Upgrade Plan
             </Button>
             <Button
