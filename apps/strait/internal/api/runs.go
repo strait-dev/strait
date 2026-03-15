@@ -50,6 +50,18 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 	tagKey := query.Get("tag_key")
 	tagValue := query.Get("tag_value")
+
+	// Support bracket notation: ?tags[key]=value
+	if tagKey == "" {
+		for param, values := range query {
+			if k, ok := parseBracketParam(param, "tags"); ok && len(values) > 0 {
+				tagKey = k
+				tagValue = values[0]
+				break
+			}
+		}
+	}
+
 	if tagValue != "" && tagKey == "" {
 		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
 		return
@@ -63,6 +75,18 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 	metadataKeyRaw := query.Get("metadata_key")
 	metadataValueRaw := query.Get("metadata_value")
+
+	// Support bracket notation: ?metadata[key]=value
+	if metadataKeyRaw == "" {
+		for param, values := range query {
+			if k, ok := parseBracketParam(param, "metadata"); ok && len(values) > 0 {
+				metadataKeyRaw = k
+				metadataValueRaw = values[0]
+				break
+			}
+		}
+	}
+
 	if metadataValueRaw != "" && metadataKeyRaw == "" {
 		respondError(w, r, http.StatusBadRequest, "metadata_key is required when metadata_value is provided")
 		return
@@ -636,4 +660,17 @@ func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(req.RunIDs), "replayed": replayed})
+}
+
+// parseBracketParam extracts the key from bracket notation params like "metadata[key]".
+// Returns the inner key and true if the param matches "prefix[key]".
+func parseBracketParam(param, prefix string) (string, bool) {
+	if !strings.HasPrefix(param, prefix+"[") || !strings.HasSuffix(param, "]") {
+		return "", false
+	}
+	key := param[len(prefix)+1 : len(param)-1]
+	if key == "" {
+		return "", false
+	}
+	return key, true
 }
