@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import FeatureBentoGrid from "@/components/landing/feature-bento-grid.tsx";
 import PipelineDemo from "@/components/landing/pipeline-demo.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
@@ -11,13 +12,8 @@ import {
 import AudienceSection from "./components/audience/audience-section.tsx";
 import WhyStrait from "./components/benefits/why-polyglot.tsx";
 import CTA from "./components/common/cta/cta.tsx";
-import InterviewShowcase from "./components/common/feature-section/interview-showcase.tsx";
-import StylesShowcase from "./components/common/feature-section/styles-showcase.tsx";
-import WritingToolkitShowcase from "./components/common/feature-section/writing-toolkit-showcase.tsx";
 import Hero from "./components/common/hero/hero.tsx";
 import ProblemSection from "./components/common/hero/problem-section.tsx";
-import ProductShowcase from "./components/common/hero/product-showcase.tsx";
-
 import ComparisonSection from "./components/comparison/comparison-section.tsx";
 import HowItWorks from "./components/how-it-works/how-it-works.tsx";
 import PricingTeaser from "./components/pricing/pricing-teaser.tsx";
@@ -93,12 +89,8 @@ const LandingPage = () => {
         <HowItWorks />
       </Suspense>
 
-      <ProductShowcase />
+      <FeatureBentoGrid />
       <WhyStrait />
-
-      <InterviewShowcase />
-      <StylesShowcase />
-      <WritingToolkitShowcase />
       <ComparisonSection />
 
       <Suspense
