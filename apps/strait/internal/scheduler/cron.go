@@ -30,12 +30,13 @@ type WorkflowTrigger interface {
 }
 
 type CronScheduler struct {
-	ctx             context.Context
-	cron            *cron.Cron
-	store           CronStore
-	queue           queue.Queue
-	workflowTrigger WorkflowTrigger
-	metrics         *telemetry.Metrics
+	ctx               context.Context
+	cron              *cron.Cron
+	store             CronStore
+	queue             queue.Queue
+	workflowTrigger   WorkflowTrigger
+	metrics           *telemetry.Metrics
+	defaultRunTTLSecs int
 }
 
 // NewCronScheduler creates a new cron-based job and workflow scheduler.
@@ -51,6 +52,11 @@ func NewCronScheduler(ctx context.Context, s CronStore, q queue.Queue, workflowT
 
 func (cs *CronScheduler) WithMetrics(m *telemetry.Metrics) *CronScheduler {
 	cs.metrics = m
+	return cs
+}
+
+func (cs *CronScheduler) WithDefaultRunTTLSecs(ttl int) *CronScheduler {
+	cs.defaultRunTTLSecs = ttl
 	return cs
 }
 
@@ -113,6 +119,9 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 
 	if job.RunTTLSecs > 0 {
 		exp := time.Now().Add(time.Duration(job.RunTTLSecs) * time.Second)
+		run.ExpiresAt = &exp
+	} else if cs.defaultRunTTLSecs > 0 {
+		exp := time.Now().Add(time.Duration(cs.defaultRunTTLSecs) * time.Second)
 		run.ExpiresAt = &exp
 	}
 

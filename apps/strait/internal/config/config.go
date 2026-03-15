@@ -119,6 +119,11 @@ type Config struct {
 	LogDrainWorkerInterval     time.Duration `mapstructure:"LOG_DRAIN_WORKER_INTERVAL"`
 	MemoryPressureThresholdPct float64       `mapstructure:"MEMORY_PRESSURE_THRESHOLD_PCT"`
 	JobCacheTTL                time.Duration `mapstructure:"JOB_CACHE_TTL"`
+	DefaultRunTTLSecs          int           `mapstructure:"DEFAULT_RUN_TTL_SECS"`
+	MaxResultSize              int64         `mapstructure:"MAX_RESULT_SIZE"`
+	MigrationMode              string        `mapstructure:"MIGRATION_MODE"`
+	MigrationLockTimeout       time.Duration `mapstructure:"MIGRATION_LOCK_TIMEOUT"`
+	MaxSnoozeCount             int           `mapstructure:"MAX_SNOOZE_COUNT"`
 }
 
 func setDefaults() {
@@ -190,6 +195,11 @@ func setDefaults() {
 	viper.SetDefault("LOG_DRAIN_WORKER_INTERVAL", 60*time.Second)
 	viper.SetDefault("MEMORY_PRESSURE_THRESHOLD_PCT", float64(0))
 	viper.SetDefault("JOB_CACHE_TTL", 5*time.Minute)
+	viper.SetDefault("DEFAULT_RUN_TTL_SECS", 0)
+	viper.SetDefault("MAX_RESULT_SIZE", int64(1<<20))
+	viper.SetDefault("MIGRATION_MODE", "auto")
+	viper.SetDefault("MIGRATION_LOCK_TIMEOUT", 30*time.Second)
+	viper.SetDefault("MAX_SNOOZE_COUNT", 50)
 }
 
 func BindEnv() error {
@@ -218,6 +228,9 @@ func BindEnv() error {
 		"LOG_DRAIN_WORKER_INTERVAL",
 		"MEMORY_PRESSURE_THRESHOLD_PCT",
 		"JOB_CACHE_TTL",
+		"DEFAULT_RUN_TTL_SECS", "MAX_RESULT_SIZE",
+		"MIGRATION_MODE", "MIGRATION_LOCK_TIMEOUT",
+		"MAX_SNOOZE_COUNT",
 	}
 
 	for _, key := range keys {
@@ -294,6 +307,11 @@ func Load() (*Config, error) {
 	cfg.LogDrainWorkerInterval = viper.GetDuration("LOG_DRAIN_WORKER_INTERVAL")
 	cfg.MemoryPressureThresholdPct = viper.GetFloat64("MEMORY_PRESSURE_THRESHOLD_PCT")
 	cfg.JobCacheTTL = viper.GetDuration("JOB_CACHE_TTL")
+	cfg.DefaultRunTTLSecs = viper.GetInt("DEFAULT_RUN_TTL_SECS")
+	cfg.MaxResultSize = viper.GetInt64("MAX_RESULT_SIZE")
+	cfg.MigrationMode = viper.GetString("MIGRATION_MODE")
+	cfg.MigrationLockTimeout = viper.GetDuration("MIGRATION_LOCK_TIMEOUT")
+	cfg.MaxSnoozeCount = viper.GetInt("MAX_SNOOZE_COUNT")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
@@ -334,6 +352,17 @@ func Load() (*Config, error) {
 		if _, err := url.Parse(cfg.RedisURL); err != nil {
 			return nil, &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
 		}
+	}
+
+	switch cfg.MigrationMode {
+	case "auto", "manual", "validate":
+		// valid
+	default:
+		return nil, &domain.ConfigError{Field: "MIGRATION_MODE", Message: "must be auto, manual, or validate"}
+	}
+
+	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
+		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
 	}
 
 	if cfg.SequinBaseURL != "" {

@@ -229,6 +229,8 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
 	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	} else if s.config.DefaultRunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 	}
@@ -570,6 +572,8 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
 	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	} else if s.config.DefaultRunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 	}
