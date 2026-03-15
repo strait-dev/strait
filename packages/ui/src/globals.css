@@ -750,6 +750,41 @@
   animation: scale-in 420ms ease-out var(--card-delay, 0ms) forwards;
 }
 
+/* Why Strait card element animations */
+.why-card-el {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+[data-visible] .why-card-el {
+  animation: fade-in-up 500ms ease-out var(--el-delay, 0ms) forwards;
+}
+
+.why-cursor {
+  animation: cursor-blink 1s steps(1, end) infinite;
+}
+
+.why-typing-dot {
+  animation: cursor-blink 1.2s ease-in-out infinite;
+}
+
+/* FSM pulsing dot */
+@keyframes fsm-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+.fsm-dot {
+  animation: fsm-pulse 2.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .parallax-slow,
   .demo-cursor,
@@ -758,6 +793,10 @@
   .hero-draft-card,
   .demo-line,
   .demo-chat-msg,
+  .why-card-el,
+  .why-cursor,
+  .why-typing-dot,
+  .fsm-dot,
   .animate-fade-in-up,
   .animate-float,
   .animate-shimmer,

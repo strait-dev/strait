@@ -1,7 +1,5 @@
+import dynamic from "next/dynamic";
 import { Suspense } from "react";
-import CredibilitySection from "@/components/landing/credibility-section.tsx";
-import FeatureBentoGrid from "@/components/landing/feature-bento-grid.tsx";
-import PipelineDemo from "@/components/landing/pipeline-demo.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getHowToSchema,
@@ -10,13 +8,27 @@ import {
   getWebSiteSchema,
   JsonLd,
 } from "@/lib/structured-data.tsx";
-import WhyStrait from "./components/benefits/why-polyglot.tsx";
-import CTA from "./components/common/cta/cta.tsx";
 import Hero from "./components/common/hero/hero.tsx";
 import ProblemSection from "./components/common/hero/problem-section.tsx";
-import ComparisonSection from "./components/comparison/comparison-section.tsx";
 import HowItWorks from "./components/how-it-works/how-it-works.tsx";
 import PricingTeaser from "./components/pricing/pricing-teaser.tsx";
+
+const PipelineDemo = dynamic(
+  () => import("@/components/landing/pipeline-demo.tsx")
+);
+const FeatureBentoGrid = dynamic(
+  () => import("@/components/landing/feature-bento-grid.tsx")
+);
+const WhyStrait = dynamic(
+  () => import("./components/benefits/why-polyglot.tsx")
+);
+const CredibilitySection = dynamic(
+  () => import("@/components/landing/credibility-section.tsx")
+);
+const ComparisonSection = dynamic(
+  () => import("./components/comparison/comparison-section.tsx")
+);
+const CTA = dynamic(() => import("./components/common/cta/cta.tsx"));
 
 export const metadata = generatePageMetadata({
   path: "/",
