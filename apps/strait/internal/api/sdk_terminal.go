@@ -31,6 +31,12 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.config != nil && s.config.MaxResultSize > 0 && int64(len(req.Result)) > s.config.MaxResultSize {
+		respondError(w, r, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("result size %d exceeds maximum %d bytes", len(req.Result), s.config.MaxResultSize))
+		return
+	}
+
 	// Fetch current run to validate FSM transition dynamically
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
