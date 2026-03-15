@@ -155,50 +155,14 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	}
 
 	if !allowed {
-		fields := map[string]any{
-			"next_retry_at": retryAt,
-			"error":         "endpoint circuit breaker open",
-			"error_class":   "transient",
-			"started_at":    nil,
-			"finished_at":   nil,
-		}
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
-			e.logger.Error(
-				"failed to requeue run while circuit open",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"error", err,
-			)
-			return
-		}
-
-		e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
-		e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "circuit_open"})
+		e.snoozeRun(ctx, run, "endpoint circuit breaker open", "circuit_open", retryAt)
 		return
 	}
 
 	acquired := e.tryAcquireBulkheadSlot(job.ID, job.MaxConcurrency)
 	if !acquired {
-		retryAt := NextRetryAt(run.Attempt)
-		fields := map[string]any{
-			"next_retry_at": retryAt,
-			"error":         "job bulkhead at capacity",
-			"error_class":   "transient",
-			"started_at":    nil,
-			"finished_at":   nil,
-		}
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
-			e.logger.Error(
-				"failed to requeue run while bulkhead at capacity",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"error", err,
-			)
-			return
-		}
-
-		e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
-		e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "bulkhead_capacity"})
+		bulkheadRetryAt := NextRetryAt(run.Attempt)
+		e.snoozeRun(ctx, run, "job bulkhead at capacity", "bulkhead_capacity", &bulkheadRetryAt)
 		return
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
@@ -415,6 +379,44 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	}
 
 	return nil, nil
+}
+
+func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason, eventReason string, retryAt *time.Time) {
+	snoozeCount := 0
+	if run.Metadata != nil {
+		if raw, ok := run.Metadata["snooze_count"]; ok {
+			_, _ = fmt.Sscanf(raw, "%d", &snoozeCount)
+		}
+	}
+	snoozeCount++
+
+	if e.maxSnoozeCount > 0 && snoozeCount > e.maxSnoozeCount {
+		e.logger.Warn("max snooze count exceeded, marking system_failed",
+			"run_id", run.ID, "job_id", run.JobID, "snooze_count", snoozeCount)
+		e.handleSystemFailure(ctx, run, fmt.Sprintf("max snooze count (%d) exceeded: %s", e.maxSnoozeCount, reason))
+		return
+	}
+
+	fields := map[string]any{
+		"error":       reason,
+		"error_class": "transient",
+		"started_at":  nil,
+		"finished_at": nil,
+		"metadata":    map[string]string{"snooze_count": fmt.Sprintf("%d", snoozeCount)},
+	}
+	if retryAt != nil {
+		fields["next_retry_at"] = *retryAt
+	}
+	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return
+	}
+
+	e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
+	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": eventReason})
+	if e.metrics != nil {
+		e.metrics.SnoozeTotal.Add(ctx, 1)
+	}
 }
 
 func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRun, fallback executionPolicy) (executionPolicy, error) {

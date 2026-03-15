@@ -998,6 +998,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		"continuation_of":      {},
 		"lineage_depth":        {},
 		"priority":             {},
+		"metadata":             {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -1015,6 +1016,18 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		value := fields[key]
 		if raw, ok := value.(json.RawMessage); ok {
 			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "metadata" {
+			if m, ok := value.(map[string]string); ok {
+				encoded, err := json.Marshal(m)
+				if err != nil {
+					return fmt.Errorf("marshal metadata: %w", err)
+				}
+				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
+				args = append(args, encoded)
+				param++
+				continue
+			}
 		}
 		if key == "execution_trace" {
 			switch trace := value.(type) {
@@ -1847,6 +1860,7 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 		"continuation_of":      {},
 		"lineage_depth":        {},
 		"priority":             {},
+		"metadata":             {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -1867,6 +1881,18 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 		value := fields[key]
 		if raw, ok := value.(json.RawMessage); ok {
 			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "metadata" {
+			if m, ok := value.(map[string]string); ok {
+				encoded, err := json.Marshal(m)
+				if err != nil {
+					return "", fmt.Errorf("marshal metadata: %w", err)
+				}
+				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
+				args = append(args, encoded)
+				param++
+				continue
+			}
 		}
 		if key == "execution_trace" {
 			switch trace := value.(type) {

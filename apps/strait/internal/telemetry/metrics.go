@@ -42,6 +42,7 @@ type Metrics struct {
 	BulkItemsProcessed       metric.Int64Counter
 	ChildCancellationsTotal  metric.Int64Counter
 	LatencyAnomalies         metric.Int64Counter
+	SnoozeTotal              metric.Int64Counter
 
 	// Event trigger metrics.
 	EventTriggersCreated     metric.Int64Counter
@@ -358,6 +359,15 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create latency anomalies counter: %w", err)
 	}
 
+	snoozeTotal, err := meter.Int64Counter(
+		"strait.run.snooze_total",
+		metric.WithDescription("Total runs snoozed (requeued without incrementing attempt)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create snooze total counter: %w", err)
+	}
+
 	workflowDependencyWaits, err := meter.Int64Counter(
 		"strait.workflow.dependency_waits",
 		metric.WithDescription("Total runs created in waiting state due to unsatisfied dependencies"),
@@ -502,6 +512,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		BulkItemsProcessed:       bulkItemsProcessed,
 		ChildCancellationsTotal:  childCancellationsTotal,
 		LatencyAnomalies:         latencyAnomalies,
+		SnoozeTotal:              snoozeTotal,
 		WorkflowDependencyWaits:  workflowDependencyWaits,
 		WorkflowStepWaitDuration: workflowStepWaitDuration,
 		WorkflowStalledRuns:      workflowStalledRuns,

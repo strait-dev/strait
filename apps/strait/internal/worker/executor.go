@@ -86,6 +86,7 @@ type Executor struct {
 	jobCache                 sync.Map
 	jobCacheTTL              time.Duration
 	memoryPressureThreshold  float64
+	maxSnoozeCount           int
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -124,6 +125,7 @@ type ExecutorConfig struct {
 	DefaultJobMaxConcurrency   int
 	MemoryPressureThresholdPct float64
 	JobCacheTTL                time.Duration
+	MaxSnoozeCount             int
 }
 
 const (
@@ -202,6 +204,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCacheTTL:              cfg.JobCacheTTL,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
+		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}

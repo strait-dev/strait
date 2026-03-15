@@ -368,6 +368,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WebhookIdleConnTimeout:  cfg.WebhookIdleConnTimeout,
 		WebhookDispatchTimeout:  cfg.WebhookDispatchTimeout,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
+		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 	})
 
 	healthReg.Register(health.NewPoolChecker(p))
