@@ -1,11 +1,16 @@
 SHELL := /bin/bash
 
-.PHONY: lint typecheck run-all
+.PHONY: lint typecheck vet test run-all
 
 lint:
 	golangci-lint run ./...
 
-typecheck:
+vet:
+	go vet ./...
+
+test:
 	go test ./...
 
-run-all: lint typecheck
+typecheck: test
+
+run-all: lint vet test
