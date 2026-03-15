@@ -32,6 +32,11 @@ export type OperationPathParamsById = {
   "getV1AuditEvents": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": { "batchID": string };
+  "getV1Deployments": undefined;
+  "postV1Deployments": undefined;
+  "postV1DeploymentsByDeploymentIDFinalize": { "deploymentID": string };
+  "postV1DeploymentsByDeploymentIDPromote": { "deploymentID": string };
+  "postV1DeploymentsByDeploymentIDRollback": { "deploymentID": string };
   "getV1Environments": undefined;
   "postV1Environments": undefined;
   "deleteV1EnvironmentsByEnvID": { "envID": string };
@@ -200,6 +205,11 @@ export type OperationQueryParamsById = {
   "getV1AuditEvents": { "project_id"?: string; "actor_id"?: string; "resource_type"?: string; "resource_id"?: string; "limit"?: number; "cursor"?: string; "from"?: string; "to"?: string; "order"?: "asc" | "desc" };
   "getV1BatchOperations": { "project_id": string; "limit"?: number; "cursor"?: string };
   "getV1BatchOperationsByBatchID": { "project_id": string };
+  "getV1Deployments": { "project_id": string; "environment"?: string; "limit"?: number; "cursor"?: string };
+  "postV1Deployments": undefined;
+  "postV1DeploymentsByDeploymentIDFinalize": undefined;
+  "postV1DeploymentsByDeploymentIDPromote": undefined;
+  "postV1DeploymentsByDeploymentIDRollback": undefined;
   "getV1Environments": { "project_id": string };
   "postV1Environments": undefined;
   "deleteV1EnvironmentsByEnvID": undefined;
@@ -368,6 +378,11 @@ export type OperationHeaderParamsById = {
   "getV1AuditEvents": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": undefined;
+  "getV1Deployments": undefined;
+  "postV1Deployments": undefined;
+  "postV1DeploymentsByDeploymentIDFinalize": undefined;
+  "postV1DeploymentsByDeploymentIDPromote": undefined;
+  "postV1DeploymentsByDeploymentIDRollback": undefined;
   "getV1Environments": undefined;
   "postV1Environments": undefined;
   "deleteV1EnvironmentsByEnvID": undefined;
@@ -558,6 +573,11 @@ export const generatedOperationMetadataById = {
   "getV1AuditEvents": { functionName: "listAuditEvents", domainName: "rbac", domainMethodName: "listAuditEvents", pathParamNames: [], summary: "List audit events" },
   "getV1BatchOperations": { functionName: "listBatchOperations", domainName: "batchOperations", domainMethodName: "list", pathParamNames: [], summary: "List batch operations" },
   "getV1BatchOperationsByBatchID": { functionName: "getBatchOperation", domainName: "batchOperations", domainMethodName: "get", pathParamNames: ["batchID"], summary: "Get a batch operation" },
+  "getV1Deployments": { functionName: "listDeployments", domainName: "deployments", domainMethodName: "list", pathParamNames: [], summary: "List deployment versions" },
+  "postV1Deployments": { functionName: "createDeployment", domainName: "deployments", domainMethodName: "create", pathParamNames: [], summary: "Create deployment version" },
+  "postV1DeploymentsByDeploymentIDFinalize": { functionName: "finalizeDeployment", domainName: "deployments", domainMethodName: "finalize", pathParamNames: ["deploymentID"], summary: "Finalize deployment version" },
+  "postV1DeploymentsByDeploymentIDPromote": { functionName: "promoteDeployment", domainName: "deployments", domainMethodName: "promote", pathParamNames: ["deploymentID"], summary: "Promote deployment version" },
+  "postV1DeploymentsByDeploymentIDRollback": { functionName: "rollbackDeployment", domainName: "deployments", domainMethodName: "rollback", pathParamNames: ["deploymentID"], summary: "Rollback deployment to selected version" },
   "getV1Environments": { functionName: "listEnvironments", domainName: "environments", domainMethodName: "list", pathParamNames: [], summary: "List environments" },
   "postV1Environments": { functionName: "createEnvironment", domainName: "environments", domainMethodName: "create", pathParamNames: [], summary: "Create an environment" },
   "deleteV1EnvironmentsByEnvID": { functionName: "deleteEnvironment", domainName: "environments", domainMethodName: "delete", pathParamNames: ["envID"], summary: "Delete an environment" },
