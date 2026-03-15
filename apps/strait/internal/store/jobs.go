@@ -556,6 +556,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var maxConcurrencyPerKey *int
 	var rateLimitKeysJSON []byte
 	var defaultRunMetadataJSON []byte
+	var resultSchema []byte
 
 	err := scanner.Scan(
 		&job.ID,
@@ -599,6 +600,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&job.DLQAlertThreshold,
 		&job.QueueDepthAlertThreshold,
 		&job.SkipIfRunning,
+		&resultSchema,
 	)
 	if err != nil {
 		return nil, err
@@ -686,6 +688,9 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		if err := json.Unmarshal(defaultRunMetadataJSON, &job.DefaultRunMetadata); err != nil {
 			return nil, fmt.Errorf("unmarshal default_run_metadata: %w", err)
 		}
+	}
+	if resultSchema != nil {
+		job.ResultSchema = json.RawMessage(resultSchema)
 	}
 
 	return &job, nil
