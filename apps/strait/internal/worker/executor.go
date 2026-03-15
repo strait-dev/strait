@@ -238,11 +238,23 @@ func (e *Executor) Subscribe(sub RunEventSubscriber) {
 }
 
 // emit sends a lifecycle event to all subscribers via the buffered channel.
-// Non-blocking: drops the event with a warning if the channel is full.
+// Non-blocking: drops the event with a warning if the channel is full or closed.
 func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 	if len(e.subscribers) == 0 {
 		return
 	}
+
+	// Recover from send-on-closed-channel if the executor is shutting down
+	// and a pool goroutine emits after eventCh is closed.
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Warn("event channel closed, dropping event",
+				"type", event.Type,
+				"run_id", event.Run.ID,
+			)
+		}
+	}()
+
 	select {
 	case e.eventCh <- runEventEnvelope{ctx: ctx, event: event}:
 	default:
@@ -254,32 +266,11 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 }
 
 // runEventLoop drains the event channel and fans out to all subscribers.
-// Exits when the done channel is closed and the event channel is drained.
+// Exits when eventCh is closed (during shutdown or when Run exits).
 func (e *Executor) runEventLoop() {
-	for {
-		select {
-		case env, ok := <-e.eventCh:
-			if !ok {
-				return
-			}
-			for _, sub := range e.subscribers {
-				sub(env.ctx, env.event)
-			}
-		case <-e.done:
-			// Drain remaining events.
-			for {
-				select {
-				case env, ok := <-e.eventCh:
-					if !ok {
-						return
-					}
-					for _, sub := range e.subscribers {
-						sub(env.ctx, env.event)
-					}
-				default:
-					return
-				}
-			}
+	for env := range e.eventCh {
+		for _, sub := range e.subscribers {
+			sub(env.ctx, env.event)
 		}
 	}
 }
@@ -326,7 +317,13 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 // Run starts the heartbeat manager, event loop, and polling loop. Blocks until ctx is canceled.
 func (e *Executor) Run(ctx context.Context) {
 	e.runStarted.Store(true)
-	defer close(e.done)
+	defer func() {
+		close(e.done)
+		// Wait for in-flight polls to finish emitting events, then close the
+		// event channel so the event loop goroutine exits cleanly.
+		e.pollWG.Wait()
+		close(e.eventCh)
+	}()
 
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
 

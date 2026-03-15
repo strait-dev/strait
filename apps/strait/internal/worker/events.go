@@ -12,7 +12,6 @@ type RunEventType string
 
 const (
 	EventCompleted    RunEventType = "completed"
-	EventFailed       RunEventType = "failed"
 	EventTimedOut     RunEventType = "timed_out"
 	EventSnoozed      RunEventType = "snoozed"
 	EventRetried      RunEventType = "retried"
