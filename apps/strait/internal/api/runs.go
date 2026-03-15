@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -178,30 +179,9 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var cursor *time.Time
-	for {
-		children, listErr := s.store.ListChildRuns(r.Context(), run.ID, 100, cursor)
-		if listErr != nil {
-			slog.Error("failed to list child runs", "run_id", run.ID, "error", listErr)
-			break
-		}
-		if len(children) == 0 {
-			break
-		}
-
-		for _, child := range children {
-			if !child.Status.IsTerminal() {
-				if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
-					"finished_at": time.Now(),
-					"error":       "parent run canceled",
-				}); err != nil {
-					slog.Error("failed to cancel child run", "child_run_id", child.ID, "error", err)
-				}
-			}
-		}
-
-		lastCreatedAt := children[len(children)-1].CreatedAt
-		cursor = &lastCreatedAt
+	canceledCount := s.cancelChildRunsRecursive(r.Context(), run.ID)
+	if canceledCount > 0 && s.metrics != nil {
+		s.metrics.ChildCancellationsTotal.Add(r.Context(), canceledCount)
 	}
 
 	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
@@ -211,6 +191,33 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, updatedRun)
+}
+
+func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID string) int64 {
+	var cursor *time.Time
+	var count int64
+	for {
+		children, err := s.store.ListChildRuns(ctx, parentRunID, 100, cursor)
+		if err != nil || len(children) == 0 {
+			break
+		}
+		for _, child := range children {
+			if !child.Status.IsTerminal() {
+				if err := s.store.UpdateRunStatus(ctx, child.ID, child.Status, domain.StatusCanceled, map[string]any{
+					"finished_at": time.Now(),
+					"error":       "parent run canceled",
+				}); err != nil {
+					slog.Error("failed to cancel child run", "child_run_id", child.ID, "error", err)
+				} else {
+					count++
+				}
+				count += s.cancelChildRunsRecursive(ctx, child.ID)
+			}
+		}
+		lastCreatedAt := children[len(children)-1].CreatedAt
+		cursor = &lastCreatedAt
+	}
+	return count
 }
 
 func (s *Server) handleGetRunDependencyStatus(w http.ResponseWriter, r *http.Request) {
