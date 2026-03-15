@@ -1,16 +1,7 @@
 import type { FutureLocalExecutorHooks, SchemaAdapter } from "./types";
-import { defineWorkflow } from "./workflow";
+import { defineWorkflow, type DefineWorkflowOptions } from "./workflow";
 
-type DefineDagOptions<TPayload> = {
-  readonly name: string;
-  readonly slug: string;
-  readonly steps: readonly Readonly<Record<string, unknown>>[];
-  readonly schema: SchemaAdapter<TPayload>;
-  readonly projectId?: string;
-  readonly description?: string;
-  readonly defaults?: Readonly<Record<string, unknown>>;
-  readonly hooks?: FutureLocalExecutorHooks;
-};
+type DefineDagOptions<TPayload> = Omit<DefineWorkflowOptions<TPayload>, "run" | "onSuccess" | "onFailure">;
 
 /**
  * Defines a DAG-flavored workflow authoring unit.
