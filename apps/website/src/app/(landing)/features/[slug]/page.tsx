@@ -5,6 +5,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
+import Reveal from "@/components/landing/reveal.tsx";
+import {
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
@@ -87,12 +92,14 @@ export default async function FeaturePage({ params }: Props) {
 
           <div className="max-w-3xl">
             <span className="kicker">{feature.name}</span>
-            <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-              <span className="text-foreground">{feature.headline}</span>{" "}
-              <span className="text-muted-foreground">
-                {feature.subheadline}
-              </span>
-            </h1>
+            <Reveal variant="blur">
+              <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+                <span className="text-foreground">{feature.headline}</span>{" "}
+                <span className="text-muted-foreground">
+                  {feature.subheadline}
+                </span>
+              </h1>
+            </Reveal>
             <p className="mt-6 max-w-2xl text-lg text-muted-foreground/70 leading-relaxed">
               {feature.description}
             </p>
@@ -115,17 +122,18 @@ export default async function FeaturePage({ params }: Props) {
           <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
             Technical specs
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {feature.specs.map((spec) => (
-              <div
-                className="rounded-xl border border-border/60 bg-card p-5"
-                key={spec.label}
-              >
-                <p className="text-muted-foreground text-sm">{spec.label}</p>
-                <p className="mt-1 font-medium text-foreground">{spec.value}</p>
-              </div>
+              <StaggerItem key={spec.label}>
+                <div className="rounded-xl border border-border/60 bg-card p-5">
+                  <p className="text-muted-foreground text-sm">{spec.label}</p>
+                  <p className="mt-1 font-medium text-foreground">
+                    {spec.value}
+                  </p>
+                </div>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerGroup>
         </Shell>
       </section>
 
@@ -135,6 +143,7 @@ export default async function FeaturePage({ params }: Props) {
           <h2 className="mb-2 text-2xl tracking-tight sm:text-3xl">
             {feature.codeExample.title}
           </h2>
+          <Reveal variant="scale">
           <div className="mt-8 overflow-hidden rounded-2xl border border-border/60 bg-card">
             <div className="border-border/50 border-b px-4 py-3">
               <div className="flex items-center gap-1.5">
@@ -152,6 +161,7 @@ export default async function FeaturePage({ params }: Props) {
               </code>
             </pre>
           </div>
+          </Reveal>
         </Shell>
       </section>
 
@@ -162,27 +172,28 @@ export default async function FeaturePage({ params }: Props) {
             <h2 className="mb-8 text-2xl tracking-tight sm:text-3xl">
               Related features
             </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((r) => {
                 if (!r) {
                   return null;
                 }
                 return (
-                  <Link
-                    className="group rounded-xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md"
-                    href={`/features/${r.slug}`}
-                    key={r.slug}
-                  >
-                    <h3 className="font-semibold text-foreground group-hover:text-primary">
-                      {r.name}
-                    </h3>
-                    <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
-                      {r.subheadline}
-                    </p>
-                  </Link>
+                  <StaggerItem key={r.slug}>
+                    <Link
+                      className="group block rounded-xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md"
+                      href={`/features/${r.slug}`}
+                    >
+                      <h3 className="font-semibold text-foreground group-hover:text-primary">
+                        {r.name}
+                      </h3>
+                      <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
+                        {r.subheadline}
+                      </p>
+                    </Link>
+                  </StaggerItem>
                 );
               })}
-            </div>
+            </StaggerGroup>
           </Shell>
         </section>
       )}

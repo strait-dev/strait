@@ -5,6 +5,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
+import Reveal from "@/components/landing/reveal.tsx";
+import {
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
@@ -112,14 +117,16 @@ export default async function ComparisonPage({ params }: Props) {
 
           <div className="max-w-3xl">
             <span className="kicker">Compare</span>
-            <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-              <span className="text-foreground">
-                Strait vs {comparison.competitor}.
-              </span>{" "}
-              <span className="text-muted-foreground">
-                {comparison.tagline}
-              </span>
-            </h1>
+            <Reveal variant="blur">
+              <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+                <span className="text-foreground">
+                  Strait vs {comparison.competitor}.
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  {comparison.tagline}
+                </span>
+              </h1>
+            </Reveal>
             <p className="mt-6 max-w-2xl text-lg text-muted-foreground/70 leading-relaxed">
               {comparison.description}
             </p>
@@ -142,12 +149,10 @@ export default async function ComparisonPage({ params }: Props) {
           <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
             Key differences
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {comparison.differentiators.map((diff) => (
-              <div
-                className="rounded-xl border border-border/60 bg-card p-6"
-                key={diff.title}
-              >
+              <StaggerItem key={diff.title}>
+                <div className="rounded-xl border border-border/60 bg-card p-6">
                 <h3 className="font-semibold text-foreground">{diff.title}</h3>
                 <div className="mt-4 space-y-3">
                   <div>
@@ -167,9 +172,10 @@ export default async function ComparisonPage({ params }: Props) {
                     </p>
                   </div>
                 </div>
-              </div>
+                </div>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerGroup>
         </Shell>
       </section>
 
@@ -180,7 +186,8 @@ export default async function ComparisonPage({ params }: Props) {
             Feature comparison
           </h2>
           <div className="space-y-6">
-            {comparison.categories.map((category) => (
+            {comparison.categories.map((category, idx) => (
+              <Reveal key={category.name} delay={idx * 0.08}>
               <details
                 className="group rounded-xl border border-border/60 bg-card"
                 key={category.name}
@@ -217,6 +224,7 @@ export default async function ComparisonPage({ params }: Props) {
                   ))}
                 </div>
               </details>
+              </Reveal>
             ))}
           </div>
         </Shell>
@@ -228,11 +236,12 @@ export default async function ComparisonPage({ params }: Props) {
           <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
             Switching from {comparison.competitor}
           </h2>
-          <ol className="space-y-4">
+          <StaggerGroup className="space-y-4">
             {comparison.switchingSteps.map((step, index) => {
               const stepNumber = index + 1;
               return (
-                <li className="flex gap-4" key={step}>
+                <StaggerItem key={step}>
+                <li className="flex gap-4">
                   <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground text-sm">
                     {stepNumber}
                   </span>
@@ -240,9 +249,10 @@ export default async function ComparisonPage({ params }: Props) {
                     {step}
                   </p>
                 </li>
+                </StaggerItem>
               );
             })}
-          </ol>
+          </StaggerGroup>
         </Shell>
       </section>
 

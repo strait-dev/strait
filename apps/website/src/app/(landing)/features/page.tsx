@@ -3,6 +3,11 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
 
+import Reveal from "@/components/landing/reveal.tsx";
+import {
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { dashboardHref } from "@/lib/urls.ts";
@@ -31,11 +36,13 @@ export default function FeaturesPage() {
         <Shell variant="wide">
           <div className="max-w-3xl">
             <span className="kicker">Features</span>
-            <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-              <span className="text-foreground">
-                Everything you need to run production workflows.
-              </span>
-            </h1>
+            <Reveal variant="blur">
+              <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+                <span className="text-foreground">
+                  Everything you need to run production workflows.
+                </span>
+              </h1>
+            </Reveal>
             <p className="mt-6 max-w-2xl text-lg text-muted-foreground/70 leading-relaxed">
               A complete runtime with queueing, orchestration, and operations
               built in. Not a framework — a production-grade platform.
@@ -46,13 +53,13 @@ export default function FeaturesPage() {
 
       <section className="py-16 sm:py-20">
         <Shell variant="wide">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <StaggerGroup className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURE_PAGES.map((feature) => (
-              <Link
-                className="group flex flex-col rounded-2xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md sm:p-8"
-                href={`/features/${feature.slug}`}
-                key={feature.slug}
-              >
+              <StaggerItem key={feature.slug}>
+                <Link
+                  className="group flex h-full flex-col rounded-2xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md sm:p-8"
+                  href={`/features/${feature.slug}`}
+                >
                 <h2 className="font-semibold text-foreground text-xl group-hover:text-primary">
                   {feature.name}
                 </h2>
@@ -66,9 +73,10 @@ export default function FeaturesPage() {
                   Learn more
                   <HugeiconsIcon className="size-3.5" icon={ArrowRight02Icon} />
                 </div>
-              </Link>
+                </Link>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerGroup>
         </Shell>
       </section>
 

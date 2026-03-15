@@ -5,6 +5,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
+import Reveal from "@/components/landing/reveal.tsx";
+import {
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import { getBreadcrumbSchema, JsonLd } from "@/lib/structured-data.tsx";
@@ -79,11 +84,14 @@ export default async function UseCasePage({ params }: Props) {
 
           <div className="max-w-3xl">
             <span className="kicker">{useCase.title}</span>
-            <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-              <span className="text-foreground">{useCase.headline}</span>
-            </h1>
+            <Reveal variant="blur">
+              <h1 className="mt-4 text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+                <span className="text-foreground">{useCase.headline}</span>
+              </h1>
+            </Reveal>
 
             <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <Reveal variant="fade-left" delay={0.1}>
               <div className="rounded-xl border border-border/60 bg-card p-6">
                 <p className="font-medium text-foreground text-sm uppercase tracking-wider">
                   The Problem
@@ -92,6 +100,8 @@ export default async function UseCasePage({ params }: Props) {
                   {useCase.problem}
                 </p>
               </div>
+              </Reveal>
+              <Reveal variant="fade-right" delay={0.15}>
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-6">
                 <p className="font-medium text-primary text-sm uppercase tracking-wider">
                   The Solution
@@ -100,6 +110,7 @@ export default async function UseCasePage({ params }: Props) {
                   {useCase.solution}
                 </p>
               </div>
+              </Reveal>
             </div>
 
             <div className="mt-8">
@@ -121,11 +132,11 @@ export default async function UseCasePage({ params }: Props) {
           <h2 className="mb-10 text-2xl tracking-tight sm:text-3xl">
             How it works
           </h2>
-          <div className="flex flex-col items-start gap-4 lg:flex-row lg:items-center lg:gap-0">
+          <StaggerGroup className="flex flex-col items-start gap-4 lg:flex-row lg:items-center lg:gap-0">
             {useCase.workflowSteps.map((step, index) => {
               const isLast = index === useCase.workflowSteps.length - 1;
               return (
-                <div
+                <StaggerItem
                   className="flex flex-1 items-center gap-4 lg:gap-0"
                   key={step.name}
                 >
@@ -148,10 +159,10 @@ export default async function UseCasePage({ params }: Props) {
                       />
                     </div>
                   )}
-                </div>
+                </StaggerItem>
               );
             })}
-          </div>
+          </StaggerGroup>
         </Shell>
       </section>
 
@@ -161,22 +172,23 @@ export default async function UseCasePage({ params }: Props) {
           <h2 className="mb-8 text-2xl tracking-tight sm:text-3xl">
             Relevant features
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {useCase.relevantFeatures.map((feature) => (
-              <Link
-                className="group rounded-xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md"
-                href={`/features/${feature.slug}`}
-                key={feature.slug}
-              >
+              <StaggerItem key={feature.slug}>
+                <Link
+                  className="group block rounded-xl border border-border/60 bg-card p-6 transition-shadow hover:shadow-md"
+                  href={`/features/${feature.slug}`}
+                >
                 <h3 className="font-semibold text-foreground group-hover:text-primary">
                   {feature.name}
                 </h3>
                 <p className="mt-2 text-muted-foreground text-sm leading-relaxed">
                   {feature.description}
                 </p>
-              </Link>
+                </Link>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerGroup>
         </Shell>
       </section>
 
