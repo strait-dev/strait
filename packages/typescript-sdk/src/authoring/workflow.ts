@@ -1,5 +1,8 @@
 import { fromPromise } from "../composition/result";
 import { type WaitForRunOptions, waitForRun } from "../composition/wait";
+import { validateDag } from "./dag-validation";
+import type { RunContext } from "./job";
+import { stepToApi, type WorkflowStepDefinition } from "./steps";
 import type {
   FutureLocalExecutorHooks,
   SchemaAdapter,
@@ -32,7 +35,9 @@ export type DefineWorkflowOptions<TPayload> = {
   /** Unique slug identifier. */
   readonly slug: string;
   /** Array of step definitions. Use the `step` builder for type safety. */
-  readonly steps: readonly Readonly<Record<string, unknown>>[];
+  readonly steps:
+    | readonly WorkflowStepDefinition[]
+    | readonly Readonly<Record<string, unknown>>[];
   /** Schema adapter for trigger payload validation. */
   readonly schema: SchemaAdapter<TPayload>;
   /** Project ID — can also be provided at register() time. */
@@ -71,23 +76,25 @@ export type DefineWorkflowOptions<TPayload> = {
   /**
    * The code that executes when the workflow runs.
    *
-   * For workflows, this is typically used for pre/post-processing logic
-   * around the step execution handled by the orchestrator.
+   * Receives the validated payload and a {@link RunContext} for logging,
+   * progress reporting, checkpointing, and cancellation.
    */
   readonly run?: (
     payload: TPayload,
-    ctx: { readonly runId: string; readonly signal: AbortSignal }
+    ctx: RunContext
   ) => Promise<unknown> | unknown;
 
   /** Called after a successful workflow run completes. */
   readonly onSuccess?: (context: {
     readonly payload: TPayload;
     readonly output: unknown;
+    readonly ctx: RunContext;
   }) => void | Promise<void>;
   /** Called when a workflow run fails. */
   readonly onFailure?: (context: {
     readonly payload: TPayload;
     readonly error: unknown;
+    readonly ctx: RunContext;
   }) => void | Promise<void>;
 
   /** Extension points for future local execution integrations. */
@@ -192,11 +199,32 @@ export const defineWorkflow = <TPayload>(
       `defineWorkflow(${options.slug})`
     );
 
+    // Convert typed step definitions to API format if they have a `type` field
+    // (indicating they came from the step builder), otherwise pass through as-is
+    const isTypedStep = (
+      s: Readonly<Record<string, unknown>>
+    ): s is WorkflowStepDefinition => "stepRef" in s && "type" in s;
+
+    const convertedSteps = options.steps.map((s) =>
+      isTypedStep(s as Readonly<Record<string, unknown>>)
+        ? stepToApi(s as WorkflowStepDefinition)
+        : s
+    );
+
+    // Validate DAG if steps are typed (have dependsOn fields)
+    const typedSteps = options.steps.filter((s) =>
+      isTypedStep(s as Readonly<Record<string, unknown>>)
+    ) as WorkflowStepDefinition[];
+
+    if (typedSteps.length > 0) {
+      validateDag(typedSteps);
+    }
+
     return {
       project_id: resolvedProjectId,
       name: options.name,
       slug: options.slug,
-      steps: options.steps,
+      steps: convertedSteps as readonly Readonly<Record<string, unknown>>[],
       ...(options.description ? { description: options.description } : {}),
       ...(options.tags ? { tags: options.tags } : {}),
       ...(options.environmentId

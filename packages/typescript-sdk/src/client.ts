@@ -210,6 +210,53 @@ export type Middleware = {
  * const job = await client.createJob({ body: { ... } });
  * ```
  */
+const wrapFetchWithMiddleware = (
+  fetchImpl: FetchLike,
+  middleware: readonly Middleware[]
+): FetchLike => {
+  if (middleware.length === 0) {
+    return fetchImpl;
+  }
+
+  return async (url, init) => {
+    const method = init?.method ?? "GET";
+    const urlStr = String(url);
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    const body = init?.body
+      ? (JSON.parse(init.body as string) as unknown)
+      : undefined;
+
+    for (const mw of middleware) {
+      await mw.onRequest?.({ method, url: urlStr, headers, body });
+    }
+
+    const start = Date.now();
+    let response: Response;
+
+    try {
+      response = await fetchImpl(url, init);
+    } catch (error) {
+      for (const mw of middleware) {
+        await mw.onError?.({ method, url: urlStr, error });
+      }
+      throw error;
+    }
+
+    const durationMs = Date.now() - start;
+
+    for (const mw of middleware) {
+      await mw.onResponse?.({
+        method,
+        url: urlStr,
+        status: response.status,
+        durationMs,
+      });
+    }
+
+    return response;
+  };
+};
+
 export const createClient = (
   input: StraitClientConfigInput,
   options?: {
@@ -217,11 +264,16 @@ export const createClient = (
     readonly middleware?: readonly Middleware[];
   }
 ): StraitClient => {
-  const effectOperations = bindEffectOperations(input, options?.fetch);
-  const promiseOperations = bindPromiseOperations(input, options?.fetch);
+  const baseFetch = options?.fetch ?? globalThis.fetch;
+  const fetchImpl = options?.middleware?.length
+    ? wrapFetchWithMiddleware(baseFetch, options.middleware)
+    : options?.fetch;
 
-  const effectDomains = bindEffectDomains(input, options?.fetch);
-  const promiseDomains = bindPromiseDomains(input, options?.fetch);
+  const effectOperations = bindEffectOperations(input, fetchImpl);
+  const promiseOperations = bindPromiseOperations(input, fetchImpl);
+
+  const effectDomains = bindEffectDomains(input, fetchImpl);
+  const promiseDomains = bindPromiseDomains(input, fetchImpl);
 
   const highLevelApi = buildHighLevelApi(
     <TOperationId extends GeneratedOperationId>(

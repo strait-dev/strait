@@ -1,4 +1,3 @@
-import { createActor } from "xstate";
 import { type RunEvent, runMachine } from "./run-machine";
 
 export { type RunEvent, runMachine } from "./run-machine";
@@ -55,48 +54,6 @@ const terminalRunStatuses = new Set<RunStatus>([
   "expired",
 ]);
 
-/**
- * Check if a transition is valid for a job run.
- *
- * @param from - Current run status.
- * @param event - Event to attempt.
- * @returns `true` if the transition is valid.
- *
- * @example
- * ```ts
- * isValidRunTransition("executing", "COMPLETE"); // true
- * isValidRunTransition("completed", "EXECUTE"); // false
- * ```
- */
-export const isValidRunTransition = (
-  from: RunStatus,
-  event: RunEvent
-): boolean => {
-  const actor = createActor(runMachine);
-  actor.start();
-
-  // Walk machine to the `from` state by checking its initial state
-  const snapshot = actor.getSnapshot();
-  if (snapshot.value !== from) {
-    // We need to check the machine definition directly
-    const stateConfig = runMachine.config.states?.[from];
-    if (!stateConfig) {
-      return false;
-    }
-    const transitions = stateConfig.on as Record<string, string> | undefined;
-    if (!transitions) {
-      return false;
-    }
-    return event in transitions;
-  }
-
-  return false;
-};
-
-/**
- * Check if a transition is valid by inspecting the machine definition directly.
- * More reliable than actor-based approach.
- */
 const getValidTransitions = (
   machineStates: Record<string, unknown>,
   from: string
@@ -110,10 +67,14 @@ const getValidTransitions = (
 /**
  * Check if a transition is valid for a job run by inspecting the machine definition.
  *
+ * @param from - Current run status.
+ * @param event - Event to attempt.
+ * @returns `true` if the transition is valid.
+ *
  * @example
  * ```ts
- * isValidRunTransition("executing", "COMPLETE"); // true
- * isValidRunTransition("completed", "EXECUTE"); // false
+ * canTransitionRun("executing", "COMPLETE"); // true
+ * canTransitionRun("completed", "EXECUTE"); // false
  * ```
  */
 export const canTransitionRun = (from: RunStatus, event: RunEvent): boolean => {
