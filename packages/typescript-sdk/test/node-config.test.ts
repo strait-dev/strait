@@ -82,7 +82,10 @@ describe("node config helpers", () => {
     const directory = await createTempDir();
     await writeFile(
       join(directory, "strait.json"),
-      JSON.stringify({ project: { id: "proj_1" }, sdk: { base_url: "https://strait.dev" } })
+      JSON.stringify({
+        project: { id: "proj_1" },
+        sdk: { base_url: "https://strait.dev" },
+      })
     );
     await writeFile(
       join(directory, "strait.config.ts"),
@@ -111,7 +114,10 @@ describe("node config helpers", () => {
         })
       );
 
-      const loaded = await loadStraitConfig({ cwd: directory, envOverrides: false });
+      const loaded = await loadStraitConfig({
+        cwd: directory,
+        envOverrides: false,
+      });
       expect(loaded.baseUrl).toBe("https://api.strait.dev");
       expect(loaded.auth.type).toBe("bearer");
       expect(loaded.auth.token).toBe("key_from_env");

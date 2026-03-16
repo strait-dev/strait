@@ -269,4 +269,25 @@ export const step = {
     sleepDurationSecs: durationSecs,
     ...opts,
   }),
+
+  /**
+   * Creates a job step with LLM-tuned defaults: higher timeout, exponential retry,
+   * and large resource class.
+   *
+   * @param ref - Unique step reference within the workflow.
+   * @param jobId - ID of the registered AI job to execute.
+   * @param opts - Optional overrides for the LLM defaults.
+   */
+  ai: (ref: string, jobId: string, opts?: BaseStepOptions): JobStep => ({
+    type: "job",
+    stepRef: ref,
+    jobId,
+    timeoutSecsOverride: opts?.timeoutSecsOverride ?? 600,
+    retryMaxAttempts: opts?.retryMaxAttempts ?? 5,
+    retryBackoff: opts?.retryBackoff ?? "exponential",
+    retryInitialDelaySecs: opts?.retryInitialDelaySecs ?? 2,
+    retryMaxDelaySecs: opts?.retryMaxDelaySecs ?? 120,
+    resourceClass: opts?.resourceClass ?? "large",
+    ...opts,
+  }),
 };
