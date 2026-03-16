@@ -26,7 +26,7 @@ import {
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
 import { StatusBadge } from "@/components/dashboard/status-badge";
@@ -68,18 +68,21 @@ function WebhooksPage() {
 
   const selectedStatuses = search.status ?? [];
 
-  const filteredData = (data?.data ?? []).filter((webhook) => {
+  const filteredData = useMemo(() => {
+    const webhooks = data?.data ?? [];
     if (selectedStatuses.length === 0) {
-      return true;
+      return webhooks;
     }
-    if (selectedStatuses.includes("Active") && webhook.active) {
-      return true;
-    }
-    if (selectedStatuses.includes("Inactive") && !webhook.active) {
-      return true;
-    }
-    return false;
-  });
+    return webhooks.filter((webhook) => {
+      if (selectedStatuses.includes("Active") && webhook.active) {
+        return true;
+      }
+      if (selectedStatuses.includes("Inactive") && !webhook.active) {
+        return true;
+      }
+      return false;
+    });
+  }, [data?.data, selectedStatuses]);
 
   const [selectedWebhook, setSelectedWebhook] =
     useState<WebhookSubscription | null>(null);

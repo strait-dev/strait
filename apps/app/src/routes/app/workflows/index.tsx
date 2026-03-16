@@ -19,7 +19,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
 import TableEmptyState from "@/components/common/table-empty-state";
@@ -60,18 +60,21 @@ function WorkflowsPage() {
   const selectedStatuses = search.status ?? [];
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
-  const filteredData = (data?.data ?? []).filter((workflow) => {
+  const filteredData = useMemo(() => {
+    const workflows = data?.data ?? [];
     if (selectedStatuses.length === 0) {
-      return true;
+      return workflows;
     }
-    if (selectedStatuses.includes("Enabled") && workflow.enabled) {
-      return true;
-    }
-    if (selectedStatuses.includes("Disabled") && !workflow.enabled) {
-      return true;
-    }
-    return false;
-  });
+    return workflows.filter((workflow) => {
+      if (selectedStatuses.includes("Enabled") && workflow.enabled) {
+        return true;
+      }
+      if (selectedStatuses.includes("Disabled") && !workflow.enabled) {
+        return true;
+      }
+      return false;
+    });
+  }, [data?.data, selectedStatuses]);
 
   const table = useReactTable({
     data: filteredData,

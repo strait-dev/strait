@@ -19,7 +19,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import PageHeader from "@/components/common/page-header";
 import { ScheduleDetailSheet } from "@/components/dashboard/schedule-detail-sheet";
@@ -58,18 +58,21 @@ function SchedulesPage() {
 
   const selectedStatuses = search.status ?? [];
 
-  const filteredData = (data?.data ?? []).filter((job) => {
+  const filteredData = useMemo(() => {
+    const jobs = data?.data ?? [];
     if (selectedStatuses.length === 0) {
-      return true;
+      return jobs;
     }
-    if (selectedStatuses.includes("Enabled") && job.enabled) {
-      return true;
-    }
-    if (selectedStatuses.includes("Disabled") && !job.enabled) {
-      return true;
-    }
-    return false;
-  });
+    return jobs.filter((job) => {
+      if (selectedStatuses.includes("Enabled") && job.enabled) {
+        return true;
+      }
+      if (selectedStatuses.includes("Disabled") && !job.enabled) {
+        return true;
+      }
+      return false;
+    });
+  }, [data?.data, selectedStatuses]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const table = useReactTable({
