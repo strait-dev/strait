@@ -790,6 +790,39 @@ type WorkflowStep struct {
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
+// WorkflowSnapshot captures an immutable point-in-time workflow definition
+// (metadata + all step fields) as JSONB. Used so in-flight runs are immune
+// to live workflow_steps table changes.
+type WorkflowSnapshot struct {
+	ID         string          `json:"id"`
+	WorkflowID string          `json:"workflow_id"`
+	VersionID  string          `json:"version_id,omitempty"`
+	Version    int             `json:"version"`
+	Definition json.RawMessage `json:"definition"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// WorkflowSnapshotDefinition is the serialized content of a WorkflowSnapshot.Definition.
+type WorkflowSnapshotDefinition struct {
+	Workflow WorkflowSnapshotMeta `json:"workflow"`
+	Steps    []WorkflowStep       `json:"steps"`
+}
+
+// WorkflowSnapshotMeta holds the workflow-level fields captured in the snapshot.
+type WorkflowSnapshotMeta struct {
+	ID                string            `json:"id"`
+	ProjectID         string            `json:"project_id"`
+	Name              string            `json:"name"`
+	Slug              string            `json:"slug"`
+	Description       string            `json:"description,omitempty"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	Version           int               `json:"version"`
+	VersionID         string            `json:"version_id,omitempty"`
+	TimeoutSecs       int               `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns int               `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps  int               `json:"max_parallel_steps,omitempty"`
+}
+
 // WorkflowRun represents an execution instance of a workflow.
 type WorkflowRun struct {
 	ID                  string            `json:"id"`
@@ -809,6 +842,7 @@ type WorkflowRun struct {
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
 	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
 	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
+	WorkflowSnapshotID  string            `json:"workflow_snapshot_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	TraceContext        map[string]string `json:"trace_context,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`

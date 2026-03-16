@@ -49,6 +49,7 @@ type EngineStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	GetOrCreateWorkflowSnapshot(ctx context.Context, wf *domain.Workflow, steps []domain.WorkflowStep) (*domain.WorkflowSnapshot, error)
 }
 
 type EngineQueue interface {
@@ -187,6 +188,13 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		return nil, fmt.Errorf("validate workflow dag: %w", err)
 	}
 
+	// Create an immutable snapshot of the workflow definition (metadata + steps)
+	// so that in-flight runs are immune to live workflow_steps changes.
+	snapshot, snapshotErr := e.store.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
+	if snapshotErr != nil {
+		e.logger.Warn("failed to create workflow snapshot (non-fatal)", "workflow_id", workflowID, "error", snapshotErr)
+	}
+
 	if wf.MaxConcurrentRuns > 0 {
 		running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
 		if countErr != nil {
@@ -226,6 +234,11 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		}
 	}
 
+	var snapshotID string
+	if snapshot != nil {
+		snapshotID = snapshot.ID
+	}
+
 	wfRun := &domain.WorkflowRun{
 		WorkflowID:          workflowID,
 		ProjectID:           projectID,
@@ -234,6 +247,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		TriggeredBy:         triggeredBy,
 		WorkflowVersion:     wf.Version,
 		WorkflowVersionID:   wf.VersionID,
+		WorkflowSnapshotID:  snapshotID,
 		MaxParallelSteps:    wf.MaxParallelSteps,
 		Payload:             payload,
 		ParentWorkflowRunID: parentWorkflowRunID,

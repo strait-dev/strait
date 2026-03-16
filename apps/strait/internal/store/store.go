@@ -324,6 +324,7 @@ type Store interface {
 	WorkflowStepStore
 	WorkflowRunStore
 	WorkflowStepRunStore
+	WorkflowSnapshotStore
 	EventTriggerStore
 	BatchOperationStore
 	LogDrainStore
