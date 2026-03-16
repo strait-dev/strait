@@ -1694,15 +1694,17 @@ func (q *Queries) ListManagedMachineIDsByWorkflowRun(ctx context.Context, workfl
 	return ids, rows.Err()
 }
 
-// MarkJobRunsPausedByWorkflowRun stores the machine_id in metadata._paused_machine_id
-// for executing managed job runs linked to this workflow run, so resume knows to re-dispatch them.
+// MarkJobRunsPausedByWorkflowRun transitions executing managed job runs linked
+// to this workflow run to paused status, storing the machine_id in metadata
+// so resume knows to re-dispatch them.
 func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkJobRunsPausedByWorkflowRun")
 	defer span.End()
 
 	query := `
 		UPDATE job_runs r
-		SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('_paused_machine_id', r.machine_id)
+		SET status = 'paused',
+		    metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('_paused_machine_id', r.machine_id)
 		FROM workflow_step_runs wsr
 		WHERE wsr.job_run_id = r.id
 		  AND wsr.workflow_run_id = $1
@@ -1718,7 +1720,7 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 	return tag.RowsAffected(), nil
 }
 
-// RequeuePausedJobRuns transitions job runs with _paused_machine_id metadata
+// RequeuePausedJobRuns transitions paused job runs linked to a workflow run
 // back to queued status, clearing pause metadata and resetting timing fields.
 func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RequeuePausedJobRuns")
@@ -1734,7 +1736,7 @@ func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string
 		FROM workflow_step_runs wsr
 		WHERE wsr.job_run_id = r.id
 		  AND wsr.workflow_run_id = $1
-		  AND r.metadata->>'_paused_machine_id' IS NOT NULL`
+		  AND r.status = 'paused'`
 
 	tag, err := q.db.Exec(ctx, query, workflowRunID)
 	if err != nil {

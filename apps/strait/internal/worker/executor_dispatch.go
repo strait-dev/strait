@@ -419,9 +419,15 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 
 	// 8. Create the container (non-blocking).
+	preset := string(job.MachinePreset)
+	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
+		if domain.MachinePreset(override).IsValid() {
+			preset = override
+		}
+	}
 	runReq := compute.RunRequest{
 		ImageURI:      job.ImageURI,
-		MachinePreset: string(job.MachinePreset),
+		MachinePreset: preset,
 		Region:        region,
 		Env:           env,
 		Labels: map[string]string{

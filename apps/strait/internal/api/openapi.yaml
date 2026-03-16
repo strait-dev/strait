@@ -1425,6 +1425,77 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobRun'
 
+  /v1/runs/{runID}/pause:
+    post:
+      tags:
+        - Runs
+      summary: Pause a managed run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Run paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRun'
+
+  /v1/runs/{runID}/resume:
+    post:
+      tags:
+        - Runs
+      summary: Resume a paused run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Run resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRun'
+
+  /v1/runs/{runID}/restart:
+    post:
+      tags:
+        - Runs
+      summary: Restart a managed run with optional preset override
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                machine_preset:
+                  type: string
+      responses:
+        '200':
+          description: Run restarted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRun'
+
   /v1/workflows:
     get:
       tags:

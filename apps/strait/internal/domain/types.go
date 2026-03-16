@@ -22,6 +22,7 @@ const (
 	StatusExpired      RunStatus = "expired"
 	StatusDeadLetter   RunStatus = "dead_letter"
 	StatusReplayStaged RunStatus = "replay_staged"
+	StatusPaused       RunStatus = "paused"
 )
 
 const (
@@ -598,7 +599,7 @@ func (s RunStatus) IsValid() bool {
 	switch s {
 	case StatusDelayed, StatusQueued, StatusDequeued, StatusExecuting, StatusWaiting,
 		StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed,
-		StatusCanceled, StatusExpired, StatusDeadLetter, StatusReplayStaged:
+		StatusCanceled, StatusExpired, StatusDeadLetter, StatusReplayStaged, StatusPaused:
 		return true
 	default:
 		return false

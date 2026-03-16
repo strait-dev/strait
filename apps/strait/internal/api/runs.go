@@ -718,6 +718,162 @@ func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(req.RunIDs), "replayed": replayed})
 }
 
+func (s *Server) handlePauseRun(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if run.ExecutionMode != domain.ExecutionModeManaged {
+		respondError(w, r, http.StatusBadRequest, "only managed runs can be paused")
+		return
+	}
+	if run.Status == domain.StatusPaused {
+		respondJSON(w, http.StatusOK, run)
+		return
+	}
+	if run.Status != domain.StatusExecuting {
+		respondError(w, r, http.StatusBadRequest, "run must be in executing state to pause")
+		return
+	}
+
+	if err := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusExecuting, domain.StatusPaused, map[string]any{
+		"metadata": map[string]string{"_paused_machine_id": run.MachineID},
+	}); err != nil {
+		respondError(w, r, http.StatusConflict, "failed to pause run")
+		return
+	}
+
+	// Stop managed container (non-fatal).
+	if s.containerRuntime != nil && run.MachineID != "" {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
+			slog.Warn("failed to stop managed container on run pause",
+				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
+		}
+	}
+
+	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
+		return
+	}
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
+func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if run.Status != domain.StatusPaused {
+		respondError(w, r, http.StatusBadRequest, "run is not paused")
+		return
+	}
+
+	if err := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusPaused, domain.StatusQueued, map[string]any{
+		"started_at":  nil,
+		"finished_at": nil,
+		"machine_id":  nil,
+		"metadata":    map[string]string{},
+	}); err != nil {
+		respondError(w, r, http.StatusConflict, "failed to resume run")
+		return
+	}
+
+	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
+		return
+	}
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
+type restartRunRequest struct {
+	MachinePreset string `json:"machine_preset,omitempty"`
+}
+
+func (s *Server) handleRestartRun(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "runID")
+	run, err := s.store.GetRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "run not found")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if run.ExecutionMode != domain.ExecutionModeManaged {
+		respondError(w, r, http.StatusBadRequest, "only managed runs can be restarted")
+		return
+	}
+	if run.Status != domain.StatusExecuting && run.Status != domain.StatusPaused {
+		respondError(w, r, http.StatusBadRequest, "run must be executing or paused to restart")
+		return
+	}
+
+	var req restartRunRequest
+	if r.ContentLength > 0 {
+		if err := s.decodeJSON(r, &req); err != nil {
+			respondError(w, r, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	if req.MachinePreset != "" && !domain.MachinePreset(req.MachinePreset).IsValid() {
+		respondError(w, r, http.StatusBadRequest, "invalid machine_preset")
+		return
+	}
+
+	// Stop container if running.
+	if s.containerRuntime != nil && run.MachineID != "" && run.Status == domain.StatusExecuting {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
+			slog.Warn("failed to stop managed container on restart",
+				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
+		}
+	}
+
+	metadata := map[string]string{}
+	if req.MachinePreset != "" {
+		metadata["_preset_override"] = req.MachinePreset
+	}
+
+	if err := s.store.UpdateRunStatus(r.Context(), run.ID, run.Status, domain.StatusQueued, map[string]any{
+		"started_at":  nil,
+		"finished_at": nil,
+		"machine_id":  nil,
+		"metadata":    metadata,
+	}); err != nil {
+		respondError(w, r, http.StatusConflict, "failed to restart run")
+		return
+	}
+
+	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get updated run")
+		return
+	}
+	respondJSON(w, http.StatusOK, updatedRun)
+}
+
 // parseBracketParam extracts the key from bracket notation params like "metadata[key]".
 // Returns the inner key and true if the param matches "prefix[key]".
 func parseBracketParam(param, prefix string) (string, bool) {
