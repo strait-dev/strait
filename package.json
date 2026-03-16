@@ -35,13 +35,10 @@
     "@tanstack/react-query": "5.90.21"
   },
   "devDependencies": {
-    "@better-auth/passkey": "^1.5.5",
     "@biomejs/biome": "2.4.7",
-    "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@manypkg/cli": "^0.25.1",
     "@typescript/native-preview": "^7.0.0-dev.20260316.1",
-    "baseline-browser-mapping": "^2.10.8",
     "better-auth": "^1.5.5",
     "knip": "^5.86.0",
     "lefthook": "^2.1.4",

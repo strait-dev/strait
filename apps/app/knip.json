@@ -35,6 +35,11 @@
     "interface": true,
     "type": true
   },
+  "rules": {
+    "unlisted": "off",
+    "exports": "warn",
+    "types": "warn"
+  },
   "vite": true,
   "vitest": {
     "config": ["vitest.config.ts"]
