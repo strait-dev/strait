@@ -6,13 +6,21 @@ import (
 	"net/url"
 )
 
-func ValidateEndpointURL(rawURL string) error {
+func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) error {
+	var o endpointValidationOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("URL must use http or https scheme")
+	}
+	if o.requireTLS && u.Scheme != "https" {
+		return fmt.Errorf("URL must use https when TLS is required")
 	}
 	if u.Host == "" {
 		return fmt.Errorf("URL must have a host")
@@ -36,8 +44,27 @@ func ValidateEndpointURL(rawURL string) error {
 	return nil
 }
 
+// EndpointValidationOpts holds options for endpoint URL validation.
+type EndpointValidationOpts = endpointValidationOpts
+
+type endpointValidationOpts struct {
+	requireTLS bool
+}
+
+// WithRequireTLS returns an option that enforces HTTPS scheme.
+func WithRequireTLS(require bool) func(*endpointValidationOpts) {
+	return func(o *endpointValidationOpts) {
+		o.requireTLS = require
+	}
+}
+
 func validateEndpointURL(rawURL string) error {
 	return ValidateEndpointURL(rawURL)
+}
+
+// ValidateEndpointURLWithTLS validates a URL with optional TLS requirement.
+func ValidateEndpointURLWithTLS(rawURL string, requireTLS bool) error {
+	return ValidateEndpointURL(rawURL, WithRequireTLS(requireTLS))
 }
 
 // cgnatNet is the CGNAT range 100.64.0.0/10 (RFC 6598).

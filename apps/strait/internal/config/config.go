@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -39,10 +41,11 @@ type Config struct {
 	EventTriggerRetentionDays int           `mapstructure:"EVENT_TRIGGER_RETENTION_DAYS"`
 
 	// Database connection pool tuning
-	DBMaxConns        int32         `mapstructure:"DB_MAX_CONNS"`
-	DBMinConns        int32         `mapstructure:"DB_MIN_CONNS"`
-	DBMaxConnLifetime time.Duration `mapstructure:"DB_MAX_CONN_LIFETIME"`
-	DBMaxConnIdleTime time.Duration `mapstructure:"DB_MAX_CONN_IDLE_TIME"`
+	DBMaxConns         int32         `mapstructure:"DB_MAX_CONNS"`
+	DBMinConns         int32         `mapstructure:"DB_MIN_CONNS"`
+	DBMaxConnLifetime  time.Duration `mapstructure:"DB_MAX_CONN_LIFETIME"`
+	DBMaxConnIdleTime  time.Duration `mapstructure:"DB_MAX_CONN_IDLE_TIME"`
+	DBStatementTimeout time.Duration `mapstructure:"DB_STATEMENT_TIMEOUT"`
 
 	RateLimitRequests int           `mapstructure:"RATE_LIMIT_REQUESTS"`
 	RateLimitWindow   time.Duration `mapstructure:"RATE_LIMIT_WINDOW"`
@@ -85,10 +88,12 @@ type Config struct {
 	WebhookMaxPayloadBytes  int64         `mapstructure:"WEBHOOK_MAX_PAYLOAD_BYTES"`
 
 	// Worker settings
-	WebhookMaxAttempts    int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
-	DefaultJobMaxAttempts int `mapstructure:"DEFAULT_JOB_MAX_ATTEMPTS"`
-	DefaultJobTimeoutSecs int `mapstructure:"DEFAULT_JOB_TIMEOUT_SECS"`
-	WorkerQueueSize       int `mapstructure:"WORKER_QUEUE_SIZE"`
+	WebhookMaxAttempts       int `mapstructure:"WEBHOOK_MAX_ATTEMPTS"`
+	DefaultJobMaxAttempts    int `mapstructure:"DEFAULT_JOB_MAX_ATTEMPTS"`
+	DefaultJobTimeoutSecs    int `mapstructure:"DEFAULT_JOB_TIMEOUT_SECS"`
+	DefaultJobMaxConcurrency int `mapstructure:"DEFAULT_JOB_MAX_CONCURRENCY"`
+	WorkerQueueSize          int `mapstructure:"WORKER_QUEUE_SIZE"`
+	MaxDequeueBatchSize      int `mapstructure:"MAX_DEQUEUE_BATCH_SIZE"`
 
 	// Scheduler settings
 	WorkflowRetention        time.Duration `mapstructure:"WORKFLOW_RETENTION"`
@@ -111,7 +116,18 @@ type Config struct {
 	SSEKeepaliveInterval time.Duration `mapstructure:"SSE_KEEPALIVE_INTERVAL"`
 
 	// Log drain settings
-	LogDrainWorkerInterval time.Duration `mapstructure:"LOG_DRAIN_WORKER_INTERVAL"`
+	LogDrainWorkerInterval     time.Duration `mapstructure:"LOG_DRAIN_WORKER_INTERVAL"`
+	MemoryPressureThresholdPct float64       `mapstructure:"MEMORY_PRESSURE_THRESHOLD_PCT"`
+	JobCacheTTL                time.Duration `mapstructure:"JOB_CACHE_TTL"`
+	DefaultRunTTLSecs          int           `mapstructure:"DEFAULT_RUN_TTL_SECS"`
+	MaxResultSize              int64         `mapstructure:"MAX_RESULT_SIZE"`
+	MigrationMode              string        `mapstructure:"MIGRATION_MODE"`
+	MigrationLockTimeout       time.Duration `mapstructure:"MIGRATION_LOCK_TIMEOUT"`
+	MaxSnoozeCount             int           `mapstructure:"MAX_SNOOZE_COUNT"`
+	DebouncePollerInterval     time.Duration `mapstructure:"DEBOUNCE_POLLER_INTERVAL"`
+	BatchFlushInterval         time.Duration `mapstructure:"BATCH_FLUSH_INTERVAL"`
+	WebhookRequireTLS          bool          `mapstructure:"WEBHOOK_REQUIRE_TLS"`
+	DequeueStrategy            string        `mapstructure:"DEQUEUE_STRATEGY"`
 }
 
 func setDefaults() {
@@ -130,6 +146,7 @@ func setDefaults() {
 	viper.SetDefault("DB_MIN_CONNS", 5)
 	viper.SetDefault("DB_MAX_CONN_LIFETIME", 30*time.Minute)
 	viper.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
+	viper.SetDefault("DB_STATEMENT_TIMEOUT", 30*time.Second)
 	viper.SetDefault("RATE_LIMIT_REQUESTS", 100)
 	viper.SetDefault("RATE_LIMIT_WINDOW", time.Minute)
 	viper.SetDefault("TRIGGER_RATE_LIMIT_REQUESTS", 10)
@@ -164,7 +181,9 @@ func setDefaults() {
 	viper.SetDefault("WEBHOOK_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_MAX_ATTEMPTS", 3)
 	viper.SetDefault("DEFAULT_JOB_TIMEOUT_SECS", 300)
+	viper.SetDefault("DEFAULT_JOB_MAX_CONCURRENCY", 0)
 	viper.SetDefault("WORKER_QUEUE_SIZE", 0)
+	viper.SetDefault("MAX_DEQUEUE_BATCH_SIZE", 0)
 	viper.SetDefault("WORKFLOW_RETENTION", 30*24*time.Hour)
 	viper.SetDefault("INDEX_MAINTENANCE_INTERVAL", 24*time.Hour)
 	viper.SetDefault("REAPER_DELETE_BATCH_SIZE", 100)
@@ -178,6 +197,17 @@ func setDefaults() {
 	viper.SetDefault("CDC_WAIT_TIME_MS", 5000)
 	viper.SetDefault("SSE_KEEPALIVE_INTERVAL", 15*time.Second)
 	viper.SetDefault("LOG_DRAIN_WORKER_INTERVAL", 60*time.Second)
+	viper.SetDefault("MEMORY_PRESSURE_THRESHOLD_PCT", float64(0))
+	viper.SetDefault("JOB_CACHE_TTL", 5*time.Minute)
+	viper.SetDefault("DEFAULT_RUN_TTL_SECS", 0)
+	viper.SetDefault("MAX_RESULT_SIZE", int64(1<<20))
+	viper.SetDefault("MIGRATION_MODE", "auto")
+	viper.SetDefault("MIGRATION_LOCK_TIMEOUT", 30*time.Second)
+	viper.SetDefault("MAX_SNOOZE_COUNT", 50)
+	viper.SetDefault("DEBOUNCE_POLLER_INTERVAL", time.Second)
+	viper.SetDefault("BATCH_FLUSH_INTERVAL", time.Second)
+	viper.SetDefault("WEBHOOK_REQUIRE_TLS", false)
+	viper.SetDefault("DEQUEUE_STRATEGY", "priority")
 }
 
 func BindEnv() error {
@@ -187,7 +217,7 @@ func BindEnv() error {
 		"SECRET_ENCRYPTION_KEY", "ENCRYPTION_KEY", "ENCRYPTION_KEY_OLD", "LOG_LEVEL", "HEARTBEAT_INTERVAL", "REAPER_INTERVAL",
 		"STALE_THRESHOLD", "POLLER_INTERVAL", "RUN_RETENTION_SHORT", "RUN_RETENTION_LONG",
 		"OTEL_EXPORTER_OTLP_ENDPOINT", "WORKFLOW_RUN_RETENTION_DAYS", "DB_MAX_CONNS",
-		"DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME", "RATE_LIMIT_REQUESTS",
+		"DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME", "DB_STATEMENT_TIMEOUT", "RATE_LIMIT_REQUESTS",
 		"RATE_LIMIT_WINDOW", "TRIGGER_RATE_LIMIT_REQUESTS", "TRIGGER_RATE_LIMIT_WINDOW",
 		"REQUEST_TIMEOUT", "MAX_REQUEST_BODY_SIZE", "MAX_BULK_TRIGGER_ITEMS", "SEQUIN_BASE_URL", "SEQUIN_CONSUMER_NAME",
 		"SEQUIN_API_TOKEN", "SEQUIN_BATCH_SIZE", "SEQUIN_WAIT_TIME_MS", "CORS_ALLOWED_ORIGINS",
@@ -196,7 +226,7 @@ func BindEnv() error {
 		"WORKER_DRAIN_TIMEOUT",
 		"WEBHOOK_TIMEOUT", "WEBHOOK_IDLE_CONN_TIMEOUT", "EXECUTOR_HTTP_TIMEOUT",
 		"EXECUTOR_IDLE_CONN_TIMEOUT", "WEBHOOK_DISPATCH_TIMEOUT", "WEBHOOK_MAX_PAYLOAD_BYTES", "WEBHOOK_MAX_ATTEMPTS",
-		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "WORKER_QUEUE_SIZE",
+		"DEFAULT_JOB_MAX_ATTEMPTS", "DEFAULT_JOB_TIMEOUT_SECS", "DEFAULT_JOB_MAX_CONCURRENCY", "WORKER_QUEUE_SIZE", "MAX_DEQUEUE_BATCH_SIZE",
 		"WORKFLOW_RETENTION", "INDEX_MAINTENANCE_INTERVAL", "REAPER_DELETE_BATCH_SIZE",
 		"WF_STALL_THRESHOLD", "WF_STALL_ACTION", "WF_MAX_STEP_CAP", "WF_STEP_CONCURRENCY_LIMIT",
 		"DEPENDENCY_STATUS_CACHE_TTL", "MAX_WORKFLOW_NESTING_DEPTH", "CDC_BATCH_SIZE",
@@ -204,6 +234,13 @@ func BindEnv() error {
 		"PERMISSION_CACHE_TTL",
 		"EVENT_TRIGGER_RETENTION", "EVENT_TRIGGER_RETENTION_DAYS",
 		"LOG_DRAIN_WORKER_INTERVAL",
+		"MEMORY_PRESSURE_THRESHOLD_PCT",
+		"JOB_CACHE_TTL",
+		"DEFAULT_RUN_TTL_SECS", "MAX_RESULT_SIZE",
+		"MIGRATION_MODE", "MIGRATION_LOCK_TIMEOUT",
+		"MAX_SNOOZE_COUNT",
+		"DEBOUNCE_POLLER_INTERVAL", "BATCH_FLUSH_INTERVAL", "WEBHOOK_REQUIRE_TLS",
+		"DEQUEUE_STRATEGY",
 	}
 
 	for _, key := range keys {
@@ -237,6 +274,7 @@ func Load() (*Config, error) {
 	cfg.RunRetentionLong = viper.GetDuration("RUN_RETENTION_LONG")
 	cfg.DBMaxConnLifetime = viper.GetDuration("DB_MAX_CONN_LIFETIME")
 	cfg.DBMaxConnIdleTime = viper.GetDuration("DB_MAX_CONN_IDLE_TIME")
+	cfg.DBStatementTimeout = viper.GetDuration("DB_STATEMENT_TIMEOUT")
 	cfg.DBMaxConns = viper.GetInt32("DB_MAX_CONNS")
 	cfg.DBMinConns = viper.GetInt32("DB_MIN_CONNS")
 	cfg.RateLimitWindow = viper.GetDuration("RATE_LIMIT_WINDOW")
@@ -277,6 +315,17 @@ func Load() (*Config, error) {
 	cfg.SSEKeepaliveInterval = viper.GetDuration("SSE_KEEPALIVE_INTERVAL")
 	cfg.WorkerDrainTimeout = viper.GetDuration("WORKER_DRAIN_TIMEOUT")
 	cfg.LogDrainWorkerInterval = viper.GetDuration("LOG_DRAIN_WORKER_INTERVAL")
+	cfg.MemoryPressureThresholdPct = viper.GetFloat64("MEMORY_PRESSURE_THRESHOLD_PCT")
+	cfg.JobCacheTTL = viper.GetDuration("JOB_CACHE_TTL")
+	cfg.DefaultRunTTLSecs = viper.GetInt("DEFAULT_RUN_TTL_SECS")
+	cfg.MaxResultSize = viper.GetInt64("MAX_RESULT_SIZE")
+	cfg.MigrationMode = viper.GetString("MIGRATION_MODE")
+	cfg.MigrationLockTimeout = viper.GetDuration("MIGRATION_LOCK_TIMEOUT")
+	cfg.MaxSnoozeCount = viper.GetInt("MAX_SNOOZE_COUNT")
+	cfg.DebouncePollerInterval = viper.GetDuration("DEBOUNCE_POLLER_INTERVAL")
+	cfg.BatchFlushInterval = viper.GetDuration("BATCH_FLUSH_INTERVAL")
+	cfg.WebhookRequireTLS = viper.GetBool("WEBHOOK_REQUIRE_TLS")
+	cfg.DequeueStrategy = viper.GetString("DEQUEUE_STRATEGY")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
@@ -312,6 +361,37 @@ func Load() (*Config, error) {
 			return nil, &domain.ConfigError{Field: "OIDC_PUBLIC_KEY_PEM", Message: "is required when OIDC is enabled"}
 		}
 	}
+
+	if cfg.RedisURL != "" {
+		if _, err := url.Parse(cfg.RedisURL); err != nil {
+			return nil, &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
+		}
+	}
+
+	switch cfg.MigrationMode {
+	case "auto", "manual", "validate":
+		// valid
+	default:
+		return nil, &domain.ConfigError{Field: "MIGRATION_MODE", Message: "must be auto, manual, or validate"}
+	}
+
+	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
+		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
+	}
+
+	if cfg.SequinBaseURL != "" {
+		if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return nil, &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
+		}
+	}
+
+	slog.Info("config loaded",
+		"mode", cfg.Mode,
+		"port", cfg.Port,
+		"worker_concurrency", cfg.WorkerConcurrency,
+		"poll_interval", cfg.PollerInterval,
+		"db_max_conns", cfg.DBMaxConns,
+	)
 
 	return &cfg, nil
 }

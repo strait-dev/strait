@@ -9,10 +9,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptrace"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
 
+	"github.com/golang-jwt/jwt/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -21,10 +23,24 @@ import (
 // "latest", upgrades to the current version. For "minor", upgrades only if
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
-	// Always load the current job to check version_policy.
-	current, err := e.store.GetJob(ctx, run.JobID)
-	if err != nil {
-		return nil, fmt.Errorf("load current job: %w", err)
+	// Check job cache first.
+	cacheKey := run.JobID
+	var current *domain.Job
+	if entry, ok := e.jobCache.Load(cacheKey); ok {
+		if cached := entry.(*cachedJob); time.Now().Before(cached.expiresAt) {
+			current = cached.job
+		}
+	}
+
+	if current == nil {
+		var err error
+		current, err = e.store.GetJob(ctx, run.JobID)
+		if err != nil {
+			return nil, fmt.Errorf("load current job: %w", err)
+		}
+		if e.jobCacheTTL > 0 {
+			e.jobCache.Store(cacheKey, &cachedJob{job: current, expiresAt: time.Now().Add(e.jobCacheTTL)})
+		}
 	}
 
 	// If the run is already at the current version, no policy check needed.
@@ -72,10 +88,21 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "executor.Execute")
-	defer span.End()
+	ec := &ExecutionContext{
+		Run:   run,
+		Start: time.Now(),
+	}
 
-	executeStart := time.Now()
+	handler := e.executeInner
+	if len(e.middlewares) > 0 {
+		handler = Chain(e.middlewares...)(handler)
+	}
+	handler(ctx, ec)
+}
+
+func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
+	run := ec.Run
+	executeStart := ec.Start
 
 	job, err := e.resolveJobForRun(ctx, run)
 	if err != nil || job == nil {
@@ -89,6 +116,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 		e.handleSystemFailure(ctx, run, "job not found")
 		return
 	}
+	ec.Job = job
 
 	policy := executionPolicy{
 		maxAttempts:      job.MaxAttempts,
@@ -141,50 +169,14 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	}
 
 	if !allowed {
-		fields := map[string]any{
-			"next_retry_at": retryAt,
-			"error":         "endpoint circuit breaker open",
-			"error_class":   "transient",
-			"started_at":    nil,
-			"finished_at":   nil,
-		}
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
-			e.logger.Error(
-				"failed to requeue run while circuit open",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"error", err,
-			)
-			return
-		}
-
-		e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
-		e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "circuit_open"})
+		e.snoozeRun(ctx, run, "endpoint circuit breaker open", retryAt)
 		return
 	}
 
 	acquired := e.tryAcquireBulkheadSlot(job.ID, job.MaxConcurrency)
 	if !acquired {
-		retryAt := NextRetryAt(run.Attempt)
-		fields := map[string]any{
-			"next_retry_at": retryAt,
-			"error":         "job bulkhead at capacity",
-			"error_class":   "transient",
-			"started_at":    nil,
-			"finished_at":   nil,
-		}
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
-			e.logger.Error(
-				"failed to requeue run while bulkhead at capacity",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"error", err,
-			)
-			return
-		}
-
-		e.recordRunTransition(ctx, domain.StatusDequeued, domain.StatusQueued)
-		e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "queued", "reason": "bulkhead_capacity"})
+		bulkheadRetryAt := NextRetryAt(run.Attempt)
+		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)
 		return
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
@@ -231,10 +223,6 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 			execTrace.DequeueMs = durationMillisecondsAtLeastOne(dequeue)
 		}
 	}
-	if e.metrics != nil && execTrace != nil {
-		e.metrics.ExecutionTraceDispatch.Record(ctx, float64(execTrace.DispatchMs))
-		e.metrics.ExecutionTraceQueueWait.Record(ctx, float64(execTrace.QueueWaitMs))
-	}
 	if err != nil {
 		if job.FallbackEndpointURL != "" {
 			errClass := classifyError(err)
@@ -276,15 +264,26 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
 
-	var extraHeaders map[string]string
+	extraHeaders := make(map[string]string)
 	secrets, err := e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
 	}
-	if len(secrets) > 0 {
-		extraHeaders = make(map[string]string, len(secrets))
-		for _, secret := range secrets {
-			extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	for _, secret := range secrets {
+		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	}
+
+	if run.Attempt > 1 {
+		cp, cpErr := e.store.GetLatestCheckpoint(tracedCtx, run.ID)
+		if cpErr == nil && cp != nil {
+			data, _ := json.Marshal(cp.State)
+			if len(data) <= 65536 {
+				extraHeaders["X-Last-Checkpoint"] = string(data)
+				extraHeaders["X-Checkpoint-At"] = cp.CreatedAt.Format(time.RFC3339)
+			}
+		}
+		if run.Error != "" {
+			extraHeaders["X-Previous-Error"] = run.Error
 		}
 	}
 
@@ -320,15 +319,43 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}()
 
-	var extraHeaders map[string]string
+	extraHeaders := make(map[string]string)
 	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
 	if err != nil {
 		return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
 	}
-	if len(secrets) > 0 {
-		extraHeaders = make(map[string]string, len(secrets))
-		for _, secret := range secrets {
-			extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	for _, secret := range secrets {
+		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	}
+
+	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
+	if e.jwtSigningKey != "" {
+		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		if run.ExpiresAt != nil {
+			expiresAt = *run.ExpiresAt
+		}
+		claims := jwt.RegisteredClaims{
+			Subject:   run.ID,
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
+			extraHeaders["X-Run-Token"] = signed
+		}
+	}
+
+	if run.Attempt > 1 {
+		cp, cpErr := e.store.GetLatestCheckpoint(ctx, run.ID)
+		if cpErr == nil && cp != nil {
+			data, _ := json.Marshal(cp.State)
+			if len(data) <= 65536 {
+				extraHeaders["X-Last-Checkpoint"] = string(data)
+				extraHeaders["X-Checkpoint-At"] = cp.CreatedAt.Format(time.RFC3339)
+			}
+		}
+		if run.Error != "" {
+			extraHeaders["X-Previous-Error"] = run.Error
 		}
 	}
 
@@ -352,6 +379,15 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	req.Header.Set("X-Run-ID", run.ID)
 	req.Header.Set("X-Job-ID", run.JobID)
 	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
+
+	// Inject W3C trace context headers from run metadata.
+	if tp, ok := run.Metadata["_trace_parent"]; ok && tp != "" {
+		req.Header.Set("Traceparent", tp)
+		if ts, ok := run.Metadata["_trace_state"]; ok && ts != "" {
+			req.Header.Set("Tracestate", ts)
+		}
+	}
+
 	for key, value := range extraHeaders {
 		req.Header.Set(key, value)
 	}
@@ -379,6 +415,44 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	}
 
 	return nil, nil
+}
+
+func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
+	snoozeCount := 0
+	if run.Metadata != nil {
+		if raw, ok := run.Metadata["snooze_count"]; ok {
+			if parsed, err := strconv.Atoi(raw); err == nil {
+				snoozeCount = parsed
+			}
+		}
+	}
+	snoozeCount++
+
+	if e.maxSnoozeCount > 0 && snoozeCount > e.maxSnoozeCount {
+		e.logger.Warn("max snooze count exceeded, marking system_failed",
+			"run_id", run.ID, "job_id", run.JobID, "snooze_count", snoozeCount)
+		e.handleSystemFailure(ctx, run, fmt.Sprintf("max snooze count (%d) exceeded: %s", e.maxSnoozeCount, reason))
+		return
+	}
+
+	fields := map[string]any{
+		"error":         reason,
+		"error_class":   "transient",
+		"started_at":    nil,
+		"finished_at":   nil,
+		"next_retry_at": retryAt,
+		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+	}
+	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return
+	}
+
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventSnoozed, Run: run,
+		FromStatus: domain.StatusDequeued, ToStatus: domain.StatusQueued,
+		Attempt: run.Attempt,
+	})
 }
 
 func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRun, fallback executionPolicy) (executionPolicy, error) {

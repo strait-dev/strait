@@ -64,10 +64,14 @@ paths:
       tags:
         - Health
       summary: Readiness check
-      description: Verifies Postgres and Redis connectivity.
+      description: |
+        Returns per-component health status. Status is "up" when all components are healthy,
+        "degraded" when non-critical components (Redis, Sequin) are down but database is up,
+        or "down" when critical components (database) are unreachable.
+        Returns 200 for "up" and "degraded", 503 for "down".
       responses:
         '200':
-          description: Ready
+          description: Healthy or degraded
           content:
             application/json:
               schema:
@@ -75,13 +79,45 @@ paths:
                 properties:
                   status:
                     type: string
-                    example: ready
+                    enum: [up, degraded]
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        status:
+                          type: string
+                          enum: [up, down]
+                        latency_ms:
+                          type: integer
+                        error:
+                          type: string
         '503':
-          description: Service Unavailable
+          description: Critical component down
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [down]
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        status:
+                          type: string
+                          enum: [up, down]
+                        latency_ms:
+                          type: integer
+                        error:
+                          type: string
 
   /metrics:
     get:
@@ -1864,14 +1900,28 @@ paths:
           application/json:
             schema:
               type: object
+              required: [project_id, name]
               properties:
                 project_id:
                   type: string
                 name:
                   type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                expires_in_days:
+                  type: integer
+                  description: Key expiration in days from now
+                environment_id:
+                  type: string
+                  description: Restrict key to a specific environment
+                rotation_interval_days:
+                  type: integer
+                  description: Auto-rotation interval in days
       responses:
         '201':
-          description: API key created
+          description: API key created (includes raw key — only shown once)
           content:
             application/json:
               schema:
@@ -2497,6 +2547,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/WorkflowStepDecisionListResponse'
 
+  /v1/workflow-runs/{workflowRunID}/timeline:
+    parameters:
+      - name: workflowRunID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: Get workflow run timeline for Gantt chart rendering
+      responses:
+        '200':
+          description: Workflow run timeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+
   /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry:
     parameters:
       - name: workflowRunID
@@ -2663,6 +2731,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkflowVersionImpactResponse'
+
+  /v1/workflows/{workflowID}/active-versions:
+    parameters:
+      - name: workflowID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workflows]
+      summary: List active workflow versions
+      description: Returns workflow versions that have non-terminal (pending, running, paused) runs, with per-status counts.
+      responses:
+        '200':
+          description: Active versions with run counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflow_id:
+                    type: string
+                  versions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version_id:
+                          type: string
+                        version:
+                          type: integer
+                        pending:
+                          type: integer
+                        running:
+                          type: integer
+                        paused:
+                          type: integer
+                        total:
+                          type: integer
 
   /v1/workflow-policies/{projectID}:
     parameters:
@@ -4057,6 +4164,194 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobRun'
 
+  /v1/webhooks/test:
+    post:
+      tags:
+        - Webhooks
+      summary: Test webhook endpoint
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                secret:
+                  type: string
+      responses:
+        '200':
+          description: Test result
+
+  /v1/webhooks/deliveries/{id}/replay:
+    post:
+      tags:
+        - Webhooks
+      summary: Replay webhook delivery
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Replay delivery created
+
+  /sdk/v1/runs/{runID}/state:
+    post:
+      tags:
+        - SDK
+      summary: Set run state key
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                value:
+                  type: object
+      responses:
+        '201':
+          description: State key set
+    get:
+      tags:
+        - SDK
+      summary: List all run state keys
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: State keys listed
+
+  /sdk/v1/runs/{runID}/state/{key}:
+    get:
+      tags:
+        - SDK
+      summary: Get run state key
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: State key value
+    delete:
+      tags:
+        - SDK
+      summary: Delete run state key
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: State key deleted
+
+  /sdk/v1/runs/{runID}/stream:
+    post:
+      tags:
+        - SDK
+      summary: Push LLM stream chunk
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                chunk:
+                  type: string
+                stream_id:
+                  type: string
+                done:
+                  type: boolean
+      responses:
+        '200':
+          description: Chunk published
+
+  /v1/runs/{runID}/stream/chunks:
+    get:
+      tags:
+        - Runs
+      summary: SSE stream of LLM chunks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE event stream
+
+  /v1/runs/{runID}/state:
+    get:
+      tags:
+        - Runs
+      summary: List run state (management API)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: State keys listed
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4651,6 +4946,55 @@ components:
           type: integer
           format: int64
 
+    TimelineStep:
+      type: object
+      properties:
+        step_run_id:
+          type: string
+        step_ref:
+          type: string
+        status:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+        parallel_with:
+          type: array
+          items:
+            type: string
+        on_critical_path:
+          type: boolean
+        wait_ms:
+          type: integer
+          format: int64
+
+    TimelineResponse:
+      type: object
+      properties:
+        workflow_run_id:
+          type: string
+        status:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        total_ms:
+          type: integer
+          format: int64
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineStep'
+
     WorkflowStepDecision:
       type: object
       properties:
@@ -4882,6 +5226,19 @@ components:
         grace_expires_at:
           type: string
           format: date-time
+        environment_id:
+          type: string
+          description: Restrict key to a specific environment
+        rotation_interval_days:
+          type: integer
+          description: Auto-rotation interval in days (null = manual only)
+        next_rotation_at:
+          type: string
+          format: date-time
+          description: When the next auto-rotation is scheduled
+        rotation_webhook_url:
+          type: string
+          description: URL to notify on auto-rotation
 
     RotateAPIKeyRequest:
       type: object
@@ -6258,6 +6615,13 @@ components:
           description: Optional JSON Schema for event payload validation
         enabled:
           type: boolean
+        signature_header:
+          type: string
+          description: HTTP header containing the signature (e.g., Stripe-Signature, X-Hub-Signature-256)
+        signature_algorithm:
+          type: string
+          description: Validation algorithm (hmac-sha256, stripe-v1, github-sha256)
+          enum: [hmac-sha256, stripe-v1, github-sha256]
         created_at:
           type: string
           format: date-time
@@ -6281,6 +6645,16 @@ components:
           type: object
         enabled:
           type: boolean
+        signature_header:
+          type: string
+          description: HTTP header containing the inbound webhook signature
+        signature_algorithm:
+          type: string
+          description: Validation algorithm
+          enum: [hmac-sha256, stripe-v1, github-sha256]
+        signature_secret:
+          type: string
+          description: Shared secret for HMAC validation (encrypted at rest)
 
     UpdateEventSourceRequest:
       type: object
@@ -6293,6 +6667,14 @@ components:
           type: object
         enabled:
           type: boolean
+        signature_header:
+          type: string
+        signature_algorithm:
+          type: string
+          enum: [hmac-sha256, stripe-v1, github-sha256]
+        signature_secret:
+          type: string
+          description: New shared secret (encrypted at rest). Empty string removes the secret.
 
     EventSubscription:
       type: object

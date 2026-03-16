@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"strait/internal/dbscan"
@@ -17,8 +18,9 @@ import (
 )
 
 type PostgresQueue struct {
-	db            store.DBTX
-	priorityAging bool
+	db               store.DBTX
+	priorityAging    bool
+	statementTimeout time.Duration
 }
 
 type PostgresQueueOption func(*PostgresQueue)
@@ -26,6 +28,12 @@ type PostgresQueueOption func(*PostgresQueue)
 func WithPriorityAging(enabled bool) PostgresQueueOption {
 	return func(q *PostgresQueue) {
 		q.priorityAging = enabled
+	}
+}
+
+func WithStatementTimeout(d time.Duration) PostgresQueueOption {
+	return func(q *PostgresQueue) {
+		q.statementTimeout = d
 	}
 }
 
@@ -38,6 +46,13 @@ func NewPostgresQueue(db store.DBTX, opts ...PostgresQueueOption) *PostgresQueue
 		}
 	}
 	return q
+}
+
+func (q *PostgresQueue) setStatementTimeout(ctx context.Context) {
+	if q.statementTimeout > 0 {
+		ms := int(q.statementTimeout.Milliseconds())
+		_, _ = q.db.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms))
+	}
 }
 
 func (q *PostgresQueue) dequeueOrderByClause() string {
@@ -144,9 +159,115 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
+// CopyFromer is implemented by pgxpool.Pool and pgx.Conn.
+type CopyFromer interface {
+	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
+}
+
+var copyFromColumns = []string{
+	"id", "job_id", "project_id", "status", "attempt", "payload", "result", "error",
+	"triggered_by", "scheduled_at", "started_at", "finished_at", "heartbeat_at",
+	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
+	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
+	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
+}
+
+// EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
+// high throughput. Requires the underlying db to implement CopyFromer (e.g.
+// pgxpool.Pool). Sends pg_notify after insert to wake workers.
+func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueBatch")
+	defer span.End()
+
+	if len(runs) == 0 {
+		return 0, nil
+	}
+
+	copier, ok := q.db.(CopyFromer)
+	if !ok {
+		return 0, fmt.Errorf("enqueue batch: underlying db does not support CopyFrom")
+	}
+
+	for _, run := range runs {
+		if run.ID == "" {
+			run.ID = uuid.Must(uuid.NewV7()).String()
+		}
+		if run.Attempt == 0 {
+			run.Attempt = 1
+		}
+		if run.TriggeredBy == "" {
+			run.TriggeredBy = domain.TriggerManual
+		}
+		run.Status = domain.StatusQueued
+		if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
+			run.Status = domain.StatusDelayed
+		}
+	}
+
+	rows := make([][]any, len(runs))
+	for i, run := range runs {
+		tagsJSON := []byte("{}")
+		if len(run.Tags) > 0 {
+			var err error
+			tagsJSON, err = json.Marshal(run.Tags)
+			if err != nil {
+				return 0, fmt.Errorf("enqueue batch: marshal tags for run %d: %w", i, err)
+			}
+		}
+
+		rows[i] = []any{
+			run.ID,
+			run.JobID,
+			run.ProjectID,
+			run.Status,
+			run.Attempt,
+			dbscan.NilIfEmptyRawMessage(run.Payload),
+			dbscan.NilIfEmptyRawMessage(run.Result),
+			dbscan.NilIfEmptyString(run.Error),
+			run.TriggeredBy,
+			run.ScheduledAt,
+			run.StartedAt,
+			run.FinishedAt,
+			run.HeartbeatAt,
+			run.NextRetryAt,
+			run.ExpiresAt,
+			dbscan.NilIfEmptyString(run.ParentRunID),
+			run.Priority,
+			dbscan.NilIfEmptyString(run.IdempotencyKey),
+			run.JobVersion,
+			dbscan.NilIfEmptyString(run.WorkflowStepRunID),
+			run.DebugMode,
+			dbscan.NilIfEmptyString(run.ContinuationOf),
+			run.LineageDepth,
+			tagsJSON,
+			dbscan.NilIfEmptyString(run.JobVersionID),
+			dbscan.NilIfEmptyString(run.CreatedBy),
+			dbscan.NilIfEmptyString(run.ConcurrencyKey),
+			dbscan.NilIfEmptyString(run.BatchID),
+		}
+	}
+
+	n, err := copier.CopyFrom(ctx, pgx.Identifier{"job_runs"}, copyFromColumns, pgx.CopyFromRows(rows))
+	if err != nil {
+		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
+	}
+
+	// Wake workers via pg_notify.
+	if n > 0 {
+		if _, notifyErr := q.db.Exec(ctx, "SELECT pg_notify($1, $2)", QueueWakeChannel, fmt.Sprintf("%d", n)); notifyErr != nil {
+			// Non-fatal: workers will pick up via polling.
+			slog.Warn("enqueue batch: pg_notify failed", "error", notifyErr)
+		}
+	}
+
+	return n, nil
+}
+
 func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Dequeue")
 	defer span.End()
+
+	q.setStatementTimeout(ctx)
 
 	query := fmt.Sprintf(`
 		UPDATE job_runs
@@ -156,6 +277,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
 			WHERE jr.status = '%s'
+			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND (
@@ -201,6 +323,8 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueN")
 	defer span.End()
 
+	q.setStatementTimeout(ctx)
+
 	orderBy := q.dequeueOrderByClause()
 
 	query := fmt.Sprintf(`
@@ -209,6 +333,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
 			WHERE jr.status = '%s'
+			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND (
@@ -270,9 +395,96 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	return runs, nil
 }
 
+// DequeueNFair dequeues up to n runs using fair round-robin across jobs.
+// It picks at most one run per job before cycling, preventing high-volume
+// jobs from starving others. Falls back to priority ordering within the
+// fair selection.
+func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNFair")
+	defer span.End()
+
+	q.setStatementTimeout(ctx)
+
+	orderBy := q.dequeueOrderByClause()
+
+	query := fmt.Sprintf(`
+		WITH candidates AS (
+			SELECT DISTINCT ON (jr.job_id) jr.id
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			WHERE jr.status = '%s'
+			  AND j.enabled = true
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (
+				j.max_concurrency IS NULL OR (
+					SELECT COUNT(*)
+					FROM job_runs active
+					WHERE active.job_id = jr.job_id
+					  AND active.status IN ('dequeued', 'executing')
+				) < j.max_concurrency
+			  )
+			  AND (
+				j.max_concurrency_per_key IS NULL
+				OR jr.concurrency_key IS NULL
+				OR jr.concurrency_key = ''
+				OR (
+					SELECT COUNT(*)
+					FROM job_runs active
+					WHERE active.project_id = jr.project_id
+					  AND active.concurrency_key = jr.concurrency_key
+					  AND active.status IN ('dequeued', 'executing')
+				) < j.max_concurrency_per_key
+			  )
+			ORDER BY jr.job_id, %s
+		), claimed AS (
+			SELECT c.id
+			FROM candidates c
+			JOIN job_runs jr ON jr.id = c.id
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1
+		), updated AS (
+			UPDATE job_runs
+			SET status = '%s', started_at = NOW()
+			WHERE id IN (SELECT id FROM claimed)
+			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
+			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+		)
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+		FROM updated
+		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, orderBy, domain.StatusDequeued)
+
+	rows, err := q.db.Query(ctx, query, n)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue runs fair: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, n)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue runs fair scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue runs fair rows: %w", err)
+	}
+
+	return runs, nil
+}
+
 func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
 	defer span.End()
+
+	q.setStatementTimeout(ctx)
 
 	orderBy := q.dequeueOrderByClause()
 
@@ -282,6 +494,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
 			WHERE jr.status = '%s'
+			  AND j.enabled = true
 			  AND jr.project_id = $2
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())

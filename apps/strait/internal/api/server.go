@@ -21,6 +21,7 @@ import (
 	"strait/internal/health"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
+	"strait/internal/ratelimit"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 	"strait/internal/worker"
@@ -29,6 +30,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
+	"github.com/redis/go-redis/v9"
 
 	scalar "github.com/MarceloPetrucio/go-scalar-api-reference"
 )
@@ -38,6 +40,12 @@ var openapiSpec []byte
 
 // APIStore is the subset of store operations needed by the API handlers.
 // Composed of smaller, focused interfaces for each domain.
+// ProjectContextSetter sets the app.current_project_id session variable for RLS policies.
+type ProjectContextSetter interface {
+	SetProjectContext(ctx context.Context, projectID string) error
+	ClearProjectContext(ctx context.Context) error
+}
+
 type APIStore interface {
 	JobStore
 	RunStore
@@ -141,6 +149,16 @@ type RunStore interface {
 	GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
 	ListBatchOperations(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
 	BulkCancelByFilter(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error)
+	UpsertDebouncePending(ctx context.Context, d *domain.DebouncePending) error
+	InsertBatchBufferItem(ctx context.Context, item *domain.BatchBufferItem) error
+	CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error)
+	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
+	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	UpsertRunState(ctx context.Context, s *domain.RunState) error
+	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
+	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
+	DeleteRunState(ctx context.Context, runID, key string) error
 }
 
 type LogDrainStore interface {
@@ -322,10 +340,19 @@ type Server struct {
 	actorSyncer        ActorSyncer
 	validate           *validator.Validate
 	maxRequestBodySize int64
+	poolStatter        PoolStatter
 	permCache          *permissionCache
 	oidcVerifier       *oidcVerifier
 	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
+	rateLimiter        *ratelimit.RedisRateLimiter
+	encryptor          Encryptor
+}
+
+// Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
+type Encryptor interface {
+	Encrypt(plaintext []byte) ([]byte, error)
+	Decrypt(ciphertext []byte) ([]byte, error)
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -342,6 +369,15 @@ type ServerDeps struct {
 	Metrics          *telemetry.Metrics
 	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer      ActorSyncer
+	PoolStatter      PoolStatter   // Optional: enables DB pool backpressure middleware.
+	RedisClient      *redis.Client // Optional: enables per-project/key rate limiting.
+	Encryptor        Encryptor     // Optional: enables event source signature encryption.
+}
+
+// PoolStatter provides connection pool statistics for backpressure.
+type PoolStatter interface {
+	AcquiredConns() int32
+	MaxConns() int32
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -372,9 +408,12 @@ func NewServer(deps ServerDeps) *Server {
 		actorSyncer:        deps.ActorSyncer,
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
+		poolStatter:        deps.PoolStatter,
 		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
+		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
+		encryptor:          deps.Encryptor,
 	}
 
 	if deps.TxPool != nil {
@@ -391,6 +430,19 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv.router = srv.routes()
 	return srv
+}
+
+func (s *Server) dbBackpressure(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acquired := s.poolStatter.AcquiredConns()
+		maxConns := s.poolStatter.MaxConns()
+		if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "service temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func permCacheTTL(cfg *config.Config) time.Duration {
@@ -422,7 +474,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
 	if s.healthRegistry != nil {
 		result := s.healthRegistry.CheckAll(r.Context())
-		if result.Status != health.StatusUp {
+		if result.Status == health.StatusDown {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
@@ -575,6 +627,31 @@ func validateURL(rawURL string) error {
 		allowedPorts := map[int]bool{80: true, 443: true, 8080: true, 8443: true, 3000: true, 4000: true, 5000: true, 9000: true}
 		if !allowedPorts[portNum] {
 			return fmt.Errorf("port %d is not allowed for webhooks", portNum)
+		}
+	}
+
+	return nil
+}
+
+func validateURLWithTLS(rawURL string, requireTLS bool) error {
+	if err := worker.ValidateEndpointURLWithTLS(rawURL, requireTLS); err != nil {
+		msg := err.Error()
+		if strings.HasPrefix(msg, "URL") {
+			msg = "u" + msg[1:]
+		}
+		return errors.New(msg)
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	host := u.Hostname()
+	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
+	for _, blocked := range blockedHosts {
+		if strings.EqualFold(host, blocked) {
+			return fmt.Errorf("url must not point to internal services")
 		}
 	}
 

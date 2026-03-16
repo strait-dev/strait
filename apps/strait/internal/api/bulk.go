@@ -137,6 +137,16 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check if any item has an idempotency key — if none, we can use batch COPY insert.
+	hasIdempotencyKey := false
+	for _, item := range req.Items {
+		if item.IdempotencyKey != "" {
+			hasIdempotencyKey = true
+			break
+		}
+	}
+	var pendingRuns []*domain.JobRun
+
 	enqueuedInBatch := 0
 	for _, item := range req.Items {
 		itemIdx := len(results)
@@ -309,39 +319,44 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		run.ConcurrencyKey = item.ConcurrencyKey
 
-		if err := s.queue.Enqueue(r.Context(), run); err != nil {
-			// Handle race: concurrent bulk request with the same idempotency key.
-			if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
-				existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
-				if retryErr != nil {
-					slog.Error("idempotency conflict retry failed",
+		if hasIdempotencyKey {
+			// Sequential enqueue with idempotency CTE.
+			if err := s.queue.Enqueue(r.Context(), run); err != nil {
+				if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
+					existingRun, retryErr := s.store.GetRunByIdempotencyKey(r.Context(), job.ID, item.IdempotencyKey)
+					if retryErr != nil {
+						slog.Error("idempotency conflict retry failed",
+							"job_id", job.ID,
+							"idempotency_key", item.IdempotencyKey,
+							"item_index", itemIdx,
+							"error", retryErr)
+						respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
+						return
+					}
+					if existingRun != nil {
+						slog.Warn("idempotency conflict resolved",
+							"job_id", job.ID,
+							"idempotency_key", item.IdempotencyKey,
+							"winning_run_id", existingRun.ID,
+							"item_index", itemIdx)
+						results = append(results, BulkTriggerResult{
+							ID:             existingRun.ID,
+							Status:         string(existingRun.Status),
+							IdempotencyHit: true,
+						})
+						continue
+					}
+					slog.Error("idempotency conflict retry returned nil",
 						"job_id", job.ID,
 						"idempotency_key", item.IdempotencyKey,
-						"item_index", itemIdx,
-						"error", retryErr)
-					respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
-					return
-				}
-				if existingRun != nil {
-					slog.Warn("idempotency conflict resolved",
-						"job_id", job.ID,
-						"idempotency_key", item.IdempotencyKey,
-						"winning_run_id", existingRun.ID,
 						"item_index", itemIdx)
-					results = append(results, BulkTriggerResult{
-						ID:             existingRun.ID,
-						Status:         string(existingRun.Status),
-						IdempotencyHit: true,
-					})
-					continue
 				}
-				slog.Error("idempotency conflict retry returned nil",
-					"job_id", job.ID,
-					"idempotency_key", item.IdempotencyKey,
-					"item_index", itemIdx)
+				respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", itemIdx))
+				return
 			}
-			respondError(w, r, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue item %d", itemIdx))
-			return
+		} else {
+			// Collect for batch COPY insert.
+			pendingRuns = append(pendingRuns, run)
 		}
 
 		results = append(results, BulkTriggerResult{
@@ -352,6 +367,14 @@ func (s *Server) handleBulkTriggerJob(w http.ResponseWriter, r *http.Request) {
 		})
 		created++
 		enqueuedInBatch++
+	}
+
+	// Batch insert all collected runs via COPY protocol.
+	if len(pendingRuns) > 0 {
+		if _, err := s.queue.EnqueueBatch(r.Context(), pendingRuns); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to enqueue batch")
+			return
+		}
 	}
 
 	if err := s.store.FinalizeBatchOperation(r.Context(), batchID, created); err != nil {

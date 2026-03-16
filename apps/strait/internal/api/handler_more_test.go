@@ -303,6 +303,7 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
 	updates := make(map[string]domain.RunStatus)
+	var bulkCancelParentIDs []string
 
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -316,13 +317,21 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 			updates[id] = to
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
+		cancelChildRunsByParentIDsFn: func(_ context.Context, parentIDs []string, _ time.Time, _ string) (int64, error) {
+			bulkCancelParentIDs = append(bulkCancelParentIDs, parentIDs...)
+			// Simulate canceling 1 non-terminal child (child-running), skipping the terminal one (child-done).
+			if len(parentIDs) > 0 && parentIDs[0] == "run-parent" {
+				return 1, nil
+			}
+			return 0, nil
+		},
+		listChildRunsFn: func(_ context.Context, _ string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
 			if cursor != nil {
 				return nil, nil
 			}
 			return []domain.JobRun{
-				{ID: "child-running", ParentRunID: parentRunID, Status: domain.StatusQueued},
-				{ID: "child-done", ParentRunID: parentRunID, Status: domain.StatusCompleted},
+				{ID: "child-running", ParentRunID: "run-parent", Status: domain.StatusCanceled, CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+				{ID: "child-done", ParentRunID: "run-parent", Status: domain.StatusCompleted, CreatedAt: time.Date(2024, 1, 1, 0, 0, 1, 0, time.UTC)},
 			}, nil
 		},
 	}
@@ -337,19 +346,16 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 	if updates["run-parent"] != domain.StatusCanceled {
 		t.Fatalf("expected parent run to be canceled, got %q", updates["run-parent"])
 	}
-	if updates["child-running"] != domain.StatusCanceled {
-		t.Fatalf("expected running child to be canceled, got %q", updates["child-running"])
-	}
-	if _, ok := updates["child-done"]; ok {
-		t.Fatal("expected terminal child to not be updated")
+	if len(bulkCancelParentIDs) == 0 || bulkCancelParentIDs[0] != "run-parent" {
+		t.Fatalf("expected CancelChildRunsByParentIDs called with run-parent, got %v", bulkCancelParentIDs)
 	}
 }
 
 func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
-	updates := make(map[string]domain.RunStatus)
-	listCalls := 0
+	bulkCancelCalls := 0
+	parentListCalls := 0
 
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -359,27 +365,33 @@ func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 			}
 			return &domain.JobRun{ID: id, Status: domain.StatusCanceled}, nil
 		},
-		updateRunStatusFn: func(_ context.Context, id string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
-			updates[id] = to
+		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {
 			return nil
 		},
-		listChildRunsFn: func(_ context.Context, _ string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
-			listCalls++
-			switch listCalls {
+		cancelChildRunsByParentIDsFn: func(_ context.Context, parentIDs []string, _ time.Time, _ string) (int64, error) {
+			bulkCancelCalls++
+			// First call: cancel children of run-parent (3 children)
+			if bulkCancelCalls == 1 {
+				return 3, nil
+			}
+			// Second call: no grandchildren
+			return 0, nil
+		},
+		listChildRunsFn: func(_ context.Context, parentRunID string, _ int, cursor *time.Time) ([]domain.JobRun, error) {
+			// Only the parent has children; child runs have no grandchildren.
+			if parentRunID != "run-parent" {
+				return nil, nil
+			}
+			parentListCalls++
+			switch parentListCalls {
 			case 1:
-				if cursor != nil {
-					t.Fatalf("expected nil cursor on first page")
-				}
 				return []domain.JobRun{
-					{ID: "child-1", Status: domain.StatusQueued, CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
-					{ID: "child-2", Status: domain.StatusExecuting, CreatedAt: time.Date(2024, 1, 1, 0, 0, 1, 0, time.UTC)},
+					{ID: "child-1", Status: domain.StatusCanceled, CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+					{ID: "child-2", Status: domain.StatusCanceled, CreatedAt: time.Date(2024, 1, 1, 0, 0, 1, 0, time.UTC)},
 				}, nil
 			case 2:
-				if cursor == nil {
-					t.Fatalf("expected non-nil cursor on second page")
-				}
 				return []domain.JobRun{
-					{ID: "child-3", Status: domain.StatusQueued, CreatedAt: time.Date(2024, 1, 1, 0, 0, 2, 0, time.UTC)},
+					{ID: "child-3", Status: domain.StatusCanceled, CreatedAt: time.Date(2024, 1, 1, 0, 0, 2, 0, time.UTC)},
 				}, nil
 			default:
 				return nil, nil
@@ -394,13 +406,8 @@ func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	for _, childID := range []string{"child-1", "child-2", "child-3"} {
-		if updates[childID] != domain.StatusCanceled {
-			t.Fatalf("expected %s to be canceled, got %q", childID, updates[childID])
-		}
-	}
-	if listCalls != 3 {
-		t.Fatalf("expected 3 listChildRuns calls for pagination, got %d", listCalls)
+	if bulkCancelCalls < 1 {
+		t.Fatalf("expected at least 1 CancelChildRunsByParentIDs call, got %d", bulkCancelCalls)
 	}
 }
 

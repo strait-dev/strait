@@ -323,3 +323,33 @@ func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
 		t.Fatalf("expected MaxConcurrencyPerKey=5, got %d", created.MaxConcurrencyPerKey)
 	}
 }
+
+func TestParseBracketParam(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		param  string
+		prefix string
+		wantK  string
+		wantOK bool
+	}{
+		{"metadata[env]", "metadata", "env", true},
+		{"metadata[customer_id]", "metadata", "customer_id", true},
+		{"tags[team]", "tags", "team", true},
+		{"metadata[]", "metadata", "", false},
+		{"metadata", "metadata", "", false},
+		{"other[key]", "metadata", "", false},
+		{"metadata[key", "metadata", "", false},
+		{"status", "metadata", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.param, func(t *testing.T) {
+			t.Parallel()
+			k, ok := parseBracketParam(tt.param, tt.prefix)
+			if ok != tt.wantOK || k != tt.wantK {
+				t.Errorf("parseBracketParam(%q, %q) = (%q, %v), want (%q, %v)", tt.param, tt.prefix, k, ok, tt.wantK, tt.wantOK)
+			}
+		})
+	}
+}

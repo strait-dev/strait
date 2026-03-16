@@ -765,3 +765,137 @@ func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
 		t.Fatalf("expected webhook URL https://example.com/match, got %s", deliveries[0].WebhookURL)
 	}
 }
+
+func TestAttemptDelivery_IdempotencyKeyHeader(t *testing.T) {
+	t.Parallel()
+
+	var receivedHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeader = r.Header.Get("X-Strait-Idempotency-Key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-idem-1",
+		RunID:       "run-1",
+		JobID:       "job-1",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    3,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-1"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	expected := "whd-idem-1:4" // attempts incremented to 4 before dispatch
+	if receivedHeader != expected {
+		t.Fatalf("expected X-Strait-Idempotency-Key=%s, got %s", expected, receivedHeader)
+	}
+}
+
+func TestAttemptDelivery_IdempotencyKeyChangesOnRetry(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var receivedKeys []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		receivedKeys = append(receivedKeys, r.Header.Get("X-Strait-Idempotency-Key"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError) // force retry
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-retry-1",
+		RunID:       "run-1",
+		JobID:       "job-1",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-1"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+
+	// First attempt
+	worker.processBatch(context.Background())
+
+	// Simulate retry: reset next_retry_at to now so it's picked up again
+	for _, d := range ms.getDeliveries() {
+		if d.ID == "whd-retry-1" {
+			retryNow := time.Now().Add(-time.Second)
+			d.NextRetryAt = &retryNow
+		}
+	}
+
+	// Second attempt
+	worker.processBatch(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedKeys) < 2 {
+		t.Fatalf("expected at least 2 attempts, got %d", len(receivedKeys))
+	}
+	if receivedKeys[0] == receivedKeys[1] {
+		t.Fatalf("expected different idempotency keys on retry, got %s both times", receivedKeys[0])
+	}
+}
+
+func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	receivedKeys := make(map[string]bool)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		receivedKeys[r.Header.Get("X-Strait-Idempotency-Key")] = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	for _, id := range []string{"whd-diff-1", "whd-diff-2"} {
+		d := &domain.WebhookDelivery{
+			ID:          id,
+			RunID:       "run-1",
+			JobID:       "job-1",
+			WebhookURL:  ts.URL,
+			Status:      domain.WebhookStatusPending,
+			Attempts:    0,
+			MaxAttempts: 5,
+			NextRetryAt: &now,
+			LastError:   `{"run_id":"run-1"}`,
+		}
+		if err := ms.CreateWebhookDelivery(context.Background(), d); err != nil {
+			t.Fatalf("create delivery: %v", err)
+		}
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(2))
+	worker.processBatch(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedKeys) != 2 {
+		t.Fatalf("expected 2 unique idempotency keys, got %d", len(receivedKeys))
+	}
+}

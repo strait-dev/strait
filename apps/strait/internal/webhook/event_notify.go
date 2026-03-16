@@ -384,6 +384,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	}
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
+	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
 
 	resp, err := n.client.Do(req)
 	if err != nil {

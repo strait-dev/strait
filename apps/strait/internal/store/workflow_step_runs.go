@@ -598,3 +598,43 @@ func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 
 	return &sr, nil
 }
+
+// OrphanedStepRun is a workflow step run whose associated job run has reached a terminal
+// state but the step itself is still marked as 'running'.
+type OrphanedStepRun struct {
+	StepRunID     string
+	StepRef       string
+	WorkflowRunID string
+	JobRunID      string
+	JobStatus     domain.RunStatus
+}
+
+func (q *Queries) ListOrphanedStepRuns(ctx context.Context) ([]OrphanedStepRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListOrphanedStepRuns")
+	defer span.End()
+
+	query := `
+		SELECT wsr.id, wsr.step_ref, wsr.workflow_run_id, jr.id AS job_run_id, jr.status AS job_status
+		FROM workflow_step_runs wsr
+		JOIN job_runs jr ON jr.workflow_step_run_id = wsr.id
+		WHERE wsr.status = 'running'
+		  AND jr.status IN ('completed','failed','timed_out','crashed','system_failed','canceled','dead_letter')
+		  AND jr.finished_at < NOW() - interval '30 seconds'
+		LIMIT 100`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list orphaned step runs: %w", err)
+	}
+	defer rows.Close()
+
+	var results []OrphanedStepRun
+	for rows.Next() {
+		var o OrphanedStepRun
+		if err := rows.Scan(&o.StepRunID, &o.StepRef, &o.WorkflowRunID, &o.JobRunID, &o.JobStatus); err != nil {
+			return nil, fmt.Errorf("scan orphaned step run: %w", err)
+		}
+		results = append(results, o)
+	}
+	return results, rows.Err()
+}

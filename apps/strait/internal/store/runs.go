@@ -350,6 +350,29 @@ func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit in
 	return checkpoints, nil
 }
 
+func (q *Queries) GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetLatestCheckpoint")
+	defer span.End()
+
+	query := `
+		SELECT id, run_id, sequence, source, state, created_at
+		FROM run_checkpoints
+		WHERE run_id = $1
+		ORDER BY sequence DESC
+		LIMIT 1`
+
+	row := q.db.QueryRow(ctx, query, runID)
+	cp, err := scanRunCheckpoint(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get latest checkpoint: %w", err)
+	}
+
+	return cp, nil
+}
+
 func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsage")
 	defer span.End()
@@ -974,6 +997,8 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		"debug_mode":           {},
 		"continuation_of":      {},
 		"lineage_depth":        {},
+		"priority":             {},
+		"metadata":             {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -991,6 +1016,18 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		value := fields[key]
 		if raw, ok := value.(json.RawMessage); ok {
 			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "metadata" {
+			if m, ok := value.(map[string]string); ok {
+				encoded, err := json.Marshal(m)
+				if err != nil {
+					return fmt.Errorf("marshal metadata: %w", err)
+				}
+				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
+				args = append(args, encoded)
+				param++
+				continue
+			}
 		}
 		if key == "execution_trace" {
 			switch trace := value.(type) {
@@ -1034,6 +1071,14 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	}
 
 	if tag.RowsAffected() == 0 {
+		var currentStatus domain.RunStatus
+		err := q.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&currentStatus)
+		if err != nil {
+			return fmt.Errorf("checking current status: %w", err)
+		}
+		if currentStatus == to {
+			return nil // idempotent: already in target state
+		}
 		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 	}
 
@@ -1298,6 +1343,81 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 	}
 
 	return tag.RowsAffected(), nil
+}
+
+// DLQJobDepth represents the dead-letter queue depth for a single job.
+type DLQJobDepth struct {
+	JobID             string
+	WebhookURL        string
+	DLQCount          int
+	DLQAlertThreshold int
+}
+
+func (q *Queries) ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListDLQDepthByJob")
+	defer span.End()
+
+	query := `
+		SELECT jr.job_id, COALESCE(j.webhook_url, ''), COUNT(*) AS dlq_count, j.dlq_alert_threshold
+		FROM job_runs jr
+		JOIN jobs j ON j.id = jr.job_id
+		WHERE jr.status = 'dead_letter'
+		  AND j.dlq_alert_threshold IS NOT NULL
+		GROUP BY jr.job_id, j.webhook_url, j.dlq_alert_threshold
+		HAVING COUNT(*) >= j.dlq_alert_threshold`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list dlq depth by job: %w", err)
+	}
+	defer rows.Close()
+
+	var results []DLQJobDepth
+	for rows.Next() {
+		var d DLQJobDepth
+		if err := rows.Scan(&d.JobID, &d.WebhookURL, &d.DLQCount, &d.DLQAlertThreshold); err != nil {
+			return nil, fmt.Errorf("scan dlq depth: %w", err)
+		}
+		results = append(results, d)
+	}
+	return results, rows.Err()
+}
+
+// QueueJobDepth represents the queue depth for a single job.
+type QueueJobDepth struct {
+	JobID                    string
+	QueuedCount              int
+	QueueDepthAlertThreshold int
+}
+
+func (q *Queries) ListQueueDepthByJob(ctx context.Context) ([]QueueJobDepth, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListQueueDepthByJob")
+	defer span.End()
+
+	query := `
+		SELECT jr.job_id, COUNT(*) AS queued_count, j.queue_depth_alert_threshold
+		FROM job_runs jr
+		JOIN jobs j ON j.id = jr.job_id
+		WHERE jr.status = 'queued'
+		  AND j.queue_depth_alert_threshold IS NOT NULL
+		GROUP BY jr.job_id, j.queue_depth_alert_threshold
+		HAVING COUNT(*) >= j.queue_depth_alert_threshold`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list queue depth by job: %w", err)
+	}
+	defer rows.Close()
+
+	var results []QueueJobDepth
+	for rows.Next() {
+		var d QueueJobDepth
+		if err := rows.Scan(&d.JobID, &d.QueuedCount, &d.QueueDepthAlertThreshold); err != nil {
+			return nil, fmt.Errorf("scan queue depth: %w", err)
+		}
+		results = append(results, d)
+	}
+	return results, rows.Err()
 }
 
 func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error) {
@@ -1739,6 +1859,8 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 		"debug_mode":           {},
 		"continuation_of":      {},
 		"lineage_depth":        {},
+		"priority":             {},
+		"metadata":             {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -1759,6 +1881,18 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 		value := fields[key]
 		if raw, ok := value.(json.RawMessage); ok {
 			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "metadata" {
+			if m, ok := value.(map[string]string); ok {
+				encoded, err := json.Marshal(m)
+				if err != nil {
+					return "", fmt.Errorf("marshal metadata: %w", err)
+				}
+				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
+				args = append(args, encoded)
+				param++
+				continue
+			}
 		}
 		if key == "execution_trace" {
 			switch trace := value.(type) {
@@ -1800,6 +1934,14 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 	err := q.db.QueryRow(ctx, query, args...).Scan(&oldStatus)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			var currentStatus domain.RunStatus
+			rerr := q.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&currentStatus)
+			if rerr != nil {
+				return "", fmt.Errorf("checking current status: %w", rerr)
+			}
+			if currentStatus == to {
+				return from, nil // idempotent: already in target state
+			}
 			return "", fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 		}
 		return "", fmt.Errorf("update run status: %w", err)
@@ -1956,4 +2098,17 @@ func (q *Queries) BulkCancelByFilter(ctx context.Context, projectID string, f Bu
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func (q *Queries) GetRunErrorClass(ctx context.Context, runID string) (string, error) {
+	var errorClass string
+	err := q.db.QueryRow(ctx, "SELECT COALESCE(error_class, '') FROM job_runs WHERE id = $1", runID).Scan(&errorClass)
+	return errorClass, err
+}
+
+func (q *Queries) CountActiveRunsForJob(ctx context.Context, jobID string) (int, error) {
+	query := `SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','dequeued','executing','waiting','delayed')`
+	var count int
+	err := q.db.QueryRow(ctx, query, jobID).Scan(&count)
+	return count, err
 }

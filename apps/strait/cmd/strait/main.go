@@ -9,7 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"strait/internal/api"
 	"strait/internal/config"
+	"strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/queue"
@@ -108,7 +110,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	// Run migrations
-	if err := runMigrations(cfg.DatabaseURL); err != nil {
+	if err := runMigrations(cfg.DatabaseURL, cfg.MigrationMode, cfg.MigrationLockTimeout); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
@@ -172,10 +174,20 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return err
 	}))
 
+	var apiEncryptor api.Encryptor
+	if cfg.EncryptionKey != "" {
+		enc, encErr := crypto.NewEncryptor(cfg.EncryptionKey)
+		if encErr != nil {
+			slog.Warn("failed to create encryptor for API; event source signature encryption disabled", "error", encErr)
+		} else {
+			apiEncryptor = enc
+		}
+	}
+
 	startCDCConsumer(g, cfg, pub)
 	startWebhookWorker(g, cfg, eventNotifier)
-	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg)
-	startWorker(g, cfg, queries, q, pub, metrics, stepCallback, workflowEngine, healthReg)
+	startAPIServer(g, cfg, queries, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor)
+	startWorker(g, cfg, queries, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

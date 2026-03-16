@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ const ctxScopesKey contextKey = "scopes"
 const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
+const ctxAuthKeyObjKey contextKey = "api_key_obj"
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -90,6 +92,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, apiKey.ProjectID)
 		ctx = context.WithValue(ctx, ctxScopesKey, apiKey.Scopes)
 		ctx = context.WithValue(ctx, ctxAPIKeyIDKey, apiKey.ID)
+		ctx = context.WithValue(ctx, ctxAuthKeyObjKey, apiKey)
 
 		// Actor identity: API key requests are always attributed to the key itself.
 		// User-level actor context is only set via internal secret auth (see below)
@@ -238,6 +241,13 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 	})
 }
 
+func apiKeyIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxAPIKeyIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
 func actorFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ctxActorIDKey).(string); ok {
 		return v
@@ -384,10 +394,91 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 	}
 }
 
+// projectContextMiddleware sets the app.current_project_id session variable
+// for RLS policies when the request has a project context.
+func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
+	setter, ok := s.store.(ProjectContextSetter)
+	if !ok {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		projectID := projectIDFromContext(r.Context())
+		if projectID != "" {
+			if err := setter.SetProjectContext(r.Context(), projectID); err != nil {
+				slog.Warn("failed to set project context for RLS", "project_id", projectID, "error", err)
+			}
+			defer func() {
+				if err := setter.ClearProjectContext(r.Context()); err != nil {
+					slog.Warn("failed to clear project context for RLS", "error", err)
+				}
+			}()
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // apiVersionHeader injects X-API-Version into every response.
 func apiVersionHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-API-Version", apiVersion)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// projectRateLimit enforces per-API-key and per-project rate limits using Redis.
+// Resolution order: API key override → project quota → global config fallback.
+func (s *Server) projectRateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.rateLimiter == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ctx := r.Context()
+		projectID := projectIDFromContext(ctx)
+		apiKeyID := apiKeyIDFromContext(ctx)
+
+		var limit int
+		var windowSecs int
+		var key string
+
+		// 1. Try API key-level rate limit (from context, no DB hit).
+		if apiKeyID != "" {
+			if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
+				limit = apiKey.RateLimitRequests
+				windowSecs = apiKey.RateLimitWindowSecs
+				key = "rl:apikey:" + apiKeyID
+			}
+		}
+
+		// 2. Fall back to project quota rate limit.
+		if limit == 0 && projectID != "" {
+			quota, err := s.store.GetProjectQuota(ctx, projectID)
+			if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
+				limit = quota.RateLimitRequests
+				windowSecs = quota.RateLimitWindowSecs
+				key = "rl:project:" + projectID
+			}
+		}
+
+		if limit == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		window := time.Duration(windowSecs) * time.Second
+		result, rlErr := s.rateLimiter.Allow(ctx, key, limit, window)
+		if rlErr != nil {
+			slog.Warn("rate limiter error, failing open", "key", key, "error", rlErr)
+		}
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
+		if !result.Allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(windowSecs))
+			respondError(w, r, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }

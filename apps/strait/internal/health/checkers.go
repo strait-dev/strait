@@ -6,6 +6,29 @@ import (
 	"time"
 )
 
+// CriticalChecker wraps a Checker and marks it as critical or non-critical.
+// When a non-critical checker fails, the registry reports "degraded" instead of "down".
+type CriticalChecker struct {
+	Checker
+	Critical bool
+}
+
+// IsCritical returns whether the checker is critical (causes "down" on failure).
+func IsCritical(c Checker) bool {
+	if cc, ok := c.(*CriticalChecker); ok {
+		return cc.Critical
+	}
+	return true // default: all checkers are critical
+}
+
+// NewCriticalChecker wraps a check function with a criticality flag.
+func NewCriticalChecker(name string, critical bool, fn func(ctx context.Context) error) Checker {
+	return &CriticalChecker{
+		Checker:  NewChecker(name, fn),
+		Critical: critical,
+	}
+}
+
 type PoolStats interface {
 	Available() int
 	ActiveCount() int
