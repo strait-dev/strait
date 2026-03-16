@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -30,7 +31,8 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		fields["execution_trace"] = execTrace
 	}
 
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, fields)
+	run.Status = domain.StatusCompleted
+	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, domain.StatusCompleted, fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run completed",
@@ -40,7 +42,6 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusCompleted)
 	if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
 		e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
 	}
@@ -51,10 +52,34 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
 	)
-	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "completed"})
-	run.Status = domain.StatusCompleted
+	var execDur time.Duration
+	if run.StartedAt != nil {
+		execDur = now.Sub(*run.StartedAt)
+	}
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventCompleted, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusCompleted,
+		ExecTrace: execTrace, ExecDur: execDur, Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
-	e.submitWebhook(ctx, job, run)
+
+	// Latency anomaly detection: compare duration to job's P95.
+	if run.StartedAt != nil {
+		duration := now.Sub(*run.StartedAt)
+		stats, statsErr := e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
+		if statsErr == nil && stats != nil && stats.P95DurationSecs > 0 {
+			p95 := time.Duration(stats.P95DurationSecs * float64(time.Second))
+			if duration > 2*p95 {
+				e.logger.Warn("latency anomaly detected",
+					"run_id", run.ID, "job_id", run.JobID,
+					"duration_ms", duration.Milliseconds(), "p95_ms", p95.Milliseconds())
+				if e.metrics != nil {
+					e.metrics.LatencyAnomalies.Add(ctx, 1,
+						metric.WithAttributes(attribute.String("job_id", run.JobID)))
+				}
+			}
+		}
+	}
 }
 
 func classifyError(err error) string {
@@ -131,16 +156,30 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		shouldRetry = false
 	}
 
+	const poisonPillThreshold = 3
+	if shouldRetry && run.Attempt >= poisonPillThreshold {
+		prevClass, err := e.store.GetRunErrorClass(ctx, run.ID)
+		if err == nil && prevClass == errClass {
+			shouldRetry = false
+			e.logger.Warn("poison pill detected: consecutive same-class errors",
+				"run_id", run.ID, "error_class", errClass, "attempt", run.Attempt)
+		}
+	}
+
 	if shouldRetry {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
-		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
+		fields := map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
 			"error":         errMsg,
 			"error_class":   errClass,
 			"started_at":    nil,
 			"finished_at":   nil,
-		})
+		}
+		if job.RetryPriorityBoost > 0 {
+			fields["priority"] = min(run.Priority+job.RetryPriorityBoost, 10)
+		}
+		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
 		if err != nil {
 			e.logger.Error(
 				"failed to re-enqueue run",
@@ -149,7 +188,6 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
-			e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusQueued)
 			e.logger.Info(
 				"run re-enqueued for retry",
 				"run_id", run.ID,
@@ -157,7 +195,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"attempt", run.Attempt+1,
 				"next_retry_at", retryAt,
 			)
-			e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
+			e.emit(ctx, RunLifecycleEvent{
+				Type: EventRetried, Run: run, Job: job,
+				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+			})
 		}
 		return
 	}
@@ -172,8 +214,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		fields["execution_trace"] = execTrace
 	}
 	targetStatus := domain.StatusDeadLetter
+	run.Status = targetStatus
 
-	updateErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, targetStatus, fields)
+	updateErr := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, targetStatus, fields)
 	if updateErr != nil {
 		e.logger.Error(
 			"failed to mark run terminal",
@@ -183,11 +226,12 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.recordRunTransition(ctx, domain.StatusExecuting, targetStatus)
-	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": string(targetStatus), "error": errMsg})
-	run.Status = targetStatus
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventDeadLettered, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: targetStatus,
+		ExecTrace: execTrace, Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
-	e.submitWebhook(ctx, job, run)
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
@@ -224,8 +268,11 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
-			e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusQueued)
-			e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "queued", "attempt": run.Attempt + 1})
+			e.emit(ctx, RunLifecycleEvent{
+				Type: EventRetried, Run: run, Job: job,
+				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+			})
 		}
 		return
 	}
@@ -239,7 +286,8 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
 	}
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusTimedOut, fields)
+	run.Status = domain.StatusTimedOut
+	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusExecuting, domain.StatusTimedOut, fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run timed_out",
@@ -249,26 +297,35 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.recordRunTransition(ctx, domain.StatusExecuting, domain.StatusTimedOut)
-	e.publishEvent(ctx, run, map[string]any{"from": "executing", "to": "timed_out"})
-	run.Status = domain.StatusTimedOut
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventTimedOut, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusTimedOut,
+		ExecTrace: execTrace, Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
-	e.submitWebhook(ctx, job, run)
 }
 
-func (e *Executor) submitWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) {
-	detached := context.WithoutCancel(ctx)
-	e.pool.Submit(detached, func() {
-		webhookCtx, wCancel := context.WithTimeout(detached, e.webhookDispatchTimeout)
-		defer wCancel()
-		SendWebhookWithClient(webhookCtx, e.webhookClient, job, run, e.webhookMaxRetry)
-	})
+// completeRunWithWebhook atomically updates run status and enqueues a webhook
+// delivery within a single database transaction. If the job has no webhook URL
+// or no txPool is configured, it falls back to a plain status update.
+func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, from, to domain.RunStatus, fields map[string]any) error {
+	if e.txPool != nil && job.WebhookURL != "" {
+		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
+			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
+				return err
+			}
+			_, err := q.EnqueueRunWebhook(ctx, job, run, e.webhookMaxRetry)
+			return err
+		})
+	}
+	return e.store.UpdateRunStatus(ctx, run.ID, from, to, fields)
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
 
+	fromStatus := run.Status
 	now := time.Now()
 	err := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusSystemFailed, map[string]any{
 		"finished_at": now,
@@ -284,22 +341,14 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		)
 		return
 	}
-	e.recordRunTransition(ctx, run.Status, domain.StatusSystemFailed)
-	e.publishEvent(ctx, run, map[string]any{"from": string(run.Status), "to": "system_failed", "error": reason})
 	run.Status = domain.StatusSystemFailed
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventSystemFailed, Run: run,
+		FromStatus: fromStatus, ToStatus: domain.StatusSystemFailed,
+		Attempt: run.Attempt,
+	})
 	e.notifyWorkflowCallback(ctx, run)
 	// No webhook for system failures — job may not be available
-}
-
-func (e *Executor) recordRunTransition(ctx context.Context, fromStatus, toStatus domain.RunStatus) {
-	if e.metrics == nil {
-		return
-	}
-
-	e.metrics.RunTransitions.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("from", string(fromStatus)),
-		attribute.String("to", string(toStatus)),
-	))
 }
 
 func durationMillisecondsAtLeastOne(d time.Duration) int64 {

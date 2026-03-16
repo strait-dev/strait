@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,15 @@ import (
 
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
+	if e.memoryPressureThreshold > 0 {
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		heapPct := float64(memStats.HeapAlloc) / float64(memStats.Sys) * 100
+		if heapPct > e.memoryPressureThreshold {
+			e.logger.Warn("memory pressure: skipping dequeue", "heap_pct", heapPct, "threshold", e.memoryPressureThreshold)
+			return
+		}
+	}
 	available := e.pool.Available()
 	if e.concurrencyLimit != nil {
 		target := max(e.concurrencyLimit.CurrentLimit(), 1)
@@ -23,13 +33,18 @@ func (e *Executor) poll(ctx context.Context) {
 	if available <= 0 {
 		return
 	}
+	if e.maxDequeueBatchSize > 0 && available > e.maxDequeueBatchSize {
+		available = e.maxDequeueBatchSize
+	}
 
 	var runs []domain.JobRun
 	var err error
-	if len(e.partitionCycle) == 0 {
-		runs, err = e.queue.DequeueN(ctx, available)
-	} else {
+	if len(e.partitionCycle) > 0 {
 		runs, err = e.dequeueAcrossPartitions(ctx, available)
+	} else if e.dequeueStrategy == "fair_round_robin" {
+		runs, err = e.queue.DequeueNFair(ctx, available)
+	} else {
+		runs, err = e.queue.DequeueN(ctx, available)
 	}
 	if e.metrics != nil {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())

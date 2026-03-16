@@ -41,6 +41,11 @@ type CreateJobRequest struct {
 	EnvironmentID        string            `json:"environment_id,omitempty"`
 	VersionPolicy        string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
+	ResultSchema         json.RawMessage   `json:"result_schema,omitempty"`
+	SkipIfRunning        bool              `json:"skip_if_running,omitempty"`
+	DebounceWindowSecs   int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchWindowSecs      int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchMaxSize         int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 }
 
 type UpdateJobRequest struct {
@@ -70,6 +75,11 @@ type UpdateJobRequest struct {
 	VersionPolicy        *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	BackwardsCompatible  *bool              `json:"backwards_compatible,omitempty"`
 	DefaultRunMetadata   *map[string]string `json:"default_run_metadata,omitempty"`
+	ResultSchema         *json.RawMessage   `json:"result_schema,omitempty"`
+	SkipIfRunning        *bool              `json:"skip_if_running,omitempty"`
+	DebounceWindowSecs   *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchWindowSecs      *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchMaxSize         *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +151,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.DebounceWindowSecs > 0 && req.BatchWindowSecs > 0 {
+		respondError(w, r, http.StatusBadRequest, "debounce_window_secs and batch_window_secs are mutually exclusive")
+		return
+	}
+
 	job := &domain.Job{
 		ProjectID:            req.ProjectID,
 		GroupID:              req.GroupID,
@@ -166,6 +181,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		RetryDelaysSecs:      req.RetryDelaysSecs,
 		EnvironmentID:        req.EnvironmentID,
 		DefaultRunMetadata:   req.DefaultRunMetadata,
+		ResultSchema:         req.ResultSchema,
+		SkipIfRunning:        req.SkipIfRunning,
+		DebounceWindowSecs:   req.DebounceWindowSecs,
+		BatchWindowSecs:      req.BatchWindowSecs,
+		BatchMaxSize:         req.BatchMaxSize,
 		Enabled:              true,
 		VersionPolicy:        domain.VersionPolicyPin,
 		CreatedBy:            actorFromContext(r.Context()),
@@ -394,6 +414,12 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.DefaultRunMetadata != nil {
 		job.DefaultRunMetadata = *req.DefaultRunMetadata
+	}
+	if req.ResultSchema != nil {
+		job.ResultSchema = *req.ResultSchema
+	}
+	if req.SkipIfRunning != nil {
+		job.SkipIfRunning = *req.SkipIfRunning
 	}
 
 	if job.FallbackEndpointURL != "" {

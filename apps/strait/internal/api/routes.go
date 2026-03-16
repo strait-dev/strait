@@ -31,6 +31,9 @@ func (s *Server) routes() chi.Router {
 	r.Use(s.requestLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(apiVersionHeader)
+	if s.poolStatter != nil {
+		r.Use(s.dbBackpressure)
+	}
 	requestTimeout := s.config.RequestTimeout
 	if requestTimeout <= 0 {
 		requestTimeout = 30 * time.Second
@@ -77,6 +80,8 @@ func (s *Server) routes() chi.Router {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", s.handleCreateSecret)
@@ -157,6 +162,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dependency-status", s.handleGetRunDependencyStatus)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/idempotency-key", s.handleResetIdempotencyKey)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/reschedule", s.handleRescheduleRun)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", s.handleListRunState)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
 			})
 		})
 
@@ -169,10 +176,12 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", s.handleRetryWebhookDelivery)
 
 		r.Route("/webhooks", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeRunsWrite), rateLimit(5, time.Minute)).Post("/test", s.handleTestWebhook)
 			r.Route("/deliveries", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleListWebhookDeliveries)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", s.handleGetWebhookDelivery)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/retry", s.handleRetryWebhookDelivery)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/replay", s.handleReplayWebhookDelivery)
 			})
 			r.Route("/subscriptions", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/", s.handleCreateWebhookSubscription)
@@ -258,6 +267,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/steps", s.handleListWorkflowVersionSteps)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{fromVersionID}/diff/{toVersionID}", s.handleWorkflowVersionDiff)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/impact", s.handleWorkflowVersionImpact)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/active-versions", s.handleGetActiveVersions)
 			})
 		})
 
@@ -302,6 +312,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/steps", s.handleListWorkflowStepRuns)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/graph", s.handleGetWorkflowRunGraph)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/explain", s.handleGetWorkflowRunExplain)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/timeline", s.handleGetWorkflowRunTimeline)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/approve", s.handleApproveWorkflowStep)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/skip", s.handleSkipWorkflowStep)
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/force-complete", s.handleForceCompleteWorkflowStep)
@@ -328,6 +339,11 @@ func (s *Server) routes() chi.Router {
 			r.Post("/spawn", s.handleSDKSpawn)
 			r.Post("/continue", s.handleSDKContinue)
 			r.Post("/wait-for-event", s.handleSDKWaitForEvent)
+			r.Post("/state", s.handleSDKSetState)
+			r.Get("/state", s.handleSDKListState)
+			r.Get("/state/{key}", s.handleSDKGetState)
+			r.Delete("/state/{key}", s.handleSDKDeleteState)
+			r.Post("/stream", s.handleSDKStreamChunk)
 		})
 	})
 

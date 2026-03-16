@@ -103,6 +103,18 @@ func (e *WorkflowEngine) startStep(
 		TimeoutSecsOverride: step.TimeoutSecsOverride,
 		CreatedBy:           "system:workflow",
 	}
+	// Propagate W3C trace context from workflow run to child job runs.
+	if len(wfRun.TraceContext) > 0 {
+		if jobRun.Metadata == nil {
+			jobRun.Metadata = make(map[string]string, 2)
+		}
+		if tp, ok := wfRun.TraceContext["traceparent"]; ok {
+			jobRun.Metadata["_trace_parent"] = tp
+		}
+		if ts, ok := wfRun.TraceContext["tracestate"]; ok {
+			jobRun.Metadata["_trace_state"] = ts
+		}
+	}
 	if err := e.queue.Enqueue(ctx, jobRun); err != nil {
 		return fmt.Errorf("enqueue step job run: %w", err)
 	}

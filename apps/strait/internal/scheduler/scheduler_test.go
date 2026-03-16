@@ -10,6 +10,7 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 type mockSchedulerStore struct {
@@ -29,6 +30,10 @@ func (m *mockSchedulerStore) ListCronWorkflows(ctx context.Context) ([]domain.Wo
 
 func (m *mockSchedulerStore) CountRunningWorkflowRuns(ctx context.Context, workflowID string) (int, error) {
 	return m.cron.CountRunningWorkflowRuns(ctx, workflowID)
+}
+
+func (m *mockSchedulerStore) CountActiveRunsForJob(ctx context.Context, jobID string) (int, error) {
+	return m.cron.CountActiveRunsForJob(ctx, jobID)
 }
 
 func (m *mockSchedulerStore) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
@@ -125,6 +130,34 @@ func (m *mockSchedulerStore) CancelNonTerminalStepRuns(ctx context.Context, work
 func (m *mockSchedulerStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 	return m.reaper.CancelJobRunsByWorkflowRun(ctx, workflowRunID, finishedAt, reason)
 }
+
+// DebounceStore methods (no-op for tests).
+func (m *mockSchedulerStore) ListDueDebouncePending(_ context.Context) ([]domain.DebouncePending, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) DeleteDebouncePending(_ context.Context, _ string) error { return nil }
+func (m *mockSchedulerStore) GetJob(_ context.Context, _ string) (*domain.Job, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) CreateRun(_ context.Context, _ *domain.JobRun) error { return nil }
+func (m *mockSchedulerStore) TryAdvisoryLock(_ context.Context, _ int64) (bool, error) {
+	return false, nil
+}
+func (m *mockSchedulerStore) ReleaseAdvisoryLock(_ context.Context, _ int64) error { return nil }
+
+// BatchStore methods (no-op for tests).
+func (m *mockSchedulerStore) ListFlushableBatches(_ context.Context) ([]store.FlushableBatch, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+	return nil, nil
+}
+
+// StatsAggregatorStore method (no-op for tests).
+func (m *mockSchedulerStore) AggregateHourlyStats(_ context.Context, _ time.Time) error {
+	return nil
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval:           100 * time.Millisecond,

@@ -19,6 +19,32 @@ var (
 	ErrEventSubscriptionNotFound = errors.New("event subscription not found")
 )
 
+const eventSourceColumns = `id, project_id, name, description, schema, enabled, created_at, updated_at,
+	signature_header, signature_algorithm, signature_secret_enc`
+
+func scanEventSource(scanner interface {
+	Scan(dest ...any) error
+}) (*domain.EventSource, error) {
+	var src domain.EventSource
+	var sigHeader *string
+	var sigAlgorithm *string
+	err := scanner.Scan(
+		&src.ID, &src.ProjectID, &src.Name, &src.Description, &src.Schema,
+		&src.Enabled, &src.CreatedAt, &src.UpdatedAt,
+		&sigHeader, &sigAlgorithm, &src.SignatureSecretEnc,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if sigHeader != nil {
+		src.SignatureHeader = *sigHeader
+	}
+	if sigAlgorithm != nil {
+		src.SignatureAlgorithm = *sigAlgorithm
+	}
+	return &src, nil
+}
+
 func (q *Queries) CreateEventSource(ctx context.Context, src *domain.EventSource) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateEventSource")
 	defer span.End()
@@ -28,10 +54,12 @@ func (q *Queries) CreateEventSource(ctx context.Context, src *domain.EventSource
 	}
 
 	err := q.db.QueryRow(ctx, `
-		INSERT INTO event_sources (id, project_id, name, description, schema, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO event_sources (id, project_id, name, description, schema, enabled,
+		                          signature_header, signature_algorithm, signature_secret_enc)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING created_at, updated_at
 	`, src.ID, src.ProjectID, src.Name, src.Description, src.Schema, src.Enabled,
+		nilIfEmpty(src.SignatureHeader), nilIfEmpty(src.SignatureAlgorithm), src.SignatureSecretEnc,
 	).Scan(&src.CreatedAt, &src.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create event source: %w", err)
@@ -43,52 +71,41 @@ func (q *Queries) GetEventSource(ctx context.Context, sourceID, projectID string
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventSource")
 	defer span.End()
 
-	var src domain.EventSource
-	err := q.db.QueryRow(ctx, `
-		SELECT id, project_id, name, description, schema, enabled, created_at, updated_at
-		FROM event_sources WHERE id = $1 AND project_id = $2
-	`, sourceID, projectID).Scan(
-		&src.ID, &src.ProjectID, &src.Name, &src.Description, &src.Schema,
-		&src.Enabled, &src.CreatedAt, &src.UpdatedAt,
-	)
+	src, err := scanEventSource(q.db.QueryRow(ctx,
+		`SELECT `+eventSourceColumns+` FROM event_sources WHERE id = $1 AND project_id = $2`,
+		sourceID, projectID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrEventSourceNotFound
 		}
 		return nil, fmt.Errorf("get event source: %w", err)
 	}
-	return &src, nil
+	return src, nil
 }
 
 func (q *Queries) GetEventSourceByName(ctx context.Context, projectID, name string) (*domain.EventSource, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventSourceByName")
 	defer span.End()
 
-	var src domain.EventSource
-	err := q.db.QueryRow(ctx, `
-		SELECT id, project_id, name, description, schema, enabled, created_at, updated_at
-		FROM event_sources WHERE project_id = $1 AND name = $2
-	`, projectID, name).Scan(
-		&src.ID, &src.ProjectID, &src.Name, &src.Description, &src.Schema,
-		&src.Enabled, &src.CreatedAt, &src.UpdatedAt,
-	)
+	src, err := scanEventSource(q.db.QueryRow(ctx,
+		`SELECT `+eventSourceColumns+` FROM event_sources WHERE project_id = $1 AND name = $2`,
+		projectID, name))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrEventSourceNotFound
 		}
 		return nil, fmt.Errorf("get event source by name: %w", err)
 	}
-	return &src, nil
+	return src, nil
 }
 
 func (q *Queries) ListEventSources(ctx context.Context, projectID string) ([]domain.EventSource, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventSources")
 	defer span.End()
 
-	rows, err := q.db.Query(ctx, `
-		SELECT id, project_id, name, description, schema, enabled, created_at, updated_at
-		FROM event_sources WHERE project_id = $1 ORDER BY created_at DESC
-	`, projectID)
+	rows, err := q.db.Query(ctx,
+		`SELECT `+eventSourceColumns+` FROM event_sources WHERE project_id = $1 ORDER BY created_at DESC`,
+		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list event sources: %w", err)
 	}
@@ -96,12 +113,11 @@ func (q *Queries) ListEventSources(ctx context.Context, projectID string) ([]dom
 
 	var sources []domain.EventSource
 	for rows.Next() {
-		var src domain.EventSource
-		if err := rows.Scan(&src.ID, &src.ProjectID, &src.Name, &src.Description, &src.Schema,
-			&src.Enabled, &src.CreatedAt, &src.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("list event sources scan: %w", err)
+		src, scanErr := scanEventSource(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list event sources scan: %w", scanErr)
 		}
-		sources = append(sources, src)
+		sources = append(sources, *src)
 	}
 	return sources, rows.Err()
 }

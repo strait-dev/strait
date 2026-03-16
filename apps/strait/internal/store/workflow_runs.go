@@ -43,15 +43,24 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		}
 	}
 
+	var traceContextJSON []byte
+	if len(run.TraceContext) > 0 {
+		var marshalErr error
+		traceContextJSON, marshalErr = json.Marshal(run.TraceContext)
+		if marshalErr != nil {
+			return fmt.Errorf("create workflow run: marshal trace_context: %w", marshalErr)
+		}
+	}
+
 	query := `
 		INSERT INTO workflow_runs (
 			id, workflow_id, project_id, status, triggered_by, payload,
 			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
 			retry_of_run_id, parent_workflow_run_id, parent_step_run_id,
-			tags, workflow_version_id, created_by
+			tags, workflow_version_id, created_by, trace_context
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-			$16::jsonb, $17, $18)
+			$16::jsonb, $17, $18, $19::jsonb)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -75,6 +84,7 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		tagsJSON,
 		dbscan.NilIfEmptyString(run.WorkflowVersionID),
 		dbscan.NilIfEmptyString(run.CreatedBy),
+		traceContextJSON,
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow run: %w", err)
@@ -90,7 +100,7 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -116,7 +126,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 			FROM workflow_runs
 			WHERE workflow_id = $1 AND created_at < $3
 			ORDER BY created_at DESC
@@ -126,7 +136,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 			FROM workflow_runs
 			WHERE workflow_id = $1
 			ORDER BY created_at DESC
@@ -162,7 +172,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -294,6 +304,14 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, 
 	}
 
 	if tag.RowsAffected() == 0 {
+		var currentStatus domain.WorkflowRunStatus
+		err := q.db.QueryRow(ctx, "SELECT status FROM workflow_runs WHERE id = $1", id).Scan(&currentStatus)
+		if err != nil {
+			return fmt.Errorf("checking current workflow status: %w", err)
+		}
+		if currentStatus == to {
+			return nil // idempotent: already in target state
+		}
 		return fmt.Errorf("update workflow run status conflict: id %s from %s", id, from)
 	}
 
@@ -308,7 +326,7 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
 		ORDER BY created_at ASC`
@@ -348,6 +366,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	var parentStepRunID *string
 	var workflowVersionID *string
 	var createdBy *string
+	var traceContextJSON []byte
 
 	err := scanner.Scan(
 		&run.ID,
@@ -369,6 +388,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 		&tagsJSON,
 		&workflowVersionID,
 		&createdBy,
+		&traceContextJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -402,6 +422,11 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	}
 	if createdBy != nil {
 		run.CreatedBy = *createdBy
+	}
+	if len(traceContextJSON) > 0 && string(traceContextJSON) != "{}" {
+		if err := json.Unmarshal(traceContextJSON, &run.TraceContext); err != nil {
+			return nil, err
+		}
 	}
 
 	return &run, nil
@@ -452,7 +477,7 @@ func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Du
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs wr
 		WHERE wr.status = 'running'
 		  AND wr.started_at IS NOT NULL
@@ -493,7 +518,7 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 	base := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -536,6 +561,70 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 	}
 
 	return runs, nil
+}
+
+// CountActiveWorkflowRunsByVersion returns the number of non-terminal workflow runs for a specific version.
+func (q *Queries) CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountActiveWorkflowRunsByVersion")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workflow_runs
+		WHERE workflow_id = $1
+		  AND workflow_version_id = $2
+		  AND status IN ('pending', 'running', 'paused')
+	`, workflowID, versionID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active workflow runs by version: %w", err)
+	}
+	return count, nil
+}
+
+// ActiveVersion represents a workflow version with active run counts.
+type ActiveVersion struct {
+	VersionID string `json:"version_id"`
+	Version   int    `json:"version"`
+	Pending   int    `json:"pending"`
+	Running   int    `json:"running"`
+	Paused    int    `json:"paused"`
+	Total     int    `json:"total"`
+}
+
+// ListActiveWorkflowVersions groups active workflow runs by version with status counts.
+func (q *Queries) ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]ActiveVersion, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListActiveWorkflowVersions")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		SELECT
+			COALESCE(workflow_version_id, ''),
+			workflow_version,
+			COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+			COUNT(*) FILTER (WHERE status = 'running') AS running,
+			COUNT(*) FILTER (WHERE status = 'paused') AS paused,
+			COUNT(*) AS total
+		FROM workflow_runs
+		WHERE workflow_id = $1
+		  AND status IN ('pending', 'running', 'paused')
+		GROUP BY workflow_version_id, workflow_version
+		ORDER BY workflow_version DESC
+	`, workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("list active workflow versions: %w", err)
+	}
+	defer rows.Close()
+
+	var versions []ActiveVersion
+	for rows.Next() {
+		var v ActiveVersion
+		if err := rows.Scan(&v.VersionID, &v.Version, &v.Pending, &v.Running, &v.Paused, &v.Total); err != nil {
+			return nil, fmt.Errorf("list active workflow versions scan: %w", err)
+		}
+		versions = append(versions, v)
+	}
+	return versions, rows.Err()
 }
 
 func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error) {

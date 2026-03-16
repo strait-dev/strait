@@ -1,13 +1,19 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
@@ -46,6 +52,38 @@ type ReaperStore interface {
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
+// DLQMonitorStore is an optional interface for DLQ depth monitoring.
+type DLQMonitorStore interface {
+	ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error)
+}
+
+// ReconciliationStore is an optional interface for orphaned step run and stuck webhook reconciliation.
+type ReconciliationStore interface {
+	ListOrphanedStepRuns(ctx context.Context) ([]store.OrphanedStepRun, error)
+	ResetStuckWebhookDeliveries(ctx context.Context) (int64, error)
+}
+
+// QueueDepthMonitorStore is an optional interface for queue depth monitoring.
+type QueueDepthMonitorStore interface {
+	ListQueueDepthByJob(ctx context.Context) ([]store.QueueJobDepth, error)
+}
+
+// AutoRotateAPIKeysStore is an optional interface for automatic API key rotation.
+type AutoRotateAPIKeysStore interface {
+	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
+	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
+}
+
+// DLQJobDepth represents the dead-letter queue depth for a single job.
+type DLQJobDepth struct {
+	JobID             string
+	WebhookURL        string
+	DLQCount          int
+	DLQAlertThreshold int
+}
+
 type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
@@ -81,6 +119,8 @@ type Reaper struct {
 	metrics               *telemetry.Metrics
 	logger                *slog.Logger
 	stalledAction         string
+	dlqAlertCooldown      map[string]time.Time
+	queueAlertCooldown    map[string]time.Time
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -122,6 +162,8 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
 		stalledAction:         "log_only",
+		dlqAlertCooldown:      make(map[string]time.Time),
+		queueAlertCooldown:    make(map[string]time.Time),
 	}
 }
 
@@ -206,6 +248,11 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapStalledWorkflows(ctx)
 	r.reapOldWorkflowRuns(ctx)
 	r.reapOldEventTriggers(ctx)
+	r.monitorDLQDepth(ctx)
+	r.reapOrphanedStepRuns(ctx)
+	r.reapStuckWebhookDeliveries(ctx)
+	r.monitorQueueDepth(ctx)
+	r.autoRotateAPIKeys(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -688,5 +735,227 @@ func (r *Reaper) reapTerminalRetention(ctx context.Context) {
 	r.recordDeleted(ctx, "terminal_runs", deleted)
 	if deleted > 0 {
 		slog.Info("deleted terminal runs past retention", "count", deleted)
+	}
+}
+
+func (r *Reaper) monitorDLQDepth(ctx context.Context) {
+	dlqStore, ok := r.store.(DLQMonitorStore)
+	if !ok {
+		return
+	}
+
+	depths, err := dlqStore.ListDLQDepthByJob(ctx)
+	if err != nil {
+		r.logger.Error("failed to query DLQ depth", "error", err)
+		return
+	}
+
+	now := time.Now()
+	for _, d := range depths {
+		if r.metrics != nil {
+			r.metrics.DLQDepth.Record(ctx, int64(d.DLQCount), metric.WithAttributes(
+				attribute.String("job_id", d.JobID),
+			))
+		}
+
+		// Check cooldown — skip if alerted within the last hour.
+		if lastAlert, exists := r.dlqAlertCooldown[d.JobID]; exists && now.Sub(lastAlert) < time.Hour {
+			continue
+		}
+
+		r.logger.Warn("DLQ threshold exceeded",
+			"job_id", d.JobID,
+			"dlq_count", d.DLQCount,
+			"threshold", d.DLQAlertThreshold,
+		)
+		r.dlqAlertCooldown[d.JobID] = now
+	}
+}
+
+func (r *Reaper) reapOrphanedStepRuns(ctx context.Context) {
+	reconciler, ok := r.store.(ReconciliationStore)
+	if !ok {
+		return
+	}
+
+	orphans, err := reconciler.ListOrphanedStepRuns(ctx)
+	if err != nil {
+		r.logger.Error("failed to list orphaned step runs", "error", err)
+		return
+	}
+
+	for _, o := range orphans {
+		r.logger.Warn("reconciling orphaned step run",
+			"step_run_id", o.StepRunID,
+			"workflow_run_id", o.WorkflowRunID,
+			"job_run_id", o.JobRunID,
+			"job_status", o.JobStatus,
+		)
+
+		if o.JobStatus == domain.StatusCompleted {
+			if r.workflowCallback != nil {
+				r.workflowCallback.OnStepCompleted(ctx, o.WorkflowRunID, o.StepRunID)
+			}
+		} else {
+			if r.workflowCallback != nil {
+				r.workflowCallback.OnStepFailed(ctx, o.WorkflowRunID, o.StepRunID)
+			}
+		}
+	}
+}
+
+func (r *Reaper) reapStuckWebhookDeliveries(ctx context.Context) {
+	reconciler, ok := r.store.(ReconciliationStore)
+	if !ok {
+		return
+	}
+
+	count, err := reconciler.ResetStuckWebhookDeliveries(ctx)
+	if err != nil {
+		r.logger.Error("failed to reset stuck webhook deliveries", "error", err)
+		return
+	}
+
+	if count > 0 {
+		r.logger.Info("reset stuck webhook deliveries", "count", count)
+	}
+}
+
+func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
+	rotateStore, ok := r.store.(AutoRotateAPIKeysStore)
+	if !ok {
+		return
+	}
+
+	keys, err := rotateStore.ListAPIKeysDueRotation(ctx)
+	if err != nil {
+		r.logger.Error("failed to list api keys due rotation", "error", err)
+		return
+	}
+
+	for _, oldKey := range keys {
+		// Generate new key material.
+		rawBytes := make([]byte, 32)
+		if _, err := rand.Read(rawBytes); err != nil {
+			r.logger.Error("failed to generate random key for rotation", "key_id", oldKey.ID, "error", err)
+			continue
+		}
+		rawKey := "strait_" + hex.EncodeToString(rawBytes)
+		keyHash := sha256.Sum256([]byte(rawKey))
+
+		newKey := &domain.APIKey{
+			ProjectID:            oldKey.ProjectID,
+			Name:                 oldKey.Name + " (auto-rotated)",
+			KeyHash:              hex.EncodeToString(keyHash[:]),
+			KeyPrefix:            rawKey[:12],
+			Scopes:               oldKey.Scopes,
+			ExpiresAt:            oldKey.ExpiresAt,
+			EnvironmentID:        oldKey.EnvironmentID,
+			RotationIntervalDays: oldKey.RotationIntervalDays,
+			RotationWebhookURL:   oldKey.RotationWebhookURL,
+		}
+		// Set next_rotation_at for the new key.
+		if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
+			nextRotation := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
+			newKey.NextRotationAt = &nextRotation
+		}
+
+		if err := rotateStore.CreateAPIKey(ctx, newKey); err != nil {
+			r.logger.Error("failed to create rotated api key", "key_id", oldKey.ID, "error", err)
+			continue
+		}
+
+		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
+		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
+			r.logger.Error("failed to mark old key as rotated", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			continue
+		}
+
+		r.logger.Info("auto-rotated api key", "old_key_id", oldKey.ID, "new_key_id", newKey.ID)
+
+		// Record audit event.
+		details, _ := json.Marshal(map[string]any{
+			"old_key_id":       oldKey.ID,
+			"new_key_id":       newKey.ID,
+			"grace_expires_at": graceExpiresAt,
+		})
+		_ = rotateStore.CreateAuditEvent(ctx, &domain.AuditEvent{
+			ProjectID:    oldKey.ProjectID,
+			ActorID:      "system",
+			ActorType:    "system",
+			Action:       "api_key.auto_rotated",
+			ResourceType: "api_key",
+			ResourceID:   oldKey.ID,
+			Details:      details,
+		})
+
+		// Notify rotation webhook if configured.
+		if oldKey.RotationWebhookURL != "" {
+			r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, newKey.KeyPrefix, oldKey.ProjectID)
+		}
+	}
+}
+
+func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKeyPrefix, projectID string) {
+	payload, _ := json.Marshal(map[string]any{
+		"event":          "api_key.auto_rotated",
+		"old_key_id":     oldKeyID,
+		"new_key_id":     newKeyID,
+		"new_key_prefix": newKeyPrefix,
+		"project_id":     projectID,
+		"rotated_at":     time.Now().UTC(),
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
+	if err != nil {
+		r.logger.Error("failed to create rotation webhook request", "url", webhookURL, "error", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		r.logger.Warn("rotation webhook notification failed", "url", webhookURL, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		r.logger.Warn("rotation webhook returned non-success", "url", webhookURL, "status", resp.StatusCode)
+	}
+}
+
+func (r *Reaper) monitorQueueDepth(ctx context.Context) {
+	qdStore, ok := r.store.(QueueDepthMonitorStore)
+	if !ok {
+		return
+	}
+
+	depths, err := qdStore.ListQueueDepthByJob(ctx)
+	if err != nil {
+		r.logger.Error("failed to query queue depth", "error", err)
+		return
+	}
+
+	now := time.Now()
+	for _, d := range depths {
+		if r.metrics != nil {
+			r.metrics.QueueDepthPerJob.Record(ctx, int64(d.QueuedCount), metric.WithAttributes(
+				attribute.String("job_id", d.JobID),
+			))
+		}
+
+		if lastAlert, exists := r.queueAlertCooldown[d.JobID]; exists && now.Sub(lastAlert) < time.Hour {
+			continue
+		}
+
+		r.logger.Warn("queue depth threshold exceeded",
+			"job_id", d.JobID,
+			"queued_count", d.QueuedCount,
+			"threshold", d.QueueDepthAlertThreshold,
+		)
+		r.queueAlertCooldown[d.JobID] = now
 	}
 }

@@ -49,9 +49,10 @@ type mockReaperStore struct {
 }
 
 type mockCronStore struct {
-	listCronJobsFn       func(ctx context.Context) ([]domain.Job, error)
-	listCronWorkflowsFn  func(ctx context.Context) ([]domain.Workflow, error)
-	countRunningWfRunsFn func(ctx context.Context, workflowID string) (int, error)
+	listCronJobsFn          func(ctx context.Context) ([]domain.Job, error)
+	listCronWorkflowsFn     func(ctx context.Context) ([]domain.Workflow, error)
+	countRunningWfRunsFn    func(ctx context.Context, workflowID string) (int, error)
+	countActiveRunsForJobFn func(ctx context.Context, jobID string) (int, error)
 }
 
 func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -75,6 +76,13 @@ func (m *mockCronStore) CountRunningWorkflowRuns(ctx context.Context, workflowID
 	return 0, nil
 }
 
+func (m *mockCronStore) CountActiveRunsForJob(ctx context.Context, jobID string) (int, error) {
+	if m.countActiveRunsForJobFn != nil {
+		return m.countActiveRunsForJobFn(ctx, jobID)
+	}
+	return 0, nil
+}
+
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
@@ -89,6 +97,10 @@ func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
+func (m *mockQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
+	return int64(len(runs)), nil
+}
+
 func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	if m.dequeueFn != nil {
 		return m.dequeueFn(ctx)
@@ -101,6 +113,10 @@ func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error
 		return m.dequeueNFn(ctx, n)
 	}
 	return nil, nil
+}
+
+func (m *mockQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
+	return m.DequeueN(ctx, n)
 }
 
 func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {

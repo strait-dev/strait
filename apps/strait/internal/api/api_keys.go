@@ -17,10 +17,12 @@ import (
 )
 
 type CreateAPIKeyRequest struct {
-	ProjectID string   `json:"project_id" validate:"required"`
-	Name      string   `json:"name" validate:"required"`
-	Scopes    []string `json:"scopes,omitempty"`
-	ExpiresIn *int     `json:"expires_in_days,omitempty"`
+	ProjectID            string   `json:"project_id" validate:"required"`
+	Name                 string   `json:"name" validate:"required"`
+	Scopes               []string `json:"scopes,omitempty"`
+	ExpiresIn            *int     `json:"expires_in_days,omitempty"`
+	EnvironmentID        string   `json:"environment_id,omitempty"`
+	RotationIntervalDays *int     `json:"rotation_interval_days,omitempty"`
 }
 
 type CreateAPIKeyResponse struct {
@@ -87,12 +89,19 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := &domain.APIKey{
-		ProjectID: req.ProjectID,
-		Name:      req.Name,
-		KeyHash:   hashAPIKey(rawKey),
-		KeyPrefix: rawKey[:12],
-		Scopes:    req.Scopes,
-		ExpiresAt: expiresAt,
+		ProjectID:            req.ProjectID,
+		Name:                 req.Name,
+		KeyHash:              hashAPIKey(rawKey),
+		KeyPrefix:            rawKey[:12],
+		Scopes:               req.Scopes,
+		ExpiresAt:            expiresAt,
+		EnvironmentID:        req.EnvironmentID,
+		RotationIntervalDays: req.RotationIntervalDays,
+	}
+
+	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 {
+		nextRotation := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
+		key.NextRotationAt = &nextRotation
 	}
 
 	if err := s.store.CreateAPIKey(r.Context(), key); err != nil {
@@ -184,12 +193,19 @@ func (s *Server) handleRotateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newKey := &domain.APIKey{
-		ProjectID: oldKey.ProjectID,
-		Name:      oldKey.Name + " (rotated)",
-		KeyHash:   hashAPIKey(rawKey),
-		KeyPrefix: rawKey[:12],
-		Scopes:    oldKey.Scopes,
-		ExpiresAt: oldKey.ExpiresAt,
+		ProjectID:            oldKey.ProjectID,
+		Name:                 oldKey.Name + " (rotated)",
+		KeyHash:              hashAPIKey(rawKey),
+		KeyPrefix:            rawKey[:12],
+		Scopes:               oldKey.Scopes,
+		ExpiresAt:            oldKey.ExpiresAt,
+		EnvironmentID:        oldKey.EnvironmentID,
+		RotationIntervalDays: oldKey.RotationIntervalDays,
+		RotationWebhookURL:   oldKey.RotationWebhookURL,
+	}
+	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
+		nextRotation := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
+		newKey.NextRotationAt = &nextRotation
 	}
 	if err := s.store.CreateAPIKey(r.Context(), newKey); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to create rotated api key")

@@ -35,6 +35,8 @@ type TriggerRequest struct {
 	DryRun         bool              `json:"dry_run,omitempty"`
 	TTLSecs        *int              `json:"ttl_secs,omitempty"`
 	ConcurrencyKey string            `json:"concurrency_key,omitempty"`
+	DebounceKey    string            `json:"debounce_key,omitempty"`
+	BatchKey       string            `json:"batch_key,omitempty"`
 }
 
 func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +210,100 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Debounce: coalesce rapid triggers into one run after quiet window.
+	if job.DebounceWindowSecs > 0 {
+		fireAt := time.Now().Add(time.Duration(job.DebounceWindowSecs) * time.Second)
+		tagsJSON, _ := json.Marshal(req.Tags)
+		pending := &domain.DebouncePending{
+			JobID:          job.ID,
+			ProjectID:      job.ProjectID,
+			DebounceKey:    req.DebounceKey,
+			Payload:        payload,
+			Tags:           tagsJSON,
+			Priority:       req.Priority,
+			ConcurrencyKey: req.ConcurrencyKey,
+			TTLSecs:        req.TTLSecs,
+			TriggeredBy:    domain.TriggerDebounce,
+			CreatedBy:      actorFromContext(r.Context()),
+			FireAt:         fireAt,
+		}
+		if err := s.store.UpsertDebouncePending(r.Context(), pending); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to upsert debounce pending")
+			return
+		}
+		respondJSON(w, http.StatusAccepted, map[string]any{
+			"debounced": true,
+			"fire_at":   fireAt,
+		})
+		return
+	}
+
+	// Batch: collect payloads until size or time threshold, then flush as one run.
+	if job.BatchWindowSecs > 0 {
+		tagsJSON, _ := json.Marshal(req.Tags)
+		item := &domain.BatchBufferItem{
+			JobID:       job.ID,
+			ProjectID:   job.ProjectID,
+			BatchKey:    req.BatchKey,
+			Payload:     payload,
+			Tags:        tagsJSON,
+			Priority:    req.Priority,
+			TriggeredBy: domain.TriggerManual,
+			CreatedBy:   actorFromContext(r.Context()),
+		}
+		if err := s.store.InsertBatchBufferItem(r.Context(), item); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to insert batch buffer item")
+			return
+		}
+
+		// Check if max size reached → immediate flush.
+		if job.BatchMaxSize > 0 {
+			count, countErr := s.store.CountBatchBufferItems(r.Context(), job.ID, req.BatchKey)
+			if countErr == nil && count >= job.BatchMaxSize {
+				items, drainErr := s.store.DrainBatchBuffer(r.Context(), job.ID, req.BatchKey, job.BatchMaxSize)
+				if drainErr == nil && len(items) > 0 {
+					payloads := make([]json.RawMessage, len(items))
+					for i, it := range items {
+						payloads[i] = it.Payload
+					}
+					batchPayload, _ := json.Marshal(map[string]any{"items": payloads})
+					batchNow := time.Now()
+					batchExpiresAt := batchNow.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+					batchRun := &domain.JobRun{
+						ID:           uuid.Must(uuid.NewV7()).String(),
+						JobID:        job.ID,
+						ProjectID:    job.ProjectID,
+						Status:       domain.StatusQueued,
+						Attempt:      1,
+						Payload:      batchPayload,
+						TriggeredBy:  "batch",
+						Priority:     req.Priority,
+						JobVersion:   job.Version,
+						JobVersionID: job.VersionID,
+						ExpiresAt:    &batchExpiresAt,
+						CreatedBy:    actorFromContext(r.Context()),
+					}
+					if enqErr := s.queue.Enqueue(r.Context(), batchRun); enqErr != nil {
+						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
+						respondError(w, r, http.StatusInternalServerError, "failed to enqueue batch run")
+						return
+					}
+					respondJSON(w, http.StatusCreated, map[string]any{
+						"id":     batchRun.ID,
+						"status": batchRun.Status,
+						"batch":  true,
+					})
+					return
+				}
+			}
+		}
+
+		respondJSON(w, http.StatusAccepted, map[string]any{
+			"buffered": true,
+		})
+		return
+	}
+
 	runID := uuid.Must(uuid.NewV7()).String()
 	now := time.Now()
 	scheduledAt := req.ScheduledAt
@@ -229,6 +325,8 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
 	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	} else if s.config.DefaultRunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 	}
@@ -290,6 +388,17 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	run.ConcurrencyKey = req.ConcurrencyKey
+
+	// Capture W3C trace context from incoming request headers.
+	if tp := r.Header.Get("Traceparent"); tp != "" {
+		if run.Metadata == nil {
+			run.Metadata = make(map[string]string)
+		}
+		run.Metadata["_trace_parent"] = tp
+		if ts := r.Header.Get("Tracestate"); ts != "" {
+			run.Metadata["_trace_state"] = ts
+		}
+	}
 
 	if status == domain.StatusQueued {
 		satisfied, depErr := s.store.AreJobDependenciesSatisfied(r.Context(), run)
@@ -570,6 +679,8 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
 	} else if job.RunTTLSecs > 0 {
 		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	} else if s.config.DefaultRunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
 	} else {
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 	}

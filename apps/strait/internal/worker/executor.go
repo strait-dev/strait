@@ -16,8 +16,6 @@ import (
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -35,6 +33,8 @@ type ExecutorStore interface {
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
+	GetRunErrorClass(ctx context.Context, runID string) (string, error)
 }
 
 type executionPolicy struct {
@@ -51,35 +51,51 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
+type cachedJob struct {
+	job       *domain.Job
+	expiresAt time.Time
+}
+
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
-	pool                   *Pool
-	concurrencyLimit       ConcurrencyLimitProvider
-	queue                  queue.Queue
-	wake                   <-chan struct{}
-	store                  ExecutorStore
-	httpClient             *http.Client
-	pollInterval           time.Duration
-	heartbeat              *HeartbeatSender
-	publisher              pubsub.Publisher
-	metrics                *telemetry.Metrics
-	workflowCallback       WorkflowCallback
-	partitionCycle         []string
-	nextPartition          int
-	jobActiveRuns          map[string]int
-	jobActiveRunsMu        sync.Mutex
-	circuitThreshold       int
-	circuitOpenFor         time.Duration
-	logger                 *slog.Logger
-	webhookClient          *http.Client
-	webhookMaxRetry        int
-	webhookDispatchTimeout time.Duration
-	stop                   chan struct{}
-	done                   chan struct{}
-	stopOnce               sync.Once
-	pollWG                 sync.WaitGroup
-	pollInFlight           atomic.Int64
-	runStarted             atomic.Bool
+	pool                     *Pool
+	concurrencyLimit         ConcurrencyLimitProvider
+	queue                    queue.Queue
+	wake                     <-chan struct{}
+	store                    ExecutorStore
+	txPool                   store.TxBeginner
+	httpClient               *http.Client
+	pollInterval             time.Duration
+	heartbeat                *HeartbeatSender
+	publisher                pubsub.Publisher
+	metrics                  *telemetry.Metrics
+	workflowCallback         WorkflowCallback
+	partitionCycle           []string
+	nextPartition            int
+	jobActiveRuns            map[string]int
+	jobActiveRunsMu          sync.Mutex
+	circuitThreshold         int
+	circuitOpenFor           time.Duration
+	logger                   *slog.Logger
+	webhookMaxRetry          int
+	middlewares              []ExecutionMiddleware
+	subscribers              []RunEventSubscriber
+	eventCh                  chan runEventEnvelope
+	maxDequeueBatchSize      int
+	defaultJobMaxConcurrency int
+	jobCache                 sync.Map
+	jobCacheTTL              time.Duration
+	memoryPressureThreshold  float64
+	maxSnoozeCount           int
+	dequeueStrategy          string
+	jwtSigningKey            string
+	stop                     chan struct{}
+	done                     chan struct{}
+	stopOnce                 sync.Once
+	pollWG                   sync.WaitGroup
+	callbackWG               sync.WaitGroup
+	pollInFlight             atomic.Int64
+	runStarted               atomic.Bool
 }
 
 type ConcurrencyLimitProvider interface {
@@ -88,25 +104,30 @@ type ConcurrencyLimitProvider interface {
 
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
-	Pool                    *Pool
-	Queue                   queue.Queue
-	Wake                    <-chan struct{}
-	ConcurrencyLimit        ConcurrencyLimitProvider
-	Store                   ExecutorStore
-	Publisher               pubsub.Publisher
-	HTTPClient              *http.Client
-	PollInterval            time.Duration
-	HeartbeatInterval       time.Duration
-	Metrics                 *telemetry.Metrics
-	WorkflowCallback        WorkflowCallback
-	Partitions              []string
-	PartitionWeights        string
-	ExecutorHTTPTimeout     time.Duration
-	ExecutorIdleConnTimeout time.Duration
-	WebhookTimeout          time.Duration
-	WebhookIdleConnTimeout  time.Duration
-	WebhookDispatchTimeout  time.Duration
-	WebhookMaxAttempts      int
+	Pool                       *Pool
+	Queue                      queue.Queue
+	Wake                       <-chan struct{}
+	ConcurrencyLimit           ConcurrencyLimitProvider
+	Store                      ExecutorStore
+	TxPool                     store.TxBeginner
+	Publisher                  pubsub.Publisher
+	HTTPClient                 *http.Client
+	PollInterval               time.Duration
+	HeartbeatInterval          time.Duration
+	Metrics                    *telemetry.Metrics
+	WorkflowCallback           WorkflowCallback
+	Partitions                 []string
+	PartitionWeights           string
+	ExecutorHTTPTimeout        time.Duration
+	ExecutorIdleConnTimeout    time.Duration
+	WebhookMaxAttempts         int
+	MaxDequeueBatchSize        int
+	DefaultJobMaxConcurrency   int
+	MemoryPressureThresholdPct float64
+	JobCacheTTL                time.Duration
+	MaxSnoozeCount             int
+	JWTSigningKey              string
+	DequeueStrategy            string
 }
 
 const (
@@ -136,57 +157,47 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		}
 	}
 
-	whTimeout := cfg.WebhookTimeout
-	if whTimeout <= 0 {
-		whTimeout = webhookTimeout
-	}
-	whIdleTimeout := cfg.WebhookIdleConnTimeout
-	if whIdleTimeout <= 0 {
-		whIdleTimeout = webhookIdleConnTimeout
-	}
-	whClient := &http.Client{
-		Timeout: whTimeout,
-		Transport: otelhttp.NewTransport(&http.Transport{
-			MaxIdleConns:        webhookMaxIdleConns,
-			MaxIdleConnsPerHost: webhookMaxIdlePerHost,
-			IdleConnTimeout:     whIdleTimeout,
-		}),
-	}
 	whMaxAttempts := cfg.WebhookMaxAttempts
 	if whMaxAttempts <= 0 {
 		whMaxAttempts = 3
 	}
-	whDispatchTimeout := cfg.WebhookDispatchTimeout
-	if whDispatchTimeout <= 0 {
-		whDispatchTimeout = 15 * time.Second
-	}
 
 	return &Executor{
-		pool:                   cfg.Pool,
-		concurrencyLimit:       cfg.ConcurrencyLimit,
-		queue:                  cfg.Queue,
-		wake:                   cfg.Wake,
-		store:                  cfg.Store,
-		httpClient:             httpClient,
-		pollInterval:           cfg.PollInterval,
-		heartbeat:              NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
-		publisher:              cfg.Publisher,
-		metrics:                cfg.Metrics,
-		workflowCallback:       cfg.WorkflowCallback,
-		partitionCycle:         buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
-		jobActiveRuns:          make(map[string]int),
-		circuitThreshold:       defaultCircuitFailureThreshold,
-		circuitOpenFor:         defaultCircuitOpenDuration,
-		logger:                 slog.Default(),
-		webhookClient:          whClient,
-		webhookMaxRetry:        whMaxAttempts,
-		webhookDispatchTimeout: whDispatchTimeout,
-		stop:                   make(chan struct{}),
-		done:                   make(chan struct{}),
+		pool:                     cfg.Pool,
+		concurrencyLimit:         cfg.ConcurrencyLimit,
+		queue:                    cfg.Queue,
+		wake:                     cfg.Wake,
+		store:                    cfg.Store,
+		txPool:                   cfg.TxPool,
+		httpClient:               httpClient,
+		pollInterval:             cfg.PollInterval,
+		heartbeat:                NewHeartbeatSender(cfg.Store, cfg.HeartbeatInterval),
+		publisher:                cfg.Publisher,
+		metrics:                  cfg.Metrics,
+		workflowCallback:         cfg.WorkflowCallback,
+		partitionCycle:           buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
+		jobActiveRuns:            make(map[string]int),
+		circuitThreshold:         defaultCircuitFailureThreshold,
+		circuitOpenFor:           defaultCircuitOpenDuration,
+		logger:                   slog.Default(),
+		webhookMaxRetry:          whMaxAttempts,
+		eventCh:                  make(chan runEventEnvelope, 256),
+		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
+		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
+		jobCacheTTL:              cfg.JobCacheTTL,
+		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
+		maxSnoozeCount:           cfg.MaxSnoozeCount,
+		dequeueStrategy:          cfg.DequeueStrategy,
+		jwtSigningKey:            cfg.JWTSigningKey,
+		stop:                     make(chan struct{}),
+		done:                     make(chan struct{}),
 	}
 }
 
 func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {
+	if maxConcurrency <= 0 {
+		maxConcurrency = e.defaultJobMaxConcurrency
+	}
 	if maxConcurrency <= 0 {
 		return true
 	}
@@ -204,6 +215,9 @@ func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool
 
 func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
 	if maxConcurrency <= 0 {
+		maxConcurrency = e.defaultJobMaxConcurrency
+	}
+	if maxConcurrency <= 0 {
 		return
 	}
 
@@ -219,10 +233,61 @@ func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
 	e.jobActiveRuns[jobID] = active - 1
 }
 
+// Use adds execution middleware to the chain. Must be called before Run().
+func (e *Executor) Use(mw ExecutionMiddleware) {
+	e.middlewares = append(e.middlewares, mw)
+}
+
+// Subscribe registers a run lifecycle event subscriber. Must be called before Run().
+func (e *Executor) Subscribe(sub RunEventSubscriber) {
+	e.subscribers = append(e.subscribers, sub)
+}
+
+// emit sends a lifecycle event to all subscribers via the buffered channel.
+// Non-blocking: drops the event with a warning if the channel is full or closed.
+func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
+	if len(e.subscribers) == 0 {
+		return
+	}
+
+	// Recover from send-on-closed-channel if the executor is shutting down
+	// and a pool goroutine emits after eventCh is closed.
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Warn("event channel closed, dropping event",
+				"type", event.Type,
+				"run_id", event.Run.ID,
+			)
+		}
+	}()
+
+	select {
+	case e.eventCh <- runEventEnvelope{ctx: ctx, event: event}:
+	default:
+		e.logger.Warn("event channel full, dropping event",
+			"type", event.Type,
+			"run_id", event.Run.ID,
+		)
+	}
+}
+
+// runEventLoop drains the event channel and fans out to all subscribers.
+// Exits when eventCh is closed (during shutdown or when Run exits).
+func (e *Executor) runEventLoop() {
+	for env := range e.eventCh {
+		for _, sub := range e.subscribers {
+			sub(env.ctx, env.event)
+		}
+	}
+}
+
 func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun) {
 	if e.workflowCallback == nil {
 		return
 	}
+
+	e.callbackWG.Add(1)
+	defer e.callbackWG.Done()
 
 	if err := e.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
 		e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
@@ -255,14 +320,21 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 	}
 }
 
-// Run starts the heartbeat manager and polling loop. Blocks until ctx is canceled.
+// Run starts the heartbeat manager, event loop, and polling loop. Blocks until ctx is canceled.
 func (e *Executor) Run(ctx context.Context) {
 	e.runStarted.Store(true)
-	defer close(e.done)
+	defer func() {
+		close(e.done)
+		// Wait for in-flight polls to finish emitting events, then close the
+		// event channel so the event loop goroutine exits cleanly.
+		e.pollWG.Wait()
+		close(e.eventCh)
+	}()
 
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
 
 	go e.heartbeat.Run(ctx)
+	go e.runEventLoop()
 
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
@@ -311,5 +383,22 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	}
 
 	e.pollWG.Wait()
+
+	callbackDone := make(chan struct{})
+	go func() {
+		e.callbackWG.Wait()
+		close(callbackDone)
+	}()
+
+	callbackTimeout := time.NewTimer(10 * time.Second)
+	defer callbackTimeout.Stop()
+	select {
+	case <-callbackDone:
+	case <-callbackTimeout.C:
+		e.logger.Warn("timed out waiting for in-flight workflow callbacks")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	return nil
 }

@@ -28,7 +28,7 @@ func BenchmarkRedisRateLimiterAllow(b *testing.B) {
 				return errors.New("invalid limit")
 			}
 
-			c.SetVal(int64(1))
+			c.SetVal([]any{int64(1), int64(limit - 1)})
 			return nil
 		}
 
@@ -42,11 +42,11 @@ func BenchmarkRedisRateLimiterAllow(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		allowed, err := limiter.Allow(ctx, "rate:user:bench", 1000, time.Minute)
+		result, err := limiter.Allow(ctx, "rate:user:bench", 1000, time.Minute)
 		if err != nil {
 			b.Fatalf("Allow() error = %v", err)
 		}
-		if !allowed {
+		if !result.Allowed {
 			b.Fatal("Allow() = false, want true")
 		}
 	}

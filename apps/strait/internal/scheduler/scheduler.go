@@ -9,6 +9,7 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/queue"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 )
 
@@ -17,19 +18,27 @@ type SchedulerStore interface {
 	CronStore
 	PollerStore
 	ReaperStore
+	IndexMaintenanceStore
+	StatsAggregatorStore
+	store.DebounceStore
+	store.BatchStore
 }
 
 type Scheduler struct {
-	cron   *CronScheduler
-	poller *DelayedPoller
-	reaper *Reaper
-	wg     conc.WaitGroup
+	cron            *CronScheduler
+	poller          *DelayedPoller
+	reaper          *Reaper
+	indexMaintainer *IndexMaintainer
+	debouncePoller  *DebouncePoller
+	batchFlusher    *BatchFlusher
+	statsAggregator *StatsAggregator
+	wg              conc.WaitGroup
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
 func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queue, wfCallback WorkflowCallback, wfTrigger WorkflowTrigger, opts ...SchedulerOption) *Scheduler {
 	sched := &Scheduler{
-		cron:   NewCronScheduler(ctx, s, q, wfTrigger),
+		cron:   NewCronScheduler(ctx, s, q, wfTrigger).WithDefaultRunTTLSecs(cfg.DefaultRunTTLSecs),
 		poller: NewDelayedPoller(s, slog.Default(), cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, true, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
@@ -37,6 +46,10 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
 			WithStalledAction(cfg.StalledWorkflowAction),
+		indexMaintainer: NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
+		debouncePoller:  NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
+		batchFlusher:    NewBatchFlusher(s, q, cfg.BatchFlushInterval),
+		statsAggregator: NewStatsAggregator(s),
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -62,6 +75,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.cron.Start()
 	s.wg.Go(func() { s.poller.Run(ctx) })
 	s.wg.Go(func() { s.reaper.Run(ctx) })
+	s.wg.Go(func() { s.indexMaintainer.Run(ctx) })
+	s.wg.Go(func() { s.debouncePoller.Run(ctx) })
+	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
+	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
 
 	slog.Info("scheduler started")
 	return nil
