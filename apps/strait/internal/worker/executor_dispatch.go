@@ -133,6 +133,12 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	policy = resolved
 
+	// Route based on execution mode.
+	if job.ExecutionMode == domain.ExecutionModeManaged {
+		e.managedDispatch(ctx, run, job)
+		return
+	}
+
 	// Environment endpoint override: if the job has an environment_id,
 	// resolve its variables and check for ENDPOINT_URL override.
 	if job.EnvironmentID != "" {
@@ -248,6 +254,19 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 
 	e.handleSuccess(ctx, run, job, result, execTrace)
+}
+
+// managedDispatch dispatches a job run to a container runtime (Fly Machines, Docker).
+// This is a stub — the full implementation is in Phase 4 (STR-47).
+func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+	_ = ctx
+	_ = job
+	e.logger.Error("managed execution not available: COMPUTE_RUNTIME not configured",
+		"run_id", run.ID,
+		"job_id", run.JobID,
+		"execution_mode", job.ExecutionMode,
+	)
+	e.handleSystemFailure(ctx, run, "managed execution not available: COMPUTE_RUNTIME not configured")
 }
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {

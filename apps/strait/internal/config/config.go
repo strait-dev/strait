@@ -128,6 +128,14 @@ type Config struct {
 	BatchFlushInterval         time.Duration `mapstructure:"BATCH_FLUSH_INTERVAL"`
 	WebhookRequireTLS          bool          `mapstructure:"WEBHOOK_REQUIRE_TLS"`
 	DequeueStrategy            string        `mapstructure:"DEQUEUE_STRATEGY"`
+
+	// Managed execution (container runtime)
+	ComputeRuntime        string `mapstructure:"COMPUTE_RUNTIME"`         // "none", "fly", "docker"
+	FlyAPIToken           string `mapstructure:"FLY_API_TOKEN"`           // Fly Machines API token
+	FlyAppName            string `mapstructure:"FLY_APP_NAME"`            // Fly app name
+	FlyRegion             string `mapstructure:"FLY_REGION"`              // Default Fly region
+	ExternalAPIURL        string `mapstructure:"EXTERNAL_API_URL"`        // Public API URL for SDK callbacks
+	MaxConcurrentMachines int    `mapstructure:"MAX_CONCURRENT_MACHINES"` // Max parallel containers
 }
 
 func setDefaults() {
@@ -208,6 +216,9 @@ func setDefaults() {
 	viper.SetDefault("BATCH_FLUSH_INTERVAL", time.Second)
 	viper.SetDefault("WEBHOOK_REQUIRE_TLS", false)
 	viper.SetDefault("DEQUEUE_STRATEGY", "priority")
+	viper.SetDefault("COMPUTE_RUNTIME", "none")
+	viper.SetDefault("FLY_REGION", "iad")
+	viper.SetDefault("MAX_CONCURRENT_MACHINES", 10)
 }
 
 func BindEnv() error {
@@ -241,6 +252,8 @@ func BindEnv() error {
 		"MAX_SNOOZE_COUNT",
 		"DEBOUNCE_POLLER_INTERVAL", "BATCH_FLUSH_INTERVAL", "WEBHOOK_REQUIRE_TLS",
 		"DEQUEUE_STRATEGY",
+		"COMPUTE_RUNTIME", "FLY_API_TOKEN", "FLY_APP_NAME", "FLY_REGION",
+		"EXTERNAL_API_URL", "MAX_CONCURRENT_MACHINES",
 	}
 
 	for _, key := range keys {
@@ -326,6 +339,12 @@ func Load() (*Config, error) {
 	cfg.BatchFlushInterval = viper.GetDuration("BATCH_FLUSH_INTERVAL")
 	cfg.WebhookRequireTLS = viper.GetBool("WEBHOOK_REQUIRE_TLS")
 	cfg.DequeueStrategy = viper.GetString("DEQUEUE_STRATEGY")
+	cfg.ComputeRuntime = viper.GetString("COMPUTE_RUNTIME")
+	cfg.FlyAPIToken = viper.GetString("FLY_API_TOKEN")
+	cfg.FlyAppName = viper.GetString("FLY_APP_NAME")
+	cfg.FlyRegion = viper.GetString("FLY_REGION")
+	cfg.ExternalAPIURL = viper.GetString("EXTERNAL_API_URL")
+	cfg.MaxConcurrentMachines = viper.GetInt("MAX_CONCURRENT_MACHINES")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
