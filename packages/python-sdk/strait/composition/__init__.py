@@ -1,5 +1,12 @@
 """Composition helpers: Result, retry, wait, paginate, idempotency, deployments."""
 
+from strait.composition._checkpoint_resume import with_checkpoint_resume
+from strait.composition._cost_budget import (
+    CostBudgetOptions,
+    CostTracker,
+    create_cost_tracker,
+    with_cost_budget,
+)
 from strait.composition._deployments import (
     CreateAndFinalizeOutput,
     CreateFinalizePromoteOutput,
@@ -38,4 +45,9 @@ __all__ = [
     "CreateFinalizePromoteOutput",
     "create_and_finalize_deployment",
     "create_finalize_promote_deployment",
+    "CostBudgetOptions",
+    "CostTracker",
+    "create_cost_tracker",
+    "with_cost_budget",
+    "with_checkpoint_resume",
 ]

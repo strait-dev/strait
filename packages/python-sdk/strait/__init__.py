@@ -5,6 +5,7 @@ from strait._config import AuthMode, AuthType, Config, config_from_env, config_f
 from strait._errors import (
     ApiError,
     ConflictError,
+    CostBudgetExceededError,
     DagValidationError,
     DecodeError,
     NotFoundError,
@@ -43,6 +44,7 @@ __all__ = [
     "ApiError",
     "StraitTimeoutError",
     "DagValidationError",
+    "CostBudgetExceededError",
     "map_http_error",
     "Middleware",
     "MiddlewareRequestContext",

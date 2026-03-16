@@ -38,10 +38,14 @@ require_relative "strait/fsm/step"
 
 # Authoring DSL
 require_relative "strait/authoring/run_context"
+require_relative "strait/authoring/run_context_client"
 require_relative "strait/authoring/steps"
 require_relative "strait/authoring/dag_validation"
 require_relative "strait/authoring/job"
 require_relative "strait/authoring/workflow"
+require_relative "strait/authoring/agent"
+require_relative "strait/authoring/event"
+require_relative "strait/authoring/test_helpers"
 
 # Composition helpers
 require_relative "strait/composition/result"
@@ -51,6 +55,8 @@ require_relative "strait/composition/trigger"
 require_relative "strait/composition/paginate"
 require_relative "strait/composition/idempotency"
 require_relative "strait/composition/deployments"
+require_relative "strait/composition/cost_budget"
+require_relative "strait/composition/checkpoint_resume"
 
 # Client (depends on all the above)
 require_relative "strait/client"

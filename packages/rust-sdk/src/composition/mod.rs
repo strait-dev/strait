@@ -1,3 +1,5 @@
+pub mod checkpoint_resume;
+pub mod cost_budget;
 pub mod deployments;
 pub mod idempotency;
 pub mod paginate;
@@ -6,6 +8,8 @@ pub mod retry;
 pub mod trigger;
 pub mod wait;
 
+pub use checkpoint_resume::*;
+pub use cost_budget::*;
 pub use deployments::*;
 pub use idempotency::*;
 pub use paginate::*;
