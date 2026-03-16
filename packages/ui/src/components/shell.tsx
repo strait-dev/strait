@@ -5,9 +5,9 @@ import { cn } from "../utils/index";
 const shellVariants = cva("flex flex-col gap-4", {
   variants: {
     variant: {
-      default: "w-full px-4 py-4 sm:px-6 lg:px-8",
-      centered: "w-full items-center px-4 py-4 sm:px-6 lg:px-8",
-      fluid: "w-full px-4 py-4 sm:px-6 lg:px-8",
+      default: "w-full px-4 py-4",
+      centered: "w-full items-center px-4 py-4",
+      fluid: "w-full px-4 py-4",
     },
   },
   defaultVariants: {
