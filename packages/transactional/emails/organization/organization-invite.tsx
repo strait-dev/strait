@@ -53,8 +53,8 @@ const OrganizationInvite = ({
           }}
         />
       </Head>
-      <Body className="mx-auto my-auto bg-white font-sans">
-        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-gray-200 border-solid px-10 py-8">
+      <Body className="mx-auto my-auto bg-[#FFFFFF] font-sans">
+        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-[#EBEBEB] border-solid px-10 py-8">
           <Section>
             <Img
               alt="Strait"
@@ -66,17 +66,17 @@ const OrganizationInvite = ({
 
           <br />
 
-          <Heading className="m-0 p-0 text-left font-semibold text-black text-lg tracking-tight">
+          <Heading className="m-0 p-0 text-left font-semibold text-[#252525] text-lg tracking-tight">
             You've been invited to {orgName}
           </Heading>
 
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-            {name} invited you to join the store {orgName}. By accepting this
-            invitation, you'll have access to the complete sales management
-            platform, where you can track negotiations, register new customers,
-            and contribute directly to the sales growth of this store.
+            {name} invited you to join the organization {orgName}. By accepting
+            this invitation, you'll have access to the complete orchestration
+            platform, where you can manage workflows, monitor jobs, and
+            collaborate with your team.
           </Text>
 
           <br />
@@ -94,7 +94,11 @@ const OrganizationInvite = ({
 
           <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
             Or click this link to accept:{" "}
-            <Link className="text-[#ff6b00] underline" href={inviteLink}>
+            <Link
+              className="text-[#FF4F00] underline"
+              href={inviteLink}
+              style={{ color: "#FF4F00" }}
+            >
               {inviteLink.substring(0, MAX_LINK_LENGTH)}...
             </Link>
           </Text>
@@ -108,9 +112,21 @@ const OrganizationInvite = ({
 
           <br />
 
-          <Hr className="mx-0 w-full border-gray-200 border-t" />
+          <Hr className="mx-0 w-full border-[#EBEBEB] border-t" />
 
           <br />
+
+          <Section>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              © 2025 Strait, All rights reserved
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              CNPJ 59.888.832/0001-39
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              Av. Princesa Isabel — Vitória, ES, Brazil 29.010-361
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Tailwind>

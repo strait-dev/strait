@@ -21,7 +21,7 @@ type Props = {
 const OrganizationPurged = ({ name, organizationName }: Props) => (
   <Html>
     <Preview>
-      {organizationName} store data has been permanently removed
+      {organizationName} organization data has been permanently removed
     </Preview>
     <Tailwind>
       <Head>
@@ -46,8 +46,8 @@ const OrganizationPurged = ({ name, organizationName }: Props) => (
           }}
         />
       </Head>
-      <Body className="mx-auto my-auto bg-white font-sans">
-        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-gray-200 border-solid px-10 py-8">
+      <Body className="mx-auto my-auto bg-[#FFFFFF] font-sans">
+        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-[#EBEBEB] border-solid px-10 py-8">
           <Section>
             <Img
               alt="Strait"
@@ -59,8 +59,8 @@ const OrganizationPurged = ({ name, organizationName }: Props) => (
 
           <br />
 
-          <Heading className="m-0 p-0 text-left font-semibold text-black text-lg tracking-tight">
-            Store data permanently removed
+          <Heading className="m-0 p-0 text-left font-semibold text-[#252525] text-lg tracking-tight">
+            Organization data permanently removed
           </Heading>
 
           <br />
@@ -73,16 +73,17 @@ const OrganizationPurged = ({ name, organizationName }: Props) => (
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             We confirm that all data associated with the{" "}
-            <span className="font-medium text-black">{organizationName}</span>{" "}
-            store has been permanently removed from our servers as requested.
+            <span className="font-medium text-[#252525]">{organizationName}</span>{" "}
+            organization has been permanently removed from our servers as
+            requested.
           </Text>
 
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-            This action is irreversible and all data, including order history,
-            products, customers, and settings have been completely erased in
-            compliance with data protection laws.
+            This action is irreversible and all data, including workflows,
+            jobs, schedules, events, and settings have been completely erased
+            in compliance with data protection laws.
           </Text>
 
           <br />
@@ -94,9 +95,21 @@ const OrganizationPurged = ({ name, organizationName }: Props) => (
 
           <br />
 
-          <Hr className="mx-0 w-full border-gray-200 border-t" />
+          <Hr className="mx-0 w-full border-[#EBEBEB] border-t" />
 
           <br />
+
+          <Section>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              © 2025 Strait, All rights reserved
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              CNPJ 59.888.832/0001-39
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              Av. Princesa Isabel — Vitória, ES, Brazil 29.010-361
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Tailwind>
@@ -105,7 +118,7 @@ const OrganizationPurged = ({ name, organizationName }: Props) => (
 
 OrganizationPurged.PreviewProps = {
   name: "Alex Silva",
-  organizationName: "My Store",
+  organizationName: "My Organization",
 };
 
 export default OrganizationPurged;

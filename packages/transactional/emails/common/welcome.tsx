@@ -45,8 +45,8 @@ const WelcomeEmail = ({ name }: WelcomeEmailProps) => (
           }}
         />
       </Head>
-      <Body className="mx-auto my-auto bg-white font-sans">
-        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-gray-200 border-solid px-10 py-8">
+      <Body className="mx-auto my-auto bg-[#FFFFFF] font-sans">
+        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-[#EBEBEB] border-solid px-10 py-8">
           <Section>
             <Img
               alt="Strait"
@@ -58,23 +58,22 @@ const WelcomeEmail = ({ name }: WelcomeEmailProps) => (
 
           <br />
 
-          <Heading className="m-0 p-0 text-left font-semibold text-black text-lg tracking-tight">
+          <Heading className="m-0 p-0 text-left font-semibold text-[#252525] text-lg tracking-tight">
             Welcome to Strait!
           </Heading>
 
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-            {name ? `Hello ${name},` : "Hello,"} welcome to our sales management
-            platform!
+            {name ? `Hello ${name},` : "Hello,"} welcome to Strait!
           </Text>
 
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             We're very happy to have you with us. With Strait, you'll have
-            access to powerful tools to boost your sales, manage customers and
-            track your business performance in real time.
+            access to powerful tools to manage your workflows, automate jobs,
+            and monitor your operations in real time.
           </Text>
 
           <br />
@@ -87,33 +86,33 @@ const WelcomeEmail = ({ name }: WelcomeEmailProps) => (
 
           <Section>
             <Text className="m-0 text-[#8D8D8D] text-sm leading-6">
-              • Register your first{" "}
+              • Set up your first{" "}
               <Link
-                href="https://app.usestrait.com/customers"
-                style={{ color: "#ff6b00", textDecoration: "underline" }}
+                href="https://app.usestrait.com/workflows"
+                style={{ color: "#FF4F00", textDecoration: "underline" }}
               >
-                customers
+                workflow
               </Link>
-              <br />• Set up your{" "}
+              <br />• Configure your{" "}
               <Link
                 href="https://app.usestrait.com/settings"
-                style={{ color: "#ff6b00", textDecoration: "underline" }}
+                style={{ color: "#FF4F00", textDecoration: "underline" }}
               >
-                sales profile
+                team settings
               </Link>
-              <br />• Create your first{" "}
+              <br />• Create{" "}
               <Link
-                href="https://app.usestrait.com/sales"
-                style={{ color: "#ff6b00", textDecoration: "underline" }}
+                href="https://app.usestrait.com/schedules"
+                style={{ color: "#FF4F00", textDecoration: "underline" }}
               >
-                sales order
+                automated schedules
               </Link>
-              <br />• Explore our{" "}
+              <br />• Monitor your{" "}
               <Link
-                href="https://app.usestrait.com/reports"
-                style={{ color: "#ff6b00", textDecoration: "underline" }}
+                href="https://app.usestrait.com/runs"
+                style={{ color: "#FF4F00", textDecoration: "underline" }}
               >
-                reports and analytics
+                runs and events
               </Link>
             </Text>
           </Section>
@@ -138,9 +137,21 @@ const WelcomeEmail = ({ name }: WelcomeEmailProps) => (
 
           <br />
 
-          <Hr className="mx-0 w-full border-gray-200 border-t" />
+          <Hr className="mx-0 w-full border-[#EBEBEB] border-t" />
 
           <br />
+
+          <Section>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              © 2025 Strait, All rights reserved
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              CNPJ 59.888.832/0001-39
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              Av. Princesa Isabel — Vitória, ES, Brazil 29.010-361
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Tailwind>

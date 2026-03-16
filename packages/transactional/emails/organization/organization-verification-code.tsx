@@ -30,8 +30,8 @@ const OrganizationVerificationCode = ({
   <Html>
     <Preview>
       {isPurgeOnly
-        ? `Verification code for ${organizationName} store data removal`
-        : `Verification code for ${organizationName} store deletion`}
+        ? `Verification code for ${organizationName} organization data removal`
+        : `Verification code for ${organizationName} organization deletion`}
     </Preview>
     <Tailwind>
       <Head>
@@ -56,8 +56,8 @@ const OrganizationVerificationCode = ({
           }}
         />
       </Head>
-      <Body className="mx-auto my-auto bg-white font-sans">
-        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-gray-200 border-solid px-10 py-8">
+      <Body className="mx-auto my-auto bg-[#FFFFFF] font-sans">
+        <Container className="mx-auto my-10 max-w-[500px] rounded-[0.1rem] border border-[#EBEBEB] border-solid px-10 py-8">
           <Section>
             <Img
               alt="Strait"
@@ -69,10 +69,10 @@ const OrganizationVerificationCode = ({
 
           <br />
 
-          <Heading className="m-0 p-0 text-left font-semibold text-black text-lg tracking-tight">
+          <Heading className="m-0 p-0 text-left font-semibold text-[#252525] text-lg tracking-tight">
             {isPurgeOnly
-              ? "Confirm store data removal"
-              : "Confirm store deletion"}
+              ? "Confirm organization data removal"
+              : "Confirm organization deletion"}
           </Heading>
 
           <br />
@@ -86,26 +86,26 @@ const OrganizationVerificationCode = ({
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             We received a request to{" "}
             {isPurgeOnly ? "remove all data from" : "delete"} the{" "}
-            <span className="font-medium text-black">{organizationName}</span>{" "}
-            store from your Strait account. This action is{" "}
-            <span className="font-medium text-black">permanent</span> and
+            <span className="font-medium text-[#252525]">{organizationName}</span>{" "}
+            organization from your Strait account. This action is{" "}
+            <span className="font-medium text-[#252525]">permanent</span> and
             {isPurgeOnly
-              ? " all personal data related to this store will be removed from our servers in compliance with data protection laws."
-              : " all data related to this store will be removed from our system."}
+              ? " all personal data related to this organization, including workflows, jobs, schedules, and events, will be removed from our servers in compliance with data protection laws."
+              : " all data related to this organization, including workflows, jobs, schedules, and events, will be removed from our system."}
           </Text>
 
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             To confirm {isPurgeOnly ? "the data removal" : "the deletion"} of
-            your store, use the verification code below:
+            your organization, use the verification code below:
           </Text>
 
           <br />
 
           <Section>
-            <Container className="mx-auto rounded-[0.1rem] border border-gray-200 border-solid px-6 py-4 text-center">
-              <Text className="m-0 font-bold font-mono text-2xl text-black tracking-widest">
+            <Container className="mx-auto rounded-[0.1rem] border border-[#EBEBEB] border-solid px-6 py-4 text-center">
+              <Text className="m-0 font-bold font-mono text-2xl text-[#252525] tracking-widest">
                 {verificationCode}
               </Text>
             </Container>
@@ -116,7 +116,7 @@ const OrganizationVerificationCode = ({
           <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
             This code expires in 15 minutes. If you did not request{" "}
             {isPurgeOnly ? "the data removal" : "the deletion"}
-            of your store, please ignore this email or contact our{" "}
+            of your organization, please ignore this email or contact our{" "}
             <Link
               className="text-[#FF4F00] underline"
               href="mailto:support@usestrait.com"
@@ -132,9 +132,21 @@ const OrganizationVerificationCode = ({
 
           <br />
 
-          <Hr className="mx-0 w-full border-gray-200 border-t" />
+          <Hr className="mx-0 w-full border-[#EBEBEB] border-t" />
 
           <br />
+
+          <Section>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              © 2025 Strait, All rights reserved
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              CNPJ 59.888.832/0001-39
+            </Text>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              Av. Princesa Isabel — Vitória, ES, Brazil 29.010-361
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Tailwind>
@@ -143,7 +155,7 @@ const OrganizationVerificationCode = ({
 
 OrganizationVerificationCode.PreviewProps = {
   name: "Alex Silva",
-  organizationName: "My Store",
+  organizationName: "My Organization",
   verificationCode: "123456",
 };
 
