@@ -27,6 +27,7 @@ const SessionManagement = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
   const [isRevokingAll, setIsRevokingAll] = useState(false);
+  const [isSigningOutAll, setIsSigningOutAll] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -87,6 +88,27 @@ const SessionManagement = () => {
     }
   };
 
+  const handleSignOutEverywhere = async () => {
+    setIsSigningOutAll(true);
+    try {
+      const result = await authClient.revokeSessions();
+
+      if (result.error) {
+        toast.error(
+          result.error.message ?? "Failed to sign out of all sessions."
+        );
+        setIsSigningOutAll(false);
+        return;
+      }
+
+      window.location.href = "/login";
+    } catch (error) {
+      captureException(error);
+      toast.error("Failed to sign out of all sessions.");
+      setIsSigningOutAll(false);
+    }
+  };
+
   const parseUserAgent = (ua: string | null): string => {
     if (!ua) {
       return "Unknown device";
@@ -126,14 +148,30 @@ const SessionManagement = () => {
               Manage your active sessions across devices.
             </CardDescription>
           </div>
-          {sessions.length > 1 && (
+          <div className="flex gap-2">
+            {sessions.length > 1 && (
+              <Button
+                disabled={isRevokingAll}
+                onClick={handleRevokeAll}
+                size="sm"
+                variant="outline"
+              >
+                {isRevokingAll ? (
+                  <HugeiconsIcon
+                    className="size-3 animate-spin"
+                    icon={LoadingIcon}
+                  />
+                ) : null}
+                Revoke all others
+              </Button>
+            )}
             <Button
-              disabled={isRevokingAll}
-              onClick={handleRevokeAll}
+              disabled={isSigningOutAll}
+              onClick={handleSignOutEverywhere}
               size="sm"
               variant="destructive"
             >
-              {isRevokingAll ? (
+              {isSigningOutAll ? (
                 <HugeiconsIcon
                   className="size-3 animate-spin"
                   icon={LoadingIcon}
@@ -141,9 +179,9 @@ const SessionManagement = () => {
               ) : (
                 <HugeiconsIcon className="size-3" icon={LogOutIcon} />
               )}
-              Revoke all others
+              Sign out everywhere
             </Button>
-          )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>

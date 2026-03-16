@@ -12,6 +12,21 @@ import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
 import { BuildingIcon, MailIcon } from "@/lib/icons";
 
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  OAuthSignin: "Could not start the sign-in process. Please try again.",
+  OAuthCallback: "Something went wrong during sign-in. Please try again.",
+  OAuthCreateAccount:
+    "Could not create your account. An account with this email may already exist.",
+  OAuthAccountNotLinked:
+    "This email is already associated with another sign-in method. Try signing in with your original method.",
+  AccessDenied: "Access was denied. You may have cancelled the sign-in.",
+  Verification: "The verification link has expired or has already been used.",
+};
+
+function formatOAuthError(error: string): string {
+  return OAUTH_ERROR_MESSAGES[error] ?? error;
+}
+
 export const Route = createFileRoute("/(auth)/login")({
   validateSearch: authSearchSchema,
   beforeLoad: ({ context, search }) => {
@@ -34,7 +49,7 @@ function LoginPage() {
           className="rounded-md bg-destructive/10 p-3 text-destructive text-sm"
           role="alert"
         >
-          {searchError}
+          {formatOAuthError(searchError)}
         </div>
       ) : null}
 
