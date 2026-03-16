@@ -4,8 +4,11 @@ import type { AuthUser } from "@/routes/__root";
 import ChangePassword from "./change-password";
 import DeleteAccount from "./delete-account";
 import LinkedAccounts from "./linked-accounts";
+import PasskeyManagement from "./passkey-management";
 import PersonalInfo from "./personal-info";
+import SessionManagement from "./session-management";
 import SetPassword from "./set-password";
+import TwoFactorSetup from "./two-factor-setup";
 
 type Props = {
   user: AuthUser;
@@ -13,6 +16,7 @@ type Props = {
 
 const Account = ({ user }: Props) => {
   const [hasPassword, setHasPassword] = useState<boolean | null>(null);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
   useEffect(() => {
     const checkAccounts = async () => {
@@ -32,12 +36,32 @@ const Account = ({ user }: Props) => {
     checkAccounts();
   }, []);
 
+  // Check if 2FA is enabled from user data
+  useEffect(() => {
+    setTwoFactorEnabled(
+      (user as unknown as { twoFactorEnabled?: boolean }).twoFactorEnabled ??
+        false
+    );
+  }, [user]);
+
+  const handleTwoFactorStatusChange = () => {
+    setTwoFactorEnabled((prev) => !prev);
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <PersonalInfo user={user} />
       {hasPassword === true && <ChangePassword />}
       {hasPassword === false && <SetPassword email={user.email} />}
+      {hasPassword === true && (
+        <TwoFactorSetup
+          enabled={twoFactorEnabled}
+          onStatusChange={handleTwoFactorStatusChange}
+        />
+      )}
       <LinkedAccounts />
+      <PasskeyManagement />
+      <SessionManagement />
       <DeleteAccount user={user} />
     </div>
   );

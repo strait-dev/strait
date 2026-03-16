@@ -32,6 +32,27 @@ function SignUpPage() {
           Sign in
         </Link>
       </p>
+      <p className="text-pretty text-center text-muted-foreground text-xs">
+        By creating an account, you agree to our{" "}
+        <a
+          className="text-foreground underline-offset-4 hover:underline"
+          href="/terms"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Terms of Service
+        </a>{" "}
+        and{" "}
+        <a
+          className="text-foreground underline-offset-4 hover:underline"
+          href="/privacy"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Privacy Policy
+        </a>
+        .
+      </p>
     </AuthLayout>
   );
 }
