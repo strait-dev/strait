@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
@@ -11,7 +9,6 @@ import {
   StaggerItem,
 } from "@/components/landing/stagger-group.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import HyperText from "@/components/magicui/hyper-text.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
 const Hero = () => (
@@ -29,20 +26,17 @@ const Hero = () => (
             <span className="kicker">OPEN SOURCE JOB ORCHESTRATION</span>
           </Reveal>
 
-          <h1 className="mt-6 text-balance text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
-            <HyperText
-              as="span"
-              className="text-foreground"
-              duration={800}
-              startOnView
-            >
-              Ship background workflows that don't wake you up at 3 AM.
-            </HyperText>{" "}
-            <span className="text-muted-foreground">
-              Reliable queueing, workflow orchestration, and automatic failure
-              recovery — all backed by your existing database.
-            </span>
-          </h1>
+          <Reveal delay={0.1} variant="blur">
+            <h1 className="mt-6 text-balance text-4xl leading-[1.12] tracking-[-0.025em] sm:text-5xl lg:text-6xl">
+              <span className="text-foreground">
+                Ship background workflows that don&apos;t wake you up at 3 AM.
+              </span>{" "}
+              <span className="text-muted-foreground">
+                Reliable queueing, workflow orchestration, and automatic failure
+                recovery — all backed by your existing database.
+              </span>
+            </h1>
+          </Reveal>
 
           <Reveal delay={0.2} spring>
             <p className="mt-5 max-w-xl text-pretty text-base text-muted-foreground/70 leading-relaxed sm:mt-6 sm:text-lg">

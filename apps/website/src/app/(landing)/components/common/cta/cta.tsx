@@ -4,7 +4,9 @@ import { ArrowRight02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import Link from "next/link";
+import { useRef } from "react";
 
+import SmoothCursor from "@/components/cultui/smooth-cursor.tsx";
 import MeshGradientBg from "@/components/landing/mesh-gradient-bg.tsx";
 import Reveal from "@/components/landing/reveal.tsx";
 import Shell from "@/components/layout/shell.tsx";
@@ -13,17 +15,20 @@ import { dashboardHref } from "@/lib/urls.ts";
 
 const CTA = () => {
   const headingId = "cta-title";
+  const sectionRef = useRef<HTMLElement>(null);
 
   return (
     <section
       aria-labelledby={headingId}
       className="relative border-border/40 border-y bg-primary py-20 sm:py-28"
+      ref={sectionRef}
     >
+      <SmoothCursor containerRef={sectionRef} />
       <div className="orchestration-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
       <MeshGradientBg />
       <Particles
         className="pointer-events-none absolute inset-0"
-        color="var(--primary-foreground)"
+        color="var(--background)"
         quantity={80}
         size={0.4}
         staticity={40}

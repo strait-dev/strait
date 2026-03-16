@@ -3,8 +3,7 @@ const BLOBS = [
     className:
       "absolute -top-1/4 -left-1/4 h-[60%] w-[60%] rounded-full opacity-20 blur-3xl",
     style: {
-      background:
-        "color-mix(in oklch, var(--primary) 80%, oklch(0.7 0.15 90))",
+      background: "color-mix(in oklch, var(--primary) 80%, oklch(0.7 0.15 90))",
       animation: "mesh-a 14s ease-in-out infinite",
     },
   },
@@ -21,8 +20,7 @@ const BLOBS = [
     className:
       "absolute -bottom-1/4 left-1/4 h-[55%] w-[55%] rounded-full opacity-15 blur-3xl",
     style: {
-      background:
-        "color-mix(in oklch, var(--primary) 60%, oklch(0.8 0.12 80))",
+      background: "color-mix(in oklch, var(--primary) 60%, oklch(0.8 0.12 80))",
       animation: "mesh-c 16s ease-in-out infinite",
     },
   },

@@ -7,11 +7,7 @@ import {
   useReducedMotion,
 } from "motion/react";
 import { type ReactNode, useRef } from "react";
-import {
-  EASE_OUT,
-  SPRING_BOUNCY,
-  SPRING_SMOOTH,
-} from "@/lib/motion.ts";
+import { EASE_OUT, SPRING_BOUNCY, SPRING_SMOOTH } from "@/lib/motion.ts";
 
 type RevealVariant = "fade-up" | "fade-left" | "fade-right" | "scale" | "blur";
 
@@ -36,7 +32,7 @@ const directionMap = {
 function getVariantStyles(
   variant: RevealVariant,
   distance: number,
-  direction: "up" | "down" | "left" | "right",
+  direction: "up" | "down" | "left" | "right"
 ) {
   switch (variant) {
     case "blur":
@@ -73,11 +69,7 @@ function getVariantStyles(
   }
 }
 
-function getTransition(
-  variant: RevealVariant,
-  spring: boolean,
-  delay: number,
-) {
+function getTransition(variant: RevealVariant, spring: boolean, delay: number) {
   if (variant === "scale") {
     return { ...SPRING_SMOOTH, delay };
   }
@@ -110,9 +102,7 @@ const Reveal = ({
 
   return (
     <motion.div
-      animate={
-        prefersReduced || isInView ? styles.visible : styles.hidden
-      }
+      animate={prefersReduced || isInView ? styles.visible : styles.hidden}
       className={className}
       initial={prefersReduced ? styles.visible : styles.hidden}
       ref={ref}

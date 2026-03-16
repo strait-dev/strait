@@ -107,8 +107,7 @@ export const USE_CASE_PAGES: UseCasePageData[] = [
       {
         name: "Real-time CDC",
         slug: "real-time-cdc",
-        description:
-          "Stream every state change to your webhooks in real time.",
+        description: "Stream every state change to your webhooks in real time.",
       },
     ],
     workflowSteps: [

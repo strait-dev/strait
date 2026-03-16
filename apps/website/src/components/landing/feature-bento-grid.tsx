@@ -477,8 +477,8 @@ const FeatureBentoGrid = () => (
             className={`group overflow-hidden rounded-2xl border border-border/40 bg-card/50 shadow-sm transition-shadow duration-300 hover:shadow-md ${feature.span}`}
             delay={idx * 0.06}
             key={feature.id}
-            variant={idx % 2 === 0 ? "fade-up" : "scale"}
             spring
+            variant={idx % 2 === 0 ? "fade-up" : "scale"}
           >
             {/* Animation area */}
             <div className="relative flex h-48 items-center justify-center overflow-hidden bg-muted/20 p-6">

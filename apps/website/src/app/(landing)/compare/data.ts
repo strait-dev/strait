@@ -129,7 +129,8 @@ const comparisons: ComparisonPageData[] = [
       },
       {
         title: "Language ecosystem",
-        strait: "TypeScript, Go & Python SDKs with first-class concurrency and type safety",
+        strait:
+          "TypeScript, Go & Python SDKs with first-class concurrency and type safety",
         competitor: "TypeScript-first with limited Go support",
       },
       {
@@ -211,7 +212,8 @@ const comparisons: ComparisonPageData[] = [
     differentiators: [
       {
         title: "Queue backend",
-        strait: "Postgres with Postgres-backed — no Redis to provision or maintain",
+        strait:
+          "Postgres with Postgres-backed — no Redis to provision or maintain",
         competitor:
           "Requires a dedicated Redis instance with persistence configured",
       },

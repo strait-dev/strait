@@ -66,12 +66,7 @@ const PricingTeaser = () => (
 
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2 lg:gap-8">
         {TEASER_PLANS.map((plan, idx) => (
-          <Reveal
-            key={plan.name}
-            variant="scale"
-            delay={idx * 0.1}
-            spring
-          >
+          <Reveal delay={idx * 0.1} key={plan.name} spring variant="scale">
             <div
               className={`relative flex h-full flex-col overflow-hidden rounded-2xl border ${
                 plan.highlighted

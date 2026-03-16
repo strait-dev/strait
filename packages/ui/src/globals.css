@@ -803,7 +803,8 @@
     box-shadow: 0 0 8px 2px color-mix(in oklch, var(--primary) 20%, transparent);
   }
   50% {
-    box-shadow: 0 0 20px 6px color-mix(in oklch, var(--primary) 40%, transparent);
+    box-shadow: 0 0 20px 6px
+      color-mix(in oklch, var(--primary) 40%, transparent);
   }
 }
 

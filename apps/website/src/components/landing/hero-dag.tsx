@@ -99,12 +99,7 @@ function getNodeCenter(node: DagNode) {
   return { cx: node.x + NODE_W / 2, cy: node.y + NODE_H / 2 };
 }
 
-function getCurvedPath(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-): string {
+function getCurvedPath(x1: number, y1: number, x2: number, y2: number): string {
   const dx = x2 - x1;
   const cpOffset = dx * 0.4;
   return `M ${x1} ${y1} C ${x1 + cpOffset} ${y1}, ${x2 - cpOffset} ${y2}, ${x2} ${y2}`;
@@ -187,8 +182,14 @@ const HeroDag = () => {
       >
         {/* SVG glow filter for active nodes */}
         <defs>
-          <filter id="glow-executing" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+          <filter
+            height="160%"
+            id="glow-executing"
+            width="160%"
+            x="-30%"
+            y="-30%"
+          >
+            <feGaussianBlur in="SourceGraphic" result="blur" stdDeviation="4" />
             <feFlood floodColor="var(--primary)" floodOpacity="0.3" />
             <feComposite in2="blur" operator="in" />
             <feMerge>
@@ -196,8 +197,14 @@ const HeroDag = () => {
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-          <filter id="glow-completed" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+          <filter
+            height="160%"
+            id="glow-completed"
+            width="160%"
+            x="-30%"
+            y="-30%"
+          >
+            <feGaussianBlur in="SourceGraphic" result="blur" stdDeviation="3" />
             <feFlood floodColor="var(--success)" floodOpacity="0.2" />
             <feComposite in2="blur" operator="in" />
             <feMerge>
@@ -235,12 +242,8 @@ const HeroDag = () => {
               />
               {/* Flow dot on active edges */}
               {isActive && (
-                <circle r="3" fill="var(--success)" opacity="0.8">
-                  <animateMotion
-                    dur="1.5s"
-                    path={d}
-                    repeatCount="indefinite"
-                  />
+                <circle fill="var(--success)" opacity="0.8" r="3">
+                  <animateMotion dur="1.5s" path={d} repeatCount="indefinite" />
                 </circle>
               )}
             </g>
@@ -260,10 +263,10 @@ const HeroDag = () => {
 
           return (
             <g
+              filter={glowFilter}
               key={node.id}
               onPointerEnter={() => setHoveredNode(node.id)}
               onPointerLeave={() => setHoveredNode(null)}
-              filter={glowFilter}
             >
               <rect
                 fill={statusBg[status]}

@@ -176,7 +176,7 @@ export default async function UseCasePage({ params }: Props) {
         <MeshGradientBg />
         <Particles
           className="pointer-events-none absolute inset-0"
-          color="var(--primary-foreground)"
+          color="var(--background)"
           quantity={80}
           size={0.4}
           staticity={40}
