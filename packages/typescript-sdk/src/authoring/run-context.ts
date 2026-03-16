@@ -85,6 +85,27 @@ export type RunContextClient = {
     readonly pathParams: { readonly runID: string };
     readonly body: { readonly error: string };
   }) => Promise<unknown>;
+
+  // KV state store (STR-10)
+  readonly stateRun: (input: {
+    readonly pathParams: { readonly runID: string };
+    readonly body: { readonly key: string; readonly value: unknown };
+  }) => Promise<unknown>;
+  readonly getStateByRunId: (input: {
+    readonly pathParams: { readonly runID: string };
+  }) => Promise<unknown>;
+  readonly getStateByRunIdAndKey: (input: {
+    readonly pathParams: { readonly runID: string; readonly key: string };
+  }) => Promise<unknown>;
+  readonly deleteState: (input: {
+    readonly pathParams: { readonly runID: string; readonly key: string };
+  }) => Promise<unknown>;
+
+  // LLM streaming (STR-11)
+  readonly streamRun: (input: {
+    readonly pathParams: { readonly runID: string };
+    readonly body: { readonly chunk: string; readonly stream_id?: string; readonly done?: boolean };
+  }) => Promise<unknown>;
 };
 
 export type CreateRunContextOptions = {
@@ -225,6 +246,36 @@ export const createRunContext = (
 
     fail: async (error) => {
       await sdkClient.failRun({ pathParams, body: { error } });
+    },
+
+    state: {
+      get: (key) =>
+        sdkClient.getStateByRunIdAndKey({
+          pathParams: { runID: runId, key },
+        }),
+      set: async (key, value) => {
+        await sdkClient.stateRun({ pathParams, body: { key, value } });
+      },
+      delete: async (key) => {
+        await sdkClient.deleteState({
+          pathParams: { runID: runId, key },
+        });
+      },
+      list: async () => {
+        const result = await sdkClient.getStateByRunId({ pathParams });
+        return result as Array<{ key: string; value: unknown; updatedAt: string }>;
+      },
+    },
+
+    streamChunk: async (chunk, streamOptions?) => {
+      await sdkClient.streamRun({
+        pathParams,
+        body: {
+          chunk,
+          stream_id: streamOptions?.streamId,
+          done: streamOptions?.done,
+        },
+      });
     },
   };
 };

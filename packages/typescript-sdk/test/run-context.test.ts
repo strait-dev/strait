@@ -41,6 +41,11 @@ const createMockClient = () => {
     annotateRun: track("annotateRun"),
     completeRun: track("completeRun"),
     failRun: track("failRun"),
+    stateRun: track("stateRun"),
+    getStateByRunId: track("getStateByRunId"),
+    getStateByRunIdAndKey: track("getStateByRunIdAndKey"),
+    deleteState: track("deleteState"),
+    streamRun: track("streamRun"),
   };
 
   return { client, calls };
@@ -260,6 +265,68 @@ describe("createRunContext", () => {
     expect(calls[1].args).toEqual({
       pathParams: { runID: "run_123" },
       body: { error: "something broke" },
+    });
+  });
+
+  test("state.set sends key and value via stateRun", async () => {
+    const { client, calls } = createMockClient();
+    const ctx = createRunContext(client, "run_123");
+
+    await ctx.state?.set("counter", 42);
+
+    expect(calls[0].method).toBe("stateRun");
+    expect(calls[0].args).toEqual({
+      pathParams: { runID: "run_123" },
+      body: { key: "counter", value: 42 },
+    });
+  });
+
+  test("state.get calls getStateByRunIdAndKey with key path param", async () => {
+    const { client, calls } = createMockClient();
+    const ctx = createRunContext(client, "run_123");
+
+    await ctx.state?.get("counter");
+
+    expect(calls[0].method).toBe("getStateByRunIdAndKey");
+    expect(calls[0].args).toEqual({
+      pathParams: { runID: "run_123", key: "counter" },
+    });
+  });
+
+  test("state.delete calls deleteState with key path param", async () => {
+    const { client, calls } = createMockClient();
+    const ctx = createRunContext(client, "run_123");
+
+    await ctx.state?.delete("counter");
+
+    expect(calls[0].method).toBe("deleteState");
+    expect(calls[0].args).toEqual({
+      pathParams: { runID: "run_123", key: "counter" },
+    });
+  });
+
+  test("state.list calls getStateByRunId", async () => {
+    const { client, calls } = createMockClient();
+    const ctx = createRunContext(client, "run_123");
+
+    await ctx.state?.list();
+
+    expect(calls[0].method).toBe("getStateByRunId");
+    expect(calls[0].args).toEqual({
+      pathParams: { runID: "run_123" },
+    });
+  });
+
+  test("streamChunk calls streamRun with correct body", async () => {
+    const { client, calls } = createMockClient();
+    const ctx = createRunContext(client, "run_123");
+
+    await ctx.streamChunk?.("Hello world", { streamId: "s1", done: false });
+
+    expect(calls[0].method).toBe("streamRun");
+    expect(calls[0].args).toEqual({
+      pathParams: { runID: "run_123" },
+      body: { chunk: "Hello world", stream_id: "s1", done: false },
     });
   });
 

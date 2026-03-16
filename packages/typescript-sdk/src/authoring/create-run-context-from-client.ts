@@ -57,6 +57,23 @@ type SdkDomain = {
     readonly pathParams: { readonly runID: string };
     readonly body: unknown;
   }) => Promise<unknown>;
+  readonly stateRun: (input: {
+    readonly pathParams: { readonly runID: string };
+    readonly body: unknown;
+  }) => Promise<unknown>;
+  readonly getStateByRunId: (input: {
+    readonly pathParams: { readonly runID: string };
+  }) => Promise<unknown>;
+  readonly getStateByRunIdAndKey: (input: {
+    readonly pathParams: { readonly runID: string; readonly key: string };
+  }) => Promise<unknown>;
+  readonly deleteState: (input: {
+    readonly pathParams: { readonly runID: string; readonly key: string };
+  }) => Promise<unknown>;
+  readonly streamRun: (input: {
+    readonly pathParams: { readonly runID: string };
+    readonly body: unknown;
+  }) => Promise<unknown>;
 };
 
 type StraitClientLike = {
@@ -89,6 +106,11 @@ export const createRunContextFromClient = (
     annotateRun: (input) => sdk.annotateRun(input),
     completeRun: (input) => sdk.completeRun(input),
     failRun: (input) => sdk.failRun(input),
+    stateRun: (input) => sdk.stateRun(input),
+    getStateByRunId: (input) => sdk.getStateByRunId(input),
+    getStateByRunIdAndKey: (input) => sdk.getStateByRunIdAndKey(input),
+    deleteState: (input) => sdk.deleteState(input),
+    streamRun: (input) => sdk.streamRun(input),
   };
 
   return createRunContext(wrappedClient, runId, options);

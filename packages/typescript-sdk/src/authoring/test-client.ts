@@ -166,44 +166,33 @@ export const createTestContext = (
       record.failError = body.error;
       return Promise.resolve();
     },
-  };
-
-  const ctx = createRunContext(mockClient, runId, {
-    attempt: options?.attempt,
-    signal: options?.signal,
-  });
-
-  // Add state and streamChunk directly (these are in-memory for tests)
-  const ctxWithExtras: RunContext = {
-    ...ctx,
-    state: {
-      get: (key) => Promise.resolve(record.stateStore.get(key)),
-      set: (key, value) => {
-        record.stateStore.set(key, value);
-        return Promise.resolve();
-      },
-      delete: (key) => {
-        record.stateStore.delete(key);
-        return Promise.resolve();
-      },
-      list: () =>
-        Promise.resolve(
-          Array.from(record.stateStore.entries()).map(([key, value]) => ({
-            key,
-            value,
-            updatedAt: new Date().toISOString(),
-          }))
-        ),
+    stateRun: ({ body }) => {
+      record.stateStore.set(body.key, body.value);
+      return Promise.resolve();
     },
-    streamChunk: (chunk, streamOptions?) => {
+    getStateByRunId: () =>
+      Promise.resolve(
+        Array.from(record.stateStore.entries()).map(([key, value]) => ({
+          key,
+          value,
+          updatedAt: new Date().toISOString(),
+        }))
+      ),
+    getStateByRunIdAndKey: ({ pathParams }) =>
+      Promise.resolve(record.stateStore.get(pathParams.key)),
+    deleteState: ({ pathParams }) => {
+      record.stateStore.delete(pathParams.key);
+      return Promise.resolve();
+    },
+    streamRun: ({ body }) => {
       record.streamChunks.push({
-        chunk,
-        streamId: streamOptions?.streamId,
-        done: streamOptions?.done,
+        chunk: body.chunk,
+        streamId: body.stream_id,
+        done: body.done,
       });
       return Promise.resolve();
     },
   };
 
-  return { ctx: ctxWithExtras, record };
+  return { ctx: createRunContext(mockClient, runId, { attempt: options?.attempt, signal: options?.signal }), record };
 };

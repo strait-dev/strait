@@ -21,6 +21,11 @@ export type OperationPathParamsById = {
   "postSdkV1RunsByRunIDOutput": { "runID": string };
   "postSdkV1RunsByRunIDProgress": { "runID": string };
   "postSdkV1RunsByRunIDSpawn": { "runID": string };
+  "getSdkV1RunsByRunIDState": { "runID": string };
+  "postSdkV1RunsByRunIDState": { "runID": string };
+  "deleteSdkV1RunsByRunIDStateByKey": { "runID": string; "key": string };
+  "getSdkV1RunsByRunIDStateByKey": { "runID": string; "key": string };
+  "postSdkV1RunsByRunIDStream": { "runID": string };
   "postSdkV1RunsByRunIDToolCall": { "runID": string };
   "postSdkV1RunsByRunIDUsage": { "runID": string };
   "postSdkV1RunsByRunIDWaitForEvent": { "runID": string };
@@ -118,7 +123,9 @@ export type OperationPathParamsById = {
   "getV1RunsByRunIDOutputs": { "runID": string };
   "postV1RunsByRunIDReplay": { "runID": string };
   "postV1RunsByRunIDReschedule": { "runID": string };
+  "getV1RunsByRunIDState": { "runID": string };
   "getV1RunsByRunIDStream": { "runID": string };
+  "getV1RunsByRunIDStreamChunks": { "runID": string };
   "getV1RunsByRunIDToolCalls": { "runID": string };
   "getV1RunsByRunIDUsage": { "runID": string };
   "postV1RunsBulkCancel": undefined;
@@ -138,10 +145,12 @@ export type OperationPathParamsById = {
   "postV1WebhookDeliveriesByDeliveryIDRetry": { "deliveryID": string };
   "getV1WebhooksDeliveries": undefined;
   "getV1WebhooksDeliveriesById": { "id": string };
+  "postV1WebhooksDeliveriesByIdReplay": { "id": string };
   "postV1WebhooksDeliveriesByIdRetry": { "id": string };
   "getV1WebhooksSubscriptions": undefined;
   "postV1WebhooksSubscriptions": undefined;
   "deleteV1WebhooksSubscriptionsById": { "id": string };
+  "postV1WebhooksTest": undefined;
   "getV1WorkflowPoliciesByProjectID": { "projectID": string };
   "putV1WorkflowPoliciesByProjectID": { "projectID": string };
   "getV1WorkflowRuns": undefined;
@@ -159,6 +168,7 @@ export type OperationPathParamsById = {
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefReplaySubtree": { "workflowRunID": string; "stepRef": string };
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefRetry": { "workflowRunID": string; "stepRef": string };
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefSkip": { "workflowRunID": string; "stepRef": string };
+  "getV1WorkflowRunsByWorkflowRunIDTimeline": { "workflowRunID": string };
   "postV1WorkflowRunsBulkCancel": undefined;
   "postV1WorkflowRunsBulkReplay": undefined;
   "getV1Workflows": undefined;
@@ -166,6 +176,7 @@ export type OperationPathParamsById = {
   "deleteV1WorkflowsByWorkflowID": { "workflowID": string };
   "getV1WorkflowsByWorkflowID": { "workflowID": string };
   "patchV1WorkflowsByWorkflowID": { "workflowID": string };
+  "getV1WorkflowsByWorkflowIDActiveVersions": { "workflowID": string };
   "postV1WorkflowsByWorkflowIDClone": { "workflowID": string };
   "postV1WorkflowsByWorkflowIDDryRun": { "workflowID": string };
   "getV1WorkflowsByWorkflowIDGraph": { "workflowID": string };
@@ -194,6 +205,11 @@ export type OperationQueryParamsById = {
   "postSdkV1RunsByRunIDOutput": undefined;
   "postSdkV1RunsByRunIDProgress": undefined;
   "postSdkV1RunsByRunIDSpawn": undefined;
+  "getSdkV1RunsByRunIDState": undefined;
+  "postSdkV1RunsByRunIDState": undefined;
+  "deleteSdkV1RunsByRunIDStateByKey": undefined;
+  "getSdkV1RunsByRunIDStateByKey": undefined;
+  "postSdkV1RunsByRunIDStream": undefined;
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
@@ -291,7 +307,9 @@ export type OperationQueryParamsById = {
   "getV1RunsByRunIDOutputs": undefined;
   "postV1RunsByRunIDReplay": undefined;
   "postV1RunsByRunIDReschedule": undefined;
+  "getV1RunsByRunIDState": undefined;
   "getV1RunsByRunIDStream": undefined;
+  "getV1RunsByRunIDStreamChunks": undefined;
   "getV1RunsByRunIDToolCalls": undefined;
   "getV1RunsByRunIDUsage": undefined;
   "postV1RunsBulkCancel": undefined;
@@ -311,10 +329,12 @@ export type OperationQueryParamsById = {
   "postV1WebhookDeliveriesByDeliveryIDRetry": undefined;
   "getV1WebhooksDeliveries": { "project_id": string; "status"?: "pending" | "delivered" | "failed" | "dead"; "limit"?: number; "cursor"?: string };
   "getV1WebhooksDeliveriesById": undefined;
+  "postV1WebhooksDeliveriesByIdReplay": undefined;
   "postV1WebhooksDeliveriesByIdRetry": undefined;
   "getV1WebhooksSubscriptions": { "project_id": string };
   "postV1WebhooksSubscriptions": undefined;
   "deleteV1WebhooksSubscriptionsById": undefined;
+  "postV1WebhooksTest": undefined;
   "getV1WorkflowPoliciesByProjectID": undefined;
   "putV1WorkflowPoliciesByProjectID": undefined;
   "getV1WorkflowRuns": { "project_id": string; "status"?: "pending" | "running" | "paused" | "completed" | "failed" | "timed_out" | "canceled"; "limit"?: number };
@@ -332,6 +352,7 @@ export type OperationQueryParamsById = {
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefReplaySubtree": undefined;
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefRetry": undefined;
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefSkip": undefined;
+  "getV1WorkflowRunsByWorkflowRunIDTimeline": undefined;
   "postV1WorkflowRunsBulkCancel": undefined;
   "postV1WorkflowRunsBulkReplay": undefined;
   "getV1Workflows": { "project_id": string };
@@ -339,6 +360,7 @@ export type OperationQueryParamsById = {
   "deleteV1WorkflowsByWorkflowID": undefined;
   "getV1WorkflowsByWorkflowID": undefined;
   "patchV1WorkflowsByWorkflowID": undefined;
+  "getV1WorkflowsByWorkflowIDActiveVersions": undefined;
   "postV1WorkflowsByWorkflowIDClone": undefined;
   "postV1WorkflowsByWorkflowIDDryRun": undefined;
   "getV1WorkflowsByWorkflowIDGraph": { "format"?: "json" | "dot" };
@@ -367,6 +389,11 @@ export type OperationHeaderParamsById = {
   "postSdkV1RunsByRunIDOutput": undefined;
   "postSdkV1RunsByRunIDProgress": undefined;
   "postSdkV1RunsByRunIDSpawn": undefined;
+  "getSdkV1RunsByRunIDState": undefined;
+  "postSdkV1RunsByRunIDState": undefined;
+  "deleteSdkV1RunsByRunIDStateByKey": undefined;
+  "getSdkV1RunsByRunIDStateByKey": undefined;
+  "postSdkV1RunsByRunIDStream": undefined;
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
@@ -464,7 +491,9 @@ export type OperationHeaderParamsById = {
   "getV1RunsByRunIDOutputs": undefined;
   "postV1RunsByRunIDReplay": undefined;
   "postV1RunsByRunIDReschedule": undefined;
+  "getV1RunsByRunIDState": undefined;
   "getV1RunsByRunIDStream": undefined;
+  "getV1RunsByRunIDStreamChunks": undefined;
   "getV1RunsByRunIDToolCalls": undefined;
   "getV1RunsByRunIDUsage": undefined;
   "postV1RunsBulkCancel": undefined;
@@ -484,10 +513,12 @@ export type OperationHeaderParamsById = {
   "postV1WebhookDeliveriesByDeliveryIDRetry": undefined;
   "getV1WebhooksDeliveries": undefined;
   "getV1WebhooksDeliveriesById": undefined;
+  "postV1WebhooksDeliveriesByIdReplay": undefined;
   "postV1WebhooksDeliveriesByIdRetry": undefined;
   "getV1WebhooksSubscriptions": undefined;
   "postV1WebhooksSubscriptions": undefined;
   "deleteV1WebhooksSubscriptionsById": undefined;
+  "postV1WebhooksTest": undefined;
   "getV1WorkflowPoliciesByProjectID": undefined;
   "putV1WorkflowPoliciesByProjectID": undefined;
   "getV1WorkflowRuns": undefined;
@@ -505,6 +536,7 @@ export type OperationHeaderParamsById = {
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefReplaySubtree": undefined;
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefRetry": undefined;
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefSkip": undefined;
+  "getV1WorkflowRunsByWorkflowRunIDTimeline": undefined;
   "postV1WorkflowRunsBulkCancel": undefined;
   "postV1WorkflowRunsBulkReplay": undefined;
   "getV1Workflows": undefined;
@@ -512,6 +544,7 @@ export type OperationHeaderParamsById = {
   "deleteV1WorkflowsByWorkflowID": undefined;
   "getV1WorkflowsByWorkflowID": undefined;
   "patchV1WorkflowsByWorkflowID": undefined;
+  "getV1WorkflowsByWorkflowIDActiveVersions": undefined;
   "postV1WorkflowsByWorkflowIDClone": undefined;
   "postV1WorkflowsByWorkflowIDDryRun": undefined;
   "getV1WorkflowsByWorkflowIDGraph": undefined;
@@ -562,6 +595,11 @@ export const generatedOperationMetadataById = {
   "postSdkV1RunsByRunIDOutput": { functionName: "outputRun", domainName: "sdk", domainMethodName: "outputRun", pathParamNames: ["runID"], summary: "Upsert structured output" },
   "postSdkV1RunsByRunIDProgress": { functionName: "progressRun", domainName: "sdk", domainMethodName: "progressRun", pathParamNames: ["runID"], summary: "Report progress" },
   "postSdkV1RunsByRunIDSpawn": { functionName: "spawnRun", domainName: "sdk", domainMethodName: "spawnRun", pathParamNames: ["runID"], summary: "Spawn a child job run" },
+  "getSdkV1RunsByRunIDState": { functionName: "getStateByRunID", domainName: "sdk", domainMethodName: "getStateByRunId", pathParamNames: ["runID"], summary: "List all run state keys" },
+  "postSdkV1RunsByRunIDState": { functionName: "stateRun", domainName: "sdk", domainMethodName: "stateRun", pathParamNames: ["runID"], summary: "Set run state key" },
+  "deleteSdkV1RunsByRunIDStateByKey": { functionName: "deleteState", domainName: "sdk", domainMethodName: "deleteState", pathParamNames: ["runID","key"], summary: "Delete run state key" },
+  "getSdkV1RunsByRunIDStateByKey": { functionName: "getStateByRunIDAndKey", domainName: "sdk", domainMethodName: "getStateByRunIdAndKey", pathParamNames: ["runID","key"], summary: "Get run state key" },
+  "postSdkV1RunsByRunIDStream": { functionName: "streamRun", domainName: "sdk", domainMethodName: "streamRun", pathParamNames: ["runID"], summary: "Push LLM stream chunk" },
   "postSdkV1RunsByRunIDToolCall": { functionName: "toolCallRun", domainName: "sdk", domainMethodName: "toolCallRun", pathParamNames: ["runID"], summary: "Record a tool call" },
   "postSdkV1RunsByRunIDUsage": { functionName: "usageRun", domainName: "sdk", domainMethodName: "usageRun", pathParamNames: ["runID"], summary: "Report AI model usage" },
   "postSdkV1RunsByRunIDWaitForEvent": { functionName: "waitForEventRun", domainName: "sdk", domainMethodName: "waitForEventRun", pathParamNames: ["runID"], summary: "Pause a run to wait for an external event" },
@@ -659,7 +697,9 @@ export const generatedOperationMetadataById = {
   "getV1RunsByRunIDOutputs": { functionName: "listOutputs", domainName: "runs", domainMethodName: "listOutputs", pathParamNames: ["runID"], summary: "List run structured outputs" },
   "postV1RunsByRunIDReplay": { functionName: "replayRun", domainName: "runs", domainMethodName: "replay", pathParamNames: ["runID"], summary: "Replay a failed run" },
   "postV1RunsByRunIDReschedule": { functionName: "rescheduleRun", domainName: "runs", domainMethodName: "reschedule", pathParamNames: ["runID"], summary: "Reschedule a run" },
+  "getV1RunsByRunIDState": { functionName: "getState", domainName: "runs", domainMethodName: "getState", pathParamNames: ["runID"], summary: "List run state (management API)" },
   "getV1RunsByRunIDStream": { functionName: "getStreamByRunID", domainName: "runs", domainMethodName: "getStreamByRunId", pathParamNames: ["runID"], summary: "SSE event stream" },
+  "getV1RunsByRunIDStreamChunks": { functionName: "listChunks", domainName: "runs", domainMethodName: "listChunks", pathParamNames: ["runID"], summary: "SSE stream of LLM chunks" },
   "getV1RunsByRunIDToolCalls": { functionName: "listToolCalls", domainName: "runs", domainMethodName: "listToolCalls", pathParamNames: ["runID"], summary: "List run tool calls" },
   "getV1RunsByRunIDUsage": { functionName: "getUsage", domainName: "runs", domainMethodName: "getUsage", pathParamNames: ["runID"], summary: "List run AI model usage" },
   "postV1RunsBulkCancel": { functionName: "bulkCancelRun", domainName: "runs", domainMethodName: "bulkCancel", pathParamNames: [], summary: "Cancel multiple runs" },
@@ -679,10 +719,12 @@ export const generatedOperationMetadataById = {
   "postV1WebhookDeliveriesByDeliveryIDRetry": { functionName: "retryWebhookDelivery", domainName: "webhooks", domainMethodName: "retryDelivery", pathParamNames: ["deliveryID"], summary: "Retry a failed webhook delivery" },
   "getV1WebhooksDeliveries": { functionName: "listDeliveries", domainName: "webhooks", domainMethodName: "listDeliveries", pathParamNames: [], summary: "List webhook deliveries" },
   "getV1WebhooksDeliveriesById": { functionName: "getDelivery", domainName: "webhooks", domainMethodName: "getDelivery", pathParamNames: ["id"], summary: "Get webhook delivery details" },
+  "postV1WebhooksDeliveriesByIdReplay": { functionName: "replayDelivery", domainName: "webhooks", domainMethodName: "replayDelivery", pathParamNames: ["id"], summary: "Replay webhook delivery" },
   "postV1WebhooksDeliveriesByIdRetry": { functionName: "retryDelivery", domainName: "webhooks", domainMethodName: "retryDeliveryById", pathParamNames: ["id"], summary: "Retry a webhook delivery" },
   "getV1WebhooksSubscriptions": { functionName: "listSubscriptions", domainName: "webhooks", domainMethodName: "listSubscriptions", pathParamNames: [], summary: "List active webhook subscriptions" },
   "postV1WebhooksSubscriptions": { functionName: "subscriptionsWebhook", domainName: "webhooks", domainMethodName: "subscriptions", pathParamNames: [], summary: "Create a webhook subscription" },
   "deleteV1WebhooksSubscriptionsById": { functionName: "deleteSubscription", domainName: "webhooks", domainMethodName: "deleteSubscription", pathParamNames: ["id"], summary: "Delete a webhook subscription" },
+  "postV1WebhooksTest": { functionName: "testWebhook", domainName: "webhooks", domainMethodName: "test", pathParamNames: [], summary: "Test webhook endpoint" },
   "getV1WorkflowPoliciesByProjectID": { functionName: "getWorkflowPolicy", domainName: "workflows", domainMethodName: "getPolicy", pathParamNames: ["projectID"], summary: "Get workflow policy" },
   "putV1WorkflowPoliciesByProjectID": { functionName: "upsertWorkflowPolicy", domainName: "workflows", domainMethodName: "upsertPolicy", pathParamNames: ["projectID"], summary: "Upsert workflow policy" },
   "getV1WorkflowRuns": { functionName: "listWorkflowRuns", domainName: "workflowRuns", domainMethodName: "list", pathParamNames: [], summary: "List workflow runs" },
@@ -700,6 +742,7 @@ export const generatedOperationMetadataById = {
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefReplaySubtree": { functionName: "replaySubtreeStep", domainName: "workflowRuns", domainMethodName: "replaySubtreeStep", pathParamNames: ["workflowRunID","stepRef"], summary: "Replay a step subtree" },
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefRetry": { functionName: "retryStep", domainName: "workflowRuns", domainMethodName: "retryStep", pathParamNames: ["workflowRunID","stepRef"], summary: "Retry a single workflow step" },
   "postV1WorkflowRunsByWorkflowRunIDStepsByStepRefSkip": { functionName: "skipStep", domainName: "workflowRuns", domainMethodName: "skipStep", pathParamNames: ["workflowRunID","stepRef"], summary: "Skip a step" },
+  "getV1WorkflowRunsByWorkflowRunIDTimeline": { functionName: "getTimeline", domainName: "workflows", domainMethodName: "getTimeline", pathParamNames: ["workflowRunID"], summary: "Get workflow run timeline for Gantt chart rendering" },
   "postV1WorkflowRunsBulkCancel": { functionName: "bulkCancelWorkflowRun", domainName: "workflowRuns", domainMethodName: "bulkCancel", pathParamNames: [], summary: "Bulk cancel workflow runs" },
   "postV1WorkflowRunsBulkReplay": { functionName: "bulkReplayWorkflowRun", domainName: "workflowRuns", domainMethodName: "bulkReplay", pathParamNames: [], summary: "Bulk replay workflow runs" },
   "getV1Workflows": { functionName: "listWorkflows", domainName: "workflows", domainMethodName: "list", pathParamNames: [], summary: "List workflows" },
@@ -707,6 +750,7 @@ export const generatedOperationMetadataById = {
   "deleteV1WorkflowsByWorkflowID": { functionName: "deleteWorkflow", domainName: "workflows", domainMethodName: "delete", pathParamNames: ["workflowID"], summary: "Delete a workflow" },
   "getV1WorkflowsByWorkflowID": { functionName: "getWorkflow", domainName: "workflows", domainMethodName: "get", pathParamNames: ["workflowID"], summary: "Get a workflow" },
   "patchV1WorkflowsByWorkflowID": { functionName: "updateWorkflow", domainName: "workflows", domainMethodName: "update", pathParamNames: ["workflowID"], summary: "Update a workflow" },
+  "getV1WorkflowsByWorkflowIDActiveVersions": { functionName: "listActiveVersions", domainName: "workflows", domainMethodName: "listActiveVersions", pathParamNames: ["workflowID"], summary: "List active workflow versions" },
   "postV1WorkflowsByWorkflowIDClone": { functionName: "cloneWorkflow", domainName: "workflows", domainMethodName: "clone", pathParamNames: ["workflowID"], summary: "Clone a workflow" },
   "postV1WorkflowsByWorkflowIDDryRun": { functionName: "dryRunWorkflow", domainName: "workflows", domainMethodName: "dryRun", pathParamNames: ["workflowID"], summary: "Validate a workflow DAG structure" },
   "getV1WorkflowsByWorkflowIDGraph": { functionName: "getGraphByWorkflowID", domainName: "workflows", domainMethodName: "getGraphByWorkflowId", pathParamNames: ["workflowID"], summary: "Get DAG visualization" },
