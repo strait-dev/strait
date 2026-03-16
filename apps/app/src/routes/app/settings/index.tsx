@@ -17,6 +17,7 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 import Account from "@/components/(settings)/account";
+import PendingInvitations from "@/components/(settings)/pending-invitations";
 import SubscriptionOverview from "@/components/(settings)/subscription-overview";
 import TeamMembers from "@/components/(settings)/team-members";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
@@ -229,6 +230,7 @@ function RouteComponent() {
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="team">
+            <PendingInvitations />
             {session.user.defaultOrganizationId ? (
               <TeamMembers
                 currentUserId={session.user.id}

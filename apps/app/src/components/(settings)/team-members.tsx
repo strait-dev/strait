@@ -33,6 +33,7 @@ import {
   useCancelInvitation,
 } from "@/hooks/auth/use-invitation";
 import { membersQueryOptions, useRemoveMember } from "@/hooks/auth/use-member";
+import { useOrganizationRole } from "@/hooks/auth/use-permissions";
 import { LoadingIcon, MailIcon, TrashIcon } from "@/lib/icons";
 
 interface TeamMembersProps {
@@ -77,6 +78,10 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
 
   const cancelInvitation = useCancelInvitation();
   const removeMember = useRemoveMember();
+  const { isOwner, isAdmin } = useOrganizationRole(
+    organizationId,
+    currentUserId
+  );
 
   const pendingInvitations = (invitations ?? []).filter(
     (inv) => inv.status === "pending"
@@ -116,7 +121,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                 Manage who has access to your organization.
               </CardDescription>
             </div>
-            <InviteMemberDialog organizationId={organizationId} />
+            {isAdmin && <InviteMemberDialog organizationId={organizationId} />}
           </div>
         </CardHeader>
         <CardContent>
@@ -202,7 +207,9 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                             <ChangeRoleDropdown
                               currentRole={member.role}
                               disabled={
-                                isCurrentUser || member.role === "owner"
+                                !isOwner ||
+                                isCurrentUser ||
+                                member.role === "owner"
                               }
                               memberId={member.id}
                               organizationId={organizationId}
@@ -212,62 +219,64 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                             {formatDate(member.createdAt)}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            {!isCurrentUser && member.role !== "owner" && (
-                              <AlertDialog>
-                                <AlertDialogTrigger
-                                  render={
-                                    <Button
-                                      disabled={
-                                        removeMember.isPending &&
-                                        removeMember.variables
-                                          ?.memberIdOrEmail === member.id
-                                      }
-                                      size="sm"
-                                      variant="outline"
-                                    />
-                                  }
-                                >
-                                  {removeMember.isPending &&
-                                  removeMember.variables?.memberIdOrEmail ===
-                                    member.id ? (
-                                    <HugeiconsIcon
-                                      className="size-3 animate-spin"
-                                      icon={LoadingIcon}
-                                    />
-                                  ) : (
-                                    <HugeiconsIcon
-                                      className="size-3"
-                                      icon={TrashIcon}
-                                    />
-                                  )}
-                                  Remove
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Remove {member.name}?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This will remove {member.name} from the
-                                      organization. They will lose access
-                                      immediately.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>
-                                      Cancel
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() =>
-                                        handleRemoveMember(member.id)
-                                      }
-                                    >
-                                      Remove
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            )}
+                            {isAdmin &&
+                              !isCurrentUser &&
+                              member.role !== "owner" && (
+                                <AlertDialog>
+                                  <AlertDialogTrigger
+                                    render={
+                                      <Button
+                                        disabled={
+                                          removeMember.isPending &&
+                                          removeMember.variables
+                                            ?.memberIdOrEmail === member.id
+                                        }
+                                        size="sm"
+                                        variant="outline"
+                                      />
+                                    }
+                                  >
+                                    {removeMember.isPending &&
+                                    removeMember.variables?.memberIdOrEmail ===
+                                      member.id ? (
+                                      <HugeiconsIcon
+                                        className="size-3 animate-spin"
+                                        icon={LoadingIcon}
+                                      />
+                                    ) : (
+                                      <HugeiconsIcon
+                                        className="size-3"
+                                        icon={TrashIcon}
+                                      />
+                                    )}
+                                    Remove
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>
+                                        Remove {member.name}?
+                                      </AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        This will remove {member.name} from the
+                                        organization. They will lose access
+                                        immediately.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>
+                                        Cancel
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() =>
+                                          handleRemoveMember(member.id)
+                                        }
+                                      >
+                                        Remove
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
                           </td>
                         </tr>
                       );
@@ -381,27 +390,29 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                             {formatDate(invitation.expiresAt)}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <Button
-                              disabled={isCancelling}
-                              onClick={() =>
-                                handleCancelInvitation(invitation.id)
-                              }
-                              size="sm"
-                              variant="outline"
-                            >
-                              {isCancelling ? (
-                                <HugeiconsIcon
-                                  className="size-3 animate-spin"
-                                  icon={LoadingIcon}
-                                />
-                              ) : (
-                                <HugeiconsIcon
-                                  className="size-3"
-                                  icon={TrashIcon}
-                                />
-                              )}
-                              Cancel
-                            </Button>
+                            {isAdmin && (
+                              <Button
+                                disabled={isCancelling}
+                                onClick={() =>
+                                  handleCancelInvitation(invitation.id)
+                                }
+                                size="sm"
+                                variant="outline"
+                              >
+                                {isCancelling ? (
+                                  <HugeiconsIcon
+                                    className="size-3 animate-spin"
+                                    icon={LoadingIcon}
+                                  />
+                                ) : (
+                                  <HugeiconsIcon
+                                    className="size-3"
+                                    icon={TrashIcon}
+                                  />
+                                )}
+                                Cancel
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       );

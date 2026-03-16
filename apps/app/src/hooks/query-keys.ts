@@ -49,6 +49,10 @@ export const queryKeys = createQueryKeyStore({
     list: (organizationId: string) => [organizationId],
   },
 
+  userInvitations: {
+    list: null,
+  },
+
   subscription: {
     current: null,
     state: null,
