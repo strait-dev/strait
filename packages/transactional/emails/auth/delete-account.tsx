@@ -83,7 +83,7 @@ const DeleteAccount = ({ name, url }: Props) => (
 
           <Section>
             <Button
-              className="inline-flex h-10 items-center justify-center rounded-[0.3rem] bg-[#FFFFE3] px-6 font-medium text-sm text-[#171717] no-underline transition-colors"
+              className="inline-flex h-10 items-center justify-center rounded-[0.3rem] bg-[#171717] px-6 font-medium text-sm text-[#FFFFE3] no-underline transition-colors"
               href={url}
             >
               Confirm deletion
