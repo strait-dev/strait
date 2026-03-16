@@ -57,7 +57,7 @@ const TrialLastDay = ({
               <Img
                 alt="Strait Logo"
                 className=""
-                src="https://app.usestrait.com/strait-logo-black.svg"
+                src="/static/strait-logo-black.svg"
                 width="150"
               />
             </Section>

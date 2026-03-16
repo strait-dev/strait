@@ -51,7 +51,7 @@ const PasswordUpdate = ({ name }: PasswordUpdateProps) => (
             <Img
               alt="Strait"
               className="mb-6"
-              src="https://app.usestrait.com/strait-logo-black.svg"
+              src="/static/strait-logo-black.svg"
               width="150"
             />
           </Section>
