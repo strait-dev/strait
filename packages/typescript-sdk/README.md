@@ -272,6 +272,133 @@ validateDag([
 ]); // throws DagValidationError
 ```
 
+### AI step builder
+
+`step.ai()` creates a job step pre-configured for LLM workloads with higher timeout, retries, and resource class:
+
+```ts
+import { step } from "@strait/ts";
+
+const steps = [
+  step.job("extract", "job_extract"),
+  step.ai("summarize", "job_summarize", { dependsOn: ["extract"] }),
+  step.ai("classify", "job_classify", { dependsOn: ["extract"] }),
+  step.job("store", "job_store", { dependsOn: ["summarize", "classify"] }),
+];
+```
+
+AI step defaults: 600s timeout, 5 retries with exponential backoff (2s–120s), large resource class. All defaults can be overridden.
+
+### Durable AI agents
+
+`defineAgent` wraps `defineJob` with agent conventions — iteration tracking, cost accumulation, auto-checkpointing, and LLM-tuned defaults:
+
+```ts
+import { defineAgent } from "@strait/ts";
+
+const researchAgent = defineAgent({
+  name: "Research Agent",
+  slug: "research-agent",
+  endpointUrl: "https://worker.dev/agents/research",
+  projectId: "proj_1",
+  schema: zodSchema(z.object({ topic: z.string() })),
+  maxCostMicrousd: 5_000_000, // $5 budget
+  autoCheckpoint: true,
+
+  run: async (payload, ctx) => {
+    // ctx is an AgentRunContext with extra fields
+    ctx.logger.info(`Iteration ${ctx.iteration}`);
+
+    const result = await doResearch(payload.topic);
+
+    await ctx.reportUsage?.({
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      promptTokens: result.usage.input,
+      completionTokens: result.usage.output,
+      costMicrousd: result.usage.costMicrousd,
+    });
+
+    if (ctx.isBudgetExceeded()) {
+      return { partial: true, findings: result.findings };
+    }
+
+    await ctx.checkpoint({ findings: result.findings });
+    return { findings: result.findings };
+  },
+});
+```
+
+Agent defaults: `strait.kind=agent` tag, 600s timeout, 5 attempts, exponential retry. `AgentRunContext` adds `iteration`, `accumulatedCostMicrousd()`, and `isBudgetExceeded()`.
+
+### Event definitions
+
+`defineEvent` creates a typed event key with optional validation, for use with `ctx.waitForEvent()`:
+
+```ts
+import { defineEvent, zodSchema } from "@strait/ts";
+
+const approvalEvent = defineEvent("approval.granted", zodSchema(
+  z.object({ approver: z.string(), approved: z.boolean() })
+));
+
+// In a job handler:
+const event = await ctx.waitForEvent?.(approvalEvent.key, { timeoutSecs: 3600 });
+```
+
+### Extended RunContext
+
+When wired via `createRunContext`, the `RunContext` passed to `run` handlers exposes the full platform API:
+
+| Method | Description |
+|---|---|
+| `checkpoint(state)` | Save state for crash recovery |
+| `reportProgress(pct, msg?)` | Report execution progress |
+| `heartbeat()` | Signal the run is alive |
+| `reportUsage(usage)` | Report LLM token/cost usage |
+| `logToolCall(call)` | Log a tool invocation |
+| `saveOutput(key, value)` | Save a named output |
+| `state.get(key)` | Read from KV state store |
+| `state.set(key, value)` | Write to KV state store |
+| `state.delete(key)` | Remove from KV state store |
+| `state.list()` | List all state entries |
+| `streamChunk(chunk, opts?)` | Push an LLM stream chunk |
+| `waitForEvent(key, opts?)` | Block until external event |
+| `spawn(opts)` | Launch a child run |
+| `continue(payload?)` | Continue after suspension |
+| `annotate(annotations)` | Add run metadata |
+| `complete(result?)` | Mark run as completed |
+| `fail(error)` | Mark run as failed |
+
+```ts
+import { createRunContext } from "@strait/ts";
+
+const ctx = createRunContext(client.sdkRuns, runId, { attempt: 1 });
+await ctx.state.set("progress", { step: 3 });
+const saved = await ctx.state.get("progress");
+```
+
+### Test harness
+
+`createTestContext` returns an in-memory `RunContext` paired with a `TestRunRecord` that captures every operation — no HTTP needed:
+
+```ts
+import { createTestContext } from "@strait/ts";
+
+const { ctx, record } = createTestContext("test-run-1");
+
+// Exercise your job handler
+await myJob.run({ sku: "ABC" }, ctx);
+
+// Assert against the record
+expect(record.checkpoints).toHaveLength(1);
+expect(record.usageReports[0].provider).toBe("openai");
+expect(record.stateStore.get("result")).toBeDefined();
+expect(record.completed).toBe(true);
+```
+
+`TestRunRecord` captures: `checkpoints`, `logs`, `usageReports`, `toolCalls`, `outputs`, `progressUpdates`, `stateStore`, `streamChunks`, `heartbeats`, `spawns`, `events`, `annotations`, `continuations`, `completed`, `failed`, `failError`, `result`.
+
 ## Composition helpers
 
 ```ts
@@ -337,6 +464,58 @@ await rollbackDeploymentVersion(client, {
     environment: "staging",
   },
 });
+```
+
+### Cost budget
+
+Track and enforce LLM cost limits with `createCostTracker`:
+
+```ts
+import { createCostTracker, CostBudgetExceededError } from "@strait/ts";
+
+const tracker = createCostTracker({
+  maxCostMicrousd: 1_000_000, // $1
+  warningThreshold: 0.8,
+  onWarning: (current, max) => console.warn(`Cost at ${current}/${max} microusd`),
+});
+
+tracker.add(500_000); // ok
+tracker.current();    // 500000
+tracker.remaining();  // 500000
+tracker.isExceeded(); // false
+tracker.add(600_000); // throws CostBudgetExceededError
+```
+
+Or use the convenience wrapper:
+
+```ts
+import { withCostBudget } from "@strait/ts";
+
+const result = await withCostBudget(async (tracker) => {
+  // tracker.add() on each LLM call
+  return finalResult;
+}, { maxCostMicrousd: 2_000_000 });
+```
+
+### Checkpoint resume
+
+Wrap long-running operations with automatic state checkpointing:
+
+```ts
+import { withCheckpointResume } from "@strait/ts";
+
+const result = await withCheckpointResume(
+  ctx,
+  lastCheckpoint, // undefined on first run, restored on retry
+  async (state, updateState) => {
+    for (const item of items.slice(state.processedCount)) {
+      await processItem(item);
+      updateState({ ...state, processedCount: state.processedCount + 1 });
+    }
+    return { totalProcessed: items.length };
+  },
+  { initialState: { processedCount: 0 }, checkpointInterval: 10 }
+);
 ```
 
 ## FSM (State Machines)
@@ -407,6 +586,88 @@ try {
 | `ApiError` | other | Generic HTTP error |
 | `TimeoutError` | — | Polling timeout |
 | `DagValidationError` | — | Workflow DAG is invalid |
+| `CostBudgetExceededError` | — | Cost budget exceeded |
+
+## AI SDK integration
+
+The SDK integrates with [Vercel AI SDK v6](https://ai-sdk.dev) via the `@strait/ts/ai` entrypoint. Install `ai` as a peer dependency:
+
+```bash
+bun add ai @ai-sdk/openai  # or any provider
+```
+
+### Middleware
+
+`createStraitProvider` returns a `LanguageModelMiddleware` that automatically reports usage, logs tool calls, and forwards stream chunks to Strait:
+
+```ts
+import { wrapLanguageModel } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { createStraitProvider } from "@strait/ts/ai";
+
+const middleware = createStraitProvider(ctx, {
+  providerName: "openai",
+  reportUsage: true,
+  logToolCalls: true,
+  streamToStrait: true,
+});
+
+const model = wrapLanguageModel({
+  model: openai("gpt-4.1"),
+  middleware,
+});
+```
+
+### Tools
+
+`createStraitTools` exposes Strait platform operations as AI SDK tools that LLMs can call:
+
+```ts
+import { generateText } from "ai";
+import { createStraitTools } from "@strait/ts/ai";
+
+const tools = createStraitTools(ctx, {
+  checkpoint: true,   // strait_checkpoint — save state
+  spawn: true,        // strait_spawn — launch child runs
+  saveOutput: true,   // strait_save_output — save named outputs
+  waitForEvent: true, // strait_wait_for_event — wait for external events
+  stateGet: true,     // strait_state_get — read from KV store
+  stateSet: true,     // strait_state_set — write to KV store
+  complete: false,    // strait_complete — mark run done (opt-in)
+});
+
+const result = await generateText({
+  model,
+  tools,
+  prompt: "Research and save findings about quantum computing",
+});
+```
+
+### Agent factory
+
+`createStraitAgent` creates a `ToolLoopAgent` pre-wired with Strait middleware and tools:
+
+```ts
+import { openai } from "@ai-sdk/openai";
+import { createStraitAgent } from "@strait/ts/ai";
+
+const agent = createStraitAgent(ctx, {
+  model: openai("gpt-4.1"),
+  instructions: "You are a research assistant. Use tools to save your findings.",
+  tools: {
+    // your custom tools alongside built-in Strait tools
+  },
+  straitTools: { checkpoint: true, stateGet: true, stateSet: true },
+  providerOptions: { providerName: "openai" },
+  temperature: 0.7,
+});
+
+// Single-shot generation
+const result = await agent.generate({ prompt: "Analyze market trends for Q1" });
+
+// Or stream
+const stream = await agent.stream({ prompt: "Write a detailed report" });
+```
 
 ## Quality checks
 

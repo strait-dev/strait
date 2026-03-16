@@ -140,6 +140,79 @@ job.register(client)
 job.trigger(client, payload: { sku: "ABC-123" })
 ```
 
+### AI step builder
+
+Build AI-powered steps with sensible defaults for timeout, retries, and resource allocation:
+
+```ruby
+steps = [
+  Strait::Authoring.job_step("extract", "job_extract"),
+  Strait::Authoring.ai_step("summarize", "job_summarize", depends_on: ["extract"]),
+]
+```
+
+`ai_step` defaults: 600s timeout, 5 retries, exponential backoff, large resource class.
+
+### Durable AI agents
+
+Define long-running AI agents with cost tracking, checkpointing, and automatic retry:
+
+```ruby
+agent = Strait::Authoring.define_agent(Strait::Authoring::AgentOptions.new(
+  name: "Research Agent",
+  slug: "research-agent",
+  endpoint_url: "https://worker.dev/agents/research",
+  max_cost_microusd: 5_000_000,
+  run: ->(payload, ctx) {
+    puts "Iteration: #{ctx.iteration}"
+    ctx.checkpoint.call(findings: result)
+    { findings: result }
+  }
+))
+```
+
+`AgentRunContext` extends the base context with: `iteration`, `accumulated_cost_microusd`, and `budget_exceeded?`. Defaults: `strait.kind=agent` tag, 600s timeout, 5 attempts, exponential retry.
+
+### Event definitions
+
+Define typed events with optional validation:
+
+```ruby
+event = Strait::Authoring.define_event("approval.granted", validate: ->(input) { input })
+parsed = event.parse(raw_data)
+```
+
+### Extended RunContext
+
+| Method | Description |
+|---|---|
+| `ctx.state.set.call(key, value)` | Persist key-value state |
+| `ctx.state.get.call(key)` | Retrieve persisted state |
+| `ctx.checkpoint.call(data)` | Save a checkpoint |
+| `ctx.emit.call(event, data)` | Emit an event |
+| `ctx.log.call(message)` | Append a log entry |
+| `ctx.stream.call(chunk)` | Stream data to listeners |
+| `ctx.complete.call(output)` | Mark the run as complete |
+| `ctx.fail.call(error)` | Mark the run as failed |
+
+Create a `RunContext` manually with `RunContextFactory`:
+
+```ruby
+ctx = Strait::Authoring::RunContextFactory.create_run_context(client.sdk_runs, run_id, attempt: 1)
+ctx.state.set.call("key", value)
+```
+
+### Test harness
+
+`create_test_context` returns an in-memory context and a recording object for assertions:
+
+```ruby
+ctx, record = Strait::Authoring.create_test_context(run_id: "test-run")
+my_handler.call(payload, ctx)
+expect(record.checkpoints.length).to eq(1)
+expect(record.completed).to be true
+```
+
 ## Workflow DAG
 
 ```ruby
@@ -175,6 +248,35 @@ run = Strait::Composition.wait_for_run(
   method(:get_run), method(:get_status), "run_123"
 )
 ```
+
+### Cost budget
+
+Track and enforce cost limits across runs:
+
+```ruby
+tracker = Strait::Composition.create_cost_tracker(budget_microusd: 10_000_000)
+
+result = Strait::Composition.with_cost_budget(tracker: tracker) do |budget|
+  budget.record(cost_microusd: 500_000)
+  call_expensive_api
+end
+```
+
+Raises `Strait::CostBudgetExceededError` when accumulated cost exceeds the budget.
+
+### Checkpoint resume
+
+Resume a composition from its last checkpoint after a failure:
+
+```ruby
+result = Strait::Composition.with_checkpoint_resume(run_id: "run_123", client: client) do |ctx|
+  step_one(ctx)
+  ctx.checkpoint.call(step: 1)
+  step_two(ctx)
+end
+```
+
+If the block fails and is retried, execution resumes from the most recent checkpoint instead of restarting from scratch.
 
 ## FSM State Machines
 
@@ -243,6 +345,7 @@ end
 | `Strait::RateLimitedError` | 429 | Rate limit exceeded |
 | `Strait::ApiError` | other | Generic HTTP error |
 | `Strait::TimeoutError` | — | Polling timeout |
+| `Strait::CostBudgetExceededError` | — | Cost budget exceeded |
 | `Strait::DagValidationError` | — | Workflow DAG is invalid |
 
 ## Development

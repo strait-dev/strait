@@ -177,6 +177,100 @@ wf := authoring.DefineWorkflow(authoring.WorkflowOptions[MyPayload]{
 })
 ```
 
+### AI step builder
+
+Use `AI()` to add an AI-powered step to a workflow DAG. It applies sensible defaults for long-running AI work: 600 s timeout, 5 retries with exponential backoff, and the `large` resource class.
+
+```go
+steps := []authoring.Step{
+    authoring.Job("extract", "job_extract"),
+    authoring.AI("summarize", "job_summarize", func(o *authoring.BaseStepOptions) {
+        o.DependsOn = []string{"extract"}
+    }),
+}
+```
+
+### Durable AI agents
+
+`DefineAgent()` creates a durable, cost-aware agent that can run across multiple iterations and survive restarts.
+
+```go
+agent := authoring.DefineAgent(authoring.AgentOptions{
+    Name:            "Research Agent",
+    Slug:            "research-agent",
+    EndpointURL:     "https://worker.dev/agents/research",
+    MaxCostMicrousd: intPtr(5_000_000),
+    Run: func(payload any, ctx *authoring.AgentRunContext) (any, error) {
+        fmt.Println("Iteration:", ctx.Iteration())
+        // ...
+        return result, nil
+    },
+})
+```
+
+`AgentRunContext` exposes:
+
+| Method | Description |
+|---|---|
+| `Iteration()` | Current iteration index |
+| `AccumulatedCostMicrousd()` | Total cost so far in micro-USD |
+| `IsBudgetExceeded()` | Whether the cost budget has been exceeded |
+
+### Event definitions
+
+`DefineEvent()` declares a named event with an optional validation function.
+
+```go
+event := authoring.DefineEvent("approval.granted", func(input any) (any, error) {
+    // validate
+    return input, nil
+})
+
+parsed, _ := event.Parse(rawData)
+```
+
+### Extended RunContext
+
+`CreateRunContext()` builds a `RunContext` bound to an existing run, giving full access to the platform from outside a job handler.
+
+```go
+ctx := authoring.CreateRunContext(client.SDKRuns, runID, authoring.WithAttempt(1))
+ctx.State.Set("key", value)
+```
+
+Available methods on `RunContext`:
+
+| Method | Description |
+|---|---|
+| `Checkpoint(data)` | Persist a checkpoint for crash recovery |
+| `ReportProgress(pct, msg)` | Report execution progress |
+| `Heartbeat()` | Signal liveness to the platform |
+| `ReportUsage(metrics)` | Report resource usage metrics |
+| `LogToolCall(name, input, output)` | Log an external tool invocation |
+| `SaveOutput(data)` | Persist step output |
+| `State.Get(key)` | Read a value from run state |
+| `State.Set(key, value)` | Write a value to run state |
+| `State.Delete(key)` | Remove a value from run state |
+| `State.List()` | List all keys in run state |
+| `StreamChunk(chunk)` | Send a streaming chunk to listeners |
+| `WaitForEvent(name, opts)` | Pause until a named event fires |
+| `Spawn(opts)` | Spawn a child run |
+| `Continue(payload)` | Continue to the next iteration |
+| `Annotate(key, value)` | Attach metadata to the run |
+| `Complete(output)` | Mark the run as completed |
+| `Fail(err)` | Mark the run as failed |
+
+### Test harness
+
+`CreateTestContext()` returns an in-memory `RunContext` and a `TestRecord` that captures every side-effect, so you can unit-test handlers without a running platform.
+
+```go
+ctx, record := authoring.CreateTestContext("test-run")
+// run your handler with ctx
+assert.Equal(t, 1, len(record.Checkpoints))
+assert.True(t, record.Completed)
+```
+
 ## Composition Helpers
 
 ```go
@@ -194,6 +288,33 @@ for item, err := range composition.Paginate(listFn, nil) {
 
 // Wait for run
 run, err := composition.WaitForRun(ctx, getRun, getStatus, "run_123", nil)
+```
+
+### Cost budget
+
+`NewCostTracker()` tracks accumulated cost across retries and iterations. Wrap any composition call with `WithCostBudget()` to automatically abort when the budget is exceeded.
+
+```go
+tracker := composition.NewCostTracker(5_000_000) // 5 USD in micro-USD
+
+result, err := composition.WithCostBudget(ctx, tracker, func() (string, error) {
+    return callExpensiveModel()
+})
+if errors.As(err, new(*composition.CostBudgetExceededError)) {
+    fmt.Println("Budget exceeded:", err)
+}
+```
+
+### Checkpoint resume
+
+`WithCheckpointResume()` wraps a function so that completed steps are skipped on retry, picking up from the last successful checkpoint.
+
+```go
+result, err := composition.WithCheckpointResume(ctx, runCtx, func(cp *composition.Checkpoint) (string, error) {
+    cp.Save("step-1-done", intermediateResult)
+    // on retry this function resumes after the last saved checkpoint
+    return finalResult, nil
+})
 ```
 
 ## FSM State Machines
@@ -272,6 +393,7 @@ if err != nil {
 | `*ApiError` | other | Generic HTTP error |
 | `*TimeoutError` | — | Polling timeout |
 | `*DagValidationError` | — | Workflow DAG is invalid |
+| `*CostBudgetExceededError` | — | Cost budget exceeded |
 
 ## Packages
 

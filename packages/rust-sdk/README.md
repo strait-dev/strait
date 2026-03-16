@@ -165,6 +165,97 @@ job.register(&client, None).await?;
 job.trigger(&client, Payload { sku: "ABC-123".into() }).await?;
 ```
 
+### AI step builder
+
+Use `ai_step()` to create steps with AI-optimised defaults (600s timeout, 5 retries, exponential backoff with 2s–120s delays, large resource class):
+
+```rust
+use strait::authoring::{ai_step, job_step, BaseStepOptions};
+
+let steps = vec![
+    job_step("extract", "job_extract", BaseStepOptions::default()),
+    ai_step("summarize", "job_summarize", BaseStepOptions {
+        depends_on: Some(vec!["extract".into()]),
+        ..Default::default()
+    }),
+];
+```
+
+### Durable AI agents
+
+Define long-running agents with built-in cost tracking and durable execution:
+
+```rust
+use strait::authoring::{define_agent, AgentOptions, AgentRunContext};
+
+let agent = define_agent(AgentOptions {
+    name: "Research Agent".into(),
+    slug: "research-agent".into(),
+    endpoint_url: "https://worker.dev/agents/research".into(),
+    project_id: Some("proj_1".into()),
+    max_cost_microusd: Some(5_000_000),
+    ..Default::default()
+});
+```
+
+`AgentRunContext` exposes `iteration()`, `accumulated_cost_microusd()`, and `is_budget_exceeded()` for fine-grained control inside the agent loop. Agents are tagged `strait.kind:agent` by default and use 600s timeout, 5 attempts, and exponential retry.
+
+### Event definitions
+
+Define typed events and parse incoming payloads:
+
+```rust
+use strait::authoring::{define_event, EventDefinition};
+
+let event = define_event("approval.granted", None);
+let parsed = event.parse(serde_json::json!({"approved": true})).unwrap();
+```
+
+### Extended RunContext
+
+`RunContext` exposes the full set of durable-execution callbacks:
+
+| Field | Description |
+|---|---|
+| `checkpoint` | Persist intermediate state |
+| `report_progress` | Report progress percentage |
+| `heartbeat` | Keep the run alive |
+| `report_usage` | Report resource usage |
+| `log_tool_call` | Log a tool invocation |
+| `save_output` | Save step output |
+| `state.get` | Read a state key |
+| `state.set` | Write a state key |
+| `state.delete` | Remove a state key |
+| `state.list` | List all state keys |
+| `stream_chunk` | Stream a chunk to listeners |
+| `wait_for_event` | Pause until an event fires |
+| `spawn` | Spawn a child run |
+| `continue_run` | Continue a paused run |
+| `annotate` | Add metadata annotations |
+| `complete` | Mark the run as completed |
+| `fail` | Mark the run as failed |
+
+Create a context wired to a live client:
+
+```rust
+use strait::authoring::run_context_client::create_run_context;
+
+let ctx = create_run_context(client.clone(), run_id, 1);
+```
+
+### Test harness
+
+`create_test_context` returns an in-memory context and a shared recording so you can assert against every callback your handler invokes:
+
+```rust
+use strait::authoring::test_helpers::create_test_context;
+
+let (ctx, record) = create_test_context("test-run", 1);
+// run your handler with ctx
+assert_eq!(record.lock().unwrap().checkpoints.len(), 1);
+assert!(record.lock().unwrap().completed);
+```
+
 ## Workflow DAG
 
 ```rust
@@ -207,6 +298,38 @@ let run = composition::wait_for_run(
     |run| get_status(run),
     "run_123",
     None,
+).await?;
+```
+
+### Cost budget
+
+Track accumulated costs and abort when a micro-USD budget is exceeded:
+
+```rust
+use strait::composition::{CostTracker, with_cost_budget};
+
+let tracker = CostTracker::new(5_000_000); // $5.00 budget
+tracker.add(120_000);
+assert!(!tracker.is_exceeded());
+
+// Wrap an async block so it short-circuits on budget breach
+let result = with_cost_budget(tracker.clone(), || async {
+    expensive_call().await
+}).await?;
+```
+
+Exceeding the budget returns `StraitError::CostBudgetExceeded`.
+
+### Checkpoint resume
+
+Resume a composition from its last checkpoint instead of replaying from scratch:
+
+```rust
+use strait::composition::with_checkpoint_resume;
+
+let result = with_checkpoint_resume(
+    ctx.clone(),
+    || async { long_running_pipeline(ctx.clone()).await },
 ).await?;
 ```
 
@@ -284,6 +407,7 @@ match jobs.get("nonexistent").await {
 | `StraitError::Api` | other | Generic HTTP error |
 | `StraitError::Timeout` | — | Polling timeout |
 | `StraitError::DagValidation` | — | Workflow DAG is invalid |
+| `StraitError::CostBudgetExceeded` | — | Cost budget exceeded |
 
 ## Development
 
