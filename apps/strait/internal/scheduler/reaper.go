@@ -7,6 +7,10 @@ import (
 	"log/slog"
 	"time"
 
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -61,6 +65,13 @@ type ReconciliationStore interface {
 // QueueDepthMonitorStore is an optional interface for queue depth monitoring.
 type QueueDepthMonitorStore interface {
 	ListQueueDepthByJob(ctx context.Context) ([]store.QueueJobDepth, error)
+}
+
+// AutoRotateAPIKeysStore is an optional interface for automatic API key rotation.
+type AutoRotateAPIKeysStore interface {
+	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
+	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 }
 
 // DLQJobDepth represents the dead-letter queue depth for a single job.
@@ -239,6 +250,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapOrphanedStepRuns(ctx)
 	r.reapStuckWebhookDeliveries(ctx)
 	r.monitorQueueDepth(ctx)
+	r.autoRotateAPIKeys(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -804,6 +816,60 @@ func (r *Reaper) reapStuckWebhookDeliveries(ctx context.Context) {
 
 	if count > 0 {
 		r.logger.Info("reset stuck webhook deliveries", "count", count)
+	}
+}
+
+func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
+	rotateStore, ok := r.store.(AutoRotateAPIKeysStore)
+	if !ok {
+		return
+	}
+
+	keys, err := rotateStore.ListAPIKeysDueRotation(ctx)
+	if err != nil {
+		r.logger.Error("failed to list api keys due rotation", "error", err)
+		return
+	}
+
+	for _, oldKey := range keys {
+		// Generate new key material.
+		rawBytes := make([]byte, 32)
+		if _, err := rand.Read(rawBytes); err != nil {
+			r.logger.Error("failed to generate random key for rotation", "key_id", oldKey.ID, "error", err)
+			continue
+		}
+		rawKey := "strait_" + hex.EncodeToString(rawBytes)
+		keyHash := sha256.Sum256([]byte(rawKey))
+
+		newKey := &domain.APIKey{
+			ProjectID:            oldKey.ProjectID,
+			Name:                 oldKey.Name + " (auto-rotated)",
+			KeyHash:              hex.EncodeToString(keyHash[:]),
+			KeyPrefix:            rawKey[:12],
+			Scopes:               oldKey.Scopes,
+			ExpiresAt:            oldKey.ExpiresAt,
+			EnvironmentID:        oldKey.EnvironmentID,
+			RotationIntervalDays: oldKey.RotationIntervalDays,
+			RotationWebhookURL:   oldKey.RotationWebhookURL,
+		}
+		// Set next_rotation_at for the new key.
+		if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
+			nextRotation := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
+			newKey.NextRotationAt = &nextRotation
+		}
+
+		if err := rotateStore.CreateAPIKey(ctx, newKey); err != nil {
+			r.logger.Error("failed to create rotated api key", "key_id", oldKey.ID, "error", err)
+			continue
+		}
+
+		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
+		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
+			r.logger.Error("failed to mark old key as rotated", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			continue
+		}
+
+		r.logger.Info("auto-rotated api key", "old_key_id", oldKey.ID, "new_key_id", newKey.ID)
 	}
 }
 
