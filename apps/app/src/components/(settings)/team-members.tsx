@@ -1,5 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@strait/ui/components/alert-dialog";
+import {
   Avatar,
   AvatarFallback,
   AvatarImage,
@@ -15,11 +26,13 @@ import {
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
+import ChangeRoleDropdown from "@/components/(settings)/change-role-dropdown";
+import InviteMemberDialog from "@/components/(settings)/invite-member-dialog";
 import {
   invitationsQueryOptions,
   useCancelInvitation,
 } from "@/hooks/auth/use-invitation";
-import { membersQueryOptions } from "@/hooks/auth/use-member";
+import { membersQueryOptions, useRemoveMember } from "@/hooks/auth/use-member";
 import { LoadingIcon, MailIcon, TrashIcon } from "@/lib/icons";
 
 interface TeamMembersProps {
@@ -63,6 +76,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
   );
 
   const cancelInvitation = useCancelInvitation();
+  const removeMember = useRemoveMember();
 
   const pendingInvitations = (invitations ?? []).filter(
     (inv) => inv.status === "pending"
@@ -79,6 +93,17 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
     }
   };
 
+  const handleRemoveMember = async (memberIdOrEmail: string) => {
+    try {
+      await removeMember.mutateAsync({ memberIdOrEmail, organizationId });
+      toast.success("Member removed.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to remove member."
+      );
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Members */}
@@ -91,6 +116,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                 Manage who has access to your organization.
               </CardDescription>
             </div>
+            <InviteMemberDialog organizationId={organizationId} />
           </div>
         </CardHeader>
         <CardContent>
@@ -173,15 +199,75 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <Badge variant={roleBadgeVariant(member.role)}>
-                              {member.role}
-                            </Badge>
+                            <ChangeRoleDropdown
+                              currentRole={member.role}
+                              disabled={
+                                isCurrentUser || member.role === "owner"
+                              }
+                              memberId={member.id}
+                              organizationId={organizationId}
+                            />
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             {formatDate(member.createdAt)}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            {/* Actions will be added in Phase 4 */}
+                            {!isCurrentUser && member.role !== "owner" && (
+                              <AlertDialog>
+                                <AlertDialogTrigger
+                                  render={
+                                    <Button
+                                      disabled={
+                                        removeMember.isPending &&
+                                        removeMember.variables
+                                          ?.memberIdOrEmail === member.id
+                                      }
+                                      size="sm"
+                                      variant="outline"
+                                    />
+                                  }
+                                >
+                                  {removeMember.isPending &&
+                                  removeMember.variables?.memberIdOrEmail ===
+                                    member.id ? (
+                                    <HugeiconsIcon
+                                      className="size-3 animate-spin"
+                                      icon={LoadingIcon}
+                                    />
+                                  ) : (
+                                    <HugeiconsIcon
+                                      className="size-3"
+                                      icon={TrashIcon}
+                                    />
+                                  )}
+                                  Remove
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                      Remove {member.name}?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This will remove {member.name} from the
+                                      organization. They will lose access
+                                      immediately.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>
+                                      Cancel
+                                    </AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() =>
+                                        handleRemoveMember(member.id)
+                                      }
+                                    >
+                                      Remove
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
                           </td>
                         </tr>
                       );
