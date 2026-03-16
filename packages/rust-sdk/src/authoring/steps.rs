@@ -267,6 +267,35 @@ pub fn sleep_step(
     }
 }
 
+/// Creates a job step with LLM-tuned defaults:
+/// 600s timeout, 5 retries, exponential backoff, 2s initial delay, 120s max delay, large resource class.
+pub fn ai_step(
+    ref_name: impl Into<String>,
+    job_id: impl Into<String>,
+    options: BaseStepOptions,
+) -> Step {
+    let merged = BaseStepOptions {
+        timeout_secs_override: options
+            .timeout_secs_override
+            .or(Some(600)),
+        retry_max_attempts: options.retry_max_attempts.or(Some(5)),
+        retry_backoff: options
+            .retry_backoff
+            .or_else(|| Some(RETRY_BACKOFF_EXPONENTIAL.to_string())),
+        retry_initial_delay_secs: options.retry_initial_delay_secs.or(Some(2)),
+        retry_max_delay_secs: options.retry_max_delay_secs.or(Some(120)),
+        resource_class: options
+            .resource_class
+            .or_else(|| Some(RESOURCE_CLASS_LARGE.to_string())),
+        ..options
+    };
+    Step::Job {
+        ref_name: ref_name.into(),
+        job_id: job_id.into(),
+        options: merged,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,5 +521,70 @@ mod tests {
     fn test_retry_backoff_constants() {
         assert_eq!(RETRY_BACKOFF_EXPONENTIAL, "exponential");
         assert_eq!(RETRY_BACKOFF_FIXED, "fixed");
+    }
+
+    #[test]
+    fn test_ai_step_defaults() {
+        let step = ai_step("llm", "llm-job", BaseStepOptions::default());
+        let api = step.to_api();
+        assert_eq!(api["ref"], "llm");
+        assert_eq!(api["type"], "job");
+        assert_eq!(api["job_id"], "llm-job");
+        assert_eq!(api["timeout_secs_override"], 600);
+        assert_eq!(api["retry_max_attempts"], 5);
+        assert_eq!(api["retry_backoff"], "exponential");
+        assert_eq!(api["retry_initial_delay_secs"], 2);
+        assert_eq!(api["retry_max_delay_secs"], 120);
+        assert_eq!(api["resource_class"], "large");
+    }
+
+    #[test]
+    fn test_ai_step_custom_overrides() {
+        let step = ai_step(
+            "custom-llm",
+            "llm-job-2",
+            BaseStepOptions {
+                timeout_secs_override: Some(300),
+                retry_max_attempts: Some(2),
+                resource_class: Some("medium".to_string()),
+                ..Default::default()
+            },
+        );
+        let api = step.to_api();
+        assert_eq!(api["timeout_secs_override"], 300);
+        assert_eq!(api["retry_max_attempts"], 2);
+        assert_eq!(api["resource_class"], "medium");
+        // non-overridden defaults still apply
+        assert_eq!(api["retry_backoff"], "exponential");
+        assert_eq!(api["retry_initial_delay_secs"], 2);
+        assert_eq!(api["retry_max_delay_secs"], 120);
+    }
+
+    #[test]
+    fn test_ai_step_with_depends_on() {
+        let step = ai_step(
+            "llm",
+            "j1",
+            BaseStepOptions {
+                depends_on: vec!["prev".to_string()],
+                ..Default::default()
+            },
+        );
+        assert_eq!(step.depends_on(), &["prev".to_string()]);
+        assert_eq!(step.step_type(), "job");
+    }
+
+    #[test]
+    fn test_ai_step_preserves_payload() {
+        let step = ai_step(
+            "llm",
+            "j1",
+            BaseStepOptions {
+                payload: Some(json!({"prompt": "hello"})),
+                ..Default::default()
+            },
+        );
+        let api = step.to_api();
+        assert_eq!(api["payload"]["prompt"], "hello");
     }
 }

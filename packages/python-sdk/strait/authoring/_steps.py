@@ -316,3 +316,47 @@ def step_to_api(step: Step) -> dict[str, Any]:
         out["sleep_duration_secs"] = step.sleep_duration_secs
 
     return out
+
+
+def ai_step(
+    ref: str,
+    job_id: str,
+    *,
+    depends_on: list[str] | None = None,
+    on_failure: OnFailureAction | None = None,
+    payload: dict[str, Any] | None = None,
+    condition: dict[str, Any] | None = None,
+    retry_max_attempts: int | None = None,
+    retry_backoff: RetryBackoff | None = None,
+    retry_initial_delay_secs: int | None = None,
+    retry_max_delay_secs: int | None = None,
+    timeout_secs_override: int | None = None,
+    output_transform: str | None = None,
+    concurrency_key: str | None = None,
+    resource_class: ResourceClass | None = None,
+) -> JobStep:
+    """Create a job step with LLM-tuned defaults."""
+    return JobStep(
+        ref=ref,
+        job_id=job_id,
+        options=BaseStepOptions(
+            depends_on=depends_on or [],
+            condition=condition,
+            on_failure=on_failure,
+            payload=payload,
+            retry_max_attempts=retry_max_attempts if retry_max_attempts is not None else 5,
+            retry_backoff=retry_backoff or RetryBackoff.EXPONENTIAL,
+            retry_initial_delay_secs=(
+                retry_initial_delay_secs if retry_initial_delay_secs is not None else 2
+            ),
+            retry_max_delay_secs=(
+                retry_max_delay_secs if retry_max_delay_secs is not None else 120
+            ),
+            timeout_secs_override=(
+                timeout_secs_override if timeout_secs_override is not None else 600
+            ),
+            output_transform=output_transform,
+            concurrency_key=concurrency_key,
+            resource_class=resource_class or ResourceClass.LARGE,
+        ),
+    )

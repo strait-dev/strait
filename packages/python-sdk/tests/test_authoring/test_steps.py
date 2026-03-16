@@ -6,6 +6,7 @@ from strait.authoring._steps import (
     ResourceClass,
     RetryBackoff,
     StepType,
+    ai_step,
     approval_step,
     job_step,
     sleep_step,
@@ -145,3 +146,72 @@ class TestStepToApi:
         ]
         for s in steps:
             assert isinstance(s, Step)
+
+
+class TestAiStep:
+    def test_basic_creation(self):
+        s = ai_step("ai-1", "job-llm")
+        assert s.step_ref() == "ai-1"
+        assert s.type() == StepType.JOB
+        assert s.job_id == "job-llm"
+
+    def test_default_retry_max_attempts(self):
+        s = ai_step("ai-1", "job-llm")
+        assert s.base_options().retry_max_attempts == 5
+
+    def test_default_retry_backoff(self):
+        s = ai_step("ai-1", "job-llm")
+        assert s.base_options().retry_backoff == RetryBackoff.EXPONENTIAL
+
+    def test_default_retry_initial_delay(self):
+        s = ai_step("ai-1", "job-llm")
+        assert s.base_options().retry_initial_delay_secs == 2
+
+    def test_default_retry_max_delay(self):
+        s = ai_step("ai-1", "job-llm")
+        assert s.base_options().retry_max_delay_secs == 120
+
+    def test_default_timeout(self):
+        s = ai_step("ai-1", "job-llm")
+        assert s.base_options().timeout_secs_override == 600
+
+    def test_default_resource_class(self):
+        s = ai_step("ai-1", "job-llm")
+        assert s.base_options().resource_class == ResourceClass.LARGE
+
+    def test_custom_retry_attempts(self):
+        s = ai_step("ai-1", "job-llm", retry_max_attempts=10)
+        assert s.base_options().retry_max_attempts == 10
+
+    def test_custom_timeout(self):
+        s = ai_step("ai-1", "job-llm", timeout_secs_override=1200)
+        assert s.base_options().timeout_secs_override == 1200
+
+    def test_custom_resource_class(self):
+        s = ai_step("ai-1", "job-llm", resource_class=ResourceClass.SMALL)
+        assert s.base_options().resource_class == ResourceClass.SMALL
+
+    def test_depends_on(self):
+        s = ai_step("ai-1", "job-llm", depends_on=["prev-step"])
+        assert s.base_options().depends_on == ["prev-step"]
+
+    def test_payload(self):
+        s = ai_step("ai-1", "job-llm", payload={"prompt": "hello"})
+        assert s.base_options().payload == {"prompt": "hello"}
+
+    def test_on_failure(self):
+        s = ai_step("ai-1", "job-llm", on_failure=OnFailureAction.CONTINUE)
+        assert s.base_options().on_failure == OnFailureAction.CONTINUE
+
+    def test_api_serialization(self):
+        s = ai_step("ai-1", "job-llm")
+        out = step_to_api(s)
+        assert out["step_ref"] == "ai-1"
+        assert out["type"] == "job"
+        assert out["job_id"] == "job-llm"
+        assert out["retry_max_attempts"] == 5
+        assert out["timeout_secs_override"] == 600
+
+    def test_concurrency_key(self):
+        s = ai_step("ai-1", "job-llm", concurrency_key="tenant-1")
+        assert s.base_options().concurrency_key == "tenant-1"

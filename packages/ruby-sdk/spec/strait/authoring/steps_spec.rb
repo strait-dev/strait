@@ -211,3 +211,76 @@ RSpec.describe "On failure constants" do
     expect(Strait::Authoring::ON_FAILURE_CONTINUE).to eq("continue")
   end
 end
+
+RSpec.describe "Strait::Authoring.ai_step" do
+  it "returns a JobStep" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step).to be_a(Strait::Authoring::JobStep)
+  end
+
+  it "sets ref and job_id" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step.ref).to eq("ai-1")
+    expect(step.job_id).to eq("job_123")
+  end
+
+  it "defaults retry_max_attempts to 5" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step.options.retry_max_attempts).to eq(5)
+  end
+
+  it "defaults retry_backoff to exponential" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step.options.retry_backoff).to eq("exponential")
+  end
+
+  it "defaults retry_initial_delay_secs to 2" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step.options.retry_initial_delay_secs).to eq(2)
+  end
+
+  it "defaults retry_max_delay_secs to 120" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step.options.retry_max_delay_secs).to eq(120)
+  end
+
+  it "defaults timeout_secs_override to 600" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step.options.timeout_secs_override).to eq(600)
+  end
+
+  it "defaults resource_class to large" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    expect(step.options.resource_class).to eq("large")
+  end
+
+  it "allows overriding defaults" do
+    step = Strait::Authoring.ai_step(
+      "ai-1", "job_123",
+      retry_max_attempts: 3,
+      retry_backoff: "fixed",
+      timeout_secs_override: 300,
+      resource_class: "medium"
+    )
+    expect(step.options.retry_max_attempts).to eq(3)
+    expect(step.options.retry_backoff).to eq("fixed")
+    expect(step.options.timeout_secs_override).to eq(300)
+    expect(step.options.resource_class).to eq("medium")
+  end
+
+  it "accepts depends_on" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123", depends_on: ["step-a"])
+    expect(step.depends_on).to eq(["step-a"])
+  end
+
+  it "to_api includes all LLM defaults" do
+    step = Strait::Authoring.ai_step("ai-1", "job_123")
+    api = step.to_api
+    expect(api["retry_max_attempts"]).to eq(5)
+    expect(api["retry_backoff"]).to eq("exponential")
+    expect(api["retry_initial_delay_secs"]).to eq(2)
+    expect(api["retry_max_delay_secs"]).to eq(120)
+    expect(api["timeout_secs_override"]).to eq(600)
+    expect(api["resource_class"]).to eq("large")
+  end
+end

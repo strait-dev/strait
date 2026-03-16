@@ -164,6 +164,31 @@ func Sleep(ref string, durationSecs int, opts ...func(*BaseStepOptions)) *SleepS
 	return s
 }
 
+// AI creates a job step with LLM-tuned defaults: 600s timeout, 5 retries,
+// exponential backoff, and large resource class.
+func AI(ref string, jobID string, opts ...func(*BaseStepOptions)) *JobStep {
+	timeout := 600
+	retryAttempts := 5
+	retryDelay := 2
+	retryMax := 120
+	s := &JobStep{
+		Ref:   ref,
+		JobID: jobID,
+		BaseStepOptions: BaseStepOptions{
+			TimeoutSecsOverride:   &timeout,
+			RetryMaxAttempts:      &retryAttempts,
+			RetryBackoff:          RetryBackoffExponential,
+			RetryInitialDelaySecs: &retryDelay,
+			RetryMaxDelaySecs:     &retryMax,
+			ResourceClass:         ResourceClassLarge,
+		},
+	}
+	for _, opt := range opts {
+		opt(&s.BaseStepOptions)
+	}
+	return s
+}
+
 // DependsOn is an option setter for step dependencies.
 func DependsOn(deps ...string) func(*BaseStepOptions) {
 	return func(o *BaseStepOptions) {

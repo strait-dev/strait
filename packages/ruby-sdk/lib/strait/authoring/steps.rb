@@ -180,5 +180,24 @@ module Strait
     def self.sleep_step(ref, duration_secs, **opts)
       SleepStep.new(ref, duration_secs, **opts)
     end
+
+    # Creates a job step with LLM-tuned defaults.
+    def self.ai_step(ref, job_id, **opts)
+      JobStep.new(
+        ref, job_id,
+        depends_on: opts.fetch(:depends_on, []),
+        condition: opts[:condition],
+        on_failure: opts[:on_failure],
+        payload: opts[:payload],
+        retry_max_attempts: opts.fetch(:retry_max_attempts, 5),
+        retry_backoff: opts.fetch(:retry_backoff, RETRY_BACKOFF_EXPONENTIAL),
+        retry_initial_delay_secs: opts.fetch(:retry_initial_delay_secs, 2),
+        retry_max_delay_secs: opts.fetch(:retry_max_delay_secs, 120),
+        timeout_secs_override: opts.fetch(:timeout_secs_override, 600),
+        output_transform: opts[:output_transform],
+        concurrency_key: opts[:concurrency_key],
+        resource_class: opts.fetch(:resource_class, RESOURCE_CLASS_LARGE)
+      )
+    end
   end
 end

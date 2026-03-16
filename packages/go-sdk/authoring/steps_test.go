@@ -153,6 +153,106 @@ func TestStepToAPI_Sleep(t *testing.T) {
 	}
 }
 
+func TestAIStep_Defaults(t *testing.T) {
+	s := AI("llm-call", "job_llm")
+	if s.StepRef() != "llm-call" {
+		t.Errorf("expected ref 'llm-call', got %q", s.StepRef())
+	}
+	if s.Type() != StepTypeJob {
+		t.Errorf("expected type 'job', got %q", s.Type())
+	}
+	if s.JobID != "job_llm" {
+		t.Errorf("expected jobID 'job_llm', got %q", s.JobID)
+	}
+	base := s.BaseOptions()
+	if *base.TimeoutSecsOverride != 600 {
+		t.Errorf("expected timeout 600, got %d", *base.TimeoutSecsOverride)
+	}
+	if *base.RetryMaxAttempts != 5 {
+		t.Errorf("expected retry attempts 5, got %d", *base.RetryMaxAttempts)
+	}
+	if base.RetryBackoff != RetryBackoffExponential {
+		t.Errorf("expected exponential backoff, got %q", base.RetryBackoff)
+	}
+	if *base.RetryInitialDelaySecs != 2 {
+		t.Errorf("expected initial delay 2, got %d", *base.RetryInitialDelaySecs)
+	}
+	if *base.RetryMaxDelaySecs != 120 {
+		t.Errorf("expected max delay 120, got %d", *base.RetryMaxDelaySecs)
+	}
+	if base.ResourceClass != ResourceClassLarge {
+		t.Errorf("expected resource class large, got %q", base.ResourceClass)
+	}
+}
+
+func TestAIStep_WithDependsOn(t *testing.T) {
+	s := AI("llm-call", "job_llm", DependsOn("prep"))
+	deps := s.BaseOptions().DependsOn
+	if len(deps) != 1 || deps[0] != "prep" {
+		t.Errorf("expected dependsOn [prep], got %v", deps)
+	}
+}
+
+func TestAIStep_OverrideOptions(t *testing.T) {
+	s := AI("llm-call", "job_llm", func(o *BaseStepOptions) {
+		timeout := 300
+		o.TimeoutSecsOverride = &timeout
+		o.ResourceClass = ResourceClassMedium
+	})
+	base := s.BaseOptions()
+	if *base.TimeoutSecsOverride != 300 {
+		t.Errorf("expected overridden timeout 300, got %d", *base.TimeoutSecsOverride)
+	}
+	if base.ResourceClass != ResourceClassMedium {
+		t.Errorf("expected medium resource class, got %q", base.ResourceClass)
+	}
+	// Other defaults should remain
+	if *base.RetryMaxAttempts != 5 {
+		t.Errorf("expected retry attempts still 5, got %d", *base.RetryMaxAttempts)
+	}
+}
+
+func TestAIStep_StepToAPI(t *testing.T) {
+	s := AI("ai-step", "job_ai")
+	api := StepToAPI(s)
+
+	if api["step_ref"] != "ai-step" {
+		t.Error("expected step_ref")
+	}
+	if api["type"] != "job" {
+		t.Error("expected type job")
+	}
+	if api["job_id"] != "job_ai" {
+		t.Error("expected job_id")
+	}
+	if api["timeout_secs_override"] != 600 {
+		t.Error("expected timeout_secs_override 600")
+	}
+	if api["retry_max_attempts"] != 5 {
+		t.Error("expected retry_max_attempts 5")
+	}
+	if api["retry_backoff"] != "exponential" {
+		t.Error("expected retry_backoff exponential")
+	}
+	if api["retry_initial_delay_secs"] != 2 {
+		t.Error("expected retry_initial_delay_secs 2")
+	}
+	if api["retry_max_delay_secs"] != 120 {
+		t.Error("expected retry_max_delay_secs 120")
+	}
+	if api["resource_class"] != "large" {
+		t.Error("expected resource_class large")
+	}
+}
+
+func TestAIStep_NoExtraDependsOn(t *testing.T) {
+	s := AI("ai-step", "job_ai")
+	base := s.BaseOptions()
+	if len(base.DependsOn) != 0 {
+		t.Errorf("expected no depends_on, got %v", base.DependsOn)
+	}
+}
+
 func TestStepToAPI_BaseOptions(t *testing.T) {
 	retryAttempts := 3
 	retryDelay := 5
