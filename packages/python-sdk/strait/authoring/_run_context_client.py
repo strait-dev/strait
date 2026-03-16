@@ -112,7 +112,8 @@ def create_run_context(
             body["timeout_secs"] = timeout_secs
         if notify_url is not None:
             body["notify_url"] = notify_url
-        return await client.wait_for_event_run(run_id, body)
+        result: dict[str, Any] = await client.wait_for_event_run(run_id, body)
+        return result
 
     async def spawn(
         job_slug: str,
@@ -125,11 +126,13 @@ def create_run_context(
             body["payload"] = payload
         if priority is not None:
             body["priority"] = priority
-        return await client.spawn_run(run_id, body)
+        result: dict[str, Any] = await client.spawn_run(run_id, body)
+        return result
 
     async def continue_run_fn(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         body = {"payload": payload} if payload else None
-        return await client.continue_run(run_id, body)
+        result: dict[str, Any] = await client.continue_run(run_id, body)
+        return result
 
     async def annotate(annotations: dict[str, str]) -> None:
         await client.annotate_run(run_id, {"annotations": annotations})
@@ -164,7 +167,8 @@ def create_run_context(
         await client.delete_state(run_id, key)
 
     async def state_list() -> list[dict[str, Any]]:
-        return await client.list_state(run_id)
+        result: list[dict[str, Any]] = await client.list_state(run_id)
+        return result
 
     state = RunContextState(
         get=state_get,
