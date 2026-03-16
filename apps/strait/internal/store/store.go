@@ -28,6 +28,7 @@ var (
 	ErrWorkflowStepRunNotFound     = errors.New("workflow step run not found")
 	ErrEventKeyConflict            = errors.New("event key conflict")
 	ErrWorkflowVersionNotFound     = errors.New("workflow version not found")
+	ErrDeploymentVersionNotFound   = errors.New("deployment version not found")
 )
 
 type DBTX interface {
@@ -289,6 +290,15 @@ type BatchOperationStore interface {
 	ListBatchOperations(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
 }
 
+type DeploymentStore interface {
+	CreateDeploymentVersion(ctx context.Context, deployment *domain.DeploymentVersion) error
+	GetDeploymentVersion(ctx context.Context, deploymentID, projectID string) (*domain.DeploymentVersion, error)
+	ListDeploymentVersions(ctx context.Context, projectID, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
+	FinalizeDeploymentVersion(ctx context.Context, deploymentID, projectID, updatedBy string) (*domain.DeploymentVersion, error)
+	PromoteDeploymentVersion(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
+	RollbackDeploymentVersion(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
+}
+
 type LogDrainStore interface {
 	CreateLogDrain(ctx context.Context, drain *domain.LogDrain) error
 	GetLogDrain(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error)
@@ -326,6 +336,7 @@ type Store interface {
 	WorkflowStepRunStore
 	EventTriggerStore
 	BatchOperationStore
+	DeploymentStore
 	LogDrainStore
 	EventSourceStore
 	QueueStats(ctx context.Context) (*QueueStats, error)

@@ -27,23 +27,25 @@
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck",
-    "update-all": "bunx npm-check-updates -ui -ws"
+    "sdk:run-all": "bun run --filter @strait/ts run-all && make -C packages/go-sdk run-all && make -C packages/python-sdk run-all",
+    "update-all": "bunx npm-check-updates -ui -ws",
+    "release": "changeset version && bash scripts/sync-sdk-versions.sh"
   },
   "overrides": {
-    "better-auth": "1.5.5",
+    "better-auth": "1.4.18",
     "@tanstack/query-core": "5.90.20",
     "@tanstack/react-query": "5.90.21"
   },
   "devDependencies": {
-    "@better-auth/passkey": "^1.5.5",
     "@biomejs/biome": "2.4.7",
-    "@commitlint/cli": "^20.4.4",
-    "@commitlint/config-conventional": "^20.4.4",
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.30.0",
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260315.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260316.1",
     "baseline-browser-mapping": "^2.10.8",
-    "better-auth": "^1.5.5",
-    "knip": "^5.86.0",
+    "knip": "^5.87.0",
     "lefthook": "^2.1.4",
     "turbo": "^2.8.17",
     "ultracite": "7.3.1"

@@ -50,6 +50,7 @@ type APIStore interface {
 	JobStore
 	RunStore
 	WorkflowStore
+	DeploymentStore
 	EventTriggerStore
 	AuthStore
 	RBACStore
@@ -216,6 +217,16 @@ type WorkflowStore interface {
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
+}
+
+// DeploymentStore handles deployment version lifecycle operations.
+type DeploymentStore interface {
+	CreateDeploymentVersion(ctx context.Context, deployment *domain.DeploymentVersion) error
+	GetDeploymentVersion(ctx context.Context, deploymentID, projectID string) (*domain.DeploymentVersion, error)
+	ListDeploymentVersions(ctx context.Context, projectID, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
+	FinalizeDeploymentVersion(ctx context.Context, deploymentID, projectID, updatedBy string) (*domain.DeploymentVersion, error)
+	PromoteDeploymentVersion(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
+	RollbackDeploymentVersion(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
 }
 
 // EventTriggerStore handles event trigger operations.

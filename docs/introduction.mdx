@@ -150,7 +150,7 @@ Strait runs in three modes:
     OpenTelemetry tracing links job runs across API server, worker, and external endpoints. Prometheus metrics expose queue depth, throughput, and latency. Structured JSON logging enables log aggregation. Real-time SSE streaming via Redis.
   </Step>
   <Step title="Developer Experience">
-    CLI with 48+ commands, TUI dashboard, YAML manifests, and 7 output formats. Shell completion for Bash, Zsh, Fish, and PowerShell.
+    Unified CLI with code-first deployment workflows, operational command groups, and shell completion for Bash, Zsh, Fish, and PowerShell.
   </Step>
 </Steps>
 
@@ -182,9 +182,15 @@ Strait fits these patterns:
 </CardGroup>
 
 <CardGroup cols={2}>
+  <Card title="SDK Reference" icon="code" href="/docs/sdks/overview">
+    Official SDKs for TypeScript, Python, Go, Ruby, and Rust with full feature parity. Authoring DSL, composition helpers, and typed errors.
+  </Card>
   <Card title="CLI Reference" icon="terminal" href="/docs/cli/overview">
     Complete CLI documentation. 48+ commands organized by category with examples and shell completion.
   </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
   <Card title="API Reference" icon="api" href="/docs/api-reference/overview">
     REST API endpoints for job management, triggering, workflow orchestration, and SDK interactions.
   </Card>

@@ -97,6 +97,23 @@
         ]
       },
       {
+        "tab": "SDKs",
+        "groups": [
+          {
+            "group": "SDK Reference",
+            "pages": [
+              "sdks/overview",
+              "sdks/configuration",
+              "sdks/typescript",
+              "sdks/python",
+              "sdks/go",
+              "sdks/ruby",
+              "sdks/rust"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "API Reference",
         "groups": [
           {
@@ -118,6 +135,7 @@
             "group": "CLI Reference",
             "pages": [
               "cli/overview",
+              "cli/init",
               "cli/jobs",
               "cli/runs",
               "cli/workflows",
