@@ -99,12 +99,6 @@ const OrganizationDeleted = ({ name }: Props) => (
             <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
               © 2025 Strait, All rights reserved
             </Text>
-            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
-              CNPJ 59.888.832/0001-39
-            </Text>
-            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
-              Av. Princesa Isabel — Vitória, ES, Brazil 29.010-361
-            </Text>
           </Section>
         </Container>
       </Body>
