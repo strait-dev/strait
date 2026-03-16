@@ -19,6 +19,7 @@ type SchedulerStore interface {
 	PollerStore
 	ReaperStore
 	IndexMaintenanceStore
+	StatsAggregatorStore
 	store.DebounceStore
 	store.BatchStore
 }
@@ -30,6 +31,7 @@ type Scheduler struct {
 	indexMaintainer *IndexMaintainer
 	debouncePoller  *DebouncePoller
 	batchFlusher    *BatchFlusher
+	statsAggregator *StatsAggregator
 	wg              conc.WaitGroup
 }
 
@@ -47,6 +49,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		indexMaintainer: NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:  NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:    NewBatchFlusher(s, q, cfg.BatchFlushInterval),
+		statsAggregator: NewStatsAggregator(s),
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -75,6 +78,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.indexMaintainer.Run(ctx) })
 	s.wg.Go(func() { s.debouncePoller.Run(ctx) })
 	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
+	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
 
 	slog.Info("scheduler started")
 	return nil

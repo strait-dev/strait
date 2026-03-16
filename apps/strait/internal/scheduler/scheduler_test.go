@@ -153,6 +153,11 @@ func (m *mockSchedulerStore) DrainBatchBuffer(_ context.Context, _, _ string, _ 
 	return nil, nil
 }
 
+// StatsAggregatorStore method (no-op for tests).
+func (m *mockSchedulerStore) AggregateHourlyStats(_ context.Context, _ time.Time) error {
+	return nil
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval:           100 * time.Millisecond,

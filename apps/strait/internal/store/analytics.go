@@ -39,9 +39,59 @@ type HealthSummary struct {
 	QueueDepth      int     `json:"queue_depth"`
 }
 
+// AggregateHourlyStats materializes run statistics for a given hour into job_stats_hourly.
+func (q *Queries) AggregateHourlyStats(ctx context.Context, hour time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.AggregateHourlyStats")
+	defer span.End()
+
+	// Truncate to hour boundary.
+	hour = hour.Truncate(time.Hour)
+	nextHour := hour.Add(time.Hour)
+
+	query := `
+		INSERT INTO job_stats_hourly (job_id, project_id, hour, total, completed, failed, timed_out, canceled, avg_duration_ms, p95_duration_ms, total_cost_microusd)
+		SELECT
+			jr.job_id,
+			jr.project_id,
+			$1 AS hour,
+			COUNT(*) AS total,
+			COUNT(*) FILTER (WHERE jr.status = 'completed') AS completed,
+			COUNT(*) FILTER (WHERE jr.status = 'failed') AS failed,
+			COUNT(*) FILTER (WHERE jr.status = 'timed_out') AS timed_out,
+			COUNT(*) FILTER (WHERE jr.status = 'canceled') AS canceled,
+			COALESCE(AVG(EXTRACT(EPOCH FROM (jr.finished_at - jr.started_at)) * 1000)::BIGINT, 0) AS avg_duration_ms,
+			COALESCE((PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (jr.finished_at - jr.started_at)) * 1000))::BIGINT, 0) AS p95_duration_ms,
+			COALESCE(SUM(u.cost_microusd), 0) AS total_cost_microusd
+		FROM job_runs jr
+		LEFT JOIN run_usage u ON u.run_id = jr.id
+		WHERE jr.created_at >= $1 AND jr.created_at < $2
+		  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
+		GROUP BY jr.job_id, jr.project_id
+		ON CONFLICT (job_id, hour) DO UPDATE SET
+			total = EXCLUDED.total,
+			completed = EXCLUDED.completed,
+			failed = EXCLUDED.failed,
+			timed_out = EXCLUDED.timed_out,
+			canceled = EXCLUDED.canceled,
+			avg_duration_ms = EXCLUDED.avg_duration_ms,
+			p95_duration_ms = EXCLUDED.p95_duration_ms,
+			total_cost_microusd = EXCLUDED.total_cost_microusd`
+
+	_, err := q.db.Exec(ctx, query, hour, nextHour)
+	if err != nil {
+		return fmt.Errorf("aggregate hourly stats: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*PerformanceAnalytics, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetPerformanceAnalytics")
 	defer span.End()
+
+	// Use materialized path for ranges > 24 hours.
+	if periodHours > 24 {
+		return q.getPerformanceAnalyticsMaterialized(ctx, projectID, periodHours)
+	}
 
 	since := time.Now().Add(-time.Duration(periodHours) * time.Hour)
 	result := &PerformanceAnalytics{
@@ -124,6 +174,95 @@ func (q *Queries) GetPerformanceAnalytics(ctx context.Context, projectID string,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("analytics health: %w", err)
+	}
+
+	return result, nil
+}
+
+// getPerformanceAnalyticsMaterialized uses the pre-aggregated job_stats_hourly table.
+func (q *Queries) getPerformanceAnalyticsMaterialized(ctx context.Context, projectID string, periodHours int) (*PerformanceAnalytics, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetPerformanceAnalyticsMaterialized")
+	defer span.End()
+
+	since := time.Now().Add(-time.Duration(periodHours) * time.Hour)
+	result := &PerformanceAnalytics{
+		SlowestJobs: make([]JobPerformance, 0, 10),
+		Throughput:  ThroughputStats{PeriodHours: periodHours},
+	}
+
+	slowestQuery := `
+		SELECT s.job_id, COALESCE(j.slug, s.job_id),
+			COALESCE(AVG(s.avg_duration_ms) / 1000.0, 0) as avg_duration,
+			COALESCE(MAX(s.p95_duration_ms) / 1000.0, 0) as p95_duration,
+			SUM(s.total) as total_runs,
+			SUM(s.failed) as failed_runs
+		FROM job_stats_hourly s
+		LEFT JOIN jobs j ON j.id = s.job_id
+		WHERE s.project_id = $1 AND s.hour >= $2
+		GROUP BY s.job_id, j.slug
+		HAVING SUM(s.total) >= 5
+		ORDER BY avg_duration DESC
+		LIMIT 10`
+
+	rows, err := q.db.Query(ctx, slowestQuery, projectID, since)
+	if err != nil {
+		return nil, fmt.Errorf("materialized analytics slowest jobs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var jp JobPerformance
+		if err := rows.Scan(&jp.JobID, &jp.JobSlug, &jp.AvgDurationSecs, &jp.P95DurationSecs, &jp.TotalRuns, &jp.FailedRuns); err != nil {
+			return nil, fmt.Errorf("materialized analytics slowest jobs scan: %w", err)
+		}
+		result.SlowestJobs = append(result.SlowestJobs, jp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("materialized analytics slowest jobs rows: %w", err)
+	}
+
+	throughputQuery := `
+		SELECT
+			COALESCE(SUM(completed), 0),
+			COALESCE(SUM(failed), 0),
+			COALESCE(SUM(timed_out), 0),
+			COALESCE(SUM(canceled), 0)
+		FROM job_stats_hourly
+		WHERE project_id = $1 AND hour >= $2`
+
+	err = q.db.QueryRow(ctx, throughputQuery, projectID, since).Scan(
+		&result.Throughput.Completed,
+		&result.Throughput.Failed,
+		&result.Throughput.TimedOut,
+		&result.Throughput.Canceled,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("materialized analytics throughput: %w", err)
+	}
+
+	// Health summary still reads live data (it includes queue depth and active jobs).
+	healthQuery := `
+		SELECT
+			(SELECT COUNT(*) FROM jobs WHERE project_id = $1) as total_jobs,
+			(SELECT COUNT(*) FROM jobs WHERE project_id = $1 AND enabled = true) as active_jobs,
+			CASE WHEN COALESCE(SUM(s.total), 0) > 0
+				THEN ROUND(SUM(s.completed)::numeric / SUM(s.total)::numeric, 4)
+				ELSE 0
+			END as success_rate,
+			COALESCE(AVG(s.avg_duration_ms) / 1000.0, 0) as avg_duration,
+			(SELECT COUNT(*) FROM job_runs WHERE project_id = $1 AND status = 'queued') as queue_depth
+		FROM job_stats_hourly s
+		WHERE s.project_id = $1 AND s.hour >= $2`
+
+	err = q.db.QueryRow(ctx, healthQuery, projectID, since).Scan(
+		&result.HealthSummary.TotalJobs,
+		&result.HealthSummary.ActiveJobs,
+		&result.HealthSummary.SuccessRate,
+		&result.HealthSummary.AvgDurationSecs,
+		&result.HealthSummary.QueueDepth,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("materialized analytics health: %w", err)
 	}
 
 	return result, nil
