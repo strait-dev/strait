@@ -556,6 +556,41 @@ type WorkflowPolicy struct {
 	UpdatedAt                time.Time `json:"updated_at"`
 }
 
+type DeploymentVersionStatus string
+
+const (
+	DeploymentVersionStatusDraft     DeploymentVersionStatus = "draft"
+	DeploymentVersionStatusFinalized DeploymentVersionStatus = "finalized"
+	DeploymentVersionStatusPromoted  DeploymentVersionStatus = "promoted"
+)
+
+func (s DeploymentVersionStatus) IsValid() bool {
+	switch s {
+	case DeploymentVersionStatusDraft, DeploymentVersionStatusFinalized, DeploymentVersionStatusPromoted:
+		return true
+	default:
+		return false
+	}
+}
+
+type DeploymentVersion struct {
+	ID                     string                  `json:"id"`
+	ProjectID              string                  `json:"project_id"`
+	Environment            string                  `json:"environment"`
+	Runtime                string                  `json:"runtime"`
+	ArtifactURI            string                  `json:"artifact_uri"`
+	Manifest               json.RawMessage         `json:"manifest,omitempty"`
+	Checksum               string                  `json:"checksum,omitempty"`
+	Status                 DeploymentVersionStatus `json:"status"`
+	FinalizedAt            *time.Time              `json:"finalized_at,omitempty"`
+	PromotedAt             *time.Time              `json:"promoted_at,omitempty"`
+	RollbackFromDeployment string                  `json:"rollback_from_deployment_id,omitempty"`
+	CreatedBy              string                  `json:"created_by,omitempty"`
+	UpdatedBy              string                  `json:"updated_by,omitempty"`
+	CreatedAt              time.Time               `json:"created_at"`
+	UpdatedAt              time.Time               `json:"updated_at"`
+}
+
 func (s RunStatus) IsTerminal() bool {
 	switch s {
 	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:

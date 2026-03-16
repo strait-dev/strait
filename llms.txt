@@ -1,0 +1,47 @@
+# Strait
+
+> Open-source job orchestration platform with 13-state FSM, workflow DAGs, smart retry, event triggers, and multi-language SDK support.
+
+## Documentation
+
+- [Introduction](https://docs.strait.dev/introduction): Overview of Strait's architecture and capabilities
+- [Getting Started](https://docs.strait.dev/getting-started/quickstart): Quickstart guide for running Strait locally
+- [Configuration](https://docs.strait.dev/configuration/environment-variables): Environment variables and configuration reference
+
+## SDKs
+
+- [TypeScript SDK](https://docs.strait.dev/sdks/typescript): Official TypeScript/Node.js SDK with Effect and Promise APIs
+- [Python SDK](https://docs.strait.dev/sdks/python): Official Python SDK with sync and async clients (Python 3.11+)
+- [Go SDK](https://docs.strait.dev/sdks/go): Official Go SDK with idiomatic error handling and generics
+- [Ruby SDK](https://docs.strait.dev/sdks/ruby): Official Ruby SDK with Faraday HTTP client (Ruby 3.1+)
+- [Rust SDK](https://docs.strait.dev/sdks/rust): Official Rust SDK with async/await and builder pattern
+
+## Concepts
+
+- [Jobs](https://docs.strait.dev/concepts/jobs): Durable, retriable units of work with lifecycle management
+- [Runs](https://docs.strait.dev/concepts/runs): Individual job executions with 13-state FSM lifecycle
+- [Workflows](https://docs.strait.dev/concepts/workflows): Multi-step DAG orchestration with step types (job, approval, sub-workflow, wait-for-event, sleep)
+- [Event Triggers](https://docs.strait.dev/concepts/event-triggers): Pub/sub event system for triggering jobs and workflows
+- [Deployments](https://docs.strait.dev/concepts/deployments): Atomic deployment pipeline (create → finalize → promote)
+- [Environments](https://docs.strait.dev/concepts/environments): Isolated execution contexts with variables and secrets
+- [Retry & Backoff](https://docs.strait.dev/concepts/retry-strategies): Exponential backoff, fixed delay, and custom retry strategies
+- [FSM State Machines](https://docs.strait.dev/concepts/run-lifecycle): 13 run states, 14 events, deterministic transitions
+
+## API Reference
+
+- [REST API](https://docs.strait.dev/api-reference): Full OpenAPI specification for all 186 endpoints across 19 services
+
+## Guides
+
+- [SDK Integration](https://docs.strait.dev/guides/sdk-integration): Building job/workflow executors with SDK run endpoints
+- [Workflow DAGs](https://docs.strait.dev/guides/workflows): Designing and validating workflow step graphs
+- [CI/CD Deployments](https://docs.strait.dev/guides/deployments): Atomic deployment pipeline integration
+- [Monitoring](https://docs.strait.dev/guides/monitoring): Log drains, webhooks, and observability setup
+
+## CLI
+
+- [strait init](https://docs.strait.dev/cli/init): Initialize a new Strait project with strait.json configuration
+- [strait jobs](https://docs.strait.dev/cli/jobs): Manage jobs (list, create, trigger, inspect)
+- [strait runs](https://docs.strait.dev/cli/runs): Manage runs (list, get, cancel, replay)
+- [strait workflows](https://docs.strait.dev/cli/workflows): Manage workflows (list, create, trigger, graph)
+- [strait deploy](https://docs.strait.dev/cli/deploy): Deploy job versions atomically

@@ -73,7 +73,9 @@ const OrganizationPurged = ({ name, organizationName }: Props) => (
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             We confirm that all data associated with the{" "}
-            <span className="font-medium text-[#252525]">{organizationName}</span>{" "}
+            <span className="font-medium text-[#252525]">
+              {organizationName}
+            </span>{" "}
             organization has been permanently removed from our servers as
             requested.
           </Text>
@@ -81,9 +83,9 @@ const OrganizationPurged = ({ name, organizationName }: Props) => (
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-            This action is irreversible and all data, including workflows,
-            jobs, schedules, events, and settings have been completely erased
-            in compliance with data protection laws.
+            This action is irreversible and all data, including workflows, jobs,
+            schedules, events, and settings have been completely erased in
+            compliance with data protection laws.
           </Text>
 
           <br />

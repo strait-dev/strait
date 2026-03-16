@@ -1,0 +1,87 @@
+# frozen_string_literal: true
+
+module Strait
+  module FSM
+    # Run status constants
+    RUN_DELAYED = "delayed"
+    RUN_QUEUED = "queued"
+    RUN_DEQUEUED = "dequeued"
+    RUN_EXECUTING = "executing"
+    RUN_WAITING = "waiting"
+    RUN_COMPLETED = "completed"
+    RUN_FAILED = "failed"
+    RUN_TIMED_OUT = "timed_out"
+    RUN_CRASHED = "crashed"
+    RUN_SYSTEM_FAILED = "system_failed"
+    RUN_CANCELED = "canceled"
+    RUN_EXPIRED = "expired"
+    RUN_DEAD_LETTER = "dead_letter"
+    RUN_REPLAY_STAGED = "replay_staged"
+
+    # Run event constants
+    RUN_EVENT_ENQUEUE = "ENQUEUE"
+    RUN_EVENT_DEQUEUE = "DEQUEUE"
+    RUN_EVENT_EXECUTE = "EXECUTE"
+    RUN_EVENT_COMPLETE = "COMPLETE"
+    RUN_EVENT_FAIL = "FAIL"
+    RUN_EVENT_TIMEOUT = "TIMEOUT"
+    RUN_EVENT_CRASH = "CRASH"
+    RUN_EVENT_SYSTEM_FAIL = "SYSTEM_FAIL"
+    RUN_EVENT_CANCEL = "CANCEL"
+    RUN_EVENT_EXPIRE = "EXPIRE"
+    RUN_EVENT_WAIT = "WAIT"
+    RUN_EVENT_REQUEUE = "REQUEUE"
+    RUN_EVENT_DEAD_LETTER = "DEAD_LETTER"
+    RUN_EVENT_REPLAY = "REPLAY"
+
+    TERMINAL_RUN_STATUSES = [
+      RUN_COMPLETED, RUN_FAILED, RUN_TIMED_OUT,
+      RUN_CRASHED, RUN_SYSTEM_FAILED, RUN_CANCELED, RUN_EXPIRED
+    ].freeze
+
+    # Transition table: { [from_status, event] => to_status }
+    RUN_TRANSITIONS = {
+      [RUN_DELAYED, RUN_EVENT_ENQUEUE] => RUN_QUEUED,
+      [RUN_DELAYED, RUN_EVENT_CANCEL] => RUN_CANCELED,
+      [RUN_DELAYED, RUN_EVENT_EXPIRE] => RUN_EXPIRED,
+      [RUN_QUEUED, RUN_EVENT_DEQUEUE] => RUN_DEQUEUED,
+      [RUN_QUEUED, RUN_EVENT_CANCEL] => RUN_CANCELED,
+      [RUN_QUEUED, RUN_EVENT_EXPIRE] => RUN_EXPIRED,
+      [RUN_DEQUEUED, RUN_EVENT_EXECUTE] => RUN_EXECUTING,
+      [RUN_DEQUEUED, RUN_EVENT_CANCEL] => RUN_CANCELED,
+      [RUN_DEQUEUED, RUN_EVENT_REQUEUE] => RUN_QUEUED,
+      [RUN_EXECUTING, RUN_EVENT_COMPLETE] => RUN_COMPLETED,
+      [RUN_EXECUTING, RUN_EVENT_FAIL] => RUN_FAILED,
+      [RUN_EXECUTING, RUN_EVENT_TIMEOUT] => RUN_TIMED_OUT,
+      [RUN_EXECUTING, RUN_EVENT_CRASH] => RUN_CRASHED,
+      [RUN_EXECUTING, RUN_EVENT_SYSTEM_FAIL] => RUN_SYSTEM_FAILED,
+      [RUN_EXECUTING, RUN_EVENT_CANCEL] => RUN_CANCELED,
+      [RUN_EXECUTING, RUN_EVENT_WAIT] => RUN_WAITING,
+      [RUN_WAITING, RUN_EVENT_EXECUTE] => RUN_EXECUTING,
+      [RUN_WAITING, RUN_EVENT_CANCEL] => RUN_CANCELED,
+      [RUN_WAITING, RUN_EVENT_TIMEOUT] => RUN_TIMED_OUT,
+      [RUN_FAILED, RUN_EVENT_REQUEUE] => RUN_QUEUED,
+      [RUN_FAILED, RUN_EVENT_DEAD_LETTER] => RUN_DEAD_LETTER,
+      [RUN_FAILED, RUN_EVENT_REPLAY] => RUN_REPLAY_STAGED,
+      [RUN_TIMED_OUT, RUN_EVENT_REPLAY] => RUN_REPLAY_STAGED,
+      [RUN_CRASHED, RUN_EVENT_REPLAY] => RUN_REPLAY_STAGED,
+      [RUN_SYSTEM_FAILED, RUN_EVENT_REPLAY] => RUN_REPLAY_STAGED,
+      [RUN_DEAD_LETTER, RUN_EVENT_REPLAY] => RUN_REPLAY_STAGED,
+      [RUN_REPLAY_STAGED, RUN_EVENT_ENQUEUE] => RUN_QUEUED,
+    }.freeze
+
+    def self.can_transition_run?(from, event)
+      RUN_TRANSITIONS.key?([from, event])
+    end
+
+    def self.transition_run(from, event)
+      to = RUN_TRANSITIONS[[from, event]]
+      raise ArgumentError, "invalid run transition: #{from} + #{event}" unless to
+      to
+    end
+
+    def self.terminal_run_status?(status)
+      TERMINAL_RUN_STATUSES.include?(status)
+    end
+  end
+end

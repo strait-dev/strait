@@ -77,8 +77,8 @@ const OrganizationDeleted = ({ name }: Props) => (
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-            If you want to create a new organization, you can do so at any
-            time by accessing the organizations menu at the top of Strait and
+            If you want to create a new organization, you can do so at any time
+            by accessing the organizations menu at the top of Strait and
             clicking "Create new organization".
           </Text>
 

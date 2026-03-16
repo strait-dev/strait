@@ -1,0 +1,85 @@
+---
+title: "strait init"
+description: "Initialize a new strait.json configuration file."
+---
+
+The `strait init` command creates a `strait.json` config file in the current directory. This file is used by all three SDKs (TypeScript, Python, Go) and the CLI.
+
+## Usage
+
+```bash
+strait init [flags]
+```
+
+## Interactive Mode (default)
+
+When run without `--yes`, the command prompts for each field:
+
+```bash
+$ strait init
+Project ID: proj_abc123
+Project name (optional, Enter to skip): My Project
+Source directory (src): src
+Runtime (node/bun) (node): node
+Base URL (optional, Enter to use env var):
+Created strait.json
+Add .strait to .gitignore? (Y/n): y
+Added .strait to .gitignore
+```
+
+If a `strait.json` already exists, you'll be asked to confirm before overwriting.
+
+## Non-Interactive Mode
+
+For CI/CD or scripting, use `--yes` (`-y`) with `--project`:
+
+```bash
+strait init --yes --project proj_abc123
+```
+
+All other fields use defaults:
+- Source directory: `src`
+- Runtime: `node`
+- Build output: `.strait`
+- No base URL (uses `STRAIT_BASE_URL` env var)
+
+## Flags
+
+| Flag | Alias | Description |
+|---|---|---|
+| `--yes` | `-y` | Non-interactive mode. Uses defaults for all optional fields. |
+| `--project <id>` | | Project ID. Required in non-interactive mode. |
+| `--json` | | Output the generated config as JSON to stdout. |
+
+## Generated File
+
+The command writes a `strait.json` with this structure:
+
+```json
+{
+  "$schema": "https://strait.dev/schema.json",
+  "project": {
+    "id": "proj_abc123",
+    "name": "My Project"
+  },
+  "src": "src",
+  "runtime": "node",
+  "build": {
+    "out_dir": ".strait"
+  }
+}
+```
+
+The `sdk` section is only included if a base URL is provided. Auth tokens are never written to the file.
+
+## Migrating from `strait.config.ts`
+
+If you're migrating from the deprecated `strait.config.ts`:
+
+1. Run `strait init` and enter your project details
+2. Delete the old `strait.config.ts` file
+3. Both the SDKs and CLI will automatically prefer `strait.json`
+
+<Tip>
+After migrating, the deprecation warning (`strait.config.ts is deprecated...`) will stop appearing.
+</Tip>

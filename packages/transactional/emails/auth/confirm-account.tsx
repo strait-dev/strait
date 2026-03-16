@@ -68,9 +68,8 @@ const ConfirmAccount = ({ name, url }: Props) => (
           <br />
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-            Thank you for registering on Strait! To start using our
-            platform, please confirm your email address by clicking the button
-            below:
+            Thank you for registering on Strait! To start using our platform,
+            please confirm your email address by clicking the button below:
           </Text>
 
           <br />

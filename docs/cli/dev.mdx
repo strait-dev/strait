@@ -1,185 +1,90 @@
 ---
-title: "Development & Manifests"
-description: "Commands for local development, project initialization, and declarative manifest management."
+title: "Development & Deployment"
+description: "Code-first project flow for build, dev, and deployment lifecycle commands in the unified CLI."
 ---
+
+The unified TypeScript CLI is **code-first**. Project state is sourced from `strait.config.ts`, compiled into a deterministic manifest, then promoted through deployment versions.
+
+## build
+
+Compile local definitions into a deterministic manifest payload.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--outDir` | string | value from config | Manifest output directory override |
+| `--dryRun` | bool | false | Print manifest payload without writing files |
+| `--json` | bool | false | Emit machine-readable JSON |
+
+```bash
+strait build --dryRun --json
+```
 
 ## dev
 
-Start the local development environment with Docker dependencies.
+Resolve config and render local project readiness summary. `--watch` runs a one-cycle rebuild probe for config changes.
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| --no-docker | bool | false | Do not start Docker dependencies |
-| --port | int | 8080 | Server port |
-| --seed | bool | false | Seed the database with initial data |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--watch` | bool | false | Watch config for one rebuild cycle |
+| `--json` | bool | false | Emit machine-readable JSON |
 
 ```bash
-strait dev --seed
+strait dev --watch --json
 ```
 
-<Note>
-The `dev` command automatically sets the following environment variables:
-- `DATABASE_URL`
-- `REDIS_URL`
-- `INTERNAL_SECRET`
-- `JWT_SIGNING_KEY`
-- `LOG_LEVEL=debug`
-</Note>
+## deploy
 
-## dev status
-
-Run local development readiness checks to ensure all dependencies are available.
-
-```bash
-strait dev status
-```
-
-## init
-
-Initialize project files and directory structure.
+Create and finalize a deployment version from the compiled manifest.
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| --yes | bool | false | Skip confirmation prompt |
-| --name | string | demo-project | Project name |
-| --template | string | minimal | Project template (minimal, full) |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--context` | string | active context | Context override |
+| `--server` | string | resolved from context/env | API server override |
+| `--env` | string | config deploy default or `production` | Target environment |
+| `--artifactUri` | string | file URI for generated manifest | Artifact URI override |
+| `--dryRun` | bool | false | Print create/finalize payload plan only |
+| `--json` | bool | false | Emit machine-readable JSON |
 
 ```bash
-strait init --name my-project --template full
+strait deploy --env staging --json
 ```
 
-<Note>
-This command creates the following files:
-- `.strait.yaml`
-- `.env`
-- `docker-compose.yml`
-- `definitions/jobs.yaml`
-- `definitions/workflows.yaml` (full template only)
-</Note>
+## promote
 
-## fixtures create
-
-Create fixture data for testing.
+Promote a finalized deployment version to active status for an environment.
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| --template | string | minimal | Fixture template (minimal, full) |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--context` | string | active context | Context override |
+| `--server` | string | resolved from context/env | API server override |
+| `--env` | string | config deploy default or `production` | Target environment |
+| `--json` | bool | false | Emit machine-readable JSON |
 
 ```bash
-strait fixtures create --template full
+strait promote dep_123 --env production --json
 ```
 
-## fixtures clean
+## rollback
 
-Clean up fixture data from the database.
-
-```bash
-strait fixtures clean
-```
-
-## check
-
-Validate manifests with deep checks, including endpoint connectivity.
+Rollback by promoting a previous deployment version ID.
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| --file, -f | string[] | | Manifest files to check |
-| --check-endpoints | bool | false | Verify endpoint connectivity |
-| --endpoint-timeout | duration | 3s | Timeout for endpoint checks |
+| `--to` | string | required | Deployment version ID to roll back to |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--context` | string | active context | Context override |
+| `--server` | string | resolved from context/env | API server override |
+| `--env` | string | config deploy default or `production` | Target environment |
+| `--json` | bool | false | Emit machine-readable JSON |
 
 ```bash
-strait check -f definitions/jobs.yaml --check-endpoints
+strait rollback --to dep_101 --env production --json
 ```
 
-## validate
+## Removed declarative surfaces
 
-Validate manifest files for syntax and schema correctness without applying changes.
-
-| Flag | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| --file, -f | string[] | | Manifest files to validate |
-
-```bash
-strait validate -f definitions/workflows.yaml
-```
-
-## apply
-
-Apply declarative definitions to the server.
-
-| Flag | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| --file, -f | string[] | | Manifest files to apply |
-| --dry-run | bool | false | Show changes without applying them |
-
-```bash
-strait apply -f definitions/
-```
-
-<Tip>
-You can pipe manifests via stdin using `-f -`:
-`cat manifest.yaml | strait apply -f -`
-</Tip>
-
-## diff
-
-Show differences between local manifests and the current server state.
-
-| Flag | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| --file, -f | string[] | | Manifest files to diff |
-
-```bash
-strait diff -f definitions/jobs.yaml
-```
-
-## export
-
-Export server state as YAML manifests.
-
-| Flag | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| --project | string | | Filter by project |
-| --output-dir | string | | Directory to save exported files |
-| --name-contains | string | | Filter resources by name |
-| --dry-run | bool | false | Show what would be exported |
-| --force-overwrite | bool | false | Overwrite existing files |
-
-```bash
-strait export --output-dir ./backup --project my-project
-```
-
-<Note>
-Supported resources for export: `jobs`, `workflows`, `api-keys`, `all`.
-</Note>
-
-## Manifest Format Examples
-
-### Job Manifest
-
-```yaml
-kind: Job
-metadata:
-  name: process-data
-  project: default
-spec:
-  image: node:18
-  command: ["npm", "start"]
-  schedule: "0 * * * *"
-```
-
-### Workflow Manifest
-
-```yaml
-kind: Workflow
-metadata:
-  name: data-pipeline
-  project: default
-spec:
-  steps:
-    - name: fetch
-      job: fetch-data
-    - name: process
-      job: process-data
-      dependsOn: [fetch]
-```
+`validate`, `apply`, and `diff` are removed from the unified CLI. YAML manifest orchestration is no longer a canonical path.

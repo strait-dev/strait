@@ -86,7 +86,9 @@ const OrganizationVerificationCode = ({
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             We received a request to{" "}
             {isPurgeOnly ? "remove all data from" : "delete"} the{" "}
-            <span className="font-medium text-[#252525]">{organizationName}</span>{" "}
+            <span className="font-medium text-[#252525]">
+              {organizationName}
+            </span>{" "}
             organization from your Strait account. This action is{" "}
             <span className="font-medium text-[#252525]">permanent</span> and
             {isPurgeOnly

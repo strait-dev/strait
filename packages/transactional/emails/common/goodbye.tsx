@@ -96,9 +96,9 @@ const GoodbyeEmail = ({ name }: GoodbyeEmailProps) => (
             <br />
 
             <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-              Thank you for being part of Strait and for trusting us to
-              simplify your workflow orchestration. We wish you success in your
-              next steps!
+              Thank you for being part of Strait and for trusting us to simplify
+              your workflow orchestration. We wish you success in your next
+              steps!
             </Text>
           </Section>
 
