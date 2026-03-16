@@ -904,3 +904,114 @@ func TestHandleRestartRun_InvalidPreset(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// Phase 3 tests.
+
+func TestHandleResumeRun_PreservesMachineID(t *testing.T) {
+	t.Parallel()
+
+	var capturedFields map[string]any
+	getCalls := 0
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.JobRun{ID: id, Status: domain.StatusPaused, MachineID: "m-paused", ExecutionMode: domain.ExecutionModeManaged}, nil
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusQueued, MachineID: "m-paused", ExecutionMode: domain.ExecutionModeManaged}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
+			capturedFields = fields
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, hasMachineID := capturedFields["machine_id"]; hasMachineID {
+		t.Error("resume should NOT clear machine_id (preserve for warm start)")
+	}
+}
+
+func TestHandlePauseRun_ThenResume_EndToEnd(t *testing.T) {
+	t.Parallel()
+
+	runState := &domain.JobRun{
+		ID:            "run-1",
+		Status:        domain.StatusExecuting,
+		ExecutionMode: domain.ExecutionModeManaged,
+		MachineID:     "m-1",
+	}
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return runState, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+			if from == domain.StatusExecuting && to == domain.StatusPaused {
+				runState.Status = domain.StatusPaused
+			} else if from == domain.StatusPaused && to == domain.StatusQueued {
+				runState.Status = domain.StatusQueued
+			}
+			return nil
+		},
+	}
+	rt := &mockContainerRuntime{}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("pause: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if runState.Status != domain.StatusPaused {
+		t.Fatalf("expected paused, got %s", runState.Status)
+	}
+
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("resume: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if runState.Status != domain.StatusQueued {
+		t.Fatalf("expected queued after resume, got %s", runState.Status)
+	}
+	if runState.MachineID != "m-1" {
+		t.Errorf("expected machine_id preserved, got %q", runState.MachineID)
+	}
+}
+
+func TestHandleResumeRun_NotFound(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return nil, store.ErrRunNotFound
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-gone/resume", ""))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusQueued}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for already-queued, got %d: %s", w.Code, w.Body.String())
+	}
+}

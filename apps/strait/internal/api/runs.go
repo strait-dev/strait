@@ -788,7 +788,6 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.UpdateRunStatus(r.Context(), run.ID, domain.StatusPaused, domain.StatusQueued, map[string]any{
 		"started_at":  nil,
 		"finished_at": nil,
-		"machine_id":  nil,
 		"metadata":    map[string]string{},
 	}); err != nil {
 		respondError(w, r, http.StatusConflict, "failed to resume run")

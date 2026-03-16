@@ -1776,3 +1776,202 @@ func TestManagedDispatch_ShutdownDrainsPool(t *testing.T) {
 		t.Errorf("expected pool size 0 after drain, got %d", pool.Size())
 	}
 }
+
+// Phase 3 tests.
+
+func TestManagedDispatch_ResumedRun_ReusesPausedMachine(t *testing.T) {
+	t.Parallel()
+	var startCalled atomic.Bool
+	var createCalled atomic.Bool
+	var startEnv map[string]string
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, machineID string, env map[string]string) error {
+			startCalled.Store(true)
+			startEnv = env
+			if machineID != "paused-m" {
+				t.Errorf("Start called with machineID=%q, want paused-m", machineID)
+			}
+			return nil
+		},
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.MachineID = "paused-m" // Preserved from pause.
+
+	e.managedDispatch(context.Background(), run, newTestManagedJob())
+
+	if !startCalled.Load() {
+		t.Error("expected Start to be called with paused machine")
+	}
+	if createCalled.Load() {
+		t.Error("expected Create NOT to be called when Start succeeds")
+	}
+	if startEnv["STRAIT_RUN_ID"] != "run-1" {
+		t.Error("Start env should contain fresh STRAIT_RUN_ID")
+	}
+	if startEnv["STRAIT_SDK_TOKEN"] == "" {
+		t.Error("Start env should contain fresh STRAIT_SDK_TOKEN")
+	}
+}
+
+func TestManagedDispatch_ResumedRun_MachineGone_FallsToCreate(t *testing.T) {
+	t.Parallel()
+	var createCalled atomic.Bool
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, _ map[string]string) error {
+			return compute.ErrMachineGone
+		},
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.MachineID = "paused-m"
+
+	e.managedDispatch(context.Background(), run, newTestManagedJob())
+
+	if !createCalled.Load() {
+		t.Error("expected Create when paused machine is gone")
+	}
+}
+
+func TestManagedDispatch_ResumedRun_MachineTransientError_FallsToCreate(t *testing.T) {
+	t.Parallel()
+	var createCalled atomic.Bool
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, _ map[string]string) error {
+			return compute.NewRetryableError(500, "transient", nil)
+		},
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.MachineID = "paused-m"
+
+	e.managedDispatch(context.Background(), run, newTestManagedJob())
+
+	if !createCalled.Load() {
+		t.Error("expected Create when paused machine Start returns transient error")
+	}
+}
+
+func TestManagedDispatch_PoolTakesPriorityOverPausedMachine(t *testing.T) {
+	t.Parallel()
+	var startedMachines []string
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, machineID string, _ map[string]string) error {
+			startedMachines = append(startedMachines, machineID)
+			return nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+	pool.Release("alpine:latest", "iad", "pool-m")
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	run.MachineID = "paused-m" // Both pool and paused available.
+
+	e.managedDispatch(context.Background(), run, newTestManagedJob())
+
+	if len(startedMachines) != 1 || startedMachines[0] != "pool-m" {
+		t.Errorf("expected pool machine used first, got %v", startedMachines)
+	}
+}
+
+func TestManagedDispatch_ResumedRun_EnvContainsCheckpoint(t *testing.T) {
+	t.Parallel()
+	var startEnv map[string]string
+
+	cpTime := time.Now().Add(-5 * time.Minute)
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		getLatestCheckpointFn: func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+			return &domain.RunCheckpoint{
+				State:     json.RawMessage(`{"step":"2"}`),
+				CreatedAt: cpTime,
+			}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, env map[string]string) error {
+			startEnv = env
+			return nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.MachineID = "paused-m"
+	run.Attempt = 2 // Retried — should get checkpoint.
+
+	e.managedDispatch(context.Background(), run, newTestManagedJob())
+
+	if startEnv["STRAIT_LAST_CHECKPOINT"] == "" {
+		t.Error("expected STRAIT_LAST_CHECKPOINT in env for retried run")
+	}
+	if startEnv["STRAIT_CHECKPOINT_AT"] == "" {
+		t.Error("expected STRAIT_CHECKPOINT_AT in env for retried run")
+	}
+}

@@ -453,6 +453,15 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			}
 		}
 	}
+	// Try reusing a paused machine (machine_id preserved from pause).
+	if machineID == "" && run.MachineID != "" {
+		if startErr := e.containerRuntime.Start(ctx, run.MachineID, env); startErr != nil {
+			e.logger.Warn("paused machine start failed, creating new",
+				"machine_id", run.MachineID, "run_id", run.ID, "error", startErr)
+		} else {
+			machineID = run.MachineID
+		}
+	}
 	if machineID == "" {
 		machineID, createErr = e.containerRuntime.Create(ctx, runReq)
 	}

@@ -1731,7 +1731,6 @@ func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string
 		SET status = 'queued',
 		    started_at = NULL,
 		    finished_at = NULL,
-		    machine_id = NULL,
 		    metadata = metadata - '_paused_machine_id'
 		FROM workflow_step_runs wsr
 		WHERE wsr.job_run_id = r.id
