@@ -3,13 +3,17 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"strait/internal/compute"
+	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -427,6 +431,239 @@ func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
 	}
 	if created.MaxConcurrencyPerKey != 5 {
 		t.Fatalf("expected MaxConcurrencyPerKey=5, got %d", created.MaxConcurrencyPerKey)
+	}
+}
+
+// mockContainerRuntime implements compute.ContainerRuntime for API handler tests.
+type mockContainerRuntime struct {
+	runFn     func(ctx context.Context, req compute.RunRequest) (*compute.RunResult, error)
+	createFn  func(ctx context.Context, req compute.RunRequest) (string, error)
+	waitFn    func(ctx context.Context, machineID string, timeoutSecs int) (*compute.RunResult, error)
+	stopFn    func(ctx context.Context, machineID string) error
+	destroyFn func(ctx context.Context, machineID string) error
+	statusFn  func(ctx context.Context, machineID string) (compute.MachineStatus, error)
+	getLogsFn func(ctx context.Context, machineID string, lines int) (string, error)
+}
+
+func (m *mockContainerRuntime) Run(ctx context.Context, req compute.RunRequest) (*compute.RunResult, error) {
+	if m.runFn != nil {
+		return m.runFn(ctx, req)
+	}
+	return &compute.RunResult{ExitCode: 0}, nil
+}
+func (m *mockContainerRuntime) Create(ctx context.Context, req compute.RunRequest) (string, error) {
+	if m.createFn != nil {
+		return m.createFn(ctx, req)
+	}
+	return "mock-machine-id", nil
+}
+func (m *mockContainerRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int) (*compute.RunResult, error) {
+	if m.waitFn != nil {
+		return m.waitFn(ctx, machineID, timeoutSecs)
+	}
+	return &compute.RunResult{MachineID: machineID, ExitCode: 0}, nil
+}
+func (m *mockContainerRuntime) Stop(ctx context.Context, machineID string) error {
+	if m.stopFn != nil {
+		return m.stopFn(ctx, machineID)
+	}
+	return nil
+}
+func (m *mockContainerRuntime) Destroy(ctx context.Context, machineID string) error {
+	if m.destroyFn != nil {
+		return m.destroyFn(ctx, machineID)
+	}
+	return nil
+}
+func (m *mockContainerRuntime) Status(ctx context.Context, machineID string) (compute.MachineStatus, error) {
+	if m.statusFn != nil {
+		return m.statusFn(ctx, machineID)
+	}
+	return compute.MachineStatusStopped, nil
+}
+func (m *mockContainerRuntime) GetLogs(ctx context.Context, machineID string, lines int) (string, error) {
+	if m.getLogsFn != nil {
+		return m.getLogsFn(ctx, machineID, lines)
+	}
+	return "", nil
+}
+
+// newTestServerWithRuntime creates a test server with an optional container runtime.
+func newTestServerWithRuntime(t *testing.T, s APIStore, q *mockQueue, rt compute.ContainerRuntime) *Server {
+	t.Helper()
+	cfg := &config.Config{
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "01234567890123456789012345678901",
+	}
+	srv := NewServer(ServerDeps{
+		Config:           cfg,
+		Store:            s,
+		Queue:            q,
+		ContainerRuntime: rt,
+	})
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestHandleCancelRun_ManagedStopsContainer(t *testing.T) {
+	t.Parallel()
+
+	var stoppedMachine atomic.Value
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, machineID string) error {
+			stoppedMachine.Store(machineID)
+			return nil
+		},
+	}
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:            id,
+				JobID:         "job-1",
+				ProjectID:     "proj-1",
+				Status:        domain.StatusExecuting,
+				ExecutionMode: domain.ExecutionModeManaged,
+				MachineID:     "m-abc-123",
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
+		},
+	}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	got, ok := stoppedMachine.Load().(string)
+	if !ok || got != "m-abc-123" {
+		t.Fatalf("expected Stop(m-abc-123) to be called, got %q", got)
+	}
+}
+
+func TestHandleCancelRun_StopError(t *testing.T) {
+	t.Parallel()
+
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, _ string) error {
+			return errors.New("fly API down")
+		},
+	}
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:            id,
+				JobID:         "job-1",
+				ProjectID:     "proj-1",
+				Status:        domain.StatusExecuting,
+				ExecutionMode: domain.ExecutionModeManaged,
+				MachineID:     "m-fail",
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
+		},
+	}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
+	// Cancel should still succeed even if Stop fails.
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 even when Stop fails, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCancelRun_HTTPRun_NoStopCall(t *testing.T) {
+	t.Parallel()
+
+	var stopCalled atomic.Bool
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, _ string) error {
+			stopCalled.Store(true)
+			return nil
+		},
+	}
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:            id,
+				JobID:         "job-1",
+				ProjectID:     "proj-1",
+				Status:        domain.StatusExecuting,
+				ExecutionMode: domain.ExecutionModeHTTP,
+				MachineID:     "m-http",
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
+		},
+	}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if stopCalled.Load() {
+		t.Fatal("Stop should not be called for HTTP execution mode runs")
+	}
+}
+
+func TestHandleCancelRun_NoMachineID(t *testing.T) {
+	t.Parallel()
+
+	var stopCalled atomic.Bool
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, _ string) error {
+			stopCalled.Store(true)
+			return nil
+		},
+	}
+
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:            id,
+				JobID:         "job-1",
+				ProjectID:     "proj-1",
+				Status:        domain.StatusExecuting,
+				ExecutionMode: domain.ExecutionModeManaged,
+				MachineID:     "", // Empty machine ID.
+			}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+		cancelChildRunsByParentIDsFn: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
+		},
+	}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if stopCalled.Load() {
+		t.Fatal("Stop should not be called when MachineID is empty")
 	}
 }
 

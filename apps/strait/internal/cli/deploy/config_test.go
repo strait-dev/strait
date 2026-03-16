@@ -230,6 +230,47 @@ jobs:
 	}
 }
 
+func TestDeployFromConfig_CLIPresetOverride(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeDockerfile(t, dir, "Dockerfile")
+
+	cfg := `
+version: 1
+project: proj-override
+registry: r.io/app
+jobs:
+  - slug: my-job
+    dockerfile: ` + filepath.Join(dir, "Dockerfile") + `
+    preset: micro
+`
+	path := writeConfig(t, dir, cfg)
+
+	dc, err := LoadDeployConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if dc.Jobs[0].Preset != "micro" {
+		t.Fatalf("expected preset=micro from config, got %q", dc.Jobs[0].Preset)
+	}
+
+	// Simulate CLI override by modifying the loaded config (as the deploy command would).
+	dc.Jobs[0].Preset = "medium-1x"
+	if dc.Jobs[0].Preset != "medium-1x" {
+		t.Fatalf("expected preset override to medium-1x, got %q", dc.Jobs[0].Preset)
+	}
+
+	// Verify a second load still reads the original value.
+	dc2, err := LoadDeployConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error on reload: %v", err)
+	}
+	if dc2.Jobs[0].Preset != "micro" {
+		t.Fatalf("expected original preset=micro on reload, got %q", dc2.Jobs[0].Preset)
+	}
+}
+
 func TestLoadDeployConfig_EmptyJobs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

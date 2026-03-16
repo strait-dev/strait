@@ -345,6 +345,152 @@ func TestFlyRuntime_Run_ConnectionRefused_ReturnsRetryable(t *testing.T) {
 	}
 }
 
+func TestFlyRuntime_Create_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/machines") {
+			w.WriteHeader(201)
+			_ = json.NewEncoder(w).Encode(flyMachineResponse{ID: "m-new-123", State: "started"})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	machineID, err := runtime.Create(context.Background(), RunRequest{
+		ImageURI:      "registry.example.com/myapp:v1",
+		MachinePreset: "small-1x",
+		Region:        "iad",
+		Env:           map[string]string{"FOO": "bar"},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if machineID != "m-new-123" {
+		t.Errorf("machineID = %q, want m-new-123", machineID)
+	}
+}
+
+func TestFlyRuntime_Create_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(201)
+		_, _ = w.Write([]byte(`{not valid json`))
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Create(context.Background(), RunRequest{
+		ImageURI:      "img:latest",
+		MachinePreset: "micro",
+	})
+	if err == nil {
+		t.Fatal("expected error for malformed JSON response")
+	}
+	if !IsRetryable(err) {
+		t.Errorf("expected retryable error for unmarshal failure, got: %v", err)
+	}
+}
+
+func TestFlyRuntime_Wait_Success(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":    "m-1",
+			"state": "stopped",
+			"events": []map[string]any{
+				{"type": "exit", "exit_code": 0},
+			},
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	result, err := runtime.Wait(context.Background(), "m-1", 60)
+	if err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if result.MachineID != "m-1" {
+		t.Errorf("MachineID = %q, want m-1", result.MachineID)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+	}
+	if result.StartedAt == nil || result.FinishedAt == nil {
+		t.Error("expected StartedAt and FinishedAt to be set")
+	}
+}
+
+func TestFlyRuntime_Wait_NonZeroExit(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-oom/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-oom", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":    "m-oom",
+			"state": "stopped",
+			"events": []map[string]any{
+				{"type": "exit", "exit_code": 137},
+			},
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	result, err := runtime.Wait(context.Background(), "m-oom", 60)
+	if err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if result.ExitCode != 137 {
+		t.Errorf("ExitCode = %d, want 137 (OOM killed)", result.ExitCode)
+	}
+}
+
+func TestFlyRuntime_Wait_NoExitEvent(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-noexit/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-noexit", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":    "m-noexit",
+			"state": "stopped",
+			"events": []map[string]any{
+				{"type": "start"},
+			},
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	result, err := runtime.Wait(context.Background(), "m-noexit", 60)
+	if err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if result.ExitCode != -1 {
+		t.Errorf("ExitCode = %d, want -1 (no exit event)", result.ExitCode)
+	}
+}
+
 func TestFlyRuntime_Create_ErrorRedacted(t *testing.T) {
 	t.Parallel()
 
