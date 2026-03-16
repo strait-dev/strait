@@ -81,7 +81,6 @@ export const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
         className="w-full"
         disabled={disabled || isSubmitting || code.length !== 6}
         onClick={handleVerify}
-        size="lg"
       >
         {isSubmitting ? (
           <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />

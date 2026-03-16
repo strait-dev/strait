@@ -46,7 +46,6 @@ export const SocialProviders = ({
         className="w-full"
         disabled={disabled || isLoading}
         onClick={() => handleSocialSignIn("google")}
-        size="lg"
         variant="outline"
       >
         {loadingProvider === "google" ? (
@@ -78,7 +77,6 @@ export const SocialProviders = ({
         className="w-full"
         disabled={disabled || isLoading}
         onClick={() => handleSocialSignIn("github")}
-        size="lg"
         variant="outline"
       >
         {loadingProvider === "github" ? (

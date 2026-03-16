@@ -120,7 +120,6 @@ export const SignInForm = ({
         <Button
           className="w-full"
           disabled={disabled || form.state.isSubmitting}
-          size="lg"
           type="submit"
         >
           {form.state.isSubmitting ? (

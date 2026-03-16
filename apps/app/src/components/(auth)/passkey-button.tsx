@@ -44,7 +44,6 @@ export const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
       className="w-full"
       disabled={disabled || isLoading}
       onClick={handlePasskeySignIn}
-      size="lg"
       variant="outline"
     >
       {isLoading ? (

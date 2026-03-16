@@ -10,7 +10,7 @@ const ButtonLinkComponent = forwardRef<
   return (
     <a
       className={cn(
-        buttonVariants({ variant: "outline", size: "lg" }),
+        buttonVariants({ variant: "outline", size: "default" }),
         "w-full",
         className
       )}
