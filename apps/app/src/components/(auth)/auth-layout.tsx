@@ -3,9 +3,14 @@ import type { ReactNode } from "react";
 type AuthLayoutProps = {
   children: ReactNode;
   title: string;
+  description?: string;
 };
 
-export const AuthLayout = ({ children, title }: AuthLayoutProps) => {
+export const AuthLayout = ({
+  children,
+  title,
+  description,
+}: AuthLayoutProps) => {
   return (
     <div className="flex min-h-dvh w-full items-center justify-center bg-background">
       <div className="w-full max-w-[450px] overflow-hidden rounded-custom border border-border/50 bg-background shadow-sm">
@@ -24,6 +29,11 @@ export const AuthLayout = ({ children, title }: AuthLayoutProps) => {
             <h1 className="font-normal text-secondary-foreground text-xl tracking-tight">
               {title}
             </h1>
+            {description ? (
+              <p className="text-pretty text-center text-muted-foreground text-sm">
+                {description}
+              </p>
+            ) : null}
           </div>
           {children}
         </div>

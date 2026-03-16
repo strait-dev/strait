@@ -1,4 +1,5 @@
 import { passkey } from "@better-auth/passkey";
+import { sso } from "@better-auth/sso";
 import {
   checkout,
   polar,
@@ -8,7 +9,12 @@ import {
 } from "@polar-sh/better-auth";
 import { Polar } from "@polar-sh/sdk";
 import { betterAuth } from "better-auth";
-import { magicLink, oneTap, organization } from "better-auth/plugins";
+import {
+  magicLink,
+  oneTap,
+  organization,
+  twoFactor,
+} from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { Pool } from "pg";
 import { resend } from "@/lib/resend.server";
@@ -76,6 +82,8 @@ export const auth = betterAuth({
       origin: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     }),
     oneTap(),
+    twoFactor(),
+    sso(),
     ...(polarClient
       ? [
           polar({
