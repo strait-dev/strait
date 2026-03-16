@@ -338,14 +338,17 @@ type LogDrain struct {
 }
 
 type EventSource struct {
-	ID          string          `json:"id"`
-	ProjectID   string          `json:"project_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Schema      json.RawMessage `json:"schema,omitempty"`
-	Enabled     bool            `json:"enabled"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID                 string          `json:"id"`
+	ProjectID          string          `json:"project_id"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description,omitempty"`
+	Schema             json.RawMessage `json:"schema,omitempty"`
+	Enabled            bool            `json:"enabled"`
+	SignatureHeader    string          `json:"signature_header,omitempty"`
+	SignatureAlgorithm string          `json:"signature_algorithm,omitempty"`
+	SignatureSecretEnc []byte          `json:"-"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 type EventSubscription struct {

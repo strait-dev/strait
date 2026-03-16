@@ -346,6 +346,13 @@ type Server struct {
 	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 	rateLimiter        *ratelimit.RedisRateLimiter
+	encryptor          Encryptor
+}
+
+// Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
+type Encryptor interface {
+	Encrypt(plaintext []byte) ([]byte, error)
+	Decrypt(ciphertext []byte) ([]byte, error)
 }
 
 // ServerDeps holds all dependencies required to construct a Server.
@@ -364,6 +371,7 @@ type ServerDeps struct {
 	ActorSyncer      ActorSyncer
 	PoolStatter      PoolStatter   // Optional: enables DB pool backpressure middleware.
 	RedisClient      *redis.Client // Optional: enables per-project/key rate limiting.
+	Encryptor        Encryptor     // Optional: enables event source signature encryption.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -405,6 +413,7 @@ func NewServer(deps ServerDeps) *Server {
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
+		encryptor:          deps.Encryptor,
 	}
 
 	if deps.TxPool != nil {

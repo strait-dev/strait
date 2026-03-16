@@ -9,23 +9,30 @@ import (
 	"strait/internal/domain"
 	"strait/internal/eventfilter"
 	"strait/internal/store"
+	"strait/internal/webhook"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type CreateEventSourceRequest struct {
-	ProjectID   string          `json:"project_id" validate:"required"`
-	Name        string          `json:"name" validate:"required"`
-	Description string          `json:"description,omitempty"`
-	Schema      json.RawMessage `json:"schema,omitempty"`
-	Enabled     *bool           `json:"enabled,omitempty"`
+	ProjectID          string          `json:"project_id" validate:"required"`
+	Name               string          `json:"name" validate:"required"`
+	Description        string          `json:"description,omitempty"`
+	Schema             json.RawMessage `json:"schema,omitempty"`
+	Enabled            *bool           `json:"enabled,omitempty"`
+	SignatureHeader    string          `json:"signature_header,omitempty"`
+	SignatureAlgorithm string          `json:"signature_algorithm,omitempty"`
+	SignatureSecret    string          `json:"signature_secret,omitempty"`
 }
 
 type UpdateEventSourceRequest struct {
-	Name        *string          `json:"name,omitempty"`
-	Description *string          `json:"description,omitempty"`
-	Schema      *json.RawMessage `json:"schema,omitempty"`
-	Enabled     *bool            `json:"enabled,omitempty"`
+	Name               *string          `json:"name,omitempty"`
+	Description        *string          `json:"description,omitempty"`
+	Schema             *json.RawMessage `json:"schema,omitempty"`
+	Enabled            *bool            `json:"enabled,omitempty"`
+	SignatureHeader    *string          `json:"signature_header,omitempty"`
+	SignatureAlgorithm *string          `json:"signature_algorithm,omitempty"`
+	SignatureSecret    *string          `json:"signature_secret,omitempty"`
 }
 
 type SubscribeToEventSourceRequest struct {
@@ -57,11 +64,22 @@ func (s *Server) handleCreateEventSource(w http.ResponseWriter, r *http.Request)
 	}
 
 	src := &domain.EventSource{
-		ProjectID:   req.ProjectID,
-		Name:        req.Name,
-		Description: req.Description,
-		Schema:      req.Schema,
-		Enabled:     enabled,
+		ProjectID:          req.ProjectID,
+		Name:               req.Name,
+		Description:        req.Description,
+		Schema:             req.Schema,
+		Enabled:            enabled,
+		SignatureHeader:    req.SignatureHeader,
+		SignatureAlgorithm: req.SignatureAlgorithm,
+	}
+
+	if req.SignatureSecret != "" && s.encryptor != nil {
+		enc, encErr := s.encryptor.Encrypt([]byte(req.SignatureSecret))
+		if encErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to encrypt signature secret")
+			return
+		}
+		src.SignatureSecretEnc = enc
 	}
 
 	if err := s.store.CreateEventSource(r.Context(), src); err != nil {
@@ -252,6 +270,25 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 	if !source.Enabled {
 		respondError(w, r, http.StatusBadRequest, "event source is disabled")
 		return
+	}
+
+	// Validate inbound webhook signature if configured.
+	if source.SignatureAlgorithm != "" && len(source.SignatureSecretEnc) > 0 && s.encryptor != nil {
+		sigHeader := r.Header.Get(source.SignatureHeader)
+		if sigHeader == "" {
+			respondError(w, r, http.StatusUnauthorized, "missing signature header: "+source.SignatureHeader)
+			return
+		}
+		secret, decErr := s.encryptor.Decrypt(source.SignatureSecretEnc)
+		if decErr != nil {
+			slog.Error("failed to decrypt event source signature secret", "source_id", source.ID, "error", decErr)
+			respondError(w, r, http.StatusInternalServerError, "signature verification failed")
+			return
+		}
+		if err := webhook.ValidateSignature(source.SignatureAlgorithm, string(secret), req.Payload, sigHeader); err != nil {
+			respondError(w, r, http.StatusUnauthorized, "signature validation failed: "+err.Error())
+			return
+		}
 	}
 
 	subs, err := s.store.ListEventSubscriptionsBySource(r.Context(), source.ID)
