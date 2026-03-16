@@ -1427,3 +1427,69 @@ func TestManagedDispatch_RetryLargeCheckpointOmitted(t *testing.T) {
 		t.Error("should not include checkpoint > 64KB in env")
 	}
 }
+
+func TestManagedDispatch_PresetOverrideFromMetadata(t *testing.T) {
+	t.Parallel()
+
+	var capturedReq compute.RunRequest
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Metadata = map[string]string{"_preset_override": "large-1x"}
+	job := newTestManagedJob() // default preset is "micro"
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedReq.MachinePreset != "large-1x" {
+		t.Errorf("expected preset override large-1x, got %q", capturedReq.MachinePreset)
+	}
+}
+
+func TestManagedDispatch_InvalidPresetOverrideIgnored(t *testing.T) {
+	t.Parallel()
+
+	var capturedReq compute.RunRequest
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Metadata = map[string]string{"_preset_override": "invalid_preset"}
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedReq.MachinePreset != "micro" {
+		t.Errorf("expected original preset micro, got %q (invalid override should be ignored)", capturedReq.MachinePreset)
+	}
+}
