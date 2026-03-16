@@ -11,11 +11,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
+
+	"golang.org/x/sync/semaphore"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -35,6 +38,11 @@ type ExecutorStore interface {
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	GetRunErrorClass(ctx context.Context, runID string) (string, error)
+	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
+	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
+	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 }
 
 type executionPolicy struct {
@@ -89,6 +97,9 @@ type Executor struct {
 	maxSnoozeCount           int
 	dequeueStrategy          string
 	jwtSigningKey            string
+	containerRuntime         compute.ContainerRuntime
+	managedSemaphore         *semaphore.Weighted
+	externalAPIURL           string
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -128,6 +139,9 @@ type ExecutorConfig struct {
 	MaxSnoozeCount             int
 	JWTSigningKey              string
 	DequeueStrategy            string
+	ContainerRuntime           compute.ContainerRuntime
+	ExternalAPIURL             string
+	MaxConcurrentMachines      int
 }
 
 const (
@@ -162,6 +176,15 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		whMaxAttempts = 3
 	}
 
+	var managedSem *semaphore.Weighted
+	if cfg.ContainerRuntime != nil {
+		maxMachines := cfg.MaxConcurrentMachines
+		if maxMachines <= 0 {
+			maxMachines = 10
+		}
+		managedSem = semaphore.NewWeighted(int64(maxMachines))
+	}
+
 	return &Executor{
 		pool:                     cfg.Pool,
 		concurrencyLimit:         cfg.ConcurrencyLimit,
@@ -189,6 +212,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		dequeueStrategy:          cfg.DequeueStrategy,
 		jwtSigningKey:            cfg.JWTSigningKey,
+		containerRuntime:         cfg.ContainerRuntime,
+		managedSemaphore:         managedSem,
+		externalAPIURL:           cfg.ExternalAPIURL,
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}

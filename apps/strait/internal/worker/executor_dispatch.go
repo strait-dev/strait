@@ -10,12 +10,16 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"strconv"
+	"strings"
 	"time"
 
+	"strait/internal/compute"
 	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // resolveJobForRun loads the job configuration for a run, applying version
@@ -264,16 +268,319 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 }
 
 // managedDispatch dispatches a job run to a container runtime (Fly Machines, Docker).
-// This is a stub — the full implementation is in Phase 4 (STR-47).
 func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	_ = ctx
-	_ = job
-	e.logger.Error("managed execution not available: COMPUTE_RUNTIME not configured",
-		"run_id", run.ID,
-		"job_id", run.JobID,
-		"execution_mode", job.ExecutionMode,
-	)
-	e.handleSystemFailure(ctx, run, "managed execution not available: COMPUTE_RUNTIME not configured")
+	dispatchStart := time.Now()
+
+	// 1. Guard: runtime must be configured.
+	if e.containerRuntime == nil {
+		e.logger.Error("managed execution not available: COMPUTE_RUNTIME not configured",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+		)
+		e.handleSystemFailure(ctx, run, "managed execution not available: COMPUTE_RUNTIME not configured")
+		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
+		return
+	}
+
+	// 2. Semaphore: limit concurrent managed machines.
+	if e.managedSemaphore != nil {
+		if err := e.managedSemaphore.Acquire(ctx, 1); err != nil {
+			// Context cancelled during acquire → backpressure snooze.
+			retryAt := NextRetryAt(run.Attempt)
+			e.snoozeRun(ctx, run, "managed semaphore full", &retryAt)
+			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
+			return
+		}
+		defer e.managedSemaphore.Release(1)
+	}
+
+	if e.metrics != nil {
+		e.metrics.ManagedMachinesActive.Add(ctx, 1)
+		defer e.metrics.ManagedMachinesActive.Add(ctx, -1)
+	}
+
+	// 3. Budget check.
+	quota, quotaErr := e.store.GetProjectQuota(ctx, job.ProjectID)
+	if quotaErr != nil {
+		e.logger.Warn("failed to load project quota for budget check", "run_id", run.ID, "error", quotaErr)
+		// Non-fatal: proceed without budget enforcement.
+	}
+	if quota != nil && quota.ComputeDailyCostLimitMicrousd > 0 {
+		tz := quota.Timezone
+		if tz == "" {
+			tz = "UTC"
+		}
+		dailyCost, costErr := e.store.SumDailyComputeCost(ctx, job.ProjectID, tz)
+		if costErr != nil {
+			e.logger.Warn("failed to sum daily compute cost", "run_id", run.ID, "error", costErr)
+		} else {
+			estimated, _ := compute.EstimateCost(string(job.MachinePreset), job.TimeoutSecs)
+			if dailyCost+estimated > quota.ComputeDailyCostLimitMicrousd {
+				e.logger.Warn("compute budget exceeded",
+					"run_id", run.ID,
+					"project_id", job.ProjectID,
+					"daily_cost", dailyCost,
+					"estimated", estimated,
+					"limit", quota.ComputeDailyCostLimitMicrousd,
+				)
+				e.handleSystemFailure(ctx, run, "compute budget exceeded")
+				e.recordManagedMetric(ctx, "budget_exceeded", dispatchStart)
+				return
+			}
+		}
+	}
+
+	// 4. Transition: dequeued → executing.
+	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		"started_at": time.Now(),
+	})
+	if err != nil {
+		e.logger.Error("failed to transition to executing", "run_id", run.ID, "error", err)
+		return
+	}
+	run.Status = domain.StatusExecuting
+	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
+
+	// 5. Register heartbeat.
+	e.heartbeat.Register(run.ID)
+	defer e.heartbeat.Deregister(run.ID)
+
+	// 6. Build environment variables.
+	env := map[string]string{
+		"STRAIT_RUN_ID":   run.ID,
+		"STRAIT_JOB_SLUG": job.Slug,
+		"STRAIT_ATTEMPT":  strconv.Itoa(run.Attempt),
+		"STRAIT_API_URL":  e.externalAPIURL,
+	}
+
+	// JWT token for SDK callbacks.
+	if e.jwtSigningKey != "" {
+		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		if run.ExpiresAt != nil {
+			expiresAt = *run.ExpiresAt
+		}
+		claims := jwt.RegisteredClaims{
+			Subject:   run.ID,
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
+			env["STRAIT_SDK_TOKEN"] = signed
+		}
+	}
+
+	// Payload: inline ≤64KB, fetch mode for larger.
+	const maxInlinePayload = 64 * 1024
+	if len(run.Payload) > 0 {
+		if len(run.Payload) <= maxInlinePayload {
+			env["STRAIT_PAYLOAD"] = string(run.Payload)
+		} else {
+			env["STRAIT_PAYLOAD_MODE"] = "fetch"
+		}
+	}
+
+	// Secrets injection.
+	secrets, secretsErr := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
+	if secretsErr != nil {
+		e.logger.Warn("failed to load secrets for managed run", "run_id", run.ID, "error", secretsErr)
+	}
+	for _, secret := range secrets {
+		key := "STRAIT_SECRET_" + strings.ToUpper(secret.SecretKey)
+		env[key] = secret.EncryptedValue
+	}
+
+	// 7. Run the container.
+	result, runErr := e.containerRuntime.Run(ctx, compute.RunRequest{
+		ImageURI:      job.ImageURI,
+		MachinePreset: string(job.MachinePreset),
+		Region:        job.Region,
+		Env:           env,
+		Labels: map[string]string{
+			"run_id":     run.ID,
+			"job_id":     job.ID,
+			"project_id": job.ProjectID,
+		},
+		TimeoutSecs: job.TimeoutSecs,
+	})
+
+	// 8. Handle runtime error (container never started or infra issue).
+	if runErr != nil {
+		if compute.IsRetryable(runErr) {
+			backoff := compute.BackoffHint(runErr)
+			retryAt := time.Now().Add(backoff)
+			e.snoozeRunFromExecuting(ctx, run, "infra retry: "+runErr.Error(), &retryAt)
+			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
+			return
+		}
+		e.handleSystemFailure(ctx, run, "container runtime error: "+runErr.Error())
+		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
+		return
+	}
+
+	// 9. Record compute usage.
+	if result != nil {
+		e.recordComputeUsage(ctx, run, job, result)
+	}
+
+	// 10. Re-read run status from DB (SDK race check).
+	currentRun, readErr := e.store.GetRun(ctx, run.ID)
+	if readErr != nil {
+		e.logger.Error("failed to re-read run after container exit", "run_id", run.ID, "error", readErr)
+		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
+		return
+	}
+
+	// If the SDK already moved the run to a terminal state, we're done.
+	if currentRun.Status.IsTerminal() {
+		e.logger.Info("managed run already terminal (SDK race)",
+			"run_id", run.ID, "status", currentRun.Status, "exit_code", result.ExitCode)
+		e.recordManagedMetric(ctx, "success", dispatchStart)
+		return
+	}
+
+	// 11. Container exited: interpret exit code.
+	if result.ExitCode == 0 {
+		// Exit 0 but SDK didn't report complete → system failure.
+		e.handleSystemFailure(ctx, run, "container exited 0 but SDK did not report completion")
+		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
+		return
+	}
+
+	// Non-zero exit → capture crash logs and fail.
+	if result.Logs != "" {
+		crashEvent := &domain.RunEvent{
+			RunID:   run.ID,
+			Type:    domain.EventType("container_crash_log"),
+			Level:   "error",
+			Message: fmt.Sprintf("container exited with code %d", result.ExitCode),
+			Data:    json.RawMessage(fmt.Sprintf(`{"exit_code":%d,"logs":%q}`, result.ExitCode, result.Logs)),
+		}
+		if insertErr := e.store.InsertEvent(ctx, crashEvent); insertErr != nil {
+			e.logger.Warn("failed to store crash log event", "run_id", run.ID, "error", insertErr)
+		}
+	}
+
+	e.handleManagedFailure(ctx, run, job, result.ExitCode)
+	e.recordManagedMetric(ctx, "failure", dispatchStart)
+}
+
+// snoozeRunFromExecuting transitions a run back to queued from executing state (for managed infra retries).
+func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
+	snoozeCount := 0
+	if run.Metadata != nil {
+		if raw, ok := run.Metadata["snooze_count"]; ok {
+			if parsed, err := strconv.Atoi(raw); err == nil {
+				snoozeCount = parsed
+			}
+		}
+	}
+	snoozeCount++
+
+	if e.maxSnoozeCount > 0 && snoozeCount > e.maxSnoozeCount {
+		e.logger.Warn("max snooze count exceeded during managed dispatch",
+			"run_id", run.ID, "snooze_count", snoozeCount)
+		e.handleSystemFailure(ctx, run, fmt.Sprintf("max snooze count (%d) exceeded: %s", e.maxSnoozeCount, reason))
+		return
+	}
+
+	fields := map[string]any{
+		"error":         reason,
+		"error_class":   "transient",
+		"started_at":    nil,
+		"finished_at":   nil,
+		"next_retry_at": retryAt,
+		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+	}
+	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+		e.logger.Error("failed to snooze managed run", "run_id", run.ID, "error", err)
+		return
+	}
+
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventSnoozed, Run: run,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+		Attempt: run.Attempt,
+	})
+}
+
+// handleManagedFailure handles a non-zero exit from a managed container.
+// Retries per max_attempts policy; moves to dead_letter when exhausted.
+func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, exitCode int) {
+	errMsg := fmt.Sprintf("container exited with code %d", exitCode)
+
+	if run.Attempt < job.MaxAttempts {
+		retryAt := NextRetryAt(run.Attempt)
+		fields := map[string]any{
+			"attempt":       run.Attempt + 1,
+			"next_retry_at": retryAt,
+			"error":         errMsg,
+			"error_class":   "server",
+			"started_at":    nil,
+			"finished_at":   nil,
+		}
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+			e.logger.Error("failed to re-enqueue managed run", "run_id", run.ID, "error", err)
+			return
+		}
+		e.emit(ctx, RunLifecycleEvent{
+			Type: EventRetried, Run: run, Job: job,
+			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+			Attempt: run.Attempt + 1,
+		})
+		return
+	}
+
+	now := time.Now()
+	run.Status = domain.StatusDeadLetter
+	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"finished_at": now,
+		"error":       errMsg,
+		"error_class": "server",
+	}); err != nil {
+		e.logger.Error("failed to mark managed run dead_letter", "run_id", run.ID, "error", err)
+		return
+	}
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventDeadLettered, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusDeadLetter,
+		Attempt: run.Attempt,
+	})
+	e.notifyWorkflowCallback(ctx, run)
+}
+
+// recordComputeUsage records wall-clock time and cost for a managed run.
+func (e *Executor) recordComputeUsage(ctx context.Context, run *domain.JobRun, job *domain.Job, result *compute.RunResult) {
+	var durationSecs float64
+	if result.StartedAt != nil && result.FinishedAt != nil {
+		durationSecs = result.FinishedAt.Sub(*result.StartedAt).Seconds()
+	}
+	cost, _ := compute.CalculateCost(string(job.MachinePreset), durationSecs)
+
+	usage := &domain.RunComputeUsage{
+		RunID:         run.ID,
+		ProjectID:     job.ProjectID,
+		JobID:         job.ID,
+		MachinePreset: string(job.MachinePreset),
+		MachineID:     result.MachineID,
+		DurationSecs:  durationSecs,
+		CostMicrousd:  cost,
+		StartedAt:     result.StartedAt,
+		FinishedAt:    result.FinishedAt,
+	}
+	if err := e.store.CreateRunComputeUsage(ctx, usage); err != nil {
+		e.logger.Warn("failed to record compute usage", "run_id", run.ID, "error", err)
+	}
+}
+
+// recordManagedMetric increments managed dispatch counters.
+func (e *Executor) recordManagedMetric(ctx context.Context, status string, start time.Time) {
+	if e.metrics == nil {
+		return
+	}
+	e.metrics.ManagedDispatchTotal.Add(ctx, 1,
+		metric.WithAttributes(attribute.String("status", status)))
+	e.metrics.ManagedDispatchDuration.Record(ctx, time.Since(start).Seconds())
 }
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {

@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/cdc"
+	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/health"
 	"strait/internal/pubsub"
@@ -370,6 +371,18 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		partitionWeights = cfg.WorkerPartitionWeights
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
 	}
+	var containerRuntime compute.ContainerRuntime
+	switch cfg.ComputeRuntime {
+	case "fly":
+		containerRuntime = compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
+		slog.Info("container runtime enabled", "runtime", "fly", "app", cfg.FlyAppName, "region", cfg.FlyRegion)
+	case "docker":
+		containerRuntime = compute.NewDockerRuntime()
+		slog.Info("container runtime enabled", "runtime", "docker")
+	default:
+		// No container runtime ("none" or empty).
+	}
+
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                    p,
 		Queue:                   q,
@@ -390,6 +403,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 		JWTSigningKey:           cfg.JWTSigningKey,
 		DequeueStrategy:         cfg.DequeueStrategy,
+		ContainerRuntime:        containerRuntime,
+		ExternalAPIURL:          cfg.ExternalAPIURL,
+		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
 	})
 
 	exec.Use(worker.TracingMiddleware())

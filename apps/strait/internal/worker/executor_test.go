@@ -47,6 +47,11 @@ type mockExecutorStore struct {
 	getResolvedEnvVarsFn     func(ctx context.Context, id string) (map[string]string, error)
 	getLatestCheckpointFn    func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	getRunErrorClassFn       func(ctx context.Context, runID string) (string, error)
+	getRunFn                 func(ctx context.Context, id string) (*domain.JobRun, error)
+	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
+	sumDailyComputeCostFn    func(ctx context.Context, projectID, timezone string) (int64, error)
+	createRunComputeUsageFn  func(ctx context.Context, usage *domain.RunComputeUsage) error
+	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -181,6 +186,41 @@ func (m *mockExecutorStore) GetRunErrorClass(ctx context.Context, runID string) 
 		return "", nil
 	}
 	return m.getRunErrorClassFn(ctx, runID)
+}
+
+func (m *mockExecutorStore) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
+	if m.getRunFn == nil {
+		return nil, nil
+	}
+	return m.getRunFn(ctx, id)
+}
+
+func (m *mockExecutorStore) GetProjectQuota(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error) {
+	if m.getProjectQuotaFn == nil {
+		return nil, nil
+	}
+	return m.getProjectQuotaFn(ctx, projectID)
+}
+
+func (m *mockExecutorStore) SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error) {
+	if m.sumDailyComputeCostFn == nil {
+		return 0, nil
+	}
+	return m.sumDailyComputeCostFn(ctx, projectID, timezone)
+}
+
+func (m *mockExecutorStore) CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error {
+	if m.createRunComputeUsageFn == nil {
+		return nil
+	}
+	return m.createRunComputeUsageFn(ctx, usage)
+}
+
+func (m *mockExecutorStore) InsertEvent(ctx context.Context, event *domain.RunEvent) error {
+	if m.insertEventFn == nil {
+		return nil
+	}
+	return m.insertEventFn(ctx, event)
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {

@@ -68,6 +68,11 @@ type Metrics struct {
 	DLQDepth            metric.Int64Gauge
 	QueueDepthPerJob    metric.Int64Gauge
 
+	// Managed dispatch metrics.
+	ManagedDispatchTotal    metric.Int64Counter
+	ManagedDispatchDuration metric.Float64Histogram
+	ManagedMachinesActive   metric.Int64UpDownCounter
+
 	// DB connection pool metrics.
 	DBPoolTotalConns    metric.Int64ObservableGauge
 	DBPoolIdleConns     metric.Int64ObservableGauge
@@ -478,6 +483,34 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 
 	queueDepthPerJob, _ := meter.Int64Gauge("strait_queue_depth_per_job", metric.WithDescription("Queue depth per job"), metric.WithUnit("1"))
 
+	managedDispatchTotal, err := meter.Int64Counter(
+		"strait_managed_dispatch_total",
+		metric.WithDescription("Total managed container dispatches by status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create managed dispatch total counter: %w", err)
+	}
+
+	managedDispatchDuration, err := meter.Float64Histogram(
+		"strait_managed_dispatch_duration_seconds",
+		metric.WithDescription("Duration of managed container dispatch operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(1, 5, 10, 30, 60, 120, 300, 600),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create managed dispatch duration histogram: %w", err)
+	}
+
+	managedMachinesActive, err := meter.Int64UpDownCounter(
+		"strait_managed_machines_active",
+		metric.WithDescription("Number of managed containers currently running"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create managed machines active counter: %w", err)
+	}
+
 	dbPoolTotal, _ := meter.Int64ObservableGauge("strait_db_pool_total_conns", metric.WithDescription("Total DB pool connections"))
 	dbPoolIdle, _ := meter.Int64ObservableGauge("strait_db_pool_idle_conns", metric.WithDescription("Idle DB pool connections"))
 	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
@@ -526,6 +559,9 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		ShutdownTotal:            shutdownTotal,
 		DLQDepth:                 dlqDepth,
 		QueueDepthPerJob:         queueDepthPerJob,
+		ManagedDispatchTotal:     managedDispatchTotal,
+		ManagedDispatchDuration:  managedDispatchDuration,
+		ManagedMachinesActive:    managedMachinesActive,
 		DBPoolTotalConns:         dbPoolTotal,
 		DBPoolIdleConns:          dbPoolIdle,
 		DBPoolAcquiredConns:      dbPoolAcquired,
