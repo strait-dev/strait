@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import * as z from "zod";
 import { AuthLayout } from "@/components/(auth)/auth-layout";
@@ -12,6 +12,11 @@ const verifyEmailSearchSchema = z.object({
 
 export const Route = createFileRoute("/(auth)/verify-email")({
   validateSearch: verifyEmailSearchSchema,
+  beforeLoad: ({ context }) => {
+    if (context.isAuthenticated) {
+      throw redirect({ to: "/app" });
+    }
+  },
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: VerifyEmailPage,

@@ -8,6 +8,12 @@ import {
   webhooks,
 } from "@polar-sh/better-auth";
 import { Polar } from "@polar-sh/sdk";
+import { render } from "@react-email/render";
+import {
+  ConfirmAccount,
+  MagicLink,
+  ResetPassword,
+} from "@strait/transactional";
 import { betterAuth } from "better-auth";
 import {
   magicLink,
@@ -51,22 +57,24 @@ export const auth = betterAuth({
     enabled: true,
     requireEmailVerification: true,
     sendResetPassword: async ({ user, url }) => {
+      const html = await render(ResetPassword({ name: user.name, url }));
       await resend.emails.send({
         from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.dev",
         to: user.email,
         subject: "Reset your Strait password",
-        html: `<p>Click the link below to reset your password:</p><p><a href="${url}">Reset password</a></p><p>This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>`,
+        html,
       });
     },
   },
   emailVerification: {
     sendOnSignUp: true,
     sendVerificationEmail: async ({ user, url }) => {
+      const html = await render(ConfirmAccount({ name: user.name, url }));
       await resend.emails.send({
         from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.dev",
         to: user.email,
         subject: "Verify your email for Strait",
-        html: `<p>Welcome to Strait! Click the link below to verify your email:</p><p><a href="${url}">Verify email</a></p><p>This link expires in 24 hours.</p>`,
+        html,
       });
     },
   },
@@ -93,11 +101,12 @@ export const auth = betterAuth({
     }),
     magicLink({
       sendMagicLink: async ({ email, url }) => {
+        const html = await render(MagicLink({ email, url }));
         await resend.emails.send({
           from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.dev",
           to: email,
           subject: "Sign in to Strait",
-          html: `<p>Click the link below to sign in to Strait:</p><p><a href="${url}">Sign in to Strait</a></p><p>This link expires in 5 minutes. If you didn't request this, you can safely ignore this email.</p>`,
+          html,
         });
       },
     }),
