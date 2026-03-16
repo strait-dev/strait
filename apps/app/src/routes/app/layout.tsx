@@ -14,6 +14,7 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useEffect, useRef } from "react";
 import * as z from "zod";
 import ErrorComponent from "@/components/common/error-component";
+import HeaderBreadcrumb from "@/components/common/header-breadcrumb";
 import HeaderUserMenu from "@/components/common/header-user-menu";
 import { RequireOrganization } from "@/components/common/require-organization";
 import Sidebar from "@/components/common/sidebar";
@@ -21,7 +22,6 @@ import { ThemeToggle } from "@/components/common/theme-toggle";
 import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
 import { usePostHog } from "@/components/providers/posthog-provider";
-import UpgradeBanner from "@/components/subscription/trial-upgrade-banner";
 import { TrialStartedModal } from "@/components/upgrade/trial-started-modal";
 import {
   organizationQueryOptions,
@@ -170,8 +170,9 @@ function RouteComponent() {
         <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center border-b bg-background">
           <div className="w-full px-4 sm:px-6 lg:px-8">
             <div className="flex w-full items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
+                <HeaderBreadcrumb />
               </div>
               <div className="flex items-center gap-2">
                 <ThemeToggle />
@@ -182,7 +183,6 @@ function RouteComponent() {
             </div>
           </div>
         </header>
-        {session ? <UpgradeBanner /> : null}
         <div
           className="flex flex-1 flex-col gap-4 bg-background pt-0"
           vaul-drawer-wrapper=""

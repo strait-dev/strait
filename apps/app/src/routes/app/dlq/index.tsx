@@ -22,7 +22,7 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import TableEmptyState from "@/components/common/table-empty-state";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { dlqColumns } from "@/components/tables/dlq-columns";
@@ -131,11 +131,6 @@ function DlqPage() {
 
   return (
     <Shell>
-      <PageHeader
-        text="Failed runs that have exhausted all retry attempts."
-        title="Dead Letter Queue"
-      />
-
       {/* Alert banner */}
       {totalCount > 0 && (
         <Alert variant="destructive">
@@ -148,8 +143,8 @@ function DlqPage() {
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2 pt-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-2 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}

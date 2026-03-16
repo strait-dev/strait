@@ -23,8 +23,10 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@strait/ui/components/sidebar";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
+import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -40,6 +42,8 @@ import {
 } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
+import PaymentPendingCard from "../subscription/payment-pending-card";
+import TrialUpgradeCard from "../subscription/trial-upgrade-card";
 import CommandMenu from "./command-menu";
 
 type NavItem = {
@@ -92,6 +96,11 @@ type Props = {
 };
 
 const AppSidebar = ({ session }: Props) => {
+  const { data: subscriptionState } = useSuspenseQuery(
+    subscriptionStateQueryOptions()
+  );
+  const { shouldShowUpgrade, hasPendingPayment } = subscriptionState;
+
   const [environment, setEnvironment] = useState<Environment>("production");
   const currentEnv =
     environments.find((e) => e.value === environment) ?? environments[0];
@@ -217,6 +226,9 @@ const AppSidebar = ({ session }: Props) => {
           </Collapsible>
         </SidebarGroup>
       </SidebarContent>
+
+      {hasPendingPayment ? <PaymentPendingCard /> : null}
+      {shouldShowUpgrade ? <TrialUpgradeCard /> : null}
 
       <SidebarFooter className="flex flex-col border-sidebar-border border-t">
         <Suspense

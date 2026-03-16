@@ -5,7 +5,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
-import PageHeader from "@/components/common/page-header";
+
 import { MetricsCard } from "@/components/dashboard/metrics-card";
 import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
 import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription";
@@ -58,11 +58,6 @@ function RouteComponent() {
 
   return (
     <Shell>
-      <PageHeader
-        text="Monitor your orchestration infrastructure at a glance."
-        title="Overview"
-      />
-
       {/* Metrics Row 1 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricsCard

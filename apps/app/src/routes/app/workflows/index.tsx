@@ -21,7 +21,7 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import TableEmptyState from "@/components/common/table-empty-state";
 import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet";
 import { workflowColumns } from "@/components/tables/workflows-columns";
@@ -34,7 +34,6 @@ import {
   FilterIcon,
   PauseActionIcon,
   PlayActionIcon,
-  PlusIcon,
   SearchIcon,
   WorkflowIcon,
 } from "@/lib/icons";
@@ -129,19 +128,8 @@ function WorkflowsPage() {
 
   return (
     <Shell>
-      <PageHeader
-        button={
-          <Button disabled>
-            <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={16} />
-            Create Workflow
-          </Button>
-        }
-        text="Orchestrate multi-step workflows with dependency graphs."
-        title="Workflows"
-      />
-
-      <div className="flex items-center gap-3 py-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}

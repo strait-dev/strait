@@ -1,6 +1,6 @@
 import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
-import PageHeader from "@/components/common/page-header";
+
 import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
 import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
 import { MetricsCard } from "@/components/dashboard/metrics-card";
@@ -26,11 +26,6 @@ export const Route = createFileRoute("/app/dashboard")({
 function RouteComponent() {
   return (
     <Shell>
-      <PageHeader
-        text="Detailed view of your orchestration activity, performance, and status."
-        title="Dashboard"
-      />
-
       {/* Row 1: Metrics */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <MetricsCard

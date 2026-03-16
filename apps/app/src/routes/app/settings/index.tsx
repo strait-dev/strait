@@ -10,7 +10,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import Account from "@/components/(settings)/account";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
-import PageHeader from "@/components/common/page-header";
+
 import { UserIcon } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 
@@ -35,11 +35,6 @@ function RouteComponent() {
   return (
     <Shell>
       <div className="flex w-full flex-col gap-6">
-        <PageHeader
-          text="Manage your personal account settings."
-          title="Account Settings"
-        />
-
         <Tabs className="w-full" defaultValue="account">
           <TabsList>
             <TabsTrigger className="flex items-center gap-2" value="account">

@@ -7,7 +7,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import type { RunEvent } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 
@@ -63,13 +63,8 @@ function EventsPage() {
 
   return (
     <Shell>
-      <PageHeader
-        text="Timeline of run events across all jobs."
-        title="Events"
-      />
-
       {/* Type filter */}
-      <div className="flex items-center gap-2 pt-4 pb-2">
+      <div className="flex items-center gap-2 pb-2.5">
         <Button
           onClick={() =>
             navigate({

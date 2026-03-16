@@ -21,7 +21,7 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import TableEmptyState from "@/components/common/table-empty-state";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { StatusBadge } from "@/components/dashboard/status-badge";
@@ -123,13 +123,8 @@ function RunsPage() {
 
   return (
     <Shell>
-      <PageHeader
-        text="View and monitor all job run executions."
-        title="Runs"
-      />
-
-      <div className="flex items-center gap-3 py-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}

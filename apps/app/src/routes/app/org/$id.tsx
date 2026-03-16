@@ -17,7 +17,7 @@ import SubscriptionOverview from "@/components/(settings)/subscription-overview"
 import TeamMembers from "@/components/(settings)/team-members";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
-import PageHeader from "@/components/common/page-header";
+
 import { organizationQueryOptions } from "@/hooks/auth/use-organization";
 import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
@@ -50,11 +50,6 @@ function RouteComponent() {
   return (
     <Shell>
       <div className="flex w-full flex-col gap-6">
-        <PageHeader
-          text="Manage your organization settings, billing, and team."
-          title="Organization Settings"
-        />
-
         <Tabs className="w-full" defaultValue="organization">
           <TabsList>
             <TabsTrigger

@@ -21,7 +21,7 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import TableEmptyState from "@/components/common/table-empty-state";
 import { JobDetailSheet } from "@/components/dashboard/job-detail-sheet";
 import { jobColumns } from "@/components/tables/jobs-columns";
@@ -35,7 +35,6 @@ import {
   FilterIcon,
   PauseActionIcon,
   PlayActionIcon,
-  PlusIcon,
   SearchIcon,
 } from "@/lib/icons";
 
@@ -130,19 +129,8 @@ function JobsPage() {
 
   return (
     <Shell>
-      <PageHeader
-        button={
-          <Button disabled>
-            <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={16} />
-            Create Job
-          </Button>
-        }
-        text="Manage and monitor your scheduled and on-demand jobs."
-        title="Jobs"
-      />
-
-      <div className="flex items-center gap-3 py-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}

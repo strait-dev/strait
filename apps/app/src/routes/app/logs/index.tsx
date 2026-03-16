@@ -9,7 +9,7 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import type { RunEvent } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { FileTextIcon, SearchIcon } from "@/lib/icons";
@@ -77,13 +77,8 @@ function LogsPage() {
 
   return (
     <Shell>
-      <PageHeader
-        text="Structured log output from job and workflow executions."
-        title="Logs"
-      />
-
-      <div className="flex items-center gap-3 py-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}

@@ -28,7 +28,7 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { webhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -39,7 +39,6 @@ import {
   EyeIcon,
   FilterIcon,
   GlobeIcon,
-  PlusIcon,
   SearchIcon,
   TrashIcon,
   WebhookIcon,
@@ -136,19 +135,8 @@ function WebhooksPage() {
 
   return (
     <Shell>
-      <PageHeader
-        button={
-          <Button>
-            <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={16} />
-            Create Webhook
-          </Button>
-        }
-        text="Manage webhook subscriptions and delivery status."
-        title="Webhooks"
-      />
-
-      <div className="flex items-center gap-3 py-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}
