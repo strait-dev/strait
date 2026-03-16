@@ -43,8 +43,6 @@ def create_run_context(
     run_id: str,
     attempt: int = 1,
 ) -> RunContext:
-    logger = logging.getLogger("strait")
-
     async def checkpoint(state: dict[str, Any]) -> None:
         await client.checkpoint_run(run_id, {"state": state, "source": "sdk"})
 

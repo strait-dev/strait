@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, TypeVar
 
 from strait._errors import CostBudgetExceededError
 
@@ -29,7 +29,8 @@ class CostTracker:
         if (
             not self._warning_fired
             and self._options.on_warning is not None
-            and self._current_cost >= self._options.max_cost_microusd * self._options.warning_threshold
+            and self._current_cost
+            >= self._options.max_cost_microusd * self._options.warning_threshold
         ):
             self._warning_fired = True
             self._options.on_warning(self._current_cost, self._options.max_cost_microusd)

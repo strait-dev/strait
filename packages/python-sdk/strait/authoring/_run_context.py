@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable, Protocol
+from typing import Any, Awaitable, Callable
 
 
 class RunContextState:

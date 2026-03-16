@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.description = "Official Ruby SDK for the Strait job orchestration platform. Provides typed client, authoring DSL, composition helpers, FSM state machines, and 186 API operations across 19 services."
   spec.homepage = "https://github.com/strait-dev/ruby-sdk"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 3.1"
+  spec.required_ruby_version = ">= 3.3"
 
   spec.files = Dir["lib/**/*.rb", "LICENSE", "README.md"]
   spec.require_paths = ["lib"]

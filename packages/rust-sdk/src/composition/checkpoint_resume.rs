@@ -27,7 +27,7 @@ where
     Fut: std::future::Future<Output = Result<T, crate::errors::StraitError>>,
 {
     let current_state = last_checkpoint.unwrap_or(options.initial_state);
-    let interval = if options.checkpoint_interval > 0 {
+    let _interval = if options.checkpoint_interval > 0 {
         options.checkpoint_interval
     } else {
         1
