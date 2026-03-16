@@ -2,9 +2,11 @@ import {
   keepPreviousData,
   queryOptions,
   useMutation,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
 
@@ -179,6 +181,7 @@ export const getPublicInvitationServerFn = createServerFn({ method: "GET" })
 
 /** Creates a new invitation. */
 export const useCreateInvitation = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["invitations", "create"],
     mutationFn: (data: {
@@ -186,20 +189,36 @@ export const useCreateInvitation = () => {
       role: InvitationRole;
       organizationId: string;
     }) => createInvitationServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.invitations.list(variables.organizationId).queryKey,
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.members._def,
+      });
+    },
   });
 };
 
 /** Cancels an invitation. */
 export const useCancelInvitation = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["invitations", "cancel"],
-    mutationFn: (data: { invitationId: string } | string) =>
+    mutationFn: (
+      data: { invitationId: string; organizationId?: string } | string
+    ) =>
       cancelInvitationServerFn({
         data:
           typeof data === "string"
             ? { invitationId: data }
             : { invitationId: data.invitationId },
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.invitations._def,
+      });
+    },
   });
 };
 
