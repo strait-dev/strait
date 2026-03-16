@@ -967,6 +967,7 @@ func (m *mockAPIStore) SumProjectDailyCostMicrousd(ctx context.Context, projectI
 // mockQueue implements queue.Queue for testing.
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	enqueueBatchFn      func(ctx context.Context, runs []*domain.JobRun) (int64, error)
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
 	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
 	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
@@ -994,7 +995,18 @@ func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error
 }
 
 func (m *mockQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
-	return 0, nil
+	if m.enqueueBatchFn != nil {
+		return m.enqueueBatchFn(ctx, runs)
+	}
+	// Fall back to individual enqueue for backwards-compatible tests.
+	for _, run := range runs {
+		if m.enqueueFn != nil {
+			if err := m.enqueueFn(ctx, run); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return int64(len(runs)), nil
 }
 
 func (m *mockQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {

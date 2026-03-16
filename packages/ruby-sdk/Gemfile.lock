@@ -52,9 +52,9 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  rspec (~> 3.12)
+  rspec (~> 3.13)
   strait!
-  webmock (~> 3.19)
+  webmock (~> 3.24)
 
 CHECKSUMS
   addressable (2.8.9) sha256=cc154fcbe689711808a43601dee7b980238ce54368d23e127421753e46895485

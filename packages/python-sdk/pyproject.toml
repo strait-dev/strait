@@ -7,7 +7,7 @@ name = "strait-python"
 version = "0.1.0"
 description = "Strait Python SDK"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = ["httpx>=0.28.0"]
 
 [project.optional-dependencies]

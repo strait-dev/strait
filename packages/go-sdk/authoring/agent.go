@@ -87,7 +87,7 @@ func DefineAgent(opts AgentOptions) *JobDefinition[any] {
 		OnStart:       opts.OnStart,
 		Run: func(payload any, ctx RunContext) (any, error) {
 			agentCtx := &AgentRunContext{
-				RunContext:       ctx,
+				RunContext:      ctx,
 				maxCostMicrousd: maxCost,
 			}
 
