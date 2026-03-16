@@ -84,3 +84,33 @@ func (s *SDKRunsService) WaitForEventRun(ctx context.Context, runID string, body
 	err := s.r.DoRequest(ctx, "POST", PathParams("/sdk/v1/runs/{runID}/wait-for-event", map[string]string{"runID": runID}), nil, nil, body, &result)
 	return result, err
 }
+
+func (s *SDKRunsService) SetState(ctx context.Context, runID string, body any) (map[string]any, error) {
+	var result map[string]any
+	err := s.r.DoRequest(ctx, "POST", PathParams("/sdk/v1/runs/{runID}/state", map[string]string{"runID": runID}), nil, nil, body, &result)
+	return result, err
+}
+
+func (s *SDKRunsService) ListState(ctx context.Context, runID string) (map[string]any, error) {
+	var result map[string]any
+	err := s.r.DoRequest(ctx, "GET", PathParams("/sdk/v1/runs/{runID}/state", map[string]string{"runID": runID}), nil, nil, nil, &result)
+	return result, err
+}
+
+func (s *SDKRunsService) GetState(ctx context.Context, runID string, key string) (map[string]any, error) {
+	var result map[string]any
+	err := s.r.DoRequest(ctx, "GET", PathParams("/sdk/v1/runs/{runID}/state/{key}", map[string]string{"runID": runID, "key": key}), nil, nil, nil, &result)
+	return result, err
+}
+
+func (s *SDKRunsService) DeleteState(ctx context.Context, runID string, key string) (map[string]any, error) {
+	var result map[string]any
+	err := s.r.DoRequest(ctx, "DELETE", PathParams("/sdk/v1/runs/{runID}/state/{key}", map[string]string{"runID": runID, "key": key}), nil, nil, nil, &result)
+	return result, err
+}
+
+func (s *SDKRunsService) StreamRun(ctx context.Context, runID string, body any) (map[string]any, error) {
+	var result map[string]any
+	err := s.r.DoRequest(ctx, "POST", PathParams("/sdk/v1/runs/{runID}/stream", map[string]string{"runID": runID}), nil, nil, body, &result)
+	return result, err
+}

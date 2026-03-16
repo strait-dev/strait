@@ -74,6 +74,33 @@ class SDKRunsService(BaseService):
             path_params={"runID": run_id}, body=body,
         )
 
+    def set_state(self, run_id: str, body: Any) -> dict[str, Any]:
+        return self._request(
+            "POST", "/sdk/v1/runs/{runID}/state", path_params={"runID": run_id}, body=body,
+        )
+
+    def list_state(self, run_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET", "/sdk/v1/runs/{runID}/state", path_params={"runID": run_id},
+        )
+
+    def get_state(self, run_id: str, key: str) -> dict[str, Any]:
+        return self._request(
+            "GET", "/sdk/v1/runs/{runID}/state/{key}",
+            path_params={"runID": run_id, "key": key},
+        )
+
+    def delete_state(self, run_id: str, key: str) -> dict[str, Any]:
+        return self._request(
+            "DELETE", "/sdk/v1/runs/{runID}/state/{key}",
+            path_params={"runID": run_id, "key": key},
+        )
+
+    def stream_run(self, run_id: str, body: Any) -> dict[str, Any]:
+        return self._request(
+            "POST", "/sdk/v1/runs/{runID}/stream", path_params={"runID": run_id}, body=body,
+        )
+
 
 class AsyncSDKRunsService(AsyncBaseService):
     async def annotate_run(self, run_id: str, body: Any) -> dict[str, Any]:
@@ -140,4 +167,31 @@ class AsyncSDKRunsService(AsyncBaseService):
         return await self._request(
             "POST", "/sdk/v1/runs/{runID}/wait-for-event",
             path_params={"runID": run_id}, body=body,
+        )
+
+    async def set_state(self, run_id: str, body: Any) -> dict[str, Any]:
+        return await self._request(
+            "POST", "/sdk/v1/runs/{runID}/state", path_params={"runID": run_id}, body=body,
+        )
+
+    async def list_state(self, run_id: str) -> dict[str, Any]:
+        return await self._request(
+            "GET", "/sdk/v1/runs/{runID}/state", path_params={"runID": run_id},
+        )
+
+    async def get_state(self, run_id: str, key: str) -> dict[str, Any]:
+        return await self._request(
+            "GET", "/sdk/v1/runs/{runID}/state/{key}",
+            path_params={"runID": run_id, "key": key},
+        )
+
+    async def delete_state(self, run_id: str, key: str) -> dict[str, Any]:
+        return await self._request(
+            "DELETE", "/sdk/v1/runs/{runID}/state/{key}",
+            path_params={"runID": run_id, "key": key},
+        )
+
+    async def stream_run(self, run_id: str, body: Any) -> dict[str, Any]:
+        return await self._request(
+            "POST", "/sdk/v1/runs/{runID}/stream", path_params={"runID": run_id}, body=body,
         )

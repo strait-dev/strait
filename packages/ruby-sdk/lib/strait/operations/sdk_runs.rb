@@ -81,6 +81,36 @@ module Strait
       def wait_for_event_run(run_id, body)
         _request(:post, "/sdk/v1/runs/{runID}/wait-for-event", path_params: { "runID" => run_id }, body: body)
       end
+
+      # Set state key for a run.
+      # POST /sdk/v1/runs/{runID}/state
+      def set_state(run_id, body)
+        _request(:post, "/sdk/v1/runs/{runID}/state", path_params: { "runID" => run_id }, body: body)
+      end
+
+      # List all state keys for a run.
+      # GET /sdk/v1/runs/{runID}/state
+      def list_state(run_id)
+        _request(:get, "/sdk/v1/runs/{runID}/state", path_params: { "runID" => run_id })
+      end
+
+      # Get state by key for a run.
+      # GET /sdk/v1/runs/{runID}/state/{key}
+      def get_state(run_id, key)
+        _request(:get, "/sdk/v1/runs/{runID}/state/{key}", path_params: { "runID" => run_id, "key" => key })
+      end
+
+      # Delete state key for a run.
+      # DELETE /sdk/v1/runs/{runID}/state/{key}
+      def delete_state(run_id, key)
+        _request(:delete, "/sdk/v1/runs/{runID}/state/{key}", path_params: { "runID" => run_id, "key" => key })
+      end
+
+      # Push LLM stream chunk for a run.
+      # POST /sdk/v1/runs/{runID}/stream
+      def stream_run(run_id, body)
+        _request(:post, "/sdk/v1/runs/{runID}/stream", path_params: { "runID" => run_id }, body: body)
+      end
     end
   end
 end

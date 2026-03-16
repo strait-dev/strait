@@ -151,4 +151,61 @@ impl SdkRunsService {
             .do_request("POST", &path, None, None, Some(body))
             .await
     }
+
+    pub async fn set_state(
+        &self,
+        run_id: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, StraitError> {
+        let path = substitute_path_params("/sdk/v1/runs/{runID}/state", &[("runID", run_id)]);
+        self.client
+            .do_request("POST", &path, None, None, Some(body))
+            .await
+    }
+
+    pub async fn list_state(&self, run_id: &str) -> Result<serde_json::Value, StraitError> {
+        let path = substitute_path_params("/sdk/v1/runs/{runID}/state", &[("runID", run_id)]);
+        self.client
+            .do_request("GET", &path, None, None, None)
+            .await
+    }
+
+    pub async fn get_state(
+        &self,
+        run_id: &str,
+        key: &str,
+    ) -> Result<serde_json::Value, StraitError> {
+        let path = substitute_path_params(
+            "/sdk/v1/runs/{runID}/state/{key}",
+            &[("runID", run_id), ("key", key)],
+        );
+        self.client
+            .do_request("GET", &path, None, None, None)
+            .await
+    }
+
+    pub async fn delete_state(
+        &self,
+        run_id: &str,
+        key: &str,
+    ) -> Result<serde_json::Value, StraitError> {
+        let path = substitute_path_params(
+            "/sdk/v1/runs/{runID}/state/{key}",
+            &[("runID", run_id), ("key", key)],
+        );
+        self.client
+            .do_request("DELETE", &path, None, None, None)
+            .await
+    }
+
+    pub async fn stream_run(
+        &self,
+        run_id: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, StraitError> {
+        let path = substitute_path_params("/sdk/v1/runs/{runID}/stream", &[("runID", run_id)]);
+        self.client
+            .do_request("POST", &path, None, None, Some(body))
+            .await
+    }
 }

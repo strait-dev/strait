@@ -185,6 +185,12 @@ type mockAPIStore struct {
 	createEventSubscriptionFn           func(ctx context.Context, sub *domain.EventSubscription) error
 	listEventSubscriptionsBySourceFn    func(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
 	deleteEventSubscriptionFn           func(ctx context.Context, subID string) error
+	upsertRunStateFn                    func(ctx context.Context, s *domain.RunState) error
+	getRunStateFn                       func(ctx context.Context, runID, key string) (*domain.RunState, error)
+	listRunStateFn                      func(ctx context.Context, runID string) ([]domain.RunState, error)
+	deleteRunStateFn                    func(ctx context.Context, runID, key string) error
+	replayWebhookDeliveryFn             func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	createWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -987,6 +993,14 @@ func (m *mockQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error
 	return nil, nil
 }
 
+func (m *mockQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
 func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	if m.dequeueNByProjectFn != nil {
 		return m.dequeueNByProjectFn(ctx, n, projectID)
@@ -1496,4 +1510,62 @@ func (m *mockAPIStore) RollbackDeploymentVersion(ctx context.Context, deployment
 		return m.rollbackDeploymentVersionFn(ctx, deploymentID, projectID, environment, updatedBy)
 	}
 	return nil, store.ErrDeploymentVersionNotFound
+}
+
+func (m *mockAPIStore) CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error {
+	if m.createWebhookDeliveryFn != nil {
+		return m.createWebhookDeliveryFn(ctx, d)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+	if m.replayWebhookDeliveryFn != nil {
+		return m.replayWebhookDeliveryFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpsertDebouncePending(ctx context.Context, d *domain.DebouncePending) error {
+	return nil
+}
+
+func (m *mockAPIStore) InsertBatchBufferItem(ctx context.Context, item *domain.BatchBufferItem) error {
+	return nil
+}
+
+func (m *mockAPIStore) DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpsertRunState(ctx context.Context, s *domain.RunState) error {
+	if m.upsertRunStateFn != nil {
+		return m.upsertRunStateFn(ctx, s)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error) {
+	if m.getRunStateFn != nil {
+		return m.getRunStateFn(ctx, runID, key)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListRunState(ctx context.Context, runID string) ([]domain.RunState, error) {
+	if m.listRunStateFn != nil {
+		return m.listRunStateFn(ctx, runID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteRunState(ctx context.Context, runID, key string) error {
+	if m.deleteRunStateFn != nil {
+		return m.deleteRunStateFn(ctx, runID, key)
+	}
+	return nil
 }

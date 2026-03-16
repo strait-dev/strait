@@ -169,6 +169,38 @@ class TestSDKRunsService:
         assert reqs[-1].url.path == "/sdk/v1/runs/r1/wait-for-event"
 
 
+class TestSDKRunsStateAndStreamEndpoints:
+    def test_set_state(self, captured_client):
+        c, reqs = captured_client
+        c.sdk_runs.set_state("r1", {"key": "k1", "value": "v1"})
+        assert reqs[-1].method == "POST"
+        assert reqs[-1].url.path == "/sdk/v1/runs/r1/state"
+
+    def test_list_state(self, captured_client):
+        c, reqs = captured_client
+        c.sdk_runs.list_state("r1")
+        assert reqs[-1].method == "GET"
+        assert reqs[-1].url.path == "/sdk/v1/runs/r1/state"
+
+    def test_get_state(self, captured_client):
+        c, reqs = captured_client
+        c.sdk_runs.get_state("r1", "my-key")
+        assert reqs[-1].method == "GET"
+        assert reqs[-1].url.path == "/sdk/v1/runs/r1/state/my-key"
+
+    def test_delete_state(self, captured_client):
+        c, reqs = captured_client
+        c.sdk_runs.delete_state("r1", "my-key")
+        assert reqs[-1].method == "DELETE"
+        assert reqs[-1].url.path == "/sdk/v1/runs/r1/state/my-key"
+
+    def test_stream_run(self, captured_client):
+        c, reqs = captured_client
+        c.sdk_runs.stream_run("r1", {"chunk": "hello"})
+        assert reqs[-1].method == "POST"
+        assert reqs[-1].url.path == "/sdk/v1/runs/r1/stream"
+
+
 class TestRBACService:
     def test_list_roles(self, captured_client):
         c, reqs = captured_client
