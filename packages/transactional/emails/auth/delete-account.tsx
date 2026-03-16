@@ -127,7 +127,7 @@ const DeleteAccount = ({ name, url }: Props) => (
 
           <Section>
             <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
-              © 2025 Strait, All rights reserved
+              © 2026 Strait, All rights reserved
             </Text>
           </Section>
         </Container>
