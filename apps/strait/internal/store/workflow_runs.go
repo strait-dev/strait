@@ -563,6 +563,70 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 	return runs, nil
 }
 
+// CountActiveWorkflowRunsByVersion returns the number of non-terminal workflow runs for a specific version.
+func (q *Queries) CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountActiveWorkflowRunsByVersion")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workflow_runs
+		WHERE workflow_id = $1
+		  AND workflow_version_id = $2
+		  AND status IN ('pending', 'running', 'paused')
+	`, workflowID, versionID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active workflow runs by version: %w", err)
+	}
+	return count, nil
+}
+
+// ActiveVersion represents a workflow version with active run counts.
+type ActiveVersion struct {
+	VersionID string `json:"version_id"`
+	Version   int    `json:"version"`
+	Pending   int    `json:"pending"`
+	Running   int    `json:"running"`
+	Paused    int    `json:"paused"`
+	Total     int    `json:"total"`
+}
+
+// ListActiveWorkflowVersions groups active workflow runs by version with status counts.
+func (q *Queries) ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]ActiveVersion, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListActiveWorkflowVersions")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		SELECT
+			COALESCE(workflow_version_id, ''),
+			workflow_version,
+			COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+			COUNT(*) FILTER (WHERE status = 'running') AS running,
+			COUNT(*) FILTER (WHERE status = 'paused') AS paused,
+			COUNT(*) AS total
+		FROM workflow_runs
+		WHERE workflow_id = $1
+		  AND status IN ('pending', 'running', 'paused')
+		GROUP BY workflow_version_id, workflow_version
+		ORDER BY workflow_version DESC
+	`, workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("list active workflow versions: %w", err)
+	}
+	defer rows.Close()
+
+	var versions []ActiveVersion
+	for rows.Next() {
+		var v ActiveVersion
+		if err := rows.Scan(&v.VersionID, &v.Version, &v.Pending, &v.Running, &v.Paused, &v.Total); err != nil {
+			return nil, fmt.Errorf("list active workflow versions scan: %w", err)
+		}
+		versions = append(versions, v)
+	}
+	return versions, rows.Err()
+}
+
 func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCancelWorkflowRuns")
 	defer span.End()

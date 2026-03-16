@@ -267,6 +267,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/steps", s.handleListWorkflowVersionSteps)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{fromVersionID}/diff/{toVersionID}", s.handleWorkflowVersionDiff)
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/impact", s.handleWorkflowVersionImpact)
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/active-versions", s.handleGetActiveVersions)
 			})
 		})
 
