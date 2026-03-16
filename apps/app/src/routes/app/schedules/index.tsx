@@ -170,7 +170,11 @@ function SchedulesPage() {
       <div
         className="[&_tbody_tr]:cursor-pointer"
         onClick={(e) => {
-          const row = (e.target as HTMLElement).closest("tr[data-row-index]");
+          const target = e.target as HTMLElement;
+          if (target.closest("a, button")) {
+            return;
+          }
+          const row = target.closest("tr[data-row-index]");
           if (!row) {
             return;
           }
