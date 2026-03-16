@@ -131,8 +131,6 @@ export const loadProjectConfig = async (
     );
   }
 
-  let rawExport: unknown;
-
   if (configPath.endsWith(".json")) {
     const content = await readFile(configPath, "utf-8");
     const json = JSON.parse(content) as StraitJsonSchema;
@@ -154,7 +152,7 @@ export const loadProjectConfig = async (
     `${modulePath}?t=${Date.now()}`
   )) as ProjectConfigModule;
 
-  rawExport = await resolveExport(imported.default ?? imported.config);
+  const rawExport = await resolveExport(imported.default ?? imported.config);
   if (!isProjectConfig(rawExport)) {
     throw new Error(
       `Invalid Strait project config in '${configPath}'. Expected { project: { id: string }, ... }.`
