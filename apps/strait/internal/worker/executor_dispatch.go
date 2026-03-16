@@ -441,6 +441,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 
 	var machineID string
 	var createErr error
+	var dispatchSource string // "pool", "pause_reuse", or "cold_start"
 
 	// Try warm pool first (acquire stopped machine and Start with new env).
 	if e.machinePool != nil {
@@ -450,6 +451,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 					"machine_id", pooledID, "run_id", run.ID, "error", startErr)
 			} else {
 				machineID = pooledID
+				dispatchSource = "pool"
 			}
 		}
 	}
@@ -460,10 +462,12 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 				"machine_id", run.MachineID, "run_id", run.ID, "error", startErr)
 		} else {
 			machineID = run.MachineID
+			dispatchSource = "pause_reuse"
 		}
 	}
 	if machineID == "" {
 		machineID, createErr = e.containerRuntime.Create(ctx, runReq)
+		dispatchSource = "cold_start"
 	}
 	if createErr != nil {
 		// Fly-specific error classification for observability.
@@ -487,6 +491,14 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
 		return
 	}
+
+	// Record dispatch source metrics.
+	e.recordManagedMetric(ctx, dispatchSource, dispatchStart)
+	e.logger.Info("managed dispatch resolved machine",
+		"run_id", run.ID,
+		"machine_id", machineID,
+		"source", dispatchSource,
+	)
 
 	// Store machine_id on the run so cancellation can stop it.
 	if machineID != "" {
