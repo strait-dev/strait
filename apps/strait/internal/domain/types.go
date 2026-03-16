@@ -34,13 +34,18 @@ const (
 )
 
 const (
-	WebhookEventRunCompleted      = "run.completed"
-	WebhookEventRunFailed         = "run.failed"
-	WebhookEventRunTimedOut       = "run.timed_out"
-	WebhookEventRunCanceled       = "run.canceled"
-	WebhookEventWorkflowCompleted = "workflow.completed"
-	WebhookEventWorkflowFailed    = "workflow.failed"
+	WebhookEventRunCompleted         = "run.completed"
+	WebhookEventRunFailed            = "run.failed"
+	WebhookEventRunTimedOut          = "run.timed_out"
+	WebhookEventRunCanceled          = "run.canceled"
+	WebhookEventWorkflowCompleted    = "workflow.completed"
+	WebhookEventWorkflowFailed       = "workflow.failed"
+	WebhookEventComputeBudgetWarning = "compute_budget_warning"
 )
+
+// ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
+// that triggers a warning alert.
+const ComputeBudgetAlertThresholdPct = 80
 
 type EventType string
 
