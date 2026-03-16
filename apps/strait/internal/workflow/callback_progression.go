@@ -25,7 +25,13 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		return fmt.Errorf("increment step deps: %w", err)
 	}
 
-	if wc.run.Status == domain.WfStatusPaused {
+	// Re-read workflow run status after acquiring the lock to prevent a race
+	// where pause commits between our initial cache load and lock acquisition.
+	freshRun, freshErr := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
+	if freshErr != nil {
+		return fmt.Errorf("re-read workflow run status: %w", freshErr)
+	}
+	if freshRun.Status == domain.WfStatusPaused || freshRun.Status.IsTerminal() {
 		return nil
 	}
 

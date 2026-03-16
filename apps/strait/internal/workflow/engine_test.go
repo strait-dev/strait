@@ -145,6 +145,10 @@ func (m *mockEngineStore) GetOrCreateWorkflowSnapshot(_ context.Context, _ *doma
 	return &domain.WorkflowSnapshot{ID: "snap-test"}, nil
 }
 
+func (m *mockEngineStore) CopyRunState(_ context.Context, _, _ string) error {
+	return nil
+}
+
 type mockEngineQueue struct {
 	enqueueFn func(ctx context.Context, run *domain.JobRun) error
 }

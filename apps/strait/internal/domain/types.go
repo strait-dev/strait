@@ -546,6 +546,9 @@ type JobVersion struct {
 	WebhookURL          string            `json:"webhook_url,omitempty"`
 	WebhookSecret       string            `json:"webhook_secret,omitempty"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
+	MachinePreset       string            `json:"machine_preset,omitempty"`
+	ImageURI            string            `json:"image_uri,omitempty"`
+	Region              string            `json:"region,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
 
