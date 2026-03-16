@@ -5,12 +5,12 @@ import { Input } from "@strait/ui/components/input";
 import { PasswordInput } from "@strait/ui/components/password-input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
+import { Link } from "@tanstack/react-router";
 import { z } from "zod";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
-import type { AuthView } from "@/routes/login";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -19,14 +19,12 @@ const signInSchema = z.object({
 
 type SignInFormProps = {
   redirectTo?: string;
-  onNavigate: (view: AuthView) => void;
   disabled?: boolean;
   onTwoFactorRequired?: () => void;
 };
 
 export const SignInForm = ({
   redirectTo,
-  onNavigate,
   disabled,
   onTwoFactorRequired,
 }: SignInFormProps) => {
@@ -94,13 +92,12 @@ export const SignInForm = ({
             <Field className="w-full">
               <div className="flex items-center justify-between">
                 <FieldLabel htmlFor={field.name}>Password</FieldLabel>
-                <button
-                  className="text-muted-foreground text-xs hover:text-foreground"
-                  onClick={() => onNavigate("forgot-password")}
-                  type="button"
+                <Link
+                  className="text-foreground text-sm underline-offset-4 hover:underline"
+                  to="/forgot-password"
                 >
                   Forgot password?
-                </button>
+                </Link>
               </div>
               <PasswordInput
                 autoComplete="current-password"

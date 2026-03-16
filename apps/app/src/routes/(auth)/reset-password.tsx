@@ -30,7 +30,7 @@ const resetPasswordSchema = z
     path: ["confirmPassword"],
   });
 
-export const Route = createFileRoute("/reset-password")({
+export const Route = createFileRoute("/(auth)/reset-password")({
   validateSearch: resetPasswordSearchSchema,
   beforeLoad: ({ context }) => {
     if (context.isAuthenticated) {

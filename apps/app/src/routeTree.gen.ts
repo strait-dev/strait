@@ -9,9 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as VerifyEmailRouteImport } from './routes/verify-email'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppLayoutRouteImport } from './routes/app/layout'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
@@ -19,6 +16,14 @@ import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as InvitationIdRouteImport } from './routes/invitation/$id'
 import { Route as AppUpgradeRouteImport } from './routes/app/upgrade'
 import { Route as AppDashboardRouteImport } from './routes/app/dashboard'
+import { Route as authVerifyEmailRouteImport } from './routes/(auth)/verify-email'
+import { Route as authTwoFactorRouteImport } from './routes/(auth)/two-factor'
+import { Route as authSsoRouteImport } from './routes/(auth)/sso'
+import { Route as authSignupRouteImport } from './routes/(auth)/signup'
+import { Route as authResetPasswordRouteImport } from './routes/(auth)/reset-password'
+import { Route as authMagicLinkRouteImport } from './routes/(auth)/magic-link'
+import { Route as authLoginRouteImport } from './routes/(auth)/login'
+import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as AppWorkflowsIndexRouteImport } from './routes/app/workflows/index'
 import { Route as AppWebhooksIndexRouteImport } from './routes/app/webhooks/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/app/settings/index'
@@ -34,21 +39,6 @@ import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
-const VerifyEmailRoute = VerifyEmailRouteImport.update({
-  id: '/verify-email',
-  path: '/verify-email',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AppLayoutRoute = AppLayoutRouteImport.update({
   id: '/app',
   path: '/app',
@@ -83,6 +73,46 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AppLayoutRoute,
+} as any)
+const authVerifyEmailRoute = authVerifyEmailRouteImport.update({
+  id: '/(auth)/verify-email',
+  path: '/verify-email',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authTwoFactorRoute = authTwoFactorRouteImport.update({
+  id: '/(auth)/two-factor',
+  path: '/two-factor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authSsoRoute = authSsoRouteImport.update({
+  id: '/(auth)/sso',
+  path: '/sso',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authSignupRoute = authSignupRouteImport.update({
+  id: '/(auth)/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authResetPasswordRoute = authResetPasswordRouteImport.update({
+  id: '/(auth)/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authMagicLinkRoute = authMagicLinkRouteImport.update({
+  id: '/(auth)/magic-link',
+  path: '/magic-link',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authLoginRoute = authLoginRouteImport.update({
+  id: '/(auth)/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
+  id: '/(auth)/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppWorkflowsIndexRoute = AppWorkflowsIndexRouteImport.update({
   id: '/workflows/',
@@ -158,9 +188,14 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppLayoutRouteWithChildren
-  '/login': typeof LoginRoute
-  '/reset-password': typeof ResetPasswordRoute
-  '/verify-email': typeof VerifyEmailRoute
+  '/forgot-password': typeof authForgotPasswordRoute
+  '/login': typeof authLoginRoute
+  '/magic-link': typeof authMagicLinkRoute
+  '/reset-password': typeof authResetPasswordRoute
+  '/signup': typeof authSignupRoute
+  '/sso': typeof authSsoRoute
+  '/two-factor': typeof authTwoFactorRoute
+  '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
@@ -183,9 +218,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
-  '/reset-password': typeof ResetPasswordRoute
-  '/verify-email': typeof VerifyEmailRoute
+  '/forgot-password': typeof authForgotPasswordRoute
+  '/login': typeof authLoginRoute
+  '/magic-link': typeof authMagicLinkRoute
+  '/reset-password': typeof authResetPasswordRoute
+  '/signup': typeof authSignupRoute
+  '/sso': typeof authSsoRoute
+  '/two-factor': typeof authTwoFactorRoute
+  '/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
@@ -210,9 +250,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/app': typeof AppLayoutRouteWithChildren
-  '/login': typeof LoginRoute
-  '/reset-password': typeof ResetPasswordRoute
-  '/verify-email': typeof VerifyEmailRoute
+  '/(auth)/forgot-password': typeof authForgotPasswordRoute
+  '/(auth)/login': typeof authLoginRoute
+  '/(auth)/magic-link': typeof authMagicLinkRoute
+  '/(auth)/reset-password': typeof authResetPasswordRoute
+  '/(auth)/signup': typeof authSignupRoute
+  '/(auth)/sso': typeof authSsoRoute
+  '/(auth)/two-factor': typeof authTwoFactorRoute
+  '/(auth)/verify-email': typeof authVerifyEmailRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/upgrade': typeof AppUpgradeRoute
   '/invitation/$id': typeof InvitationIdRoute
@@ -238,8 +283,13 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/app'
+    | '/forgot-password'
     | '/login'
+    | '/magic-link'
     | '/reset-password'
+    | '/signup'
+    | '/sso'
+    | '/two-factor'
     | '/verify-email'
     | '/app/dashboard'
     | '/app/upgrade'
@@ -263,8 +313,13 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/forgot-password'
     | '/login'
+    | '/magic-link'
     | '/reset-password'
+    | '/signup'
+    | '/sso'
+    | '/two-factor'
     | '/verify-email'
     | '/app/dashboard'
     | '/app/upgrade'
@@ -289,9 +344,14 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/app'
-    | '/login'
-    | '/reset-password'
-    | '/verify-email'
+    | '/(auth)/forgot-password'
+    | '/(auth)/login'
+    | '/(auth)/magic-link'
+    | '/(auth)/reset-password'
+    | '/(auth)/signup'
+    | '/(auth)/sso'
+    | '/(auth)/two-factor'
+    | '/(auth)/verify-email'
     | '/app/dashboard'
     | '/app/upgrade'
     | '/invitation/$id'
@@ -316,9 +376,14 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppLayoutRoute: typeof AppLayoutRouteWithChildren
-  LoginRoute: typeof LoginRoute
-  ResetPasswordRoute: typeof ResetPasswordRoute
-  VerifyEmailRoute: typeof VerifyEmailRoute
+  authForgotPasswordRoute: typeof authForgotPasswordRoute
+  authLoginRoute: typeof authLoginRoute
+  authMagicLinkRoute: typeof authMagicLinkRoute
+  authResetPasswordRoute: typeof authResetPasswordRoute
+  authSignupRoute: typeof authSignupRoute
+  authSsoRoute: typeof authSsoRoute
+  authTwoFactorRoute: typeof authTwoFactorRoute
+  authVerifyEmailRoute: typeof authVerifyEmailRoute
   InvitationIdRoute: typeof InvitationIdRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -326,27 +391,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/verify-email': {
-      id: '/verify-email'
-      path: '/verify-email'
-      fullPath: '/verify-email'
-      preLoaderRoute: typeof VerifyEmailRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/app': {
       id: '/app'
       path: '/app'
@@ -395,6 +439,62 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppLayoutRoute
+    }
+    '/(auth)/verify-email': {
+      id: '/(auth)/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof authVerifyEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/two-factor': {
+      id: '/(auth)/two-factor'
+      path: '/two-factor'
+      fullPath: '/two-factor'
+      preLoaderRoute: typeof authTwoFactorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/sso': {
+      id: '/(auth)/sso'
+      path: '/sso'
+      fullPath: '/sso'
+      preLoaderRoute: typeof authSsoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/signup': {
+      id: '/(auth)/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof authSignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/reset-password': {
+      id: '/(auth)/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof authResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/magic-link': {
+      id: '/(auth)/magic-link'
+      path: '/magic-link'
+      fullPath: '/magic-link'
+      preLoaderRoute: typeof authMagicLinkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/login': {
+      id: '/(auth)/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof authLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/forgot-password': {
+      id: '/(auth)/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof authForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/app/workflows/': {
       id: '/app/workflows/'
@@ -542,9 +642,14 @@ const AppLayoutRouteWithChildren = AppLayoutRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppLayoutRoute: AppLayoutRouteWithChildren,
-  LoginRoute: LoginRoute,
-  ResetPasswordRoute: ResetPasswordRoute,
-  VerifyEmailRoute: VerifyEmailRoute,
+  authForgotPasswordRoute: authForgotPasswordRoute,
+  authLoginRoute: authLoginRoute,
+  authMagicLinkRoute: authMagicLinkRoute,
+  authResetPasswordRoute: authResetPasswordRoute,
+  authSignupRoute: authSignupRoute,
+  authSsoRoute: authSsoRoute,
+  authTwoFactorRoute: authTwoFactorRoute,
+  authVerifyEmailRoute: authVerifyEmailRoute,
   InvitationIdRoute: InvitationIdRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
