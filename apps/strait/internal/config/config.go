@@ -130,12 +130,15 @@ type Config struct {
 	DequeueStrategy            string        `mapstructure:"DEQUEUE_STRATEGY"`
 
 	// Managed execution (container runtime)
-	ComputeRuntime        string `mapstructure:"COMPUTE_RUNTIME"`         // "none", "fly", "docker"
-	FlyAPIToken           string `mapstructure:"FLY_API_TOKEN"`           // Fly Machines API token
-	FlyAppName            string `mapstructure:"FLY_APP_NAME"`            // Fly app name
-	FlyRegion             string `mapstructure:"FLY_REGION"`              // Default Fly region
-	ExternalAPIURL        string `mapstructure:"EXTERNAL_API_URL"`        // Public API URL for SDK callbacks
-	MaxConcurrentMachines int    `mapstructure:"MAX_CONCURRENT_MACHINES"` // Max parallel containers
+	ComputeRuntime        string        `mapstructure:"COMPUTE_RUNTIME"`         // "none", "fly", "docker"
+	FlyAPIToken           string        `mapstructure:"FLY_API_TOKEN"`           // Fly Machines API token
+	FlyAppName            string        `mapstructure:"FLY_APP_NAME"`            // Fly app name
+	FlyRegion             string        `mapstructure:"FLY_REGION"`              // Default Fly region
+	ExternalAPIURL        string        `mapstructure:"EXTERNAL_API_URL"`        // Public API URL for SDK callbacks
+	MaxConcurrentMachines int           `mapstructure:"MAX_CONCURRENT_MACHINES"` // Max parallel containers
+	WarmPoolEnabled       bool          `mapstructure:"WARM_POOL_ENABLED"`       // Enable warm machine pool
+	WarmPoolMaxPerJob     int           `mapstructure:"WARM_POOL_MAX_PER_JOB"`   // Max warm machines per job/region
+	WarmPoolTTL           time.Duration `mapstructure:"WARM_POOL_TTL"`           // TTL for idle warm machines
 
 	// ClickHouse (optional analytics)
 	ClickHouseEnabled       bool          `mapstructure:"CLICKHOUSE_ENABLED"`
