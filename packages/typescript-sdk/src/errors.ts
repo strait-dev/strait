@@ -78,9 +78,18 @@ export class DagValidationError extends Data.TaggedError("DagValidationError")<{
   readonly duplicateRefs?: readonly string[];
 }> {}
 
+export class CostBudgetExceededError extends Data.TaggedError(
+  "CostBudgetExceededError"
+)<{
+  readonly message: string;
+  readonly currentCostMicrousd: number;
+  readonly maxCostMicrousd: number;
+}> {}
+
 export type StraitSdkError =
   | ApiError
   | ConflictError
+  | CostBudgetExceededError
   | DagValidationError
   | DecodeError
   | NotFoundError

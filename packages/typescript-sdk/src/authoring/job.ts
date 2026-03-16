@@ -43,8 +43,72 @@ export type RunContext = {
     readonly error: (message: string, data?: Record<string, unknown>) => void;
   };
   readonly checkpoint: (state: Record<string, unknown>) => Promise<void>;
-  readonly reportProgress: (percent: number) => Promise<void>;
+  readonly reportProgress: (percent: number, message?: string) => Promise<void>;
   readonly heartbeat: () => Promise<void>;
+
+  readonly reportUsage?: (usage: {
+    readonly provider: string;
+    readonly model: string;
+    readonly promptTokens?: number;
+    readonly completionTokens?: number;
+    readonly totalTokens?: number;
+    readonly costMicrousd?: number;
+  }) => Promise<void>;
+  readonly logToolCall?: (toolCall: {
+    readonly toolName: string;
+    readonly input?: Record<string, unknown>;
+    readonly output?: Record<string, unknown>;
+    readonly durationMs?: number;
+    readonly status?: string;
+  }) => Promise<void>;
+  readonly saveOutput?: (
+    key: string,
+    value: Record<string, unknown>,
+    schema?: Record<string, unknown>
+  ) => Promise<void>;
+
+  readonly state?: {
+    readonly get: (key: string) => Promise<unknown>;
+    readonly set: (key: string, value: unknown) => Promise<void>;
+    readonly delete: (key: string) => Promise<void>;
+    readonly list: () => Promise<
+      Array<{ key: string; value: unknown; updatedAt: string }>
+    >;
+  };
+
+  readonly streamChunk?: (
+    chunk: string,
+    options?: {
+      readonly streamId?: string;
+      readonly done?: boolean;
+    }
+  ) => Promise<void>;
+
+  readonly waitForEvent?: (
+    eventKey: string,
+    options?: {
+      readonly timeoutSecs?: number;
+      readonly notifyUrl?: string;
+    }
+  ) => Promise<{
+    readonly status: string;
+    readonly eventKey: string;
+    readonly triggerId: string;
+    readonly expiresAt: string;
+  }>;
+
+  readonly spawn?: (options: {
+    readonly jobSlug: string;
+    readonly projectId: string;
+    readonly payload?: Record<string, unknown>;
+    readonly priority?: number;
+  }) => Promise<{ readonly id: string }>;
+  readonly continue?: (
+    payload?: Record<string, unknown>
+  ) => Promise<{ readonly id: string }>;
+  readonly annotate?: (annotations: Record<string, string>) => Promise<void>;
+  readonly complete?: (result?: Record<string, unknown>) => Promise<void>;
+  readonly fail?: (error: string) => Promise<void>;
 };
 
 /**
