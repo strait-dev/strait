@@ -390,6 +390,21 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env[key] = secret.EncryptedValue
 	}
 
+	// Checkpoint injection for retried runs.
+	if run.Attempt > 1 {
+		cp, cpErr := e.store.GetLatestCheckpoint(ctx, run.ID)
+		if cpErr == nil && cp != nil {
+			data, _ := json.Marshal(cp.State)
+			if len(data) <= maxInlinePayload {
+				env["STRAIT_LAST_CHECKPOINT"] = string(data)
+				env["STRAIT_CHECKPOINT_AT"] = cp.CreatedAt.Format(time.RFC3339)
+			}
+		}
+		if run.Error != "" {
+			env["STRAIT_PREVIOUS_ERROR"] = run.Error
+		}
+	}
+
 	// 7. Resolve region: job config > run metadata hint > executor default.
 	region := job.Region
 	if region == "" {

@@ -161,6 +161,8 @@ type mockAPIStore struct {
 	cancelNonTerminalStepRunsFn          func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	cancelJobRunsByWorkflowRunFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	listManagedMachineIDsByWorkflowRunFn func(ctx context.Context, workflowRunID string) ([]string, error)
+	markJobRunsPausedByWorkflowRunFn     func(ctx context.Context, workflowRunID string) (int64, error)
+	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 	getRunsByIDsFn                       func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	bulkCancelRunsFn                     func(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
 	cancelChildRunsByParentIDsFn         func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
@@ -1308,6 +1310,20 @@ func (m *mockAPIStore) ListManagedMachineIDsByWorkflowRun(ctx context.Context, w
 		return m.listManagedMachineIDsByWorkflowRunFn(ctx, workflowRunID)
 	}
 	return nil, nil
+}
+
+func (m *mockAPIStore) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
+	if m.markJobRunsPausedByWorkflowRunFn != nil {
+		return m.markJobRunsPausedByWorkflowRunFn(ctx, workflowRunID)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
+	if m.requeuePausedJobRunsFn != nil {
+		return m.requeuePausedJobRunsFn(ctx, workflowRunID)
+	}
+	return 0, nil
 }
 
 func (m *mockAPIStore) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {

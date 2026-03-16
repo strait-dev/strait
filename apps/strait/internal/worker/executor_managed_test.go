@@ -1284,3 +1284,146 @@ func TestManagedDispatch_InvalidRegionHint(t *testing.T) {
 		t.Errorf("expected fallback to default region iad, got %q", capturedReq.Region)
 	}
 }
+
+func TestManagedDispatch_RetryIncludesCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	var capturedEnv map[string]string
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		getLatestCheckpointFn: func(_ context.Context, runID string) (*domain.RunCheckpoint, error) {
+			return &domain.RunCheckpoint{
+				ID:        "cp-1",
+				RunID:     runID,
+				Sequence:  3,
+				State:     json.RawMessage(`{"progress":75}`),
+				CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 2
+	run.Error = "previous failure"
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv == nil {
+		t.Fatal("expected env to be captured")
+	}
+	if capturedEnv["STRAIT_LAST_CHECKPOINT"] != `{"progress":75}` {
+		t.Errorf("expected checkpoint in env, got %q", capturedEnv["STRAIT_LAST_CHECKPOINT"])
+	}
+	if capturedEnv["STRAIT_CHECKPOINT_AT"] == "" {
+		t.Error("expected STRAIT_CHECKPOINT_AT to be set")
+	}
+	if capturedEnv["STRAIT_PREVIOUS_ERROR"] != "previous failure" {
+		t.Errorf("expected previous error in env, got %q", capturedEnv["STRAIT_PREVIOUS_ERROR"])
+	}
+}
+
+func TestManagedDispatch_FirstAttemptNoCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	var capturedEnv map[string]string
+	checkpointCalled := false
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		getLatestCheckpointFn: func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+			checkpointCalled = true
+			return nil, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1 // First attempt
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if checkpointCalled {
+		t.Error("should not call GetLatestCheckpoint on first attempt")
+	}
+	if _, ok := capturedEnv["STRAIT_LAST_CHECKPOINT"]; ok {
+		t.Error("should not have STRAIT_LAST_CHECKPOINT on first attempt")
+	}
+}
+
+func TestManagedDispatch_RetryLargeCheckpointOmitted(t *testing.T) {
+	t.Parallel()
+
+	var capturedEnv map[string]string
+
+	// Build a payload larger than 64KB.
+	bigJSON := make([]byte, 0, 70*1024+2)
+	bigJSON = append(bigJSON, '"')
+	for range 70 * 1024 {
+		bigJSON = append(bigJSON, 'x')
+	}
+	bigJSON = append(bigJSON, '"')
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		getLatestCheckpointFn: func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+			return &domain.RunCheckpoint{
+				ID:        "cp-1",
+				RunID:     "run-1",
+				Sequence:  1,
+				State:     json.RawMessage(bigJSON),
+				CreatedAt: time.Now(),
+			}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 2
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if _, ok := capturedEnv["STRAIT_LAST_CHECKPOINT"]; ok {
+		t.Error("should not include checkpoint > 64KB in env")
+	}
+}

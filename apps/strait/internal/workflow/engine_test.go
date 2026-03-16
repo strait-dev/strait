@@ -1041,6 +1041,10 @@ func (m *mockCallbackStore) GetWorkflowSnapshot(_ context.Context, _ string) (*d
 	return nil, nil // Fallback to live table by default in tests.
 }
 
+func (m *mockCallbackStore) RequeuePausedJobRuns(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockCallbackStore) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {
 	if m.getWorkflowRunsByParentFn != nil {
 		return m.getWorkflowRunsByParentFn(ctx, parentWorkflowRunID)

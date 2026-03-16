@@ -3112,3 +3112,154 @@ func TestHandleCancelWorkflowRun_PartialStopFailure(t *testing.T) {
 		t.Error("expected Stop(m-3) to be called")
 	}
 }
+
+func TestHandlePauseWorkflowRun_StopsManagedContainers(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	stoppedMachines := make(map[string]bool)
+
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, machineID string) error {
+			mu.Lock()
+			stoppedMachines[machineID] = true
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	getCalls := 0
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			}
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listManagedMachineIDsByWorkflowRunFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"m-1", "m-2"}, nil
+		},
+	}
+
+	srv := newWorkflowTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, mid := range []string{"m-1", "m-2"} {
+		if !stoppedMachines[mid] {
+			t.Errorf("expected Stop(%s) to be called on pause", mid)
+		}
+	}
+}
+
+func TestHandlePauseWorkflowRun_MarksJobRunsPaused(t *testing.T) {
+	t.Parallel()
+
+	markCalled := false
+	getCalls := 0
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			}
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		markJobRunsPausedByWorkflowRunFn: func(_ context.Context, wfRunID string) (int64, error) {
+			if wfRunID != "wr-1" {
+				t.Fatalf("expected wr-1, got %s", wfRunID)
+			}
+			markCalled = true
+			return 2, nil
+		},
+	}
+
+	pub := &mockPublisher{}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !markCalled {
+		t.Fatal("expected MarkJobRunsPausedByWorkflowRun to be called")
+	}
+}
+
+func TestHandlePauseWorkflowRun_NoContainerRuntime(t *testing.T) {
+	t.Parallel()
+
+	var getCalls int
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+			}
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	// Server without container runtime — should not panic.
+	pub := &mockPublisher{}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlePauseWorkflowRun_AlreadyPaused(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected idempotent 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlePauseWorkflowRun_TerminalState(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusCompleted}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

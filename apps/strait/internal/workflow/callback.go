@@ -56,6 +56,7 @@ type CallbackStore interface {
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
 	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
+	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 // NewStepCallback creates a new step callback handler for workflow progression.

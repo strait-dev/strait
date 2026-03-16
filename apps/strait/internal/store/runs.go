@@ -1694,6 +1694,55 @@ func (q *Queries) ListManagedMachineIDsByWorkflowRun(ctx context.Context, workfl
 	return ids, rows.Err()
 }
 
+// MarkJobRunsPausedByWorkflowRun stores the machine_id in metadata._paused_machine_id
+// for executing managed job runs linked to this workflow run, so resume knows to re-dispatch them.
+func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkJobRunsPausedByWorkflowRun")
+	defer span.End()
+
+	query := `
+		UPDATE job_runs r
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('_paused_machine_id', r.machine_id)
+		FROM workflow_step_runs wsr
+		WHERE wsr.job_run_id = r.id
+		  AND wsr.workflow_run_id = $1
+		  AND r.status = 'executing'
+		  AND r.execution_mode = 'managed'
+		  AND r.machine_id IS NOT NULL
+		  AND r.machine_id != ''`
+
+	tag, err := q.db.Exec(ctx, query, workflowRunID)
+	if err != nil {
+		return 0, fmt.Errorf("mark job runs paused by workflow run: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// RequeuePausedJobRuns transitions job runs with _paused_machine_id metadata
+// back to queued status, clearing pause metadata and resetting timing fields.
+func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RequeuePausedJobRuns")
+	defer span.End()
+
+	query := `
+		UPDATE job_runs r
+		SET status = 'queued',
+		    started_at = NULL,
+		    finished_at = NULL,
+		    machine_id = NULL,
+		    metadata = metadata - '_paused_machine_id'
+		FROM workflow_step_runs wsr
+		WHERE wsr.job_run_id = r.id
+		  AND wsr.workflow_run_id = $1
+		  AND r.metadata->>'_paused_machine_id' IS NOT NULL`
+
+	tag, err := q.db.Exec(ctx, query, workflowRunID)
+	if err != nil {
+		return 0, fmt.Errorf("requeue paused job runs: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (q *Queries) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
 	tag, err := q.db.Exec(ctx,
 		`UPDATE job_runs SET status = 'queued'
