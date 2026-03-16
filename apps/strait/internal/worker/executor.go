@@ -194,6 +194,14 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	var machinePool *compute.MachinePool
 	if cfg.WarmPoolEnabled {
 		machinePool = compute.NewMachinePool(cfg.WarmPoolMaxPerJob)
+		if cfg.ContainerRuntime != nil {
+			rt := cfg.ContainerRuntime
+			machinePool.SetOnEvict(func(machineID string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = rt.Destroy(ctx, machineID)
+			})
+		}
 	}
 
 	return &Executor{
@@ -375,6 +383,10 @@ func (e *Executor) Run(ctx context.Context) {
 	go e.heartbeat.Run(ctx)
 	go e.runEventLoop()
 
+	if e.machinePool != nil {
+		go e.runPoolPruner(ctx)
+	}
+
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
@@ -406,6 +418,28 @@ func (e *Executor) Run(ctx context.Context) {
 	}
 }
 
+func (e *Executor) runPoolPruner(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-e.stop:
+			return
+		case <-ticker.C:
+			pruned := e.machinePool.Prune(10*time.Minute, func(mid string) error {
+				dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return e.containerRuntime.Destroy(dCtx, mid)
+			})
+			if pruned > 0 {
+				e.logger.Info("pool pruner cleaned machines", "count", pruned)
+			}
+		}
+	}
+}
+
 func (e *Executor) Shutdown(ctx context.Context) error {
 	e.stopOnce.Do(func() {
 		close(e.stop)
@@ -422,6 +456,17 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	}
 
 	e.pollWG.Wait()
+
+	if e.machinePool != nil && e.containerRuntime != nil {
+		drained := e.machinePool.Prune(0, func(mid string) error {
+			dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return e.containerRuntime.Destroy(dCtx, mid)
+		})
+		if drained > 0 {
+			e.logger.Info("shutdown: drained warm pool", "count", drained)
+		}
+	}
 
 	callbackDone := make(chan struct{})
 	go func() {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1161,6 +1162,9 @@ func TestManagedDispatch_PoolAcquireHit(t *testing.T) {
 		},
 	}
 	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, _ map[string]string) error {
+			return nil // Start succeeds — pooled machine reused.
+		},
 		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
 			createCalled.Store(true)
 			return "new-machine", nil
@@ -1499,5 +1503,276 @@ func TestManagedDispatch_InvalidPresetOverrideIgnored(t *testing.T) {
 
 	if capturedReq.MachinePreset != "micro" {
 		t.Errorf("expected original preset micro, got %q (invalid override should be ignored)", capturedReq.MachinePreset)
+	}
+}
+
+// Phase 2 tests.
+
+func TestManagedDispatch_PoolAcquire_CallsStart(t *testing.T) {
+	t.Parallel()
+	var startCalled atomic.Bool
+	var createCalled atomic.Bool
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, machineID string, env map[string]string) error {
+			startCalled.Store(true)
+			if machineID != "pooled-m" {
+				t.Errorf("Start called with machineID=%q, want pooled-m", machineID)
+			}
+			if env["STRAIT_RUN_ID"] != "run-1" {
+				t.Errorf("Start env missing STRAIT_RUN_ID")
+			}
+			return nil
+		},
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+	pool.Release("alpine:latest", "iad", "pooled-m")
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
+
+	if !startCalled.Load() {
+		t.Error("expected Start to be called with pooled machine")
+	}
+	if createCalled.Load() {
+		t.Error("expected Create NOT to be called when Start succeeds")
+	}
+}
+
+func TestManagedDispatch_PoolAcquire_StartFails_FallsToCreate(t *testing.T) {
+	t.Parallel()
+	var createCalled atomic.Bool
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, _ map[string]string) error {
+			return compute.ErrMachineGone
+		},
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+	pool.Release("alpine:latest", "iad", "pooled-m")
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
+
+	if !createCalled.Load() {
+		t.Error("expected Create to be called when Start fails with ErrMachineGone")
+	}
+}
+
+func TestManagedDispatch_PoolAcquire_StartTransient_FallsToCreate(t *testing.T) {
+	t.Parallel()
+	var createCalled atomic.Bool
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, _ map[string]string) error {
+			return compute.NewRetryableError(500, "transient", nil)
+		},
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+	pool.Release("alpine:latest", "iad", "pooled-m")
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
+
+	if !createCalled.Load() {
+		t.Error("expected Create to be called when Start returns transient error")
+	}
+}
+
+func TestManagedDispatch_Reusable_SetsAutoDestroyFalse(t *testing.T) {
+	t.Parallel()
+	var capturedReq compute.RunRequest
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "m-1", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
+
+	if !capturedReq.Reusable {
+		t.Error("expected Reusable=true when pool is enabled")
+	}
+}
+
+func TestManagedDispatch_SnoozePath_StopsMachineBeforeSnooze(t *testing.T) {
+	t.Parallel()
+	var stopCalled atomic.Bool
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "m-1", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return nil, compute.NewRetryableError(0, "wait failed", nil)
+		},
+		stopFn: func(_ context.Context, machineID string) error {
+			stopCalled.Store(true)
+			if machineID != "m-1" {
+				t.Errorf("Stop called with %q, want m-1", machineID)
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
+
+	if !stopCalled.Load() {
+		t.Error("expected Stop to be called before snoozing on Wait error")
+	}
+}
+
+func TestManagedDispatch_CancelRace_StopFailure_Destroys(t *testing.T) {
+	t.Parallel()
+	var destroyCalled atomic.Bool
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCanceled}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "m-1", nil
+		},
+		stopFn: func(_ context.Context, _ string) error {
+			return fmt.Errorf("stop failed")
+		},
+		destroyFn: func(_ context.Context, machineID string) error {
+			destroyCalled.Store(true)
+			if machineID != "m-1" {
+				t.Errorf("Destroy called with %q, want m-1", machineID)
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
+
+	if !destroyCalled.Load() {
+		t.Error("expected Destroy as fallback when Stop fails on cancel race")
+	}
+}
+
+func TestManagedDispatch_ShutdownDrainsPool(t *testing.T) {
+	t.Parallel()
+	var destroyedIDs sync.Map
+
+	runtime := &mockContainerRuntime{
+		destroyFn: func(_ context.Context, machineID string) error {
+			destroyedIDs.Store(machineID, true)
+			return nil
+		},
+	}
+
+	pool := compute.NewMachinePool(5)
+	pool.Release("img:latest", "iad", "m-1")
+	pool.Release("img:latest", "iad", "m-2")
+	pool.Release("img:latest", "iad", "m-3")
+
+	e := &Executor{
+		store:            &mockExecutorStore{},
+		containerRuntime: runtime,
+		machinePool:      pool,
+		heartbeat:        NewHeartbeatSender(&mockExecutorStore{}, 10*time.Second),
+		eventCh:          make(chan runEventEnvelope, 256),
+		logger:           slog.Default(),
+		pollInterval:     time.Hour, // Long interval — we'll cancel immediately.
+		stop:             make(chan struct{}),
+		done:             make(chan struct{}),
+	}
+
+	// Start and then shutdown.
+	ctx, cancel := context.WithCancel(context.Background())
+	go e.Run(ctx)
+	// Give Run a moment to start.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	if err := e.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown error: %v", err)
+	}
+
+	// Verify all pooled machines were destroyed.
+	for _, id := range []string{"m-1", "m-2", "m-3"} {
+		if _, ok := destroyedIDs.Load(id); !ok {
+			t.Errorf("expected %s to be destroyed on shutdown", id)
+		}
+	}
+	if pool.Size() != 0 {
+		t.Errorf("expected pool size 0 after drain, got %d", pool.Size())
 	}
 }

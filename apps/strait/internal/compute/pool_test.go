@@ -1,6 +1,8 @@
 package compute
 
 import (
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -177,5 +179,144 @@ func TestMachinePool_ConcurrentAccess(t *testing.T) {
 
 	if released.Load() != 50 {
 		t.Fatalf("expected 50 releases, got %d", released.Load())
+	}
+}
+
+func TestMachinePool_EvictionBounded(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(1) // Max 1 per key → every release evicts the old one.
+
+	var concurrent atomic.Int32
+	var maxConcurrent atomic.Int32
+
+	pool.SetOnEvict(func(_ string) {
+		cur := concurrent.Add(1)
+		for {
+			old := maxConcurrent.Load()
+			if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond) // Hold slot to test bounding.
+		concurrent.Add(-1)
+	})
+
+	// Release 20 machines → 19 evictions (first doesn't evict).
+	for i := range 20 {
+		pool.Release("img:latest", "iad", fmt.Sprintf("m-%d", i))
+	}
+
+	// Wait for all evictions to complete.
+	time.Sleep(500 * time.Millisecond)
+
+	// Max concurrent should be capped at 11 (10 from evictSem + 1 inline fallback).
+	if maxConcurrent.Load() > 11 {
+		t.Errorf("max concurrent evictions = %d, want <= 11", maxConcurrent.Load())
+	}
+}
+
+func TestMachinePool_ReleaseEmptyID_Noop(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(3)
+	pool.Release("img:latest", "iad", "")
+	if pool.Size() != 0 {
+		t.Fatalf("expected size 0 after empty-ID release, got %d", pool.Size())
+	}
+}
+
+func TestMachinePool_ReleaseWithoutAcquire_CapsAtMax(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(3)
+	for i := range 100 {
+		pool.Release("img:latest", "iad", fmt.Sprintf("m-%d", i))
+	}
+	// Wait for any async evictions.
+	time.Sleep(100 * time.Millisecond)
+	if pool.Size() != 3 {
+		t.Fatalf("expected size = maxPer (3), got %d", pool.Size())
+	}
+}
+
+func TestMachinePool_ConcurrentStress(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(5)
+
+	var wg sync.WaitGroup
+	for i := range 500 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			key := fmt.Sprintf("img-%d", idx%10)
+			if idx%2 == 0 {
+				pool.Release(key, "iad", fmt.Sprintf("m-%d", idx))
+			} else {
+				pool.Acquire(key, "iad")
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Verify pool size ≤ maxPer * numKeys (10 keys * 5 = 50).
+	if pool.Size() > 50 {
+		t.Errorf("pool size %d exceeds max possible (50)", pool.Size())
+	}
+}
+
+func TestMachinePool_PruneDuringConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(10)
+
+	// Pre-fill with old entries.
+	pool.mu.Lock()
+	for i := range 20 {
+		key := PoolKey("img:latest", "iad")
+		pool.entries[key] = append(pool.entries[key], poolEntry{
+			MachineID: fmt.Sprintf("m-%d", i),
+			StoppedAt: time.Now().Add(-20 * time.Minute),
+		})
+	}
+	pool.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		// Concurrent Release/Acquire while pruning.
+		for i := range 100 {
+			pool.Release("img:latest", "iad", fmt.Sprintf("new-%d", i))
+			pool.Acquire("img:latest", "iad")
+		}
+		close(done)
+	}()
+
+	pruned := pool.Prune(10*time.Minute, func(_ string) error { return nil })
+	<-done
+
+	if pruned < 1 {
+		t.Errorf("expected at least 1 pruned, got %d", pruned)
+	}
+}
+
+func TestMachinePool_OnEvictPanic_DoesntCrashPool(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(1)
+	pool.SetOnEvict(func(_ string) {
+		panic("eviction panic")
+	})
+
+	// This should not crash — the bounded eviction wraps in a goroutine
+	// and panics are isolated per goroutine. We don't recover, but
+	// we verify the pool is still usable after a non-inline eviction.
+	pool.Release("img:latest", "iad", "m-1")
+
+	// Fill semaphore to force inline eviction path.
+	// Note: with semaphore, first eviction runs async, might panic in goroutine.
+	// We give it time but the test process won't crash because panics in
+	// goroutines only crash if they reach the top of the goroutine stack.
+	time.Sleep(100 * time.Millisecond)
+
+	// Pool should still be functional.
+	pool.Release("img:latest", "iad", "m-2")
+	id, ok := pool.Acquire("img:latest", "iad")
+	if !ok || id != "m-2" {
+		t.Errorf("pool not functional after eviction panic: got %q ok=%v", id, ok)
 	}
 }

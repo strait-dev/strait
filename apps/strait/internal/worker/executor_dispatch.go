@@ -436,15 +436,21 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			"project_id": job.ProjectID,
 		},
 		TimeoutSecs: job.TimeoutSecs,
+		Reusable:    e.machinePool != nil || job.ExecutionMode == domain.ExecutionModeManaged,
 	}
 
 	var machineID string
 	var createErr error
 
-	// Try warm pool first.
+	// Try warm pool first (acquire stopped machine and Start with new env).
 	if e.machinePool != nil {
 		if pooledID, ok := e.machinePool.Acquire(job.ImageURI, region); ok {
-			machineID = pooledID
+			if startErr := e.containerRuntime.Start(ctx, pooledID, env); startErr != nil {
+				e.logger.Warn("pooled machine start failed, falling back to create",
+					"machine_id", pooledID, "run_id", run.ID, "error", startErr)
+			} else {
+				machineID = pooledID
+			}
 		}
 	}
 	if machineID == "" {
@@ -485,7 +491,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		if readErr == nil && currentRun.Status == domain.StatusCanceled {
 			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer stopCancel()
-			_ = e.containerRuntime.Stop(stopCtx, machineID)
+			if stopErr := e.containerRuntime.Stop(stopCtx, machineID); stopErr != nil {
+				e.logger.Warn("failed to stop canceled machine, destroying",
+					"machine_id", machineID, "error", stopErr)
+				_ = e.containerRuntime.Destroy(stopCtx, machineID)
+			}
 			e.recordManagedMetric(ctx, "canceled_race", dispatchStart)
 			return
 		}
@@ -495,6 +505,15 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	result, runErr := e.containerRuntime.Wait(ctx, machineID, job.TimeoutSecs)
 
 	if runErr != nil {
+		// Stop the machine before snoozing — avoid orphaned running containers.
+		if machineID != "" {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if stopErr := e.containerRuntime.Stop(stopCtx, machineID); stopErr != nil {
+				_ = e.containerRuntime.Destroy(stopCtx, machineID)
+			}
+			stopCancel()
+		}
+
 		if compute.IsRetryable(runErr) {
 			backoff := compute.BackoffHint(runErr)
 			retryAt := time.Now().Add(backoff)

@@ -7,10 +7,11 @@ import (
 
 // MachinePool manages a pool of stopped machines for reuse, reducing cold starts.
 type MachinePool struct {
-	mu      sync.Mutex
-	entries map[string][]poolEntry // Key: "{imageURI}:{region}"
-	maxPer  int
-	onEvict func(machineID string) // Called asynchronously when a machine is evicted.
+	mu       sync.Mutex
+	entries  map[string][]poolEntry // Key: "{imageURI}:{region}"
+	maxPer   int
+	onEvict  func(machineID string) // Called asynchronously when a machine is evicted.
+	evictSem chan struct{}          // Bounds concurrent eviction callbacks.
 }
 
 type poolEntry struct {
@@ -24,8 +25,9 @@ func NewMachinePool(maxPerKey int) *MachinePool {
 		maxPerKey = 3
 	}
 	return &MachinePool{
-		entries: make(map[string][]poolEntry),
-		maxPer:  maxPerKey,
+		entries:  make(map[string][]poolEntry),
+		maxPer:   maxPerKey,
+		evictSem: make(chan struct{}, 10),
 	}
 }
 
@@ -63,6 +65,10 @@ func (p *MachinePool) Acquire(imageURI, region string) (string, bool) {
 // Release returns a stopped machine to the pool. If the pool is at capacity
 // for this key, the oldest entry is evicted.
 func (p *MachinePool) Release(imageURI, region, machineID string) {
+	if machineID == "" {
+		return
+	}
+
 	key := PoolKey(imageURI, region)
 
 	p.mu.Lock()
@@ -76,7 +82,23 @@ func (p *MachinePool) Release(imageURI, region, machineID string) {
 		p.entries[key] = entries[1:]
 		entries = p.entries[key]
 		if p.onEvict != nil {
-			go p.onEvict(evicted.MachineID)
+			fn := p.onEvict
+			select {
+			case p.evictSem <- struct{}{}:
+				go func() {
+					defer func() {
+						recover() //nolint:errcheck // Prevent eviction panic from crashing the process.
+						<-p.evictSem
+					}()
+					fn(evicted.MachineID)
+				}()
+			default:
+				// Eviction queue full — destroy inline to avoid leak.
+				func() {
+					defer func() { recover() }() //nolint:errcheck
+					fn(evicted.MachineID)
+				}()
+			}
 		}
 	}
 
