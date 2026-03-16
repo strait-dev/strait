@@ -49,6 +49,32 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
+    sendResetPassword: async ({ user, url }) => {
+      await resend.emails.send({
+        from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.dev",
+        to: user.email,
+        subject: "Reset your Strait password",
+        html: `<p>Click the link below to reset your password:</p><p><a href="${url}">Reset password</a></p><p>This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>`,
+      });
+    },
+  },
+  emailVerification: {
+    sendOnSignUp: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      await resend.emails.send({
+        from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.dev",
+        to: user.email,
+        subject: "Verify your email for Strait",
+        html: `<p>Welcome to Strait! Click the link below to verify your email:</p><p><a href="${url}">Verify email</a></p><p>This link expires in 24 hours.</p>`,
+      });
+    },
+  },
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google", "github"],
+    },
   },
   socialProviders: {
     google: {
