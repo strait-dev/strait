@@ -1015,3 +1015,130 @@ func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
 		t.Fatalf("expected 400 for already-queued, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// Phase 4 tests.
+
+func TestHandlePauseRun_ContainerStopFails_StillPauses(t *testing.T) {
+	t.Parallel()
+
+	var paused bool
+	getCalls := 0
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+			if from == domain.StatusExecuting && to == domain.StatusPaused {
+				paused = true
+			}
+			return nil
+		},
+	}
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, _ string) error {
+			return errors.New("stop failed")
+		},
+	}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !paused {
+		t.Error("expected run to be paused even when container stop fails")
+	}
+}
+
+func TestHandlePauseRun_NotFound(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return nil, store.ErrRunNotFound
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-gone/pause", ""))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRestartRun_PausedState_StopsNotCalled(t *testing.T) {
+	t.Parallel()
+
+	var stopCalled atomic.Bool
+	getCalls := 0
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, _ string) error {
+			stopCalled.Store(true)
+			return nil
+		},
+	}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if stopCalled.Load() {
+		t.Error("Stop should not be called for paused runs (machine already stopped)")
+	}
+}
+
+func TestHandleRestartRun_ExecutingState_StopsCalled(t *testing.T) {
+	t.Parallel()
+
+	var stopCalled atomic.Bool
+	getCalls := 0
+	ms := &mockAPIStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	rt := &mockContainerRuntime{
+		stopFn: func(_ context.Context, _ string) error {
+			stopCalled.Store(true)
+			return nil
+		},
+	}
+
+	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !stopCalled.Load() {
+		t.Error("Stop should be called for executing runs on restart")
+	}
+}

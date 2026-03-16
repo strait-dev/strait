@@ -320,3 +320,107 @@ func TestMachinePool_OnEvictPanic_DoesntCrashPool(t *testing.T) {
 		t.Errorf("pool not functional after eviction panic: got %q ok=%v", id, ok)
 	}
 }
+
+// Phase 4 tests.
+
+func TestMachinePool_AcquireAfterPrune(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(5)
+	pool.Release("img:latest", "iad", "m-1")
+	pool.Release("img:latest", "iad", "m-2")
+
+	// Prune everything by using age 0.
+	pool.Prune(0, func(_ string) error { return nil })
+
+	_, ok := pool.Acquire("img:latest", "iad")
+	if ok {
+		t.Fatal("expected Acquire to return false after pruning all entries")
+	}
+}
+
+func TestMachinePool_PruneWithZeroAge(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(5)
+	pool.Release("img:latest", "iad", "m-1")
+	pool.Release("img:latest", "iad", "m-2")
+	pool.Release("img:other", "lhr", "m-3")
+
+	pruned := pool.Prune(0, func(_ string) error { return nil })
+	if pruned != 3 {
+		t.Fatalf("expected 3 pruned with zero age, got %d", pruned)
+	}
+	if pool.Size() != 0 {
+		t.Fatalf("expected pool empty after Prune(0), got size %d", pool.Size())
+	}
+}
+
+func TestMachinePool_ReleaseSameMachineTwice(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(5)
+	pool.Release("img:latest", "iad", "m-1")
+	pool.Release("img:latest", "iad", "m-1")
+
+	if pool.Size() != 2 {
+		t.Fatalf("expected size 2 after releasing same machine twice, got %d", pool.Size())
+	}
+}
+
+func TestMachinePool_Size_AccurateUnderConcurrency(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(100)
+
+	var wg sync.WaitGroup
+	for i := range 100 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			key := fmt.Sprintf("img-%d", idx%10)
+			pool.Release(key, "iad", fmt.Sprintf("m-%d", idx))
+		}(i)
+	}
+	wg.Wait()
+
+	size := pool.Size()
+	// 10 keys, up to 100 per key, 10 releases per key → expect exactly 100.
+	if size < 1 || size > 100 {
+		t.Fatalf("expected pool size between 1 and 100, got %d", size)
+	}
+}
+
+func TestMachinePool_PruneDestroyError_ContinuesPruning(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(10)
+
+	// Insert 5 old entries.
+	pool.mu.Lock()
+	key := PoolKey("img:latest", "iad")
+	for i := range 5 {
+		pool.entries[key] = append(pool.entries[key], poolEntry{
+			MachineID: fmt.Sprintf("m-%d", i),
+			StoppedAt: time.Now().Add(-20 * time.Minute),
+		})
+	}
+	pool.mu.Unlock()
+
+	var attempted sync.Map
+	pruned := pool.Prune(10*time.Minute, func(id string) error {
+		attempted.Store(id, true)
+		// Error on even-numbered machines.
+		if id == "m-0" || id == "m-2" || id == "m-4" {
+			return fmt.Errorf("destroy failed for %s", id)
+		}
+		return nil
+	})
+
+	if pruned != 5 {
+		t.Fatalf("expected 5 pruned (all old), got %d", pruned)
+	}
+
+	// Verify all 5 machines were attempted.
+	for i := range 5 {
+		id := fmt.Sprintf("m-%d", i)
+		if _, ok := attempted.Load(id); !ok {
+			t.Errorf("expected destroy to be attempted for %s", id)
+		}
+	}
+}

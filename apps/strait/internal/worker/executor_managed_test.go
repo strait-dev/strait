@@ -1975,3 +1975,298 @@ func TestManagedDispatch_ResumedRun_EnvContainsCheckpoint(t *testing.T) {
 		t.Error("expected STRAIT_CHECKPOINT_AT in env for retried run")
 	}
 }
+
+// Phase 4 tests.
+
+func TestManagedDispatch_CreateTimeout_Snoozes(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewRetryableError(0, "create timeout", context.DeadlineExceeded)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	updates := store.statusUpdates()
+	var foundSnooze bool
+	for _, u := range updates {
+		if u.from == domain.StatusExecuting && u.to == domain.StatusQueued {
+			foundSnooze = true
+		}
+	}
+	if !foundSnooze {
+		t.Error("expected snooze when Create returns deadline exceeded")
+	}
+}
+
+func TestManagedDispatch_WaitTimeout_StopsAndSnoozes(t *testing.T) {
+	t.Parallel()
+
+	var stopCalled atomic.Bool
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return nil, compute.NewRetryableError(0, "wait timeout", context.DeadlineExceeded)
+		},
+		stopFn: func(_ context.Context, machineID string) error {
+			stopCalled.Store(true)
+			if machineID != "test-machine" {
+				t.Errorf("Stop called with %q, want test-machine", machineID)
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if !stopCalled.Load() {
+		t.Error("expected Stop to be called on Wait timeout")
+	}
+
+	updates := store.statusUpdates()
+	var foundSnooze bool
+	for _, u := range updates {
+		if u.to == domain.StatusQueued {
+			foundSnooze = true
+		}
+	}
+	if !foundSnooze {
+		t.Error("expected snooze after Wait timeout")
+	}
+}
+
+func TestManagedDispatch_BudgetExceeded_NoMachineCreated(t *testing.T) {
+	t.Parallel()
+
+	var createCalled atomic.Bool
+	store := &mockExecutorStore{
+		getProjectQuotaFn: func(_ context.Context, _ string) (*orcstore.ProjectQuota, error) {
+			return &orcstore.ProjectQuota{
+				ProjectID:                     "proj-1",
+				ComputeDailyCostLimitMicrousd: 100,
+			}, nil
+		},
+		sumDailyComputeCostFn: func(_ context.Context, _, _ string) (int64, error) {
+			return 99, nil // At 99, estimated cost will push over 100.
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "leaked-machine", nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.TimeoutSecs = 300 // estimated cost = 17 * 300 = 5100 >> remaining 1
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if createCalled.Load() {
+		t.Error("expected Create NOT to be called when budget exceeded — machine would leak")
+	}
+
+	updates := store.statusUpdates()
+	var foundSystemFailed bool
+	for _, u := range updates {
+		if u.to == domain.StatusSystemFailed {
+			foundSystemFailed = true
+		}
+	}
+	if !foundSystemFailed {
+		t.Error("expected system_failed for budget exceeded")
+	}
+}
+
+func TestManagedDispatch_ResumedRun_PoolAndPauseAndCreate_Cascade(t *testing.T) {
+	t.Parallel()
+
+	var callOrder []string
+	var mu sync.Mutex
+	record := func(name string) {
+		mu.Lock()
+		callOrder = append(callOrder, name)
+		mu.Unlock()
+	}
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, machineID string, _ map[string]string) error {
+			record("start:" + machineID)
+			return compute.ErrMachineGone // Both pool and paused machine gone.
+		},
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			record("create")
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+	pool.Release("alpine:latest", "iad", "pool-m")
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	run.MachineID = "paused-m" // Paused machine set.
+
+	e.managedDispatch(context.Background(), run, newTestManagedJob())
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Expect: pool Start attempted first, then paused Start, then Create fallback.
+	if len(callOrder) < 2 {
+		t.Fatalf("expected at least 2 calls, got %v", callOrder)
+	}
+	// Pool machine is tried first (pool takes priority over paused machine).
+	if callOrder[0] != "start:pool-m" {
+		t.Errorf("expected pool machine start first, got %q", callOrder[0])
+	}
+	// Last call should be Create since both Start calls fail.
+	lastCall := callOrder[len(callOrder)-1]
+	if lastCall != "create" {
+		t.Errorf("expected Create as final fallback, got %q", lastCall)
+	}
+}
+
+func TestManagedDispatch_NonZeroExit_MachineNotPooled(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID:  "test-machine",
+				ExitCode:   1,
+				StartedAt:  &now,
+				FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if pool.Size() != 0 {
+		t.Errorf("expected pool size 0 after non-zero exit, got %d", pool.Size())
+	}
+}
+
+func TestManagedDispatch_ExitZero_MachinePooled(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID:  "test-machine",
+				ExitCode:   0,
+				StartedAt:  &now,
+				FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = ""
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if pool.Size() != 1 {
+		t.Errorf("expected pool size 1 after clean exit with SDK complete, got %d", pool.Size())
+	}
+}
+
+func TestManagedDispatch_MaxSnoozeExceeded_SystemFails(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewRetryableError(429, "rate limited", nil)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	e.maxSnoozeCount = 5 // Low max for testing.
+
+	run := newTestRun()
+	run.Metadata = map[string]string{"snooze_count": "6"} // Already over max.
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	updates := store.statusUpdates()
+	var foundSystemFailed bool
+	for _, u := range updates {
+		if u.to == domain.StatusSystemFailed {
+			foundSystemFailed = true
+		}
+	}
+	if !foundSystemFailed {
+		t.Error("expected system_failed when snooze count exceeds max")
+	}
+}
