@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time as _time
 from typing import Any
 
 import httpx
@@ -21,11 +22,37 @@ class StraitClient:
             timeout=30.0,
         )
 
+    def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        max_attempts: int = 3,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Send request with exponential backoff retry for transient failures."""
+        last_exc: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                resp = self._client.request(method, url, **kwargs)
+                if resp.status_code < 500:
+                    resp.raise_for_status()
+                    return resp
+                last_exc = httpx.HTTPStatusError(
+                    f"server error ({resp.status_code})",
+                    request=resp.request,
+                    response=resp,
+                )
+            except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+                last_exc = exc
+            if attempt < max_attempts - 1:
+                backoff = (2**attempt) + (_time.monotonic() % 0.5)
+                _time.sleep(backoff)
+        raise last_exc  # type: ignore[misc]
+
     def complete(self, run_id: str, result: Any) -> None:
         """Mark a run as completed with a result."""
         url = f"{self._base_url}/sdk/v1/runs/{run_id}/complete"
-        resp = self._client.post(url, json={"result": result})
-        resp.raise_for_status()
+        self._request_with_retry("POST", url, json={"result": result})
 
     def fail(self, run_id: str, error: str, error_class: str | None = None) -> None:
         """Mark a run as failed with an error."""
@@ -33,8 +60,7 @@ class StraitClient:
         body: dict[str, Any] = {"error": error}
         if error_class is not None:
             body["error_class"] = error_class
-        resp = self._client.post(url, json=body)
-        resp.raise_for_status()
+        self._request_with_retry("POST", url, json=body)
 
     def heartbeat(self, run_id: str) -> None:
         """Send a heartbeat for a run."""

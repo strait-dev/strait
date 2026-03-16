@@ -120,6 +120,7 @@ export class StraitRunner {
     };
     process.on("SIGTERM", onSigterm);
 
+    let exitCode = 0;
     try {
       // Start heartbeat.
       heartbeatTimer = setInterval(() => {
@@ -152,6 +153,7 @@ export class StraitRunner {
       // Report success.
       await this.client.complete(this.runId, result);
     } catch (err: unknown) {
+      exitCode = 1;
       // Report failure.
       const errorMessage =
         err instanceof Error ? err.message : String(err);
@@ -171,7 +173,7 @@ export class StraitRunner {
         clearTimeout(graceTimer);
       }
       process.removeListener("SIGTERM", onSigterm);
-      process.exit(0);
+      process.exit(exitCode);
     }
   }
 }

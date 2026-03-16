@@ -34,12 +34,38 @@ export class StraitClient {
     };
   }
 
+  /** Fetch with retry and exponential backoff for critical calls. */
+  private async fetchWithRetry(
+    url: string,
+    init: RequestInit,
+    maxAttempts = 3
+  ): Promise<Response> {
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const resp = await fetch(url, {
+          ...init,
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (resp.ok || resp.status < 500) return resp;
+        lastError = new Error(`server error (${resp.status})`);
+      } catch (err: unknown) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+      if (attempt < maxAttempts - 1) {
+        const backoffMs = (1 << attempt) * 1000 + Math.random() * 500;
+        await new Promise((r) => setTimeout(r, backoffMs));
+      }
+    }
+    throw lastError ?? new Error("fetchWithRetry: all attempts failed");
+  }
+
   /** Mark a run as completed with a result. */
   async complete(runId: string, result: unknown): Promise<void> {
     const url = `${this.baseUrl}/sdk/v1/runs/${runId}/complete`;
     const body: CompleteRequest = { result };
 
-    const resp = await fetch(url, {
+    const resp = await this.fetchWithRetry(url, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
@@ -62,7 +88,7 @@ export class StraitClient {
     const url = `${this.baseUrl}/sdk/v1/runs/${runId}/fail`;
     const body: FailRequest = { error, error_class: errorClass };
 
-    const resp = await fetch(url, {
+    const resp = await this.fetchWithRetry(url, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
@@ -83,6 +109,7 @@ export class StraitClient {
     const resp = await fetch(url, {
       method: "POST",
       headers: this.headers(),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!resp.ok) {
@@ -100,6 +127,7 @@ export class StraitClient {
     const resp = await fetch(url, {
       method: "GET",
       headers: this.headers(),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!resp.ok) {
@@ -122,6 +150,7 @@ export class StraitClient {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!resp.ok) {

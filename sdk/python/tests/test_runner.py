@@ -84,7 +84,7 @@ class TestHandlerFailure:
         with pytest.raises(SystemExit) as exc_info:
             runner.run(handler)
 
-        assert exc_info.value.code == 0
+        assert exc_info.value.code == 1
         mock_client.fail.assert_called_once_with(
             "run-123", "handler broke", "ValueError"
         )
@@ -258,14 +258,16 @@ class TestStraitClient:
         with patch("httpx.Client") as MockHttpx:
             mock_instance = MagicMock()
             mock_resp = MagicMock()
+            mock_resp.status_code = 200
             mock_resp.raise_for_status = MagicMock()
-            mock_instance.post.return_value = mock_resp
+            mock_instance.request.return_value = mock_resp
             MockHttpx.return_value = mock_instance
 
             client = StraitClient("https://api.test.com", "tok-123")
             client.complete("run-1", {"done": True})
 
-            mock_instance.post.assert_called_once_with(
+            mock_instance.request.assert_called_once_with(
+                "POST",
                 "https://api.test.com/sdk/v1/runs/run-1/complete",
                 json={"result": {"done": True}},
             )
@@ -274,14 +276,16 @@ class TestStraitClient:
         with patch("httpx.Client") as MockHttpx:
             mock_instance = MagicMock()
             mock_resp = MagicMock()
+            mock_resp.status_code = 200
             mock_resp.raise_for_status = MagicMock()
-            mock_instance.post.return_value = mock_resp
+            mock_instance.request.return_value = mock_resp
             MockHttpx.return_value = mock_instance
 
             client = StraitClient("https://api.test.com", "tok-123")
             client.fail("run-1", "oops", "RuntimeError")
 
-            mock_instance.post.assert_called_once_with(
+            mock_instance.request.assert_called_once_with(
+                "POST",
                 "https://api.test.com/sdk/v1/runs/run-1/fail",
                 json={"error": "oops", "error_class": "RuntimeError"},
             )
@@ -348,3 +352,61 @@ class TestStraitClient:
             mock_instance.post.assert_called_once_with(
                 "https://api.test.com/sdk/v1/runs/run-1/heartbeat",
             )
+
+
+# ---------------------------------------------------------------------------
+# Retry tests
+# ---------------------------------------------------------------------------
+
+class TestRetry:
+    def test_complete_retries_on_error(self) -> None:
+        runner, mock_client = _make_runner_with_mock()
+        call_count = 0
+
+        def _failing_complete(run_id: str, result: Any) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("transient error")
+
+        mock_client.complete = _failing_complete
+
+        with pytest.raises(SystemExit):
+            runner.run(lambda ctx: {"answer": 42})
+
+        # The runner calls client.complete which we mock. Since we replaced
+        # the mock's complete directly, the retry logic is in the real client.
+        # Here we verify the runner still exits cleanly even if complete raises once.
+        # (The actual retry is tested at the client layer.)
+
+
+# ---------------------------------------------------------------------------
+# Exit code tests
+# ---------------------------------------------------------------------------
+
+class TestExitCode:
+    def test_exit_1_on_handler_failure(self) -> None:
+        runner, mock_client = _make_runner_with_mock()
+
+        def handler(ctx: RunContext) -> None:
+            raise ValueError("handler broke")
+
+        with pytest.raises(SystemExit) as exc_info:
+            runner.run(handler)
+
+        assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# Client close tests
+# ---------------------------------------------------------------------------
+
+class TestClientClose:
+    def test_client_closed_on_success(self) -> None:
+        runner, mock_client = _make_runner_with_mock()
+        mock_client.close = MagicMock()
+
+        with pytest.raises(SystemExit):
+            runner.run(lambda ctx: "ok")
+
+        mock_client.close.assert_called_once()

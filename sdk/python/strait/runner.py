@@ -152,6 +152,7 @@ class StraitRunner:
         heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
         heartbeat_thread.start()
 
+        exit_code = 0
         try:
             # Resolve payload.
             payload = self._inline_payload
@@ -166,6 +167,7 @@ class StraitRunner:
             # Report success.
             self._client.complete(self._run_id, result)
         except Exception as exc:
+            exit_code = 1
             # Report failure.
             error_message = str(exc)
             error_class = type(exc).__name__
@@ -177,8 +179,9 @@ class StraitRunner:
         finally:
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=1.0)
+            self._client.close()
             try:
                 signal.signal(signal.SIGTERM, prev_handler)
             except ValueError:
                 pass  # Not in main thread.
-            sys.exit(0)
+            sys.exit(exit_code)

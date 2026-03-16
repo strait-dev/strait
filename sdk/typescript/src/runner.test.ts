@@ -190,3 +190,33 @@ describe("StraitClient", () => {
     expect(body.message).toBe("hello");
   });
 });
+
+describe("StraitClient retry", () => {
+  it("retries complete on transient failure", async () => {
+    // First call: 500, second call: 200
+    fetchResponses.push(
+      new Response("server error", { status: 500 }),
+      okResponse()
+    );
+    const client = new StraitClient("https://api.test.com", "tok-123");
+    await client.complete("run-1", { done: true });
+
+    // Should have made 2 fetch calls
+    const completeCalls = fetchCalls.filter((c) =>
+      c.url.includes("/complete")
+    );
+    expect(completeCalls.length).toBe(2);
+  });
+
+  it("exits 1 when handler throws", async () => {
+    fetchResponses.push(okResponse(), okResponse());
+    setEnv(makeEnv());
+
+    const runner = StraitRunner.fromEnv();
+    await runner.run(async () => {
+      throw new Error("handler broke");
+    });
+
+    expect(exitCalled).toBe(1);
+  });
+});
