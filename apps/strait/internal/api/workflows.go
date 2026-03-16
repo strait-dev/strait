@@ -393,10 +393,14 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := map[string]any{
-		"workflow": wf,
-		"steps":    steps,
+	type updateWorkflowResponse struct {
+		*domain.Workflow
+		Steps                       []domain.WorkflowStep `json:"steps"`
+		ActiveRunsOnPreviousVersion *int                  `json:"active_runs_on_previous_version,omitempty"`
+		PreviousVersionID           string                `json:"previous_version_id,omitempty"`
 	}
+
+	resp := updateWorkflowResponse{Workflow: wf, Steps: steps}
 
 	// Check for active runs on the previous version to warn about breaking changes.
 	if previousVersionID != "" && previousVersion >= 1 {
@@ -406,8 +410,8 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		if counter, ok := s.store.(activeRunCounter); ok {
 			count, countErr := counter.CountActiveWorkflowRunsByVersion(r.Context(), wf.ID, previousVersionID)
 			if countErr == nil && count > 0 {
-				resp["active_runs_on_previous_version"] = count
-				resp["previous_version_id"] = previousVersionID
+				resp.ActiveRunsOnPreviousVersion = &count
+				resp.PreviousVersionID = previousVersionID
 			}
 		}
 	}

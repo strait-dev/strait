@@ -64,10 +64,14 @@ paths:
       tags:
         - Health
       summary: Readiness check
-      description: Verifies Postgres and Redis connectivity.
+      description: |
+        Returns per-component health status. Status is "up" when all components are healthy,
+        "degraded" when non-critical components (Redis, Sequin) are down but database is up,
+        or "down" when critical components (database) are unreachable.
+        Returns 200 for "up" and "degraded", 503 for "down".
       responses:
         '200':
-          description: Ready
+          description: Healthy or degraded
           content:
             application/json:
               schema:
@@ -75,13 +79,45 @@ paths:
                 properties:
                   status:
                     type: string
-                    example: ready
+                    enum: [up, degraded]
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        status:
+                          type: string
+                          enum: [up, down]
+                        latency_ms:
+                          type: integer
+                        error:
+                          type: string
         '503':
-          description: Service Unavailable
+          description: Critical component down
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [down]
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        status:
+                          type: string
+                          enum: [up, down]
+                        latency_ms:
+                          type: integer
+                        error:
+                          type: string
 
   /metrics:
     get:
@@ -1864,14 +1900,28 @@ paths:
           application/json:
             schema:
               type: object
+              required: [project_id, name]
               properties:
                 project_id:
                   type: string
                 name:
                   type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                expires_in_days:
+                  type: integer
+                  description: Key expiration in days from now
+                environment_id:
+                  type: string
+                  description: Restrict key to a specific environment
+                rotation_interval_days:
+                  type: integer
+                  description: Auto-rotation interval in days
       responses:
         '201':
-          description: API key created
+          description: API key created (includes raw key — only shown once)
           content:
             application/json:
               schema:
@@ -5176,6 +5226,19 @@ components:
         grace_expires_at:
           type: string
           format: date-time
+        environment_id:
+          type: string
+          description: Restrict key to a specific environment
+        rotation_interval_days:
+          type: integer
+          description: Auto-rotation interval in days (null = manual only)
+        next_rotation_at:
+          type: string
+          format: date-time
+          description: When the next auto-rotation is scheduled
+        rotation_webhook_url:
+          type: string
+          description: URL to notify on auto-rotation
 
     RotateAPIKeyRequest:
       type: object
@@ -6552,6 +6615,13 @@ components:
           description: Optional JSON Schema for event payload validation
         enabled:
           type: boolean
+        signature_header:
+          type: string
+          description: HTTP header containing the signature (e.g., Stripe-Signature, X-Hub-Signature-256)
+        signature_algorithm:
+          type: string
+          description: Validation algorithm (hmac-sha256, stripe-v1, github-sha256)
+          enum: [hmac-sha256, stripe-v1, github-sha256]
         created_at:
           type: string
           format: date-time
@@ -6575,6 +6645,16 @@ components:
           type: object
         enabled:
           type: boolean
+        signature_header:
+          type: string
+          description: HTTP header containing the inbound webhook signature
+        signature_algorithm:
+          type: string
+          description: Validation algorithm
+          enum: [hmac-sha256, stripe-v1, github-sha256]
+        signature_secret:
+          type: string
+          description: Shared secret for HMAC validation (encrypted at rest)
 
     UpdateEventSourceRequest:
       type: object
@@ -6587,6 +6667,14 @@ components:
           type: object
         enabled:
           type: boolean
+        signature_header:
+          type: string
+        signature_algorithm:
+          type: string
+          enum: [hmac-sha256, stripe-v1, github-sha256]
+        signature_secret:
+          type: string
+          description: New shared secret (encrypted at rest). Empty string removes the secret.
 
     EventSubscription:
       type: object
