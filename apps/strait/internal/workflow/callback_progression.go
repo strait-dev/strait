@@ -265,9 +265,9 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 
 	if parentStepRun == nil {
 		// Backward-compatible fallback for runs created before parent_step_run_id existed.
-		parentSteps, listErr := s.store.ListStepsByWorkflowVersion(ctx, parentRun.WorkflowID, parentRun.WorkflowVersion)
+		parentSteps, listErr := s.loadStepDefinitions(ctx, parentRun)
 		if listErr != nil {
-			return fmt.Errorf("list parent workflow steps: %w", listErr)
+			return fmt.Errorf("load parent step definitions: %w", listErr)
 		}
 
 		var matchingStepRef string
@@ -506,9 +506,9 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 
 	wfRun.Status = domain.WfStatusRunning
 
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	steps, err := s.loadStepDefinitions(ctx, wfRun)
 	if err != nil {
-		return fmt.Errorf("list workflow steps: %w", err)
+		return fmt.Errorf("load step definitions: %w", err)
 	}
 
 	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, workflowRunID)
