@@ -30,6 +30,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var batchID *string
 	var concurrencyKey *string
 	var executionMode *string
+	var machineID *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -64,6 +65,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&batchID,
 		&concurrencyKey,
 		&executionMode,
+		&machineID,
 	)
 	if err != nil {
 		return nil, err
@@ -121,6 +123,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if executionMode != nil {
 		run.ExecutionMode = domain.ExecutionMode(*executionMode)
+	}
+	if machineID != nil {
+		run.MachineID = *machineID
 	}
 
 	return &run, nil

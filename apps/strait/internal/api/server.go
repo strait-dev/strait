@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
@@ -215,6 +216,7 @@ type WorkflowStore interface {
 	GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	ListManagedMachineIDsByWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error)
 	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
 }
 
@@ -347,6 +349,7 @@ type Server struct {
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 	rateLimiter        *ratelimit.RedisRateLimiter
 	encryptor          Encryptor
+	containerRuntime   compute.ContainerRuntime
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
@@ -369,9 +372,10 @@ type ServerDeps struct {
 	Metrics          *telemetry.Metrics
 	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer      ActorSyncer
-	PoolStatter      PoolStatter   // Optional: enables DB pool backpressure middleware.
-	RedisClient      *redis.Client // Optional: enables per-project/key rate limiting.
-	Encryptor        Encryptor     // Optional: enables event source signature encryption.
+	PoolStatter      PoolStatter              // Optional: enables DB pool backpressure middleware.
+	RedisClient      *redis.Client            // Optional: enables per-project/key rate limiting.
+	Encryptor        Encryptor                // Optional: enables event source signature encryption.
+	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -414,6 +418,7 @@ func NewServer(deps ServerDeps) *Server {
 		bgPool:             pond.NewPool(4),
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
+		containerRuntime:   deps.ContainerRuntime,
 	}
 
 	if deps.TxPool != nil {

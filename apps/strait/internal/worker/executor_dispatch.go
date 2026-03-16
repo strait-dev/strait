@@ -390,8 +390,8 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env[key] = secret.EncryptedValue
 	}
 
-	// 7. Run the container.
-	result, runErr := e.containerRuntime.Run(ctx, compute.RunRequest{
+	// 7. Create the container (non-blocking).
+	runReq := compute.RunRequest{
 		ImageURI:      job.ImageURI,
 		MachinePreset: string(job.MachinePreset),
 		Region:        job.Region,
@@ -402,9 +402,33 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			"project_id": job.ProjectID,
 		},
 		TimeoutSecs: job.TimeoutSecs,
-	})
+	}
 
-	// 8. Handle runtime error (container never started or infra issue).
+	machineID, createErr := e.containerRuntime.Create(ctx, runReq)
+	if createErr != nil {
+		if compute.IsRetryable(createErr) {
+			backoff := compute.BackoffHint(createErr)
+			retryAt := time.Now().Add(backoff)
+			e.snoozeRunFromExecuting(ctx, run, "infra retry: "+createErr.Error(), &retryAt)
+			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
+			return
+		}
+		e.handleSystemFailure(ctx, run, "container create error: "+createErr.Error())
+		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
+		return
+	}
+
+	// Store machine_id on the run so cancellation can stop it.
+	if machineID != "" {
+		if setErr := e.store.SetRunMachineID(ctx, run.ID, machineID); setErr != nil {
+			e.logger.Warn("failed to store machine_id on run", "run_id", run.ID, "error", setErr)
+		}
+		run.MachineID = machineID
+	}
+
+	// 8. Wait for container exit.
+	result, runErr := e.containerRuntime.Wait(ctx, machineID, job.TimeoutSecs)
+
 	if runErr != nil {
 		if compute.IsRetryable(runErr) {
 			backoff := compute.BackoffHint(runErr)

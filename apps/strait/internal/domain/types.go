@@ -313,6 +313,7 @@ type JobRun struct {
 	BatchID               string            `json:"batch_id,omitempty"`
 	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
 	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
+	MachineID             string            `json:"machine_id,omitempty"`
 	CreatedAt             time.Time         `json:"created_at"`
 }
 

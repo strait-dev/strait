@@ -43,6 +43,7 @@ type ExecutorStore interface {
 	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
 	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
+	SetRunMachineID(ctx context.Context, runID, machineID string) error
 }
 
 type executionPolicy struct {

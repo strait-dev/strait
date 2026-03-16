@@ -1,0 +1,1 @@
+ALTER TABLE job_runs ADD COLUMN IF NOT EXISTS machine_id TEXT;

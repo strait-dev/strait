@@ -223,6 +223,10 @@ func (m *mockExecutorStore) InsertEvent(ctx context.Context, event *domain.RunEv
 	return m.insertEventFn(ctx, event)
 }
 
+func (m *mockExecutorStore) SetRunMachineID(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -1302,6 +1302,10 @@ func (m *mockAPIStore) CancelJobRunsByWorkflowRun(ctx context.Context, workflowR
 	return 0, nil
 }
 
+func (m *mockAPIStore) ListManagedMachineIDsByWorkflowRun(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func (m *mockAPIStore) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {
 	if m.getRunsByIDsFn != nil {
 		return m.getRunsByIDsFn(ctx, ids)

@@ -11,6 +11,13 @@ type ContainerRuntime interface {
 	// Run provisions a container, waits for it to exit, and returns the result.
 	Run(ctx context.Context, req RunRequest) (*RunResult, error)
 
+	// Create provisions a container and starts it, returning the machine ID
+	// without blocking on exit. Use Wait() to block until exit.
+	Create(ctx context.Context, req RunRequest) (machineID string, err error)
+
+	// Wait blocks until a previously created container exits and returns the result.
+	Wait(ctx context.Context, machineID string, timeoutSecs int) (*RunResult, error)
+
 	// Stop sends a stop signal to a running container.
 	Stop(ctx context.Context, machineID string) error
 

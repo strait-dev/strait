@@ -21,6 +21,8 @@ import (
 // mockContainerRuntime implements compute.ContainerRuntime for unit tests.
 type mockContainerRuntime struct {
 	runFn     func(ctx context.Context, req compute.RunRequest) (*compute.RunResult, error)
+	createFn  func(ctx context.Context, req compute.RunRequest) (string, error)
+	waitFn    func(ctx context.Context, machineID string, timeoutSecs int) (*compute.RunResult, error)
 	stopFn    func(ctx context.Context, machineID string) error
 	destroyFn func(ctx context.Context, machineID string) error
 	statusFn  func(ctx context.Context, machineID string) (compute.MachineStatus, error)
@@ -32,6 +34,20 @@ func (m *mockContainerRuntime) Run(ctx context.Context, req compute.RunRequest) 
 		return m.runFn(ctx, req)
 	}
 	return &compute.RunResult{ExitCode: 0}, nil
+}
+
+func (m *mockContainerRuntime) Create(ctx context.Context, req compute.RunRequest) (string, error) {
+	if m.createFn != nil {
+		return m.createFn(ctx, req)
+	}
+	return "mock-machine-id", nil
+}
+
+func (m *mockContainerRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int) (*compute.RunResult, error) {
+	if m.waitFn != nil {
+		return m.waitFn(ctx, machineID, timeoutSecs)
+	}
+	return &compute.RunResult{MachineID: machineID, ExitCode: 0}, nil
 }
 
 func (m *mockContainerRuntime) Stop(ctx context.Context, machineID string) error {
@@ -141,15 +157,18 @@ func TestManagedDispatch_HappyPath_SDKComplete(t *testing.T) {
 	}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, req compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
 			if req.ImageURI != "alpine:latest" {
 				t.Errorf("expected image alpine:latest, got %s", req.ImageURI)
 			}
 			if req.MachinePreset != "micro" {
 				t.Errorf("expected preset micro, got %s", req.MachinePreset)
 			}
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			return &compute.RunResult{
-				MachineID:  "mach-1",
+				MachineID:  "test-machine",
 				ExitCode:   0,
 				StartedAt:  &startedAt,
 				FinishedAt: &finishedAt,
@@ -183,9 +202,12 @@ func TestManagedDispatch_SDKRace_AlreadyCompleted(t *testing.T) {
 	}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			return &compute.RunResult{
-				MachineID:  "mach-1",
+				MachineID:  "test-machine",
 				ExitCode:   0,
 				StartedAt:  &now,
 				FinishedAt: &now,
@@ -223,9 +245,12 @@ func TestManagedDispatch_NonZeroExit_Retry(t *testing.T) {
 	}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			return &compute.RunResult{
-				MachineID:  "mach-1",
+				MachineID:  "test-machine",
 				ExitCode:   1,
 				StartedAt:  &now,
 				FinishedAt: &now,
@@ -273,9 +298,12 @@ func TestManagedDispatch_Exit0_NoSDKComplete(t *testing.T) {
 	}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			return &compute.RunResult{
-				MachineID:  "mach-1",
+				MachineID:  "test-machine",
 				ExitCode:   0,
 				StartedAt:  &now,
 				FinishedAt: &now,
@@ -322,9 +350,9 @@ func TestManagedDispatch_BudgetExceeded(t *testing.T) {
 
 	var runtimeCalled atomic.Bool
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
 			runtimeCalled.Store(true)
-			return nil, fmt.Errorf("should not be called")
+			return "", fmt.Errorf("should not be called")
 		},
 	}
 
@@ -358,8 +386,8 @@ func TestManagedDispatch_InfraRetry(t *testing.T) {
 	store := &mockExecutorStore{}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
-			return nil, compute.NewRetryableError(429, "rate limited", nil)
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewRetryableError(429, "rate limited", nil)
 		},
 	}
 
@@ -429,10 +457,13 @@ func TestManagedDispatch_PayloadInline(t *testing.T) {
 		},
 	}
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, req compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
 			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			now := time.Now()
-			return &compute.RunResult{ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
 		},
 	}
 
@@ -462,10 +493,13 @@ func TestManagedDispatch_PayloadFetch(t *testing.T) {
 		},
 	}
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, req compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
 			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			now := time.Now()
-			return &compute.RunResult{ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
 		},
 	}
 
@@ -506,10 +540,13 @@ func TestManagedDispatch_SecretsInjection(t *testing.T) {
 		},
 	}
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, req compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
 			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			now := time.Now()
-			return &compute.RunResult{ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
 		},
 	}
 
@@ -575,9 +612,12 @@ func TestManagedDispatch_CrashLogs(t *testing.T) {
 	}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			return &compute.RunResult{
-				MachineID:  "mach-1",
+				MachineID:  "test-machine",
 				ExitCode:   137,
 				StartedAt:  &now,
 				FinishedAt: &now,
@@ -606,8 +646,8 @@ func TestManagedDispatch_FatalError(t *testing.T) {
 	store := &mockExecutorStore{}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
-			return nil, compute.NewFatalError(400, "invalid image", nil)
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewFatalError(400, "invalid image", nil)
 		},
 	}
 
@@ -640,10 +680,13 @@ func TestManagedDispatch_EnvVars(t *testing.T) {
 		},
 	}
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, req compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
 			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			now := time.Now()
-			return &compute.RunResult{ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
 		},
 	}
 
@@ -684,9 +727,12 @@ func TestManagedDispatch_MaxAttemptsExhausted(t *testing.T) {
 	}
 
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, _ compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			return &compute.RunResult{
-				MachineID:  "mach-1",
+				MachineID:  "test-machine",
 				ExitCode:   1,
 				StartedAt:  &now,
 				FinishedAt: &now,
@@ -725,10 +771,13 @@ func TestManagedDispatch_Labels(t *testing.T) {
 		},
 	}
 	runtime := &mockContainerRuntime{
-		runFn: func(_ context.Context, req compute.RunRequest) (*compute.RunResult, error) {
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
 			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
 			now := time.Now()
-			return &compute.RunResult{ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
 		},
 	}
 

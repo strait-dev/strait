@@ -72,10 +72,20 @@ type flyWaitEvent struct {
 }
 
 // Run creates a Fly Machine, starts it, waits for exit, and returns the result.
+// This is a convenience method that combines Create() + Wait().
 func (f *FlyRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	machineID, err := f.Create(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return f.Wait(ctx, machineID, req.TimeoutSecs)
+}
+
+// Create provisions and starts a Fly Machine, returning the machine ID.
+func (f *FlyRuntime) Create(ctx context.Context, req RunRequest) (string, error) {
 	preset, err := PresetFromName(req.MachinePreset)
 	if err != nil {
-		return nil, NewFatalError(422, "invalid machine preset", err)
+		return "", NewFatalError(422, "invalid machine preset", err)
 	}
 
 	createReq := flyCreateRequest{
@@ -103,52 +113,56 @@ func (f *FlyRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, NewRetryableError(0, "build create request", err)
+		return "", NewRetryableError(0, "build create request", err)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+f.apiToken)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := f.client.Do(httpReq)
 	if err != nil {
-		return nil, NewRetryableError(0, "create machine request failed", err)
+		return "", NewRetryableError(0, "create machine request failed", err)
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // Cap at 1MB.
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	if resp.StatusCode == 429 {
-		return nil, NewRetryableError(429, "fly rate limit", nil)
+		return "", NewRetryableError(429, "fly rate limit", nil)
 	}
 	if resp.StatusCode == 503 {
-		return nil, NewRetryableError(503, "fly capacity unavailable", nil)
+		return "", NewRetryableError(503, "fly capacity unavailable", nil)
 	}
 	if resp.StatusCode == 422 {
-		return nil, NewFatalError(422, fmt.Sprintf("fly config error: %s", string(respBody)), nil)
+		return "", NewFatalError(422, fmt.Sprintf("fly config error: %s", string(respBody)), nil)
 	}
 	if resp.StatusCode >= 500 {
-		return nil, NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", string(respBody)), nil)
+		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", string(respBody)), nil)
 	}
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		return nil, NewRetryableError(resp.StatusCode, fmt.Sprintf("unexpected status: %s", string(respBody)), nil)
+		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("unexpected status: %s", string(respBody)), nil)
 	}
 
 	var machine flyMachineResponse
 	if err := json.Unmarshal(respBody, &machine); err != nil {
-		return nil, NewRetryableError(0, "unmarshal create response", err)
+		return "", NewRetryableError(0, "unmarshal create response", err)
 	}
 
+	return machine.ID, nil
+}
+
+// Wait blocks until a Fly Machine reaches the stopped state, then returns the result.
+func (f *FlyRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int) (*RunResult, error) {
 	now := time.Now()
 	result := &RunResult{
-		MachineID: machine.ID,
+		MachineID: machineID,
 		StartedAt: &now,
 	}
 
-	// Wait for the machine to exit.
 	waitTimeout := 300
-	if req.TimeoutSecs > 0 {
-		waitTimeout = req.TimeoutSecs + 30 // grace period
+	if timeoutSecs > 0 {
+		waitTimeout = timeoutSecs + 30
 	}
-	waitURL := fmt.Sprintf("%s/v1/apps/%s/machines/%s/wait?timeout=%d&state=stopped", f.baseURL, f.appName, machine.ID, waitTimeout)
+	waitURL := fmt.Sprintf("%s/v1/apps/%s/machines/%s/wait?timeout=%d&state=stopped", f.baseURL, f.appName, machineID, waitTimeout)
 
 	waitReq, err := http.NewRequestWithContext(ctx, http.MethodGet, waitURL, nil)
 	if err != nil {
@@ -166,8 +180,7 @@ func (f *FlyRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error
 	result.FinishedAt = &finished
 
 	if waitResp.StatusCode == 200 {
-		// Machine stopped — get status for exit code.
-		status, statusErr := f.getExitEvent(ctx, machine.ID)
+		status, statusErr := f.getExitEvent(ctx, machineID)
 		if statusErr == nil {
 			result.ExitCode = status.ExitCode
 		}

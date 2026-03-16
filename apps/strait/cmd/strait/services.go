@@ -293,6 +293,14 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		}))
 	}
 
+	var apiContainerRuntime compute.ContainerRuntime
+	switch cfg.ComputeRuntime {
+	case "fly":
+		apiContainerRuntime = compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
+	case "docker":
+		apiContainerRuntime = compute.NewDockerRuntime()
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:           cfg,
 		Store:            queries,
@@ -307,6 +315,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		TxPool:           txPool,
 		RedisClient:      rdb,
 		Encryptor:        encryptor,
+		ContainerRuntime: apiContainerRuntime,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

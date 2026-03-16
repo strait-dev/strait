@@ -156,6 +156,20 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		slog.Warn("failed to cancel event triggers for workflow (non-fatal)", "workflow_run_id", run.ID, "error", triggerErr)
 	}
 
+	// Stop managed containers for cancelled workflow runs (non-fatal).
+	if s.containerRuntime != nil {
+		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(r.Context(), run.ID)
+		if listErr != nil {
+			slog.Warn("failed to list managed machines for workflow cancel", "workflow_run_id", run.ID, "error", listErr)
+		}
+		for _, mid := range machineIDs {
+			if stopErr := s.containerRuntime.Stop(r.Context(), mid); stopErr != nil {
+				slog.Warn("failed to stop managed container on workflow cancel",
+					"workflow_run_id", run.ID, "machine_id", mid, "error", stopErr)
+			}
+		}
+	}
+
 	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")

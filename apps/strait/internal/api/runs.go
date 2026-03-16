@@ -189,6 +189,14 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Stop managed container if running.
+	if s.containerRuntime != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
+		if stopErr := s.containerRuntime.Stop(r.Context(), run.MachineID); stopErr != nil {
+			slog.Warn("failed to stop managed container on cancel",
+				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
+		}
+	}
+
 	canceledCount := s.cancelChildRunsRecursive(r.Context(), run.ID)
 	if canceledCount > 0 && s.metrics != nil {
 		s.metrics.ChildCancellationsTotal.Add(r.Context(), canceledCount)

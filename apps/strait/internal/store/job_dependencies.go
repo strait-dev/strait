@@ -144,7 +144,7 @@ func (q *Queries) ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, 
 		       expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
 		       workflow_step_run_id, execution_trace,
 		       debug_mode, continuation_of, lineage_depth, tags,
-		       job_version_id, created_by, batch_id, concurrency_key, execution_mode
+		       job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		FROM job_runs
 		WHERE status = 'waiting' AND job_id = ANY($1)
 		ORDER BY created_at ASC
@@ -222,7 +222,7 @@ func (q *Queries) findLatestTerminalDependencyRun(ctx context.Context, jobID, id
 		       expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
 		       workflow_step_run_id, execution_trace,
 		       debug_mode, continuation_of, lineage_depth, tags,
-		       job_version_id, created_by, batch_id, concurrency_key, execution_mode
+		       job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		FROM job_runs
 		WHERE job_id = $1
 		  AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired', 'dead_letter')`
