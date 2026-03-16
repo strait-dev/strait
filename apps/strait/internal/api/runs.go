@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -50,6 +51,18 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 	tagKey := query.Get("tag_key")
 	tagValue := query.Get("tag_value")
+
+	// Support bracket notation: ?tags[key]=value
+	if tagKey == "" {
+		for param, values := range query {
+			if k, ok := parseBracketParam(param, "tags"); ok && len(values) > 0 {
+				tagKey = k
+				tagValue = values[0]
+				break
+			}
+		}
+	}
+
 	if tagValue != "" && tagKey == "" {
 		respondError(w, r, http.StatusBadRequest, "tag_key is required when tag_value is provided")
 		return
@@ -63,6 +76,18 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 	metadataKeyRaw := query.Get("metadata_key")
 	metadataValueRaw := query.Get("metadata_value")
+
+	// Support bracket notation: ?metadata[key]=value
+	if metadataKeyRaw == "" {
+		for param, values := range query {
+			if k, ok := parseBracketParam(param, "metadata"); ok && len(values) > 0 {
+				metadataKeyRaw = k
+				metadataValueRaw = values[0]
+				break
+			}
+		}
+	}
+
 	if metadataValueRaw != "" && metadataKeyRaw == "" {
 		respondError(w, r, http.StatusBadRequest, "metadata_key is required when metadata_value is provided")
 		return
@@ -154,30 +179,9 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var cursor *time.Time
-	for {
-		children, listErr := s.store.ListChildRuns(r.Context(), run.ID, 100, cursor)
-		if listErr != nil {
-			slog.Error("failed to list child runs", "run_id", run.ID, "error", listErr)
-			break
-		}
-		if len(children) == 0 {
-			break
-		}
-
-		for _, child := range children {
-			if !child.Status.IsTerminal() {
-				if err := s.store.UpdateRunStatus(r.Context(), child.ID, child.Status, domain.StatusCanceled, map[string]any{
-					"finished_at": time.Now(),
-					"error":       "parent run canceled",
-				}); err != nil {
-					slog.Error("failed to cancel child run", "child_run_id", child.ID, "error", err)
-				}
-			}
-		}
-
-		lastCreatedAt := children[len(children)-1].CreatedAt
-		cursor = &lastCreatedAt
+	canceledCount := s.cancelChildRunsRecursive(r.Context(), run.ID)
+	if canceledCount > 0 && s.metrics != nil {
+		s.metrics.ChildCancellationsTotal.Add(r.Context(), canceledCount)
 	}
 
 	updatedRun, err := s.store.GetRun(r.Context(), run.ID)
@@ -187,6 +191,60 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, updatedRun)
+}
+
+// maxCancelDepth limits recursive child cancellation to prevent runaway traversal.
+const maxCancelDepth = 20
+
+// cancelChildRunsRecursive uses CancelChildRunsByParentIDs to bulk-cancel
+// children at each depth level, avoiding N+1 individual UpdateRunStatus calls.
+func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID string) int64 {
+	now := time.Now()
+	parentIDs := []string{parentRunID}
+	var total int64
+
+	for depth := range maxCancelDepth {
+		select {
+		case <-ctx.Done():
+			return total
+		default:
+		}
+
+		if len(parentIDs) == 0 {
+			break
+		}
+
+		canceled, err := s.store.CancelChildRunsByParentIDs(ctx, parentIDs, now, "parent run canceled")
+		if err != nil {
+			slog.Error("failed to bulk cancel child runs", "depth", depth, "parent_count", len(parentIDs), "error", err)
+			break
+		}
+		if canceled == 0 {
+			break
+		}
+		total += canceled
+
+		// Collect IDs of the just-canceled children to recurse into their children.
+		// We need to list them to get their IDs for the next depth level.
+		nextParentIDs := make([]string, 0)
+		for _, pid := range parentIDs {
+			var cursor *time.Time
+			for {
+				children, listErr := s.store.ListChildRuns(ctx, pid, 100, cursor)
+				if listErr != nil || len(children) == 0 {
+					break
+				}
+				for _, child := range children {
+					nextParentIDs = append(nextParentIDs, child.ID)
+				}
+				lastCreatedAt := children[len(children)-1].CreatedAt
+				cursor = &lastCreatedAt
+			}
+		}
+		parentIDs = nextParentIDs
+	}
+
+	return total
 }
 
 func (s *Server) handleGetRunDependencyStatus(w http.ResponseWriter, r *http.Request) {
@@ -636,4 +694,17 @@ func (s *Server) handleBulkReplayRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{"results": results, "total": len(req.RunIDs), "replayed": replayed})
+}
+
+// parseBracketParam extracts the key from bracket notation params like "metadata[key]".
+// Returns the inner key and true if the param matches "prefix[key]".
+func parseBracketParam(param, prefix string) (string, bool) {
+	if !strings.HasPrefix(param, prefix+"[") || !strings.HasSuffix(param, "]") {
+		return "", false
+	}
+	key := param[len(prefix)+1 : len(param)-1]
+	if key == "" {
+		return "", false
+	}
+	return key, true
 }

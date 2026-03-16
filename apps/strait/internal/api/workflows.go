@@ -260,6 +260,10 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capture the pre-update version for breaking change detection later.
+	previousVersionID := wf.VersionID
+	previousVersion := wf.Version
+
 	var req updateWorkflowRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -389,7 +393,35 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, workflowResponse{Workflow: wf, Steps: steps})
+	type updateWorkflowResponse struct {
+		*domain.Workflow
+		Steps                       []domain.WorkflowStep `json:"steps"`
+		ActiveRunsOnPreviousVersion *int                  `json:"active_runs_on_previous_version,omitempty"`
+		PreviousVersionID           string                `json:"previous_version_id,omitempty"`
+	}
+
+	resp := updateWorkflowResponse{Workflow: wf, Steps: steps}
+
+	// Check for active runs on the previous version to warn about breaking changes.
+	if previousVersionID != "" && previousVersion >= 1 {
+		type activeRunCounter interface {
+			CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error)
+		}
+		if counter, ok := s.store.(activeRunCounter); ok {
+			count, countErr := counter.CountActiveWorkflowRunsByVersion(r.Context(), wf.ID, previousVersionID)
+			if countErr == nil && count > 0 {
+				resp.ActiveRunsOnPreviousVersion = &count
+				resp.PreviousVersionID = previousVersionID
+				s.emitAuditEvent(r.Context(), "workflow.updated_breaking", "workflow", wf.ID, map[string]any{
+					"previous_version_id":             previousVersionID,
+					"active_runs_on_previous_version": count,
+					"new_version":                     wf.Version,
+				})
+			}
+		}
+	}
+
+	respondJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleDeleteWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -1066,4 +1098,28 @@ func (s *Server) handleCloneWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusCreated, workflowResponse{Workflow: newWf, Steps: newSteps})
+}
+
+func (s *Server) handleGetActiveVersions(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowID")
+
+	type activeVersionsLister interface {
+		ListActiveWorkflowVersions(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
+	}
+	lister, ok := s.store.(activeVersionsLister)
+	if !ok {
+		respondError(w, r, http.StatusNotImplemented, "active-versions not supported")
+		return
+	}
+
+	versions, err := lister.ListActiveWorkflowVersions(r.Context(), workflowID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to list active versions")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"workflow_id": workflowID,
+		"versions":    versions,
+	})
 }

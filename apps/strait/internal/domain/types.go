@@ -30,6 +30,7 @@ const (
 	TriggerSpawn    = "spawn"
 	TriggerWorkflow = "workflow"
 	TriggerRetry    = "retry"
+	TriggerDebounce = "debounce"
 )
 
 const (
@@ -139,43 +140,90 @@ type AuditEvent struct {
 }
 
 type Job struct {
-	ID                   string            `json:"id"`
-	ProjectID            string            `json:"project_id"`
-	GroupID              string            `json:"group_id,omitempty"`
-	Name                 string            `json:"name"`
-	Slug                 string            `json:"slug"`
-	Description          string            `json:"description,omitempty"`
-	Cron                 string            `json:"cron,omitempty"`
-	PayloadSchema        json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                 map[string]string `json:"tags,omitempty"`
-	EndpointURL          string            `json:"endpoint_url"`
-	FallbackEndpointURL  string            `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts          int               `json:"max_attempts"`
-	TimeoutSecs          int               `json:"timeout_secs"`
-	MaxConcurrency       int               `json:"max_concurrency,omitempty"`
-	MaxConcurrencyPerKey int               `json:"max_concurrency_per_key,omitempty"`
-	ExecutionWindowCron  string            `json:"execution_window_cron,omitempty"`
-	Timezone             string            `json:"timezone,omitempty"`
-	RateLimitMax         int               `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs  int               `json:"rate_limit_window_secs,omitempty"`
-	RateLimitKeys        []RateLimitKey    `json:"rate_limit_keys,omitempty"`
-	DedupWindowSecs      int               `json:"dedup_window_secs,omitempty"`
-	Enabled              bool              `json:"enabled"`
-	WebhookURL           string            `json:"webhook_url,omitempty"`
-	WebhookSecret        string            `json:"webhook_secret,omitempty"`
-	RunTTLSecs           int               `json:"run_ttl_secs,omitempty"`
-	RetryStrategy        string            `json:"retry_strategy,omitempty"`
-	RetryDelaysSecs      []int             `json:"retry_delays_secs,omitempty"`
-	EnvironmentID        string            `json:"environment_id,omitempty"`
-	DefaultRunMetadata   map[string]string `json:"default_run_metadata,omitempty"`
-	Version              int               `json:"version"`
-	VersionID            string            `json:"version_id,omitempty"`
-	VersionPolicy        VersionPolicy     `json:"version_policy,omitempty"`
-	BackwardsCompatible  bool              `json:"backwards_compatible,omitempty"`
-	CreatedBy            string            `json:"created_by,omitempty"`
-	UpdatedBy            string            `json:"updated_by,omitempty"`
-	CreatedAt            time.Time         `json:"created_at"`
-	UpdatedAt            time.Time         `json:"updated_at"`
+	ID                       string            `json:"id"`
+	ProjectID                string            `json:"project_id"`
+	GroupID                  string            `json:"group_id,omitempty"`
+	Name                     string            `json:"name"`
+	Slug                     string            `json:"slug"`
+	Description              string            `json:"description,omitempty"`
+	Cron                     string            `json:"cron,omitempty"`
+	PayloadSchema            json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                     map[string]string `json:"tags,omitempty"`
+	EndpointURL              string            `json:"endpoint_url"`
+	FallbackEndpointURL      string            `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts              int               `json:"max_attempts"`
+	TimeoutSecs              int               `json:"timeout_secs"`
+	MaxConcurrency           int               `json:"max_concurrency,omitempty"`
+	MaxConcurrencyPerKey     int               `json:"max_concurrency_per_key,omitempty"`
+	ExecutionWindowCron      string            `json:"execution_window_cron,omitempty"`
+	Timezone                 string            `json:"timezone,omitempty"`
+	RateLimitMax             int               `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs      int               `json:"rate_limit_window_secs,omitempty"`
+	RateLimitKeys            []RateLimitKey    `json:"rate_limit_keys,omitempty"`
+	DedupWindowSecs          int               `json:"dedup_window_secs,omitempty"`
+	Enabled                  bool              `json:"enabled"`
+	WebhookURL               string            `json:"webhook_url,omitempty"`
+	WebhookSecret            string            `json:"webhook_secret,omitempty"`
+	RunTTLSecs               int               `json:"run_ttl_secs,omitempty"`
+	RetryStrategy            string            `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs          []int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost       int               `json:"retry_priority_boost,omitempty"`
+	DLQAlertThreshold        *int              `json:"dlq_alert_threshold,omitempty"`
+	QueueDepthAlertThreshold *int              `json:"queue_depth_alert_threshold,omitempty"`
+	EnvironmentID            string            `json:"environment_id,omitempty"`
+	DefaultRunMetadata       map[string]string `json:"default_run_metadata,omitempty"`
+	Version                  int               `json:"version"`
+	VersionID                string            `json:"version_id,omitempty"`
+	VersionPolicy            VersionPolicy     `json:"version_policy,omitempty"`
+	BackwardsCompatible      bool              `json:"backwards_compatible,omitempty"`
+	SkipIfRunning            bool              `json:"skip_if_running,omitempty"`
+	ResultSchema             json.RawMessage   `json:"result_schema,omitempty"`
+	DebounceWindowSecs       int               `json:"debounce_window_secs,omitempty"`
+	BatchWindowSecs          int               `json:"batch_window_secs,omitempty"`
+	BatchMaxSize             int               `json:"batch_max_size,omitempty"`
+	CreatedBy                string            `json:"created_by,omitempty"`
+	UpdatedBy                string            `json:"updated_by,omitempty"`
+	CreatedAt                time.Time         `json:"created_at"`
+	UpdatedAt                time.Time         `json:"updated_at"`
+}
+
+// DebouncePending represents a pending debounced trigger waiting to fire.
+type DebouncePending struct {
+	ID             string          `json:"id"`
+	JobID          string          `json:"job_id"`
+	ProjectID      string          `json:"project_id"`
+	DebounceKey    string          `json:"debounce_key"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	Tags           json.RawMessage `json:"tags,omitempty"`
+	Priority       int             `json:"priority"`
+	ConcurrencyKey string          `json:"concurrency_key,omitempty"`
+	TTLSecs        *int            `json:"ttl_secs,omitempty"`
+	TriggeredBy    string          `json:"triggered_by"`
+	CreatedBy      string          `json:"created_by,omitempty"`
+	FireAt         time.Time       `json:"fire_at"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// BatchBufferItem represents a single trigger payload buffered for batch processing.
+type BatchBufferItem struct {
+	ID          string          `json:"id"`
+	JobID       string          `json:"job_id"`
+	ProjectID   string          `json:"project_id"`
+	BatchKey    string          `json:"batch_key"`
+	Payload     json.RawMessage `json:"payload"`
+	Tags        json.RawMessage `json:"tags,omitempty"`
+	Priority    int             `json:"priority"`
+	TriggeredBy string          `json:"triggered_by"`
+	CreatedBy   string          `json:"created_by,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
+// RunState represents a mutable key-value entry scoped to a run.
+type RunState struct {
+	RunID     string          `json:"run_id"`
+	StateKey  string          `json:"state_key"`
+	Value     json.RawMessage `json:"value"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type JobGroup struct {
@@ -290,14 +338,17 @@ type LogDrain struct {
 }
 
 type EventSource struct {
-	ID          string          `json:"id"`
-	ProjectID   string          `json:"project_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Schema      json.RawMessage `json:"schema,omitempty"`
-	Enabled     bool            `json:"enabled"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID                 string          `json:"id"`
+	ProjectID          string          `json:"project_id"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description,omitempty"`
+	Schema             json.RawMessage `json:"schema,omitempty"`
+	Enabled            bool            `json:"enabled"`
+	SignatureHeader    string          `json:"signature_header,omitempty"`
+	SignatureAlgorithm string          `json:"signature_algorithm,omitempty"`
+	SignatureSecretEnc []byte          `json:"-"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 type EventSubscription struct {
@@ -430,18 +481,24 @@ type WebhookSubscription struct {
 
 // APIKey represents a per-project API key for authentication.
 type APIKey struct {
-	ID              string     `json:"id"`
-	ProjectID       string     `json:"project_id"`
-	Name            string     `json:"name"`
-	KeyHash         string     `json:"-"`
-	KeyPrefix       string     `json:"key_prefix"`
-	Scopes          []string   `json:"scopes"`
-	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
-	ReplacedByKeyID string     `json:"replaced_by_key_id,omitempty"`
-	GraceExpiresAt  *time.Time `json:"grace_expires_at,omitempty"`
+	ID                   string     `json:"id"`
+	ProjectID            string     `json:"project_id"`
+	Name                 string     `json:"name"`
+	KeyHash              string     `json:"-"`
+	KeyPrefix            string     `json:"key_prefix"`
+	Scopes               []string   `json:"scopes"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	RevokedAt            *time.Time `json:"revoked_at,omitempty"`
+	ReplacedByKeyID      string     `json:"replaced_by_key_id,omitempty"`
+	GraceExpiresAt       *time.Time `json:"grace_expires_at,omitempty"`
+	RateLimitRequests    int        `json:"rate_limit_requests,omitempty"`
+	RateLimitWindowSecs  int        `json:"rate_limit_window_secs,omitempty"`
+	EnvironmentID        string     `json:"environment_id,omitempty"`
+	RotationIntervalDays *int       `json:"rotation_interval_days,omitempty"`
+	NextRotationAt       *time.Time `json:"next_rotation_at,omitempty"`
+	RotationWebhookURL   string     `json:"rotation_webhook_url,omitempty"`
 }
 
 type JobVersion struct {
@@ -753,6 +810,7 @@ type WorkflowRun struct {
 	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
 	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
+	TraceContext        map[string]string `json:"trace_context,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
 
@@ -797,6 +855,29 @@ type WorkflowStepDecision struct {
 	Explanation   string          `json:"explanation"`
 	Details       json.RawMessage `json:"details,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
+}
+
+// TimelineStep represents a single step in a Gantt-chart-friendly timeline view.
+type TimelineStep struct {
+	StepRunID      string     `json:"step_run_id"`
+	StepRef        string     `json:"step_ref"`
+	Status         string     `json:"status"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	DurationMs     int64      `json:"duration_ms"`
+	ParallelWith   []string   `json:"parallel_with,omitempty"`
+	OnCriticalPath bool       `json:"on_critical_path"`
+	WaitMs         int64      `json:"wait_ms"`
+}
+
+// TimelineResponse is the response for the workflow run timeline endpoint.
+type TimelineResponse struct {
+	WorkflowRunID string         `json:"workflow_run_id"`
+	Status        string         `json:"status"`
+	StartedAt     *time.Time     `json:"started_at,omitempty"`
+	FinishedAt    *time.Time     `json:"finished_at,omitempty"`
+	TotalMs       int64          `json:"total_ms"`
+	Steps         []TimelineStep `json:"steps"`
 }
 
 // EventTrigger represents a durable wait for an external event signal.

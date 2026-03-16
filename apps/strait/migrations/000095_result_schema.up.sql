@@ -1,0 +1,2 @@
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS result_schema JSONB;
+ALTER TABLE job_versions ADD COLUMN IF NOT EXISTS result_schema JSONB;

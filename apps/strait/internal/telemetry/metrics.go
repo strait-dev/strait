@@ -41,6 +41,8 @@ type Metrics struct {
 	BulkOperationsTotal      metric.Int64Counter
 	BulkItemsProcessed       metric.Int64Counter
 	ChildCancellationsTotal  metric.Int64Counter
+	LatencyAnomalies         metric.Int64Counter
+	SnoozeTotal              metric.Int64Counter
 
 	// Event trigger metrics.
 	EventTriggersCreated     metric.Int64Counter
@@ -63,6 +65,14 @@ type Metrics struct {
 	PoolFailedTasks     metric.Int64ObservableCounter
 	PoolDroppedTasks    metric.Int64ObservableCounter
 	ShutdownTotal       metric.Int64Counter
+	DLQDepth            metric.Int64Gauge
+	QueueDepthPerJob    metric.Int64Gauge
+
+	// DB connection pool metrics.
+	DBPoolTotalConns    metric.Int64ObservableGauge
+	DBPoolIdleConns     metric.Int64ObservableGauge
+	DBPoolAcquiredConns metric.Int64ObservableGauge
+	DBPoolMaxConns      metric.Int64ObservableGauge
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -340,6 +350,24 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create child cancellations total counter: %w", err)
 	}
 
+	latencyAnomalies, err := meter.Int64Counter(
+		"strait.run.latency_anomalies",
+		metric.WithDescription("Total runs with duration exceeding 2x P95"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create latency anomalies counter: %w", err)
+	}
+
+	snoozeTotal, err := meter.Int64Counter(
+		"strait.run.snooze_total",
+		metric.WithDescription("Total runs snoozed (requeued without incrementing attempt)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create snooze total counter: %w", err)
+	}
+
 	workflowDependencyWaits, err := meter.Int64Counter(
 		"strait.workflow.dependency_waits",
 		metric.WithDescription("Total runs created in waiting state due to unsatisfied dependencies"),
@@ -439,6 +467,22 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		return nil, nil, nil, fmt.Errorf("create shutdown total counter: %w", err)
 	}
 
+	dlqDepth, err := meter.Int64Gauge(
+		"strait_dlq_depth",
+		metric.WithDescription("Current DLQ depth per job"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create dlq depth gauge: %w", err)
+	}
+
+	queueDepthPerJob, _ := meter.Int64Gauge("strait_queue_depth_per_job", metric.WithDescription("Queue depth per job"), metric.WithUnit("1"))
+
+	dbPoolTotal, _ := meter.Int64ObservableGauge("strait_db_pool_total_conns", metric.WithDescription("Total DB pool connections"))
+	dbPoolIdle, _ := meter.Int64ObservableGauge("strait_db_pool_idle_conns", metric.WithDescription("Idle DB pool connections"))
+	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
+	dbPoolMax, _ := meter.Int64ObservableGauge("strait_db_pool_max_conns", metric.WithDescription("Max DB pool connections"))
+
 	m := &Metrics{
 		RunTransitions:           runTransitions,
 		DequeueDuration:          dequeueDuration,
@@ -467,6 +511,8 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		BulkOperationsTotal:      bulkOperationsTotal,
 		BulkItemsProcessed:       bulkItemsProcessed,
 		ChildCancellationsTotal:  childCancellationsTotal,
+		LatencyAnomalies:         latencyAnomalies,
+		SnoozeTotal:              snoozeTotal,
 		WorkflowDependencyWaits:  workflowDependencyWaits,
 		WorkflowStepWaitDuration: workflowStepWaitDuration,
 		WorkflowStalledRuns:      workflowStalledRuns,
@@ -478,6 +524,12 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		PoolFailedTasks:          poolFailed,
 		PoolDroppedTasks:         poolDropped,
 		ShutdownTotal:            shutdownTotal,
+		DLQDepth:                 dlqDepth,
+		QueueDepthPerJob:         queueDepthPerJob,
+		DBPoolTotalConns:         dbPoolTotal,
+		DBPoolIdleConns:          dbPoolIdle,
+		DBPoolAcquiredConns:      dbPoolAcquired,
+		DBPoolMaxConns:           dbPoolMax,
 	}
 
 	slog.Info("prometheus metrics enabled")

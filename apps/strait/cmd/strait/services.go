@@ -257,7 +257,7 @@ func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -268,8 +268,27 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	}
 
 	if pinger != nil {
-		healthReg.Register(health.NewChecker("redis", func(ctx context.Context) error {
+		healthReg.Register(health.NewCriticalChecker("redis", false, func(ctx context.Context) error {
 			return pinger.Ping(ctx)
+		}))
+	}
+	if cfg.SequinBaseURL != "" {
+		sequinHealthURL := cfg.SequinBaseURL + "/health"
+		healthReg.Register(health.NewCriticalChecker("sequin_cdc", false, func(ctx context.Context) error {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, sequinHealthURL, nil)
+			if err != nil {
+				return fmt.Errorf("sequin health request: %w", err)
+			}
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("sequin unreachable: %w", err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 500 {
+				return fmt.Errorf("sequin unhealthy: HTTP %d", resp.StatusCode)
+			}
+			return nil
 		}))
 	}
 
@@ -285,6 +304,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		WorkflowCallback: stepCallback,
 		WorkflowEngine:   workflowEngine,
 		TxPool:           txPool,
+		RedisClient:      rdb,
+		Encryptor:        encryptor,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -314,7 +335,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -355,6 +376,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Wake:                    wake,
 		ConcurrencyLimit:        adaptive,
 		Store:                   queries,
+		TxPool:                  txPool,
 		PollInterval:            cfg.PollerInterval,
 		HeartbeatInterval:       cfg.HeartbeatInterval,
 		Publisher:               pub,
@@ -364,11 +386,19 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		PartitionWeights:        partitionWeights,
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
-		WebhookTimeout:          cfg.WebhookTimeout,
-		WebhookIdleConnTimeout:  cfg.WebhookIdleConnTimeout,
-		WebhookDispatchTimeout:  cfg.WebhookDispatchTimeout,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
+		MaxSnoozeCount:          cfg.MaxSnoozeCount,
+		JWTSigningKey:           cfg.JWTSigningKey,
+		DequeueStrategy:         cfg.DequeueStrategy,
 	})
+
+	exec.Use(worker.TracingMiddleware())
+	if metrics != nil {
+		exec.Subscribe(worker.MetricsSubscriber(metrics))
+	}
+	if pub != nil {
+		exec.Subscribe(worker.PubSubSubscriber(pub))
+	}
 
 	healthReg.Register(health.NewPoolChecker(p))
 
@@ -465,7 +495,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 }
 
-func runMigrations(databaseURL string) error {
+func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
+	switch mode {
+	case "manual":
+		slog.Info("migration mode is manual, skipping migrations")
+		return nil
+	case "validate", "auto":
+		// continue below
+	default:
+		return fmt.Errorf("unknown migration mode: %s", mode)
+	}
+
 	// Use pgx/v5/stdlib shim for database/sql compatibility
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -486,6 +526,30 @@ func runMigrations(databaseURL string) error {
 	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
+	}
+
+	version, dirty, vErr := m.Version()
+	if vErr != nil && !errors.Is(vErr, migrate.ErrNilVersion) {
+		return fmt.Errorf("check migration version: %w", vErr)
+	}
+	slog.Info("current migration state", "version", version, "dirty", dirty)
+
+	if dirty {
+		return fmt.Errorf("database has dirty migration at version %d; resolve manually", version)
+	}
+
+	if mode == "validate" {
+		slog.Info("migration mode is validate, skipping apply")
+		return nil
+	}
+
+	// Set lock timeout to prevent long DDL waits blocking other transactions.
+	if lockTimeout > 0 {
+		lockTimeoutMs := lockTimeout.Milliseconds()
+		if _, execErr := db.Exec(fmt.Sprintf("SET lock_timeout = '%dms'", lockTimeoutMs)); execErr != nil {
+			return fmt.Errorf("set lock_timeout: %w", execErr)
+		}
+		slog.Info("migration lock timeout set", "timeout_ms", lockTimeoutMs)
 	}
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {

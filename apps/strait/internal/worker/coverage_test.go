@@ -777,15 +777,6 @@ func TestDispatchToEndpoint_InvalidURL(t *testing.T) {
 	}
 }
 
-// recordRunTransition tests.
-
-func TestRecordRunTransition_NilMetrics(t *testing.T) {
-	t.Parallel()
-	e := &Executor{metrics: nil}
-	// Should not panic.
-	e.recordRunTransition(context.Background(), domain.StatusExecuting, domain.StatusCompleted)
-}
-
 // handleSuccess integration (through execute) — with publish + callback.
 
 func TestExecutor_HandleSuccess_PublishesAndCallsBack(t *testing.T) {

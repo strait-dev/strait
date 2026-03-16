@@ -31,6 +31,12 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.config != nil && s.config.MaxResultSize > 0 && int64(len(req.Result)) > s.config.MaxResultSize {
+		respondError(w, r, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("result size %d exceeds maximum %d bytes", len(req.Result), s.config.MaxResultSize))
+		return
+	}
+
 	// Fetch current run to validate FSM transition dynamically
 	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
@@ -40,6 +46,20 @@ func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to get run")
 		return
+	}
+
+	// Validate result against job's result_schema if defined.
+	if len(req.Result) > 0 {
+		job, jobErr := s.store.GetJob(r.Context(), run.JobID)
+		if jobErr == nil && job != nil && len(job.ResultSchema) > 0 {
+			if schemaErr := validatePayloadAgainstSchema(req.Result, job.ResultSchema); schemaErr != nil {
+				respondJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"error":   "result schema validation failed",
+					"details": schemaErr.Error(),
+				})
+				return
+			}
+		}
 	}
 
 	now := time.Now()

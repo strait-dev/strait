@@ -223,6 +223,41 @@ func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
 	}
 }
 
+func TestLoad_InvalidSequinBaseURL(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "SEQUIN_BASE_URL")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("SEQUIN_BASE_URL", "not-a-url")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid SEQUIN_BASE_URL, got nil")
+	}
+	if !strings.Contains(err.Error(), "SEQUIN_BASE_URL") {
+		t.Fatalf("error = %q, want substring SEQUIN_BASE_URL", err.Error())
+	}
+}
+
+func TestLoad_ValidConfig(t *testing.T) {
+	viper.Reset()
+	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY", "REDIS_URL", "SEQUIN_BASE_URL")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret")
+	t.Setenv("JWT_SIGNING_KEY", "01234567890123456789012345678901")
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("SEQUIN_BASE_URL", "https://sequin.example.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RedisURL != "redis://localhost:6379" {
+		t.Fatalf("RedisURL = %q, want redis://localhost:6379", cfg.RedisURL)
+	}
+}
+
 func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
 	viper.Reset()
 	bindEnvKeys(t, "DATABASE_URL", "INTERNAL_SECRET", "JWT_SIGNING_KEY")

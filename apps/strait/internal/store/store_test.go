@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	"strait/internal/domain"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -101,6 +103,101 @@ func (m *mockRow) Scan(dest ...any) error {
 		return m.scanFn(dest...)
 	}
 	return nil
+}
+
+func TestUpdateRunStatus_IdempotentSameTarget(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			// Simulate 0 rows affected (optimistic lock miss)
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		},
+		queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+			callCount++
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					// Re-read finds run already in target state
+					if p, ok := dest[0].(*domain.RunStatus); ok {
+						*p = domain.StatusCompleted
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := New(db)
+	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
+	if err != nil {
+		t.Fatalf("expected nil (idempotent), got %v", err)
+	}
+}
+
+func TestUpdateRunStatus_ConflictDifferentTarget(t *testing.T) {
+	t.Parallel()
+
+	db := &mockDBTX{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		},
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if p, ok := dest[0].(*domain.RunStatus); ok {
+						*p = domain.StatusFailed // different from target (completed)
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := New(db)
+	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
+	if !errors.Is(err, ErrRunConflict) {
+		t.Fatalf("expected ErrRunConflict, got %v", err)
+	}
+}
+
+func TestUpdateRunStatus_NotFound(t *testing.T) {
+	t.Parallel()
+
+	db := &mockDBTX{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		},
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{
+				scanFn: func(_ ...any) error {
+					return pgx.ErrNoRows
+				},
+			}
+		},
+	}
+
+	q := New(db)
+	err := q.UpdateRunStatus(context.Background(), "run-nonexistent", domain.StatusExecuting, domain.StatusCompleted, nil)
+	if err == nil {
+		t.Fatal("expected error for non-existent run, got nil")
+	}
+}
+
+func TestUpdateRunStatus_NormalTransition(t *testing.T) {
+	t.Parallel()
+
+	db := &mockDBTX{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("UPDATE 1"), nil
+		},
+	}
+
+	q := New(db)
+	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
 }
 
 func TestQueueStats_Success(t *testing.T) {

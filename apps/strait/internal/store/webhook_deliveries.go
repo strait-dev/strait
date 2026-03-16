@@ -359,3 +359,47 @@ func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 	}
 	return &d, nil
 }
+
+// ReplayWebhookDelivery creates a new delivery with the same payload as the original.
+func (q *Queries) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayWebhookDelivery")
+	defer span.End()
+
+	newID := uuid.Must(uuid.NewV7()).String()
+	query := `
+		INSERT INTO webhook_deliveries (
+			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
+			next_retry_at, webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id
+		)
+		SELECT $1, run_id, job_id, webhook_url, webhook_retry_policy, 'pending', 0, max_attempts,
+		       NOW(), webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id
+		FROM webhook_deliveries
+		WHERE id = $2
+		RETURNING id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
+		          last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
+		          event_trigger_id`
+
+	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, newID, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("webhook delivery not found")
+		}
+		return nil, fmt.Errorf("replay webhook delivery: %w", err)
+	}
+	return d, nil
+}
+
+func (q *Queries) ResetStuckWebhookDeliveries(ctx context.Context) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetStuckWebhookDeliveries")
+	defer span.End()
+
+	query := `
+		UPDATE webhook_deliveries SET next_retry_at = NOW()
+		WHERE status = 'pending' AND next_retry_at < NOW() - interval '5 minutes'`
+
+	tag, err := q.db.Exec(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("reset stuck webhook deliveries: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

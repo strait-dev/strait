@@ -16,11 +16,11 @@ func TestRedisRateLimiterAllow_NilClientFailOpen(t *testing.T) {
 	t.Parallel()
 
 	limiter := NewRedisRateLimiter(nil, true)
-	allowed, err := limiter.Allow(t.Context(), "key", 1, time.Minute)
+	result, err := limiter.Allow(t.Context(), "key", 1, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !allowed {
+	if !result.Allowed {
 		t.Fatal("expected allowed when redis client is nil")
 	}
 }
@@ -35,11 +35,11 @@ func TestRedisRateLimiterAllow_DisabledBypassesRedis(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, false)
-	allowed, err := limiter.Allow(t.Context(), "key", 1, time.Minute)
+	result, err := limiter.Allow(t.Context(), "key", 1, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !allowed {
+	if !result.Allowed {
 		t.Fatal("expected allowed when limiter is disabled")
 	}
 }
@@ -66,9 +66,11 @@ func TestRedisRateLimiterAllow_EnforcesLimit(t *testing.T) {
 		current := counts[key]
 		mu.Unlock()
 
-		result := int64(1)
+		var result []any
 		if current > limit {
-			result = 0
+			result = []any{int64(0), int64(0)}
+		} else {
+			result = []any{int64(1), int64(limit - current)}
 		}
 		if c, ok := cmd.(*redis.Cmd); ok {
 			c.SetVal(result)
@@ -81,27 +83,33 @@ func TestRedisRateLimiterAllow_EnforcesLimit(t *testing.T) {
 	limiter := NewRedisRateLimiter(client, true)
 	ctx := t.Context()
 
-	allowed, err := limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
+	result, err := limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !allowed {
+	if !result.Allowed {
 		t.Fatal("expected first request to be allowed")
 	}
+	if result.Remaining != 1 {
+		t.Fatalf("expected remaining=1, got %d", result.Remaining)
+	}
 
-	allowed, err = limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
+	result, err = limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !allowed {
+	if !result.Allowed {
 		t.Fatal("expected second request to be allowed")
 	}
+	if result.Remaining != 0 {
+		t.Fatalf("expected remaining=0, got %d", result.Remaining)
+	}
 
-	allowed, err = limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
+	result, err = limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if allowed {
+	if result.Allowed {
 		t.Fatal("expected third request to be rejected")
 	}
 }
@@ -115,11 +123,11 @@ func TestRedisRateLimiterAllow_RedisErrorFailsOpen(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
-	allowed, err := limiter.Allow(t.Context(), "key", 1, time.Minute)
+	result, err := limiter.Allow(t.Context(), "key", 1, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !allowed {
+	if !result.Allowed {
 		t.Fatal("expected fail-open behavior on redis error")
 	}
 }

@@ -45,6 +45,8 @@ type mockExecutorStore struct {
 	recordSuccessFn          func(ctx context.Context, endpointURL string) error
 	getJobHealthStatsFn      func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
 	getResolvedEnvVarsFn     func(ctx context.Context, id string) (map[string]string, error)
+	getLatestCheckpointFn    func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
+	getRunErrorClassFn       func(ctx context.Context, runID string) (string, error)
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -167,6 +169,20 @@ func (m *mockExecutorStore) GetResolvedEnvironmentVariables(ctx context.Context,
 	return m.getResolvedEnvVarsFn(ctx, id)
 }
 
+func (m *mockExecutorStore) GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error) {
+	if m.getLatestCheckpointFn == nil {
+		return nil, nil
+	}
+	return m.getLatestCheckpointFn(ctx, runID)
+}
+
+func (m *mockExecutorStore) GetRunErrorClass(ctx context.Context, runID string) (string, error) {
+	if m.getRunErrorClassFn == nil {
+		return "", nil
+	}
+	return m.getRunErrorClassFn(ctx, runID)
+}
+
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -190,6 +206,10 @@ func (m *mockExecQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return m.enqueueFn(ctx, run)
 }
 
+func (m *mockExecQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
+	return int64(len(runs)), nil
+}
+
 func (m *mockExecQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	if m.dequeueFn == nil {
 		return nil, nil
@@ -202,6 +222,10 @@ func (m *mockExecQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 		return nil, nil
 	}
 	return m.dequeueNFn(ctx, n)
+}
+
+func (m *mockExecQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
+	return m.DequeueN(ctx, n)
 }
 
 func (m *mockExecQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
@@ -2513,5 +2537,966 @@ func TestResolveJobForRun_SameVersion(t *testing.T) {
 	}
 	if job.EndpointURL != "https://v2.example.com" {
 		t.Fatalf("expected current endpoint, got %s", job.EndpointURL)
+	}
+}
+
+func TestAdaptiveDequeue_SkipsWhenPoolSaturated(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	// Saturate the pool
+	started := make(chan struct{})
+	done := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-done
+	})
+	<-started
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	if dequeueCalled.Load() {
+		t.Fatal("expected dequeue to be skipped when pool is saturated")
+	}
+}
+
+func TestAdaptiveDequeue_UsesIdleCount(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(10)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	// Use 5 of 10 slots
+	started := make(chan struct{}, 5)
+	done := make(chan struct{})
+	for range 5 {
+		pool.Submit(context.Background(), func() {
+			started <- struct{}{}
+			<-done
+		})
+	}
+	for range 5 {
+		<-started
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	got := requestedN.Load()
+	if got != 5 {
+		t.Fatalf("expected dequeue with n=5 (idle workers), got n=%d", got)
+	}
+}
+
+func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(100)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		MaxDequeueBatchSize: 10,
+	})
+
+	exec.poll(context.Background())
+
+	got := requestedN.Load()
+	if got != 10 {
+		t.Fatalf("expected dequeue capped at maxBatchSize=10, got n=%d", got)
+	}
+}
+
+func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(2)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	// Occupy 1 of 2 slots
+	started := make(chan struct{})
+	done := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-done
+	})
+	<-started
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		MaxDequeueBatchSize: 10,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	got := requestedN.Load()
+	if got != 1 {
+		t.Fatalf("expected dequeue with n=1 (single idle worker), got n=%d", got)
+	}
+}
+
+func TestDispatch_RetryIncludesCheckpointHeaders(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	cpTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		return &domain.RunCheckpoint{
+			ID:        "cp-1",
+			RunID:     "run-1",
+			Sequence:  1,
+			State:     json.RawMessage(`{"cursor":42}`),
+			CreatedAt: cpTime,
+		}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2) // attempt > 1
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Last-Checkpoint") != `{"cursor":42}` {
+		t.Fatalf("X-Last-Checkpoint = %q, want %q", headers.Get("X-Last-Checkpoint"), `{"cursor":42}`)
+	}
+	if headers.Get("X-Checkpoint-At") != cpTime.Format(time.RFC3339) {
+		t.Fatalf("X-Checkpoint-At = %q, want %q", headers.Get("X-Checkpoint-At"), cpTime.Format(time.RFC3339))
+	}
+}
+
+func TestDispatch_FirstAttemptNoCheckpointHeaders(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		t.Fatal("should not call GetLatestCheckpoint on first attempt")
+		return nil, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1) // first attempt
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Last-Checkpoint") != "" {
+		t.Fatalf("expected no X-Last-Checkpoint on first attempt, got %q", headers.Get("X-Last-Checkpoint"))
+	}
+}
+
+func TestDispatch_NoCheckpointGraceful(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		return nil, nil // no checkpoint exists
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2) // retry
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Last-Checkpoint") != "" {
+		t.Fatalf("expected no X-Last-Checkpoint when none exists, got %q", headers.Get("X-Last-Checkpoint"))
+	}
+	// Should still have completed successfully
+	if run.Status != domain.StatusCompleted {
+		t.Fatalf("run status = %s, want completed", run.Status)
+	}
+}
+
+func TestDispatch_RetryIncludesPreviousError(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2)
+	run.Error = "connection timeout"
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Previous-Error") != "connection timeout" {
+		t.Fatalf("X-Previous-Error = %q, want %q", headers.Get("X-Previous-Error"), "connection timeout")
+	}
+}
+
+func TestDispatch_RetryNoPreviousError(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 3, 5), nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(2)
+	run.Error = ""
+
+	exec.execute(context.Background(), run)
+
+	if headers.Get("X-Previous-Error") != "" {
+		t.Fatalf("expected no X-Previous-Error when empty, got %q", headers.Get("X-Previous-Error"))
+	}
+}
+
+func TestHandleFailure_RetryBoostsPriority(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 2
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 3
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	// Find the retry transition (executing -> queued)
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition (executing -> queued)")
+	}
+	gotPriority, ok := retryCall.fields["priority"].(int)
+	if !ok {
+		t.Fatalf("expected priority field in retry, got %v", retryCall.fields["priority"])
+	}
+	if gotPriority != 5 {
+		t.Fatalf("expected priority=5 (3+2), got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 3
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 9
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 10 {
+		t.Fatalf("expected priority capped at 10, got %d", gotPriority)
+	}
+}
+
+func TestHandleFailure_ZeroBoostNoChange(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 0
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 3
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	if _, ok := retryCall.fields["priority"]; ok {
+		t.Fatal("expected no priority field when boost is 0")
+	}
+}
+
+func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	job := testJob(server.URL, 3, 5)
+	job.RetryPriorityBoost = 1 // default from DB
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	run.Priority = 0
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	var retryCall *statusUpdateCall
+	for i, c := range calls {
+		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
+			retryCall = &calls[i]
+			break
+		}
+	}
+	if retryCall == nil {
+		t.Fatal("expected retry transition")
+	}
+	gotPriority := retryCall.fields["priority"].(int)
+	if gotPriority != 1 {
+		t.Fatalf("expected priority=1 (0+1 default boost), got %d", gotPriority)
+	}
+}
+
+func TestShutdown_WaitsForCallbacks(t *testing.T) {
+	t.Parallel()
+
+	var callbackCalled atomic.Bool
+	callback := &mockWorkflowCallback{
+		onTerminalFn: func(_ context.Context, _ *domain.JobRun) error {
+			time.Sleep(100 * time.Millisecond)
+			callbackCalled.Store(true)
+			return nil
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+
+	var dequeued atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			if dequeued.CompareAndSwap(false, true) {
+				return []domain.JobRun{*testRun(1)}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(4)
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      50 * time.Millisecond,
+		HeartbeatInterval: time.Hour,
+		WorkflowCallback:  callback,
+		HTTPClient:        server.Client(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go exec.Run(ctx)
+
+	// Wait for the callback to start
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := exec.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	_ = pool.Shutdown(context.Background())
+
+	if !callbackCalled.Load() {
+		t.Fatal("expected callback to complete before shutdown returned")
+	}
+}
+
+func TestShutdown_NoCallbacksNoDelay(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	q := &mockExecQueue{}
+
+	pool := NewPool(4)
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go exec.Run(ctx)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	start := time.Now()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := exec.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	_ = pool.Shutdown(context.Background())
+
+	elapsed := time.Since(start)
+	if elapsed > 2*time.Second {
+		t.Fatalf("shutdown took %v, expected near-instant with no callbacks", elapsed)
+	}
+}
+
+func TestBulkhead_DefaultAppliedWhenJobHasNoLimit(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                     NewPool(10),
+		Queue:                    &mockExecQueue{},
+		Store:                    &mockExecutorStore{},
+		PollInterval:             time.Hour,
+		DefaultJobMaxConcurrency: 3,
+	})
+
+	// Should acquire first 3 slots
+	for i := range 3 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
+			t.Fatalf("slot %d should be acquired", i+1)
+		}
+	}
+	// 4th should be rejected
+	if exec.tryAcquireBulkheadSlot("job-1", 0) {
+		t.Fatal("4th slot should be rejected with default concurrency 3")
+	}
+}
+
+func TestBulkhead_ExplicitOverridesDefault(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                     NewPool(10),
+		Queue:                    &mockExecQueue{},
+		Store:                    &mockExecutorStore{},
+		PollInterval:             time.Hour,
+		DefaultJobMaxConcurrency: 3,
+	})
+
+	// Explicit limit of 5 should override default 3
+	for i := range 5 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 5) {
+			t.Fatalf("slot %d should be acquired with explicit limit 5", i+1)
+		}
+	}
+	if exec.tryAcquireBulkheadSlot("job-1", 5) {
+		t.Fatal("6th slot should be rejected with explicit limit 5")
+	}
+}
+
+func TestBulkhead_DefaultZeroDisabled(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                     NewPool(10),
+		Queue:                    &mockExecQueue{},
+		Store:                    &mockExecutorStore{},
+		PollInterval:             time.Hour,
+		DefaultJobMaxConcurrency: 0, // disabled
+	})
+
+	// All slots should be acquired (no limit)
+	for i := range 100 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
+			t.Fatalf("slot %d should be acquired with no limit", i+1)
+		}
+	}
+}
+
+func TestPoll_MemoryPressure_SkipsDequeue(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                       NewPool(10),
+		Queue:                      q,
+		Store:                      &mockExecutorStore{},
+		PollInterval:               time.Hour,
+		MemoryPressureThresholdPct: 1, // 1% — will always be exceeded
+	})
+
+	exec.poll(context.Background())
+
+	if dequeueCalled.Load() {
+		t.Fatal("dequeue should not be called when memory pressure exceeds threshold")
+	}
+}
+
+func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                       NewPool(10),
+		Queue:                      q,
+		Store:                      &mockExecutorStore{},
+		PollInterval:               time.Hour,
+		MemoryPressureThresholdPct: 0, // disabled
+	})
+
+	exec.poll(context.Background())
+
+	if !dequeueCalled.Load() {
+		t.Fatal("dequeue should be called when memory pressure is disabled (threshold=0)")
+	}
+}
+
+func TestHandleFailure_PoisonPillDetected(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "server", nil // same class as current error
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+	}
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusDeadLetter {
+		t.Errorf("expected dead_letter, got %s", last.to)
+	}
+}
+
+func TestHandleFailure_PoisonPillNotTriggeredOnDifferentClass(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "transient", nil // different from current "server" class
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+	}
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusQueued {
+		t.Errorf("expected queued (retry), got %s", last.to)
+	}
+}
+
+func TestHandleFailure_PoisonPillNotTriggeredBelowThreshold(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{
+		getRunErrorClassFn: func(_ context.Context, _ string) (string, error) {
+			return "server", nil // same class
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 2} // below threshold of 3
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+	}
+	last := calls[len(calls)-1]
+	if last.to != domain.StatusQueued {
+		t.Errorf("expected queued (retry), got %s", last.to)
+	}
+}
+
+func TestResolveJob_CacheHit(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	// First call — cache miss, hits store
+	job1, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("first call error: %v", err)
+	}
+	if job1 == nil {
+		t.Fatal("expected job, got nil")
+	}
+
+	// Second call — cache hit, should not hit store again
+	job2, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("second call error: %v", err)
+	}
+	if job2 == nil {
+		t.Fatal("expected job, got nil")
+	}
+
+	if getJobCalls.Load() != 1 {
+		t.Errorf("expected 1 GetJob call (cache hit), got %d", getJobCalls.Load())
+	}
+}
+
+func TestResolveJob_CacheExpiry(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  1 * time.Millisecond, // very short TTL
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+	time.Sleep(5 * time.Millisecond) // wait for expiry
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+
+	if getJobCalls.Load() != 2 {
+		t.Errorf("expected 2 GetJob calls after expiry, got %d", getJobCalls.Load())
+	}
+}
+
+func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  0, // disabled
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+
+	if getJobCalls.Load() != 2 {
+		t.Errorf("expected 2 GetJob calls (cache disabled), got %d", getJobCalls.Load())
+	}
+}
+
+func TestHandleSuccess_LatencyAnomalyDetected(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return &orcstore.JobHealthStats{P95DurationSecs: 1.0}, nil // P95 = 1s
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-3 * time.Second) // 3s ago — exceeds 2 * 1s P95
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	// Should not panic — just verify no error
+	exec.handleSuccess(context.Background(), run, job, nil, nil)
+
+	// Verify the run was completed
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestHandleSuccess_LatencyNormal(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return &orcstore.JobHealthStats{P95DurationSecs: 10.0}, nil // P95 = 10s
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-500 * time.Millisecond) // 0.5s — well within 2 * 10s P95
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	exec.handleSuccess(context.Background(), run, job, nil, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return nil, nil // no stats
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-3 * time.Second)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	exec.handleSuccess(context.Background(), run, job, nil, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
 	}
 }

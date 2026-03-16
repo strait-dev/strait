@@ -140,6 +140,8 @@ type ProjectQuota struct {
 	MaxCostPerRunMicrousd  int64
 	MaxDailyCostMicrousd   int64
 	MaxActiveEventTriggers int // 0 = unlimited
+	RateLimitRequests      int
+	RateLimitWindowSecs    int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -390,6 +392,24 @@ func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
 	_, err := q.db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID)
 	if err != nil {
 		return fmt.Errorf("pg_advisory_unlock: %w", err)
+	}
+	return nil
+}
+
+// SetProjectContext sets the app.current_project_id session variable for RLS policies.
+func (q *Queries) SetProjectContext(ctx context.Context, projectID string) error {
+	_, err := q.db.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID)
+	if err != nil {
+		return fmt.Errorf("set project context: %w", err)
+	}
+	return nil
+}
+
+// ClearProjectContext resets the app.current_project_id session variable.
+func (q *Queries) ClearProjectContext(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, "SELECT set_config('app.current_project_id', '', true)")
+	if err != nil {
+		return fmt.Errorf("clear project context: %w", err)
 	}
 	return nil
 }

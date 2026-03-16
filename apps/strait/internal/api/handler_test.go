@@ -2424,3 +2424,62 @@ func TestHandleListRunLineage_StoreError(t *testing.T) {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+type mockPoolStatter struct {
+	acquired int32
+	max      int32
+}
+
+func (m *mockPoolStatter) AcquiredConns() int32 { return m.acquired }
+func (m *mockPoolStatter) MaxConns() int32      { return m.max }
+
+func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+	}
+	srv := NewServer(ServerDeps{
+		Config:      cfg,
+		Store:       &mockAPIStore{},
+		Queue:       &mockQueue{},
+		PoolStatter: &mockPoolStatter{acquired: 24, max: 25}, // 96% > 90%
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Retry-After") != "1" {
+		t.Fatalf("expected Retry-After=1, got %s", w.Header().Get("Retry-After"))
+	}
+}
+
+func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:      "test-secret",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       "test-jwt-key-must-be-32-chars-long",
+	}
+	srv := NewServer(ServerDeps{
+		Config:      cfg,
+		Store:       &mockAPIStore{},
+		Queue:       &mockQueue{},
+		PoolStatter: &mockPoolStatter{acquired: 10, max: 25}, // 40% < 90%
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("expected request to pass through when pool is healthy")
+	}
+}

@@ -12,11 +12,18 @@ local current = redis.call("INCR", KEYS[1])
 if current == 1 then
   redis.call("PEXPIRE", KEYS[1], ARGV[1])
 end
-if current > tonumber(ARGV[2]) then
-  return 0
+local limit = tonumber(ARGV[2])
+if current > limit then
+  return {0, 0}
 end
-return 1
+return {1, limit - current}
 `
+
+// RateLimitResult contains the outcome of a rate limit check.
+type RateLimitResult struct {
+	Allowed   bool
+	Remaining int
+}
 
 type RedisRateLimiter struct {
 	client  *redis.Client
@@ -27,18 +34,27 @@ func NewRedisRateLimiter(client *redis.Client, enabled bool) *RedisRateLimiter {
 	return &RedisRateLimiter{client: client, enabled: enabled}
 }
 
-func (r *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+// Allow checks whether the request is within the rate limit. Returns the result
+// with remaining quota. Fails open: returns allowed=true when Redis is unavailable.
+func (r *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (RateLimitResult, error) {
 	if !r.enabled || r.client == nil {
-		return true, nil
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil
 	}
 	if limit <= 0 || window <= 0 {
-		return true, nil
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil
 	}
 
-	allowed, err := r.client.Eval(ctx, redisRateLimitScript, []string{key}, window.Milliseconds(), limit).Int()
+	vals, err := r.client.Eval(ctx, redisRateLimitScript, []string{key}, window.Milliseconds(), limit).Int64Slice()
 	if err != nil {
-		return true, nil //nolint:nilerr // fail-open: allow traffic when Redis is unavailable.
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil //nolint:nilerr // fail-open: allow traffic when Redis is unavailable.
 	}
 
-	return allowed == 1, nil
+	if len(vals) < 2 {
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil
+	}
+
+	return RateLimitResult{
+		Allowed:   vals[0] == 1,
+		Remaining: int(vals[1]),
+	}, nil
 }
