@@ -2,12 +2,12 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "../utils/index";
 
-const shellVariants = cva("flex flex-col gap-4", {
+const shellVariants = cva("flex flex-col gap-6", {
   variants: {
     variant: {
-      default: "w-full px-4 pt-2 sm:px-8 lg:px-12",
-      centered: "w-full items-center px-4 sm:px-8 lg:px-12",
-      fluid: "w-full px-4 sm:px-8 lg:px-12",
+      default: "w-full px-4 py-6 sm:px-6 lg:px-8",
+      centered: "w-full items-center px-4 py-6 sm:px-6 lg:px-8",
+      fluid: "w-full px-4 py-6 sm:px-6 lg:px-8",
     },
   },
   defaultVariants: {
