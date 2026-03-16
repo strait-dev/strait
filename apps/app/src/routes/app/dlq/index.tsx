@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -137,13 +138,13 @@ function DlqPage() {
 
       {/* Alert banner */}
       {totalCount > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-destructive text-sm">
+        <Alert variant="destructive">
           <HugeiconsIcon className="shrink-0" icon={AlertIcon} size={16} />
-          <span className="font-medium">
+          <AlertDescription className="font-medium">
             {totalCount} failed run{totalCount === 1 ? "" : "s"} require
             attention
-          </span>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Toolbar */}

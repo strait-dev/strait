@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -140,13 +141,13 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center gap-2 rounded-custom border border-destructive/50 bg-destructive/5 px-3 py-2 text-destructive text-sm">
+        <Alert variant="destructive">
           <HugeiconsIcon className="size-4" icon={AlertIcon} />
-          <span>
+          <AlertDescription>
             Warning: This action is irreversible and all organization data will
             be permanently lost.
-          </span>
-        </div>
+          </AlertDescription>
+        </Alert>
       </CardContent>
       <CardFooter className="flex justify-end">
         <AlertDialog

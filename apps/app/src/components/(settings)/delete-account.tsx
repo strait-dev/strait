@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -101,13 +102,13 @@ const DeleteAccount = ({ user }: Props) => {
       >
         <CardContent>
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 rounded-custom border border-destructive/50 bg-destructive/5 px-3 py-2 text-destructive text-sm">
+            <Alert variant="destructive">
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
-              <span>
+              <AlertDescription>
                 Warning: This action is irreversible and all your data will be
                 permanently lost.
-              </span>
-            </div>
+              </AlertDescription>
+            </Alert>
 
             <form.Field name="email">
               {(field) => (
