@@ -1,103 +1,93 @@
+import type { LanguageModelMiddleware } from "ai";
 import type { RunContext } from "../authoring/job";
 import type { StraitProviderOptions } from "./types";
 
-type LanguageModelV1Usage = {
-  readonly promptTokens?: number;
-  readonly completionTokens?: number;
-};
-
-type LanguageModelV1ToolCall = {
-  readonly toolName: string;
-  readonly args: unknown;
-};
-
-type GenerateResult = {
-  readonly usage?: LanguageModelV1Usage;
-  readonly toolCalls?: readonly LanguageModelV1ToolCall[];
-  readonly [key: string]: unknown;
-};
-
-type StreamChunk = {
-  readonly type: string;
-  readonly textDelta?: string;
-  readonly [key: string]: unknown;
-};
-
-type StreamResult = {
-  readonly stream: ReadableStream<StreamChunk>;
-  readonly usage?: LanguageModelV1Usage | Promise<LanguageModelV1Usage>;
-  readonly [key: string]: unknown;
-};
-
-type DoGenerateParams = {
-  readonly [key: string]: unknown;
-};
-
-type DoStreamParams = {
-  readonly [key: string]: unknown;
-};
-
-type DoGenerateFn = (params: DoGenerateParams) => PromiseLike<GenerateResult>;
-type DoStreamFn = (params: DoStreamParams) => PromiseLike<StreamResult>;
-
-export type LanguageModelV1Middleware = {
-  readonly wrapGenerate?: (options: {
-    readonly doGenerate: DoGenerateFn;
-    readonly params: DoGenerateParams;
-  }) => PromiseLike<GenerateResult>;
-  readonly wrapStream?: (options: {
-    readonly doStream: DoStreamFn;
-    readonly params: DoStreamParams;
-  }) => PromiseLike<StreamResult>;
-};
+/** AI SDK v6 language model middleware, extended to avoid tsgo portability issues. */
+export interface StraitMiddleware extends LanguageModelMiddleware {}
 
 const fireAndForget = (promise: Promise<unknown>) => {
   promise.catch(() => undefined);
 };
 
+type V3Usage = {
+  readonly inputTokens?: { readonly total?: number };
+  readonly outputTokens?: { readonly total?: number };
+};
+
+type V3ContentItem = {
+  readonly type: string;
+  readonly toolName?: string;
+  readonly input?: string;
+};
+
+const handleUsageReport = async (
+  usage: V3Usage,
+  providerName: string,
+  ctx: RunContext
+) => {
+  const promptTokens = usage.inputTokens?.total ?? 0;
+  const completionTokens = usage.outputTokens?.total ?? 0;
+  await ctx.reportUsage?.({
+    provider: providerName,
+    model: providerName,
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+  });
+};
+
+const parseToolInput = (raw: string): Record<string, unknown> | undefined => {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+};
+
+const handleToolCallLogging = async (
+  content: readonly V3ContentItem[],
+  ctx: RunContext
+) => {
+  for (const item of content) {
+    if (item.type === "tool-call" && item.toolName) {
+      const parsed =
+        typeof item.input === "string" ? parseToolInput(item.input) : undefined;
+      await ctx.logToolCall?.({
+        toolName: item.toolName,
+        input: parsed,
+      });
+    }
+  }
+};
+
 export const createStraitProvider = (
   ctx: RunContext,
   options?: StraitProviderOptions
-): LanguageModelV1Middleware => {
+): StraitMiddleware => {
   const reportUsage = options?.reportUsage ?? true;
   const logToolCalls = options?.logToolCalls ?? true;
   const streamToStrait = options?.streamToStrait ?? true;
   const providerName = options?.providerName ?? "unknown";
 
   return {
-    wrapGenerate: async ({ doGenerate, params }) => {
-      const result = await doGenerate(params);
+    specificationVersion: "v3",
+
+    wrapGenerate: async ({ doGenerate }) => {
+      const result = await doGenerate();
 
       if (reportUsage && result.usage && ctx.reportUsage) {
-        const totalTokens =
-          (result.usage.promptTokens ?? 0) +
-          (result.usage.completionTokens ?? 0);
-        await ctx.reportUsage({
-          provider: providerName,
-          model: providerName,
-          promptTokens: result.usage.promptTokens,
-          completionTokens: result.usage.completionTokens,
-          totalTokens,
-        });
+        await handleUsageReport(result.usage, providerName, ctx);
       }
 
-      if (logToolCalls && result.toolCalls && ctx.logToolCall) {
-        for (const tc of result.toolCalls) {
-          await ctx.logToolCall({
-            toolName: tc.toolName,
-            input:
-              typeof tc.args === "object" && tc.args !== null
-                ? (tc.args as Record<string, unknown>)
-                : undefined,
-          });
-        }
+      if (logToolCalls && result.content && ctx.logToolCall) {
+        await handleToolCallLogging(result.content, ctx);
       }
 
       return result;
     },
 
-    wrapStream: async ({ doStream, params }) => {
-      const result = await doStream(params);
+    wrapStream: async ({ doStream }) => {
+      const result = await doStream();
 
       if (!(streamToStrait && ctx.streamChunk)) {
         return result;
@@ -107,10 +97,10 @@ export const createStraitProvider = (
       const originalStream = result.stream;
 
       const transformedStream = originalStream.pipeThrough(
-        new TransformStream<StreamChunk, StreamChunk>({
+        new TransformStream({
           transform(chunk, controller) {
-            if (chunk.type === "text-delta" && chunk.textDelta) {
-              fireAndForget(streamChunkFn(chunk.textDelta));
+            if (chunk.type === "text-delta" && "delta" in chunk) {
+              fireAndForget(streamChunkFn(chunk.delta as string));
             }
             controller.enqueue(chunk);
           },

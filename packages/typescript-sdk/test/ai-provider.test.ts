@@ -2,22 +2,48 @@ import { describe, expect, test } from "bun:test";
 import { createStraitProvider } from "../src/ai/provider";
 import { createTestContext } from "../src/authoring/test-client";
 
+const mockUsage = (input: number, output: number) => ({
+  inputTokens: {
+    total: input,
+    noCache: undefined,
+    cacheRead: undefined,
+    cacheWrite: undefined,
+  },
+  outputTokens: {
+    total: output,
+    noCache: undefined,
+    cacheRead: undefined,
+    cacheWrite: undefined,
+  },
+});
+
+const emptyGenResult = {
+  content: [],
+  finishReason: "stop" as const,
+  warnings: [],
+  usage: mockUsage(0, 0),
+};
+
 describe("createStraitProvider", () => {
   test("wrapGenerate reports usage after doGenerate", async () => {
     const { ctx, record } = createTestContext("run_ai");
     const provider = createStraitProvider(ctx, { providerName: "openai" });
 
     const mockResult = {
-      usage: { promptTokens: 100, completionTokens: 50 },
-      toolCalls: [],
+      content: [],
+      finishReason: "stop" as const,
+      warnings: [],
+      usage: mockUsage(100, 50),
     };
 
     const result = await provider.wrapGenerate?.({
-      doGenerate: async () => mockResult,
-      params: {},
+      doGenerate: (async () => mockResult) as never,
+      doStream: (async () => ({ stream: new ReadableStream() })) as never,
+      params: {} as never,
+      model: {} as never,
     });
 
-    expect(result).toBe(mockResult);
+    expect(result).toBe(mockResult as unknown as typeof result);
     expect(record.usageReports).toHaveLength(1);
     expect(record.usageReports[0].provider).toBe("openai");
     expect(record.usageReports[0].promptTokens).toBe(100);
@@ -25,19 +51,33 @@ describe("createStraitProvider", () => {
     expect(record.usageReports[0].totalTokens).toBe(150);
   });
 
-  test("wrapGenerate logs tool calls", async () => {
+  test("wrapGenerate logs tool calls from content", async () => {
     const { ctx, record } = createTestContext("run_ai");
     const provider = createStraitProvider(ctx, { providerName: "anthropic" });
 
     await provider.wrapGenerate?.({
-      doGenerate: async () => ({
-        usage: { promptTokens: 50, completionTokens: 25 },
-        toolCalls: [
-          { toolName: "search", args: { query: "test" } },
-          { toolName: "calculate", args: { expression: "1+1" } },
+      doGenerate: (async () => ({
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "tc_1",
+            toolName: "search",
+            input: JSON.stringify({ query: "test" }),
+          },
+          {
+            type: "tool-call" as const,
+            toolCallId: "tc_2",
+            toolName: "calculate",
+            input: JSON.stringify({ expression: "1+1" }),
+          },
         ],
-      }),
-      params: {},
+        finishReason: "tool-calls" as const,
+        warnings: [],
+        usage: mockUsage(50, 25),
+      })) as never,
+      doStream: (async () => ({ stream: new ReadableStream() })) as never,
+      params: {} as never,
+      model: {} as never,
     });
 
     expect(record.toolCalls).toHaveLength(2);
@@ -51,11 +91,22 @@ describe("createStraitProvider", () => {
     const provider = createStraitProvider(ctx, { reportUsage: false });
 
     await provider.wrapGenerate?.({
-      doGenerate: async () => ({
-        usage: { promptTokens: 100, completionTokens: 50 },
-        toolCalls: [{ toolName: "test", args: {} }],
-      }),
-      params: {},
+      doGenerate: (async () => ({
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "tc_1",
+            toolName: "test",
+            input: "{}",
+          },
+        ],
+        finishReason: "tool-calls" as const,
+        warnings: [],
+        usage: mockUsage(100, 50),
+      })) as never,
+      doStream: (async () => ({ stream: new ReadableStream() })) as never,
+      params: {} as never,
+      model: {} as never,
     });
 
     expect(record.usageReports).toHaveLength(0);
@@ -67,11 +118,22 @@ describe("createStraitProvider", () => {
     const provider = createStraitProvider(ctx, { logToolCalls: false });
 
     await provider.wrapGenerate?.({
-      doGenerate: async () => ({
-        usage: { promptTokens: 100, completionTokens: 50 },
-        toolCalls: [{ toolName: "test", args: {} }],
-      }),
-      params: {},
+      doGenerate: (async () => ({
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "tc_1",
+            toolName: "test",
+            input: "{}",
+          },
+        ],
+        finishReason: "tool-calls" as const,
+        warnings: [],
+        usage: mockUsage(100, 50),
+      })) as never,
+      doStream: (async () => ({ stream: new ReadableStream() })) as never,
+      params: {} as never,
+      model: {} as never,
     });
 
     expect(record.usageReports).toHaveLength(1);
@@ -83,9 +145,13 @@ describe("createStraitProvider", () => {
     const provider = createStraitProvider(ctx, { providerName: "openai" });
 
     const chunks = [
-      { type: "text-delta", textDelta: "Hello" },
-      { type: "text-delta", textDelta: " world" },
-      { type: "finish", textDelta: undefined },
+      { type: "text-delta" as const, id: "t_1", delta: "Hello" },
+      { type: "text-delta" as const, id: "t_2", delta: " world" },
+      {
+        type: "finish" as const,
+        usage: mockUsage(0, 0),
+        finishReason: "stop" as const,
+      },
     ];
 
     const mockStream = new ReadableStream({
@@ -99,8 +165,10 @@ describe("createStraitProvider", () => {
 
     // biome-ignore lint/style/noNonNullAssertion: test assertion
     const result = await provider.wrapStream!({
-      doStream: async () => ({ stream: mockStream }),
-      params: {},
+      doStream: (async () => ({ stream: mockStream })) as never,
+      doGenerate: (async () => emptyGenResult) as never,
+      params: {} as never,
+      model: {} as never,
     });
 
     // Consume the stream to trigger the transform
@@ -129,15 +197,21 @@ describe("createStraitProvider", () => {
 
     const mockStream = new ReadableStream({
       start(controller) {
-        controller.enqueue({ type: "text-delta", textDelta: "Hello" });
+        controller.enqueue({
+          type: "text-delta" as const,
+          id: "t_1",
+          delta: "Hello",
+        });
         controller.close();
       },
     });
 
     // biome-ignore lint/style/noNonNullAssertion: test assertion
     const result = await provider.wrapStream!({
-      doStream: async () => ({ stream: mockStream }),
-      params: {},
+      doStream: (async () => ({ stream: mockStream })) as never,
+      doGenerate: (async () => emptyGenResult) as never,
+      params: {} as never,
+      model: {} as never,
     });
 
     // Stream should be the original (not transformed)

@@ -17,15 +17,14 @@ describe("createStraitTools", () => {
     expect(tools.strait_complete).toBeUndefined();
   });
 
-  test("each tool has description and parameters", () => {
+  test("each tool has description, inputSchema, and execute", () => {
     const { ctx } = createTestContext();
     const tools = createStraitTools(ctx);
 
-    for (const [_name, tool] of Object.entries(tools)) {
-      expect(tool.description).toBeTruthy();
-      expect(tool.parameters).toBeDefined();
-      expect(tool.parameters.type).toBe("object");
-      expect(tool.execute).toBeInstanceOf(Function);
+    for (const [_name, t] of Object.entries(tools)) {
+      expect(t.description).toBeTruthy();
+      expect(t.inputSchema).toBeDefined();
+      expect(t.execute).toBeInstanceOf(Function);
     }
   });
 
@@ -33,9 +32,11 @@ describe("createStraitTools", () => {
     const { ctx, record } = createTestContext();
     const tools = createStraitTools(ctx);
 
-    const result = await tools.strait_checkpoint.execute({
-      state: { step: 3 },
-    });
+    // biome-ignore lint/style/noNonNullAssertion: test assertion
+    const result = await tools.strait_checkpoint.execute!(
+      { state: { step: 3 } },
+      { toolCallId: "tc_1", messages: [], abortSignal: undefined as never }
+    );
 
     expect(result).toEqual({ success: true });
     expect(record.checkpoints).toHaveLength(1);
@@ -46,11 +47,15 @@ describe("createStraitTools", () => {
     const { ctx, record } = createTestContext();
     const tools = createStraitTools(ctx);
 
-    const result = await tools.strait_spawn.execute({
-      jobSlug: "process-data",
-      projectId: "proj_1",
-      payload: { items: [1, 2, 3] },
-    });
+    // biome-ignore lint/style/noNonNullAssertion: test assertion
+    const result = await tools.strait_spawn.execute!(
+      {
+        jobSlug: "process-data",
+        projectId: "proj_1",
+        payload: { items: [1, 2, 3] },
+      },
+      { toolCallId: "tc_2", messages: [], abortSignal: undefined as never }
+    );
 
     expect(result).toEqual({ id: "spawn_1" });
     expect(record.spawns).toHaveLength(1);
@@ -61,10 +66,14 @@ describe("createStraitTools", () => {
     const { ctx, record } = createTestContext();
     const tools = createStraitTools(ctx);
 
-    await tools.strait_save_output.execute({
-      key: "summary",
-      value: { text: "Done" },
-    });
+    // biome-ignore lint/style/noNonNullAssertion: test assertion
+    await tools.strait_save_output.execute!(
+      {
+        key: "summary",
+        value: { text: "Done" },
+      },
+      { toolCallId: "tc_3", messages: [], abortSignal: undefined as never }
+    );
 
     expect(record.outputs).toHaveLength(1);
     expect(record.outputs[0].key).toBe("summary");
@@ -74,10 +83,14 @@ describe("createStraitTools", () => {
     const { ctx, record } = createTestContext();
     const tools = createStraitTools(ctx);
 
-    const result = await tools.strait_wait_for_event.execute({
-      eventKey: "approval.granted",
-      timeoutSecs: 300,
-    });
+    // biome-ignore lint/style/noNonNullAssertion: test assertion
+    const result = await tools.strait_wait_for_event.execute!(
+      {
+        eventKey: "approval.granted",
+        timeoutSecs: 300,
+      },
+      { toolCallId: "tc_4", messages: [], abortSignal: undefined as never }
+    );
 
     expect(result).toHaveProperty("status");
     expect(record.events).toHaveLength(1);
@@ -88,8 +101,16 @@ describe("createStraitTools", () => {
     const { ctx, record } = createTestContext();
     const tools = createStraitTools(ctx);
 
-    await tools.strait_state_set.execute({ key: "counter", value: 42 });
-    const result = await tools.strait_state_get.execute({ key: "counter" });
+    // biome-ignore lint/style/noNonNullAssertion: test assertion
+    await tools.strait_state_set.execute!(
+      { key: "counter", value: 42 },
+      { toolCallId: "tc_5", messages: [], abortSignal: undefined as never }
+    );
+    // biome-ignore lint/style/noNonNullAssertion: test assertion
+    const result = await tools.strait_state_get.execute!(
+      { key: "counter" },
+      { toolCallId: "tc_6", messages: [], abortSignal: undefined as never }
+    );
 
     expect(result).toEqual({ key: "counter", value: 42 });
     expect(record.stateStore.get("counter")).toBe(42);
