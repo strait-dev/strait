@@ -12,6 +12,7 @@ import { render } from "@react-email/render";
 import {
   ConfirmAccount,
   MagicLink,
+  OrganizationInvite,
   ResetPassword,
 } from "@strait/transactional";
 import { betterAuth } from "better-auth";
@@ -98,6 +99,22 @@ export const auth = betterAuth({
     tanstackStartCookies(),
     organization({
       allowUserToCreateOrganization: true,
+      sendInvitationEmail: async (data) => {
+        const inviteLink = `${process.env.BETTER_AUTH_URL}/invitation/${data.id}`;
+        const html = await render(
+          OrganizationInvite({
+            name: data.inviter.user.name,
+            orgName: data.organization.name,
+            inviteLink,
+          })
+        );
+        await resend.emails.send({
+          from: process.env.RESEND_SUPPORT_EMAIL ?? "noreply@strait.dev",
+          to: data.email,
+          subject: `You've been invited to ${data.organization.name}`,
+          html,
+        });
+      },
     }),
     magicLink({
       sendMagicLink: async ({ email, url }) => {
