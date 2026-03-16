@@ -102,10 +102,10 @@ export const auth = betterAuth({
       },
     }),
     passkey({
-      rpID: new URL(process.env.BETTER_AUTH_URL ?? "http://localhost:3000")
+      rpID: new URL(process.env.BETTER_AUTH_URL ?? "http://localhost:5173")
         .hostname,
       rpName: "Strait",
-      origin: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+      origin: process.env.BETTER_AUTH_URL ?? "http://localhost:5173",
     }),
     oneTap(),
     twoFactor(),
