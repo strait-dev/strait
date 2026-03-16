@@ -168,7 +168,7 @@ function RouteComponent() {
       <Sidebar session={session} />
       <SidebarInset>
         <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center border-b bg-background">
-          <div className="w-full px-4">
+          <div className="w-full px-2">
             <div className="flex w-full items-center justify-between">
               <div className="flex items-center gap-3">
                 <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
