@@ -10,10 +10,6 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
 type RunsSearchParams = ListParams & { status?: RunStatus[] };
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
 const BASE_DATE = "2026-03-14T08:00:00Z";
 
 /** Offset a base ISO date by `minutes`. */
@@ -508,10 +504,6 @@ const mockEventsForRun = (runId: string): RunEvent[] => [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Data access functions (mock)
-// ---------------------------------------------------------------------------
-
 // TODO: Replace with real API call
 async function listRuns(
   params: RunsSearchParams
@@ -594,10 +586,6 @@ async function cancelRun(data: {
   return { success: true };
 }
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
-
 export const runsQueryOptions = (search?: RunsSearchParams) =>
   queryOptions({
     queryKey: ["runs", search ?? {}],
@@ -621,10 +609,6 @@ export const runEventsQueryOptions = (runId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 export const useRetryRun = () =>
   useMutation({

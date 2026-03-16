@@ -7,10 +7,6 @@ import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { authClient } from "@/lib/auth-client";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type Account = {
   id: string;
   providerId: string;
@@ -32,10 +28,6 @@ type Session = {
   userAgent: string | null;
 };
 
-// ---------------------------------------------------------------------------
-// Query Options — Accounts
-// ---------------------------------------------------------------------------
-
 /** Query options for fetching linked authentication accounts (Google, GitHub, credential). */
 export const accountsQueryOptions = () =>
   queryOptions({
@@ -51,10 +43,6 @@ export const accountsQueryOptions = () =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Query Options — Passkeys
-// ---------------------------------------------------------------------------
-
 /** Query options for fetching the user's registered WebAuthn passkeys. */
 export const passkeysQueryOptions = () =>
   queryOptions({
@@ -69,10 +57,6 @@ export const passkeysQueryOptions = () =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
-// ---------------------------------------------------------------------------
-// Query Options — Sessions
-// ---------------------------------------------------------------------------
 
 /** Query options for fetching all active sessions and identifying the current one. */
 export const sessionsQueryOptions = () =>
@@ -99,10 +83,6 @@ export const sessionsQueryOptions = () =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-// ---------------------------------------------------------------------------
-// Mutations — Accounts
-// ---------------------------------------------------------------------------
-
 /** Unlinks a social provider from the current user's account. */
 export const useUnlinkAccount = () => {
   const queryClient = useQueryClient();
@@ -121,10 +101,6 @@ export const useUnlinkAccount = () => {
     },
   });
 };
-
-// ---------------------------------------------------------------------------
-// Mutations — Passkeys
-// ---------------------------------------------------------------------------
 
 /** Registers a new WebAuthn passkey for the current user. */
 export const useAddPasskey = () => {
@@ -163,10 +139,6 @@ export const useDeletePasskey = () => {
     },
   });
 };
-
-// ---------------------------------------------------------------------------
-// Mutations — Sessions
-// ---------------------------------------------------------------------------
 
 /** Revokes a specific session by its token. */
 export const useRevokeSession = () => {

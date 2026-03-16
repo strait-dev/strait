@@ -11,10 +11,6 @@ import type {
 } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
 const MOCK_WEBHOOKS: WebhookSubscription[] = [
   {
     id: "wh_001",
@@ -147,10 +143,6 @@ const MOCK_DELIVERIES: WebhookDelivery[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Query helpers
-// ---------------------------------------------------------------------------
-
 function filterWebhooks(
   webhooks: WebhookSubscription[],
   search?: ListParams
@@ -173,10 +165,6 @@ function filterWebhooks(
     page_count: Math.ceil(filtered.length / perPage),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Exports
-// ---------------------------------------------------------------------------
 
 /** Query options for listing webhook subscriptions. */
 export const webhooksQueryOptions = (search?: ListParams) =>

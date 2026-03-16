@@ -6,10 +6,6 @@ import type {
 } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
 const MOCK_EVENTS: RunEvent[] = [
   {
     id: "evt_001",
@@ -103,10 +99,6 @@ const MOCK_EVENTS: RunEvent[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Query helpers
-// ---------------------------------------------------------------------------
-
 function filterEvents(
   events: RunEvent[],
   search?: ListParams & { type?: string }
@@ -133,10 +125,6 @@ function filterEvents(
     page_count: Math.ceil(filtered.length / perPage),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Exports
-// ---------------------------------------------------------------------------
 
 /** Query options for listing run events with optional type filter. */
 export const eventsQueryOptions = (search?: ListParams & { type?: string }) =>

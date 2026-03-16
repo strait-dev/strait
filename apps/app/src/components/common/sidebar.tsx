@@ -45,10 +45,6 @@ import PaymentPendingCard from "../subscription/payment-pending-card";
 import TrialUpgradeCard from "../subscription/trial-upgrade-card";
 import UserDropdownMenu from "./user-dropdown-menu";
 
-// ---------------------------------------------------------------------------
-// Navigation data
-// ---------------------------------------------------------------------------
-
 type NavItem = {
   title: string;
   url: string;
@@ -73,10 +69,6 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
-// ---------------------------------------------------------------------------
-// Environment selector (UI-only stub)
-// ---------------------------------------------------------------------------
-
 type Environment = "production" | "staging" | "development";
 
 const environments: { value: Environment; label: string; dotClass: string }[] =
@@ -97,10 +89,6 @@ const environments: { value: Environment; label: string; dotClass: string }[] =
       dotClass: "bg-chart-2", // blue
     },
   ];
-
-// ---------------------------------------------------------------------------
-// Sidebar component
-// ---------------------------------------------------------------------------
 
 type Props = {
   session: NonNullable<Session>;

@@ -7,10 +7,6 @@ import type {
 } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
 const now = new Date().toISOString();
 const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
 const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
@@ -527,10 +523,6 @@ const MOCK_WORKFLOW_RUNS: Record<string, WorkflowRun[]> = {
   ],
 };
 
-// ---------------------------------------------------------------------------
-// Mock helpers
-// ---------------------------------------------------------------------------
-
 function filterWorkflows(search?: string): PaginatedResponse<Workflow> {
   let filtered = MOCK_WORKFLOWS;
   if (search) {
@@ -556,10 +548,6 @@ function getSteps(workflowId: string): WorkflowStep[] {
 function getRuns(workflowId: string): WorkflowRun[] {
   return MOCK_WORKFLOW_RUNS[workflowId] ?? [];
 }
-
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
 
 /** List workflows, optionally filtered by search string. */
 export const workflowsQueryOptions = (search?: string) =>
@@ -596,10 +584,6 @@ export const workflowRunsQueryOptions = (workflowId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
-// ---------------------------------------------------------------------------
-// Mutations
-// ---------------------------------------------------------------------------
 
 /** Trigger a new run of a workflow. */
 export const useTriggerWorkflow = () =>
