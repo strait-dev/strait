@@ -69,6 +69,30 @@ Strait is designed as a distributed job orchestration service that uses PostgreS
                     │  - Stale reaper    │  streaming   │
                     │  - Event reaper    │              │
                     │  - Retention       │              │
+                    │  - Pool pruner     │              │
+                    └──────────────────────────────────┘
+                               │
+                               v
+                    ┌──────────────────────────────────┐
+                    │  Fly Machines (managed execution) │
+                    │                                    │
+                    │  Warm Pool ─> Start ─> Wait        │
+                    │  Paused   ─> Start ─> Wait        │
+                    │  Cold     ─> Create ─> Wait       │
+                    │                                    │
+                    │  Presets: micro .. large-2x        │
+                    │  auto_destroy=false (reusable)     │
+                    └──────────────────────────────────┘
+                               │
+                               v
+                    ┌──────────────────────────────────┐
+                    │  ClickHouse (optional analytics)  │
+                    │                                    │
+                    │  run_events ── lifecycle timeline  │
+                    │  run_analytics ── run summaries   │
+                    │  compute_usage ── cost tracking    │
+                    │                                    │
+                    │  Async batch export (10s / 100)    │
                     └──────────────────────────────────┘
 ```
 
@@ -101,6 +125,18 @@ The core logic resides in `internal/` directory, organized into specialized pack
   </Card>
   <Card title="scheduler" icon="clock">
     Background components for Cron, delayed polling, stale run reaping, retention, and cost budget enforcement.
+  </Card>
+  <Card title="compute" icon="microchip">
+    Container runtime abstraction for managed execution. Fly Machines and Docker backends, warm machine pool, machine lifecycle (Create, Start, Wait, Stop, Destroy), cost estimation.
+  </Card>
+  <Card title="clickhouse" icon="chart-bar">
+    Optional analytics backend. Async batch export of run events, analytics summaries, and compute usage to ClickHouse for time-series reporting.
+  </Card>
+  <Card title="webhook" icon="bell">
+    Async webhook delivery with retry policies, circuit breaker, HMAC-SHA256 signing, and dead letter tracking.
+  </Card>
+  <Card title="cdc" icon="bolt">
+    Change data capture via Sequin. Polls database changes for real-time event streaming to external consumers.
   </Card>
 </CardGroup>
 
@@ -868,6 +904,98 @@ Strait implements several resilience patterns to protect against cascading failu
 
 For detailed resilience patterns, see [Resilience](/docs/concepts/resilience).
 
+## Managed Container Execution
+
+In addition to HTTP dispatch, Strait supports **managed execution** where jobs run inside ephemeral Fly Machines. This is designed for long-running tasks, custom runtimes, GPU workloads, and isolated execution environments.
+
+### Dispatch Priority
+
+When the executor picks up a managed run, it resolves a machine through a three-tier priority system:
+
+```text
+1. Warm Pool    →  Stopped machine from a previous run (same image + region)
+2. Paused Reuse →  Stopped machine from a paused run (machine_id preserved on row)
+3. Cold Create  →  New Fly Machine provisioned via Fly Machines API
+```
+
+All three paths converge at `Wait(machineID, timeout)`.
+
+### Machine Lifecycle
+
+Managed machines are created with `auto_destroy=false` so Fly does not garbage-collect them on stop. This enables reuse across the warm pool and pause/resume paths. The `Start()` method performs a three-step restart: GET current config, PUT updated environment variables, POST start.
+
+```text
+cold_create ─→ running ─→ stopped ──→ Start() ─→ running (warm start)
+                                   └─→ Destroy()  (eviction/shutdown)
+```
+
+### Warm Machine Pool
+
+The `MachinePool` is an in-memory cache keyed by `"{imageURI}:{region}"`. After a clean exit (exit code 0 and SDK reported completion), the machine is returned to the pool instead of being destroyed. Subsequent dispatches for the same image+region can acquire a stopped machine and restart it in 1-2 seconds instead of the 5-15 second cold create time.
+
+Pool operations:
+- **Acquire**: Pops the oldest machine for a given key (FIFO).
+- **Release**: Pushes a machine. Evicts oldest if at capacity (configurable `maxPer`, default 3).
+- **Prune**: Background goroutine removes machines idle for more than 10 minutes every 5 minutes.
+- **Drain**: On shutdown, all pooled machines are destroyed.
+
+Eviction callbacks are bounded by a semaphore (max 10 concurrent goroutines) with inline fallback to prevent unbounded goroutine growth.
+
+### Pause and Resume
+
+The pause/resume flow preserves the `machine_id` on the run row so that the stopped Fly Machine can be restarted on resume instead of cold-creating a new one:
+
+1. **Pause**: API transitions `executing → paused`, calls `Stop()` on the machine. The `machine_id` is preserved.
+2. **Resume**: API transitions `paused → queued` without clearing `machine_id`.
+3. **Re-dispatch**: Executor sees `run.MachineID != ""`, calls `Start(machineID, freshEnv)`.
+4. **Fallback**: If the machine was deleted (auto-destroy, timeout, manual), falls back to cold create.
+
+### Error Handling
+
+- `ErrMachineGone` (404): Machine was deleted. Caller falls back to Create.
+- Retryable errors (429, 500, 503, connection refused): Run is snoozed with backoff.
+- Fatal errors (422): Run transitions to `system_failed`.
+- Snooze path: Machine is stopped before snoozing to prevent orphaned running containers.
+- Cancel race: If Stop fails during cancel detection, Destroy is called as fallback.
+
+### Compute Cost Tracking
+
+Every managed run records wall-clock compute usage in the `run_compute_usage` table (run ID, project ID, machine preset, duration in seconds, cost in micro-USD). Daily budget enforcement checks the project quota before creating a machine. The budget monitor fires a warning webhook at 80% utilization.
+
+For the full managed execution reference, see [Managed Execution](/docs/concepts/managed-execution).
+
+## ClickHouse Analytics
+
+Strait supports an optional ClickHouse backend for high-performance analytics over run metrics, cost data, and event timelines.
+
+### Architecture
+
+PostgreSQL remains the source of truth for all state. ClickHouse receives denormalized event data via an async batch pipeline. This separation keeps the hot path (queue, FSM transitions) on Postgres while offloading analytical queries to a column-oriented store optimized for aggregation.
+
+### Tables
+
+| Table | Purpose | Engine | TTL | Partition |
+| :--- | :--- | :--- | :--- | :--- |
+| `run_events` | Run lifecycle events with timing | MergeTree | 365 days | Monthly |
+| `run_analytics` | Denormalized run summaries | MergeTree | 365 days | Monthly |
+| `compute_usage` | Managed execution cost records | MergeTree | 90 days | Monthly |
+
+### Data Pipeline
+
+The `clickhouse.Engine` maintains an in-memory buffer that flushes to ClickHouse on two triggers: batch size threshold (default 100) or flush interval (default 10 seconds). Backpressure is handled by capping the buffer at 10x batch size and dropping oldest entries. Graceful shutdown flushes remaining entries.
+
+### Configuration
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `CLICKHOUSE_ENABLED` | `false` | Enable ClickHouse export |
+| `CLICKHOUSE_URL` | — | ClickHouse connection string |
+| `CLICKHOUSE_DATABASE` | `strait` | Target database |
+| `CLICKHOUSE_BATCH_SIZE` | `100` | Flush threshold |
+| `CLICKHOUSE_FLUSH_INTERVAL` | `10s` | Max time between flushes |
+
+For the full ClickHouse reference, see [ClickHouse Analytics](/docs/concepts/clickhouse-analytics).
+
 ## Related Documentation
 
 - [Introduction](/docs/introduction) — Product overview and key features
@@ -877,6 +1005,8 @@ For detailed resilience patterns, see [Resilience](/docs/concepts/resilience).
 - [Workflows](/docs/concepts/workflows) — DAG orchestration details
 - [DAG Runtime](/docs/concepts/dag-runtime) — Detailed DAG scheduler behavior, explainability, policy enforcement, and recovery controls
 - [DAG Operations Playbook](/docs/guides/dag-operations-playbook) — On-call triage, recovery, and hardening runbook for DAG incidents
+- [Managed Execution](/docs/concepts/managed-execution) — Fly Machines container runtime, warm pool, pause/resume
+- [ClickHouse Analytics](/docs/concepts/clickhouse-analytics) — Optional analytics backend for run metrics and cost tracking
 - [Event Triggers](/docs/concepts/event-triggers) — Durable external event waits
 - [CDC](/docs/concepts/cdc) — Real-time change data capture
 - [Resilience](/docs/concepts/resilience) — Circuit breaker, rate limiting, and graceful degradation

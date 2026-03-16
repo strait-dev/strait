@@ -17,11 +17,14 @@ If instructions conflict, use this priority order:
 - **Language**: Go 1.26
 - **Module**: `strait`
 - **Purpose**: Job execution/orchestration platform with:
-  - job definitions and triggering
-  - run lifecycle management (FSM)
-  - workflow DAG orchestration
-  - SDK endpoints for in-run operations
-  - observability/metrics/tracing
+  - job definitions and triggering (HTTP dispatch + managed container execution)
+  - run lifecycle management (13-state FSM with pause/resume)
+  - workflow DAG orchestration (steps, approvals, sub-workflows, wait-for-event)
+  - managed execution on Fly Machines (warm pool, pause/resume reuse, cost tracking)
+  - SDK endpoints for in-run operations (progress, checkpoint, completion)
+  - ClickHouse analytics (optional, for run metrics and cost reporting)
+  - webhook delivery with retry, circuit breaker, and HMAC signing
+  - observability/metrics/tracing (OpenTelemetry + Prometheus)
 
 Runtime modes:
 - `api` (HTTP API)
@@ -49,10 +52,19 @@ Top-level directories you will use most:
 - `apps/strait/internal/api/` — HTTP routes, middleware, API auth paths
 - `apps/strait/internal/worker/` — execution worker pool and dispatch behavior
 - `apps/strait/internal/workflow/` — DAG orchestration engine and step progression
-- `apps/strait/internal/scheduler/` — cron/poller/reaper/retention background loops
+- `apps/strait/internal/compute/` — container runtime abstraction (Fly Machines, Docker), warm machine pool, machine lifecycle, cost estimation
+- `apps/strait/internal/scheduler/` — cron/poller/reaper/retention/pool-pruner background loops
 - `apps/strait/internal/queue/` — dequeue/queue logic and concurrency-safe claiming
 - `apps/strait/internal/store/` — raw SQL data access layer
 - `apps/strait/internal/domain/` — domain models, FSM types/errors
+- `apps/strait/internal/clickhouse/` — optional ClickHouse analytics export (run events, analytics, compute usage)
+- `apps/strait/internal/webhook/` — async webhook delivery with retry, circuit breaker, HMAC signing
+- `apps/strait/internal/cdc/` — change data capture via Sequin for real-time event streaming
+- `apps/strait/internal/pubsub/` — Redis-backed pub/sub for SSE streaming and event notifications
+- `apps/strait/internal/logdrain/` — external log forwarding (HTTP, Datadog, Splunk)
+- `apps/strait/internal/ratelimit/` — per-job and per-API rate limiting
+- `apps/strait/internal/crypto/` — secret encryption, API key hashing, signature verification
+- `apps/strait/internal/telemetry/` — OpenTelemetry tracing and Prometheus metrics
 - `apps/strait/internal/config/` — env var loading/defaults/validation
 - `apps/strait/internal/testutil/` — factories/assert helpers/cmp tools
 - `apps/strait/migrations/` — SQL migrations (embedded in binary)
@@ -101,6 +113,21 @@ Before implementation, read docs intentionally instead of guessing.
 - **Auth / security changes**:
   - `docs/guides/authentication.mdx`
   - `docs/guides/security.mdx`
+
+- **Managed execution / Fly Machines / compute**:
+  - `docs/concepts/managed-execution.mdx`
+  - `apps/strait/internal/compute/*`
+  - `apps/strait/internal/worker/executor_dispatch.go` (managedDispatch function)
+  - `apps/strait/internal/worker/executor.go` (pool wiring, pruner, shutdown drain)
+
+- **ClickHouse / analytics**:
+  - `docs/concepts/clickhouse-analytics.mdx`
+  - `apps/strait/internal/clickhouse/*`
+
+- **Webhooks / event delivery**:
+  - `docs/concepts/webhooks.mdx`
+  - `docs/concepts/webhook-subscriptions.mdx`
+  - `apps/strait/internal/webhook/*`
 
 - **Testing strategy**:
   - `docs/development/testing.mdx`
@@ -469,6 +496,10 @@ A change is done only when all apply:
 - `README.md`
 - `docs/architecture.mdx`
 - `docs/quickstart.mdx`
+- `docs/concepts/managed-execution.mdx`
+- `docs/concepts/clickhouse-analytics.mdx`
+- `docs/concepts/workflows.mdx`
+- `docs/concepts/runs.mdx`
 - `docs/development/contributing.mdx`
 - `docs/development/testing.mdx`
 - `docs/development/database-schema.mdx`
