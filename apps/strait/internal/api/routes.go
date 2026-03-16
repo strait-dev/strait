@@ -274,6 +274,16 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 
+		r.Route("/deployments", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/", s.handleCreateDeploymentVersion)
+			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/", s.handleListDeploymentVersions)
+			r.Route("/{deploymentID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/finalize", s.handleFinalizeDeploymentVersion)
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/promote", s.handlePromoteDeploymentVersion)
+				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/rollback", s.handleRollbackDeploymentVersion)
+			})
+		})
+
 		r.Route("/event-sources", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListEventSources)
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateEventSource)

@@ -1,0 +1,45 @@
+name: SDK TypeScript CI
+
+on:
+  push:
+    paths:
+      - "packages/typescript-sdk/**"
+  pull_request:
+    paths:
+      - "packages/typescript-sdk/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-typescript-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Lint
+        working-directory: packages/typescript-sdk
+        run: bun run lint
+
+      - name: Typecheck
+        working-directory: packages/typescript-sdk
+        run: bun run typecheck
+
+      - name: Build
+        working-directory: packages/typescript-sdk
+        run: bun run build
+
+      - name: Test
+        working-directory: packages/typescript-sdk
+        run: bun test

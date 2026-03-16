@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "display": "@strait/mail",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["."],
+  "exclude": ["node_modules"]
+}

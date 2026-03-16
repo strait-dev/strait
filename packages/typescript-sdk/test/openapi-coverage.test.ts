@@ -1,0 +1,59 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { generatedOperations } from "../src/internal/contracts/_generated/contracts";
+
+const lineBreakPattern = /\r?\n/;
+const pathDeclarationPattern = /^ {2}(\/[^:]+):\s*$/;
+const methodDeclarationPattern = /^ {4}(get|post|put|patch|delete):\s*$/i;
+
+const parsePathMethods = (
+  source: string
+): ReadonlyArray<{ readonly method: string; readonly path: string }> => {
+  const lines = source.split(lineBreakPattern);
+
+  const items: Array<{ method: string; path: string }> = [];
+
+  let inPaths = false;
+  let currentPath = "";
+
+  for (const line of lines) {
+    if (!inPaths) {
+      if (line === "paths:") {
+        inPaths = true;
+      }
+      continue;
+    }
+
+    const pathMatch = line.match(pathDeclarationPattern);
+    if (pathMatch) {
+      currentPath = pathMatch[1];
+      continue;
+    }
+
+    const methodMatch = line.match(methodDeclarationPattern);
+    if (methodMatch && currentPath) {
+      items.push({ method: methodMatch[1].toUpperCase(), path: currentPath });
+    }
+  }
+
+  return items;
+};
+
+describe("generated contracts", () => {
+  test("cover every OpenAPI path/method pair", () => {
+    const openApiPath = resolve(import.meta.dir, "../../../docs/openapi.yaml");
+    const openApiSource = readFileSync(openApiPath, "utf-8");
+
+    const openApiPairs = parsePathMethods(openApiSource).map(
+      (item) => `${item.method} ${item.path}`
+    );
+    const generatedPairs = generatedOperations.map(
+      (operation) => `${operation.method} ${operation.path}`
+    );
+
+    expect(new Set(generatedPairs)).toEqual(new Set(openApiPairs));
+    expect(Number(generatedOperations.length)).toBe(openApiPairs.length);
+  });
+});

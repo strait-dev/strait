@@ -1937,6 +1937,140 @@ paths:
         '200':
           description: Step force-completed
 
+  /v1/deployments:
+    post:
+      tags: [Deployments]
+      summary: Create deployment version
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeploymentVersionRequest'
+      responses:
+        '201':
+          description: Deployment version created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentVersion'
+    get:
+      tags: [Deployments]
+      summary: List deployment versions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: environment
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Deployment versions list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListDeploymentVersionsResponse'
+
+  /v1/deployments/{deploymentID}/finalize:
+    post:
+      tags: [Deployments]
+      summary: Finalize deployment version
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deploymentID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentVersionMutationRequest'
+      responses:
+        '200':
+          description: Deployment version finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentVersion'
+
+  /v1/deployments/{deploymentID}/promote:
+    post:
+      tags: [Deployments]
+      summary: Promote deployment version
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deploymentID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentVersionMutationRequest'
+      responses:
+        '200':
+          description: Deployment version promoted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentVersion'
+
+  /v1/deployments/{deploymentID}/rollback:
+    post:
+      tags: [Deployments]
+      summary: Rollback deployment to selected version
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deploymentID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentVersionMutationRequest'
+      responses:
+        '200':
+          description: Deployment version rolled back/promoted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentVersion'
+
   /v1/api-keys:
     get:
       tags:
@@ -5639,6 +5773,88 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TagPolicy'
+        next_cursor:
+          type: string
+          format: date-time
+        has_more:
+          type: boolean
+
+    CreateDeploymentVersionRequest:
+      type: object
+      required: [project_id, environment, runtime, artifact_uri]
+      properties:
+        project_id:
+          type: string
+        environment:
+          type: string
+        runtime:
+          type: string
+          enum: [node, bun]
+        artifact_uri:
+          type: string
+          format: uri
+        manifest:
+          type: object
+          additionalProperties: true
+        checksum:
+          type: string
+
+    DeploymentVersionMutationRequest:
+      type: object
+      required: [project_id, environment]
+      properties:
+        project_id:
+          type: string
+        environment:
+          type: string
+
+    DeploymentVersion:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        environment:
+          type: string
+        runtime:
+          type: string
+        artifact_uri:
+          type: string
+        manifest:
+          type: object
+          additionalProperties: true
+        checksum:
+          type: string
+        status:
+          type: string
+          enum: [draft, finalized, promoted]
+        finalized_at:
+          type: string
+          format: date-time
+        promoted_at:
+          type: string
+          format: date-time
+        rollback_from_deployment_id:
+          type: string
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ListDeploymentVersionsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentVersion'
         next_cursor:
           type: string
           format: date-time

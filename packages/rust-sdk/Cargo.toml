@@ -1,0 +1,18 @@
+[package]
+name = "strait-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "Official Rust SDK for the Strait job orchestration platform"
+license = "MIT"
+repository = "https://github.com/strait-dev/rust-sdk"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"
+
+[dev-dependencies]
+mockito = "1"
+tokio-test = "0.4"

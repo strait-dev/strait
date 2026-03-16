@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strait.dev/schema.json",
+  "title": "Strait Configuration",
+  "description": "Universal configuration file for Strait SDKs and CLI.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE autocomplete."
+    },
+    "project": {
+      "type": "object",
+      "description": "Project identification.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Strait project ID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable project name (display only)."
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+    "sdk": {
+      "type": "object",
+      "description": "SDK client configuration.",
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "API base URL. Overridden by STRAIT_BASE_URL env var."
+        },
+        "auth_type": {
+          "type": "string",
+          "enum": ["bearer", "apiKey", "runToken"],
+          "default": "apiKey",
+          "description": "Authentication strategy. Overridden by STRAIT_AUTH_TYPE env var."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 30000,
+          "description": "Request timeout in milliseconds. Overridden by STRAIT_TIMEOUT_MS env var."
+        }
+      },
+      "additionalProperties": false
+    },
+    "src": {
+      "type": "string",
+      "default": "src",
+      "description": "Source directory scanned by the CLI for job/workflow definitions."
+    },
+    "runtime": {
+      "type": "string",
+      "enum": ["node", "bun"],
+      "default": "node",
+      "description": "Hosted runtime kind used by the CLI build step."
+    },
+    "build": {
+      "type": "object",
+      "description": "Build output configuration.",
+      "properties": {
+        "out_dir": {
+          "type": "string",
+          "default": ".strait",
+          "description": "Directory for compiled build output."
+        }
+      },
+      "additionalProperties": false
+    },
+    "deploy": {
+      "type": "object",
+      "description": "Deployment configuration.",
+      "properties": {
+        "default_environment": {
+          "type": "string",
+          "description": "Default deployment target environment."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["project"],
+  "additionalProperties": false
+}
