@@ -3263,3 +3263,81 @@ func TestHandlePauseWorkflowRun_TerminalState(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
+	t.Parallel()
+
+	webhookCreated := false
+	getCalls := 0
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			}
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listWebhookSubscriptionsFn: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
+			return []domain.WebhookSubscription{
+				{ID: "sub-1", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{"workflow_run.pause"}, Active: true},
+			}, nil
+		},
+		createWebhookDeliveryFn: func(_ context.Context, d *domain.WebhookDelivery) error {
+			webhookCreated = true
+			if d.WebhookURL != "https://example.com/hook" {
+				t.Errorf("expected webhook URL, got %s", d.WebhookURL)
+			}
+			return nil
+		},
+	}
+
+	pub := &mockPublisher{}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Give the background goroutine a moment to complete.
+	time.Sleep(100 * time.Millisecond)
+
+	if !webhookCreated {
+		t.Error("expected webhook delivery to be created for pause event")
+	}
+}
+
+func TestPublishWorkflowRunHook_NilDelivery(t *testing.T) {
+	t.Parallel()
+
+	getCalls := 0
+	ms := &mockAPIStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			getCalls++
+			if getCalls == 1 {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			}
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listWebhookSubscriptionsFn: func(_ context.Context, _ string) ([]domain.WebhookSubscription, error) {
+			return nil, nil // No subscriptions
+		},
+	}
+
+	pub := &mockPublisher{}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
+
+	// Should succeed without panic when no webhook subscriptions exist.
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}

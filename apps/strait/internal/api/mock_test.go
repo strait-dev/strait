@@ -71,6 +71,7 @@ type mockAPIStore struct {
 	createWebhookSubscriptionFn          func(ctx context.Context, sub *domain.WebhookSubscription) error
 	listWebhookSubscriptionsFn           func(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	deleteWebhookSubscriptionFn          func(ctx context.Context, id string) error
+	createWebhookDeliveryFn              func(ctx context.Context, d *domain.WebhookDelivery) error
 	createAPIKeyFn                       func(ctx context.Context, key *domain.APIKey) error
 	listAPIKeysByProjectFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
 	revokeAPIKeyFn                       func(ctx context.Context, id string) error
@@ -1534,7 +1535,10 @@ func (m *mockAPIStore) DeleteRunState(ctx context.Context, runID, key string) er
 	}
 	return nil
 }
-func (m *mockAPIStore) CreateWebhookDelivery(_ context.Context, _ *domain.WebhookDelivery) error {
+func (m *mockAPIStore) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error {
+	if m.createWebhookDeliveryFn != nil {
+		return m.createWebhookDeliveryFn(ctx, d)
+	}
 	return nil
 }
 func (m *mockAPIStore) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
