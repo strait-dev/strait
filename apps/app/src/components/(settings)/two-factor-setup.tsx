@@ -15,6 +15,7 @@ import {
 } from "@strait/ui/components/input-otp";
 import { PasswordInput } from "@strait/ui/components/password-input";
 import { toast } from "@strait/ui/components/toast/index";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { LoadingIcon } from "@/lib/icons";
@@ -24,10 +25,10 @@ type SetupStep = "idle" | "qr" | "verify" | "backup-codes" | "disable";
 
 type Props = {
   enabled: boolean;
-  onStatusChange: () => void;
 };
 
-const TwoFactorSetup = ({ enabled, onStatusChange }: Props) => {
+const TwoFactorSetup = ({ enabled }: Props) => {
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<SetupStep>("idle");
   const [password, setPassword] = useState("");
   const [totpUri, setTotpUri] = useState("");
@@ -85,14 +86,14 @@ const TwoFactorSetup = ({ enabled, onStatusChange }: Props) => {
       }
 
       setStep("backup-codes");
-      onStatusChange();
+      queryClient.invalidateQueries({ queryKey: ["auth"] });
     } catch (err) {
       captureException(err);
       toast.error("Verification failed.");
     } finally {
       setIsLoading(false);
     }
-  }, [verifyCode, onStatusChange]);
+  }, [verifyCode, queryClient]);
 
   const handleDisable = useCallback(async () => {
     if (!password) {
@@ -116,14 +117,14 @@ const TwoFactorSetup = ({ enabled, onStatusChange }: Props) => {
       toast.success("Two-factor authentication disabled.");
       setStep("idle");
       setPassword("");
-      onStatusChange();
+      queryClient.invalidateQueries({ queryKey: ["auth"] });
     } catch (err) {
       captureException(err);
       setError("Something went wrong.");
     } finally {
       setIsLoading(false);
     }
-  }, [password, onStatusChange]);
+  }, [password, queryClient]);
 
   if (step === "qr") {
     return (

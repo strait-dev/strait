@@ -8,111 +8,57 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
-import { useCallback, useEffect, useState } from "react";
-import { authClient } from "@/lib/auth-client";
+import {
+  useRevokeAllSessions,
+  useRevokeOtherSessions,
+  useRevokeSession,
+  useSessions,
+} from "@/hooks/auth/use-account";
 import { GlobeIcon, LoadingIcon, LogOutIcon } from "@/lib/icons";
-import { captureException } from "@/lib/sentry";
-
-type Session = {
-  id: string;
-  token: string;
-  createdAt: string | Date;
-  updatedAt: string | Date;
-  ipAddress: string | null;
-  userAgent: string | null;
-};
 
 const SessionManagement = () => {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentToken, setCurrentToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [revokingToken, setRevokingToken] = useState<string | null>(null);
-  const [isRevokingAll, setIsRevokingAll] = useState(false);
-  const [isSigningOutAll, setIsSigningOutAll] = useState(false);
+  const { data, isLoading } = useSessions();
+  const revokeSession = useRevokeSession();
+  const revokeOtherSessions = useRevokeOtherSessions();
+  const revokeAllSessions = useRevokeAllSessions();
 
-  const fetchSessions = useCallback(async () => {
-    try {
-      const [sessionsResult, sessionResult] = await Promise.all([
-        authClient.listSessions(),
-        authClient.getSession(),
-      ]);
-      if (sessionsResult.data) {
-        setSessions(sessionsResult.data as unknown as Session[]);
-      }
-      if (sessionResult.data?.session) {
-        setCurrentToken(sessionResult.data.session.token);
-      }
-    } catch (error) {
-      captureException(error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
+  const sessions = data?.sessions ?? [];
+  const currentToken = data?.currentToken ?? null;
 
   const handleRevoke = async (token: string) => {
-    setRevokingToken(token);
     try {
-      const result = await authClient.revokeSession({ token });
-
-      if (result.error) {
-        toast.error(result.error.message ?? "Failed to revoke session.");
-        setRevokingToken(null);
-        return;
-      }
-
+      await revokeSession.mutateAsync(token);
       toast.success("Session revoked.");
-      await fetchSessions();
     } catch (error) {
-      captureException(error);
-      toast.error("Failed to revoke session.");
-    } finally {
-      setRevokingToken(null);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to revoke session."
+      );
     }
   };
 
   const handleRevokeAll = async () => {
-    setIsRevokingAll(true);
     try {
-      const result = await authClient.revokeOtherSessions();
-
-      if (result.error) {
-        toast.error(result.error.message ?? "Failed to revoke other sessions.");
-        setIsRevokingAll(false);
-        return;
-      }
-
+      await revokeOtherSessions.mutateAsync();
       toast.success("All other sessions revoked.");
-      await fetchSessions();
     } catch (error) {
-      captureException(error);
-      toast.error("Failed to revoke sessions.");
-    } finally {
-      setIsRevokingAll(false);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to revoke other sessions."
+      );
     }
   };
 
   const handleSignOutEverywhere = async () => {
-    setIsSigningOutAll(true);
     try {
-      const result = await authClient.revokeSessions();
-
-      if (result.error) {
-        toast.error(
-          result.error.message ?? "Failed to sign out of all sessions."
-        );
-        setIsSigningOutAll(false);
-        return;
-      }
-
+      await revokeAllSessions.mutateAsync();
       window.location.href = "/login";
     } catch (error) {
-      captureException(error);
-      toast.error("Failed to sign out of all sessions.");
-      setIsSigningOutAll(false);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to sign out of all sessions."
+      );
     }
   };
 
@@ -158,12 +104,12 @@ const SessionManagement = () => {
           <div className="flex gap-2">
             {sessions.length > 1 && (
               <Button
-                disabled={isRevokingAll}
+                disabled={revokeOtherSessions.isPending}
                 onClick={handleRevokeAll}
                 size="sm"
                 variant="outline"
               >
-                {isRevokingAll ? (
+                {revokeOtherSessions.isPending ? (
                   <HugeiconsIcon
                     className="size-3 animate-spin"
                     icon={LoadingIcon}
@@ -173,12 +119,12 @@ const SessionManagement = () => {
               </Button>
             )}
             <Button
-              disabled={isSigningOutAll}
+              disabled={revokeAllSessions.isPending}
               onClick={handleSignOutEverywhere}
               size="sm"
               variant="destructive"
             >
-              {isSigningOutAll ? (
+              {revokeAllSessions.isPending ? (
                 <HugeiconsIcon
                   className="size-3 animate-spin"
                   icon={LoadingIcon}
@@ -205,6 +151,10 @@ const SessionManagement = () => {
           <div className="flex flex-col gap-3">
             {sessions.map((session) => {
               const isCurrent = session.token === currentToken;
+              const isRevoking =
+                revokeSession.isPending &&
+                revokeSession.variables === session.token;
+
               return (
                 <div
                   className="flex items-center justify-between rounded-md border p-3"
@@ -232,12 +182,12 @@ const SessionManagement = () => {
                   </div>
                   {!isCurrent && (
                     <Button
-                      disabled={revokingToken === session.token}
+                      disabled={isRevoking}
                       onClick={() => handleRevoke(session.token)}
                       size="sm"
                       variant="outline"
                     >
-                      {revokingToken === session.token ? (
+                      {isRevoking ? (
                         <HugeiconsIcon
                           className="size-3 animate-spin"
                           icon={LoadingIcon}

@@ -8,16 +8,11 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useAccounts, useUnlinkAccount } from "@/hooks/auth/use-account";
 import { authClient } from "@/lib/auth-client";
 import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
-
-type Account = {
-  id: string;
-  providerId: string;
-  accountId: string;
-};
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Google",
@@ -28,29 +23,9 @@ const PROVIDER_LABELS: Record<string, string> = {
 const LINKABLE_PROVIDERS = ["google", "github"] as const;
 
 const LinkedAccounts = () => {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: accounts = [], isLoading } = useAccounts();
+  const unlinkAccount = useUnlinkAccount();
   const [linkingProvider, setLinkingProvider] = useState<string | null>(null);
-  const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(
-    null
-  );
-
-  const fetchAccounts = useCallback(async () => {
-    try {
-      const result = await authClient.listAccounts();
-      if (result.data) {
-        setAccounts(result.data as unknown as Account[]);
-      }
-    } catch (error) {
-      captureException(error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAccounts();
-  }, [fetchAccounts]);
 
   const linkedProviders = new Set(accounts.map((a) => a.providerId));
 
@@ -69,7 +44,6 @@ const LinkedAccounts = () => {
   };
 
   const handleUnlink = async (provider: string) => {
-    // Ensure at least one other sign-in method remains
     const remainingAccounts = accounts.filter((a) => a.providerId !== provider);
     if (remainingAccounts.length === 0) {
       toast.error(
@@ -78,28 +52,15 @@ const LinkedAccounts = () => {
       return;
     }
 
-    setUnlinkingProvider(provider);
     try {
-      const result = await authClient.unlinkAccount({
-        providerId: provider,
-      });
-
-      if (result.error) {
-        toast.error(
-          result.error.message ??
-            `Failed to unlink ${PROVIDER_LABELS[provider] ?? provider}.`
-        );
-        setUnlinkingProvider(null);
-        return;
-      }
-
+      await unlinkAccount.mutateAsync(provider);
       toast.success(`${PROVIDER_LABELS[provider] ?? provider} unlinked.`);
-      await fetchAccounts();
     } catch (error) {
-      captureException(error);
-      toast.error(`Failed to unlink ${PROVIDER_LABELS[provider] ?? provider}.`);
-    } finally {
-      setUnlinkingProvider(null);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : `Failed to unlink ${PROVIDER_LABELS[provider] ?? provider}.`
+      );
     }
   };
 
@@ -112,17 +73,19 @@ const LinkedAccounts = () => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
             Loading accounts...
           </div>
-        ) : (
+        )}
+        {!isLoading && (
           <div className="flex flex-col gap-3">
             {LINKABLE_PROVIDERS.map((provider) => {
               const isLinked = linkedProviders.has(provider);
-              const isProcessing =
-                linkingProvider === provider || unlinkingProvider === provider;
+              const isUnlinking =
+                unlinkAccount.isPending && unlinkAccount.variables === provider;
+              const isProcessing = linkingProvider === provider || isUnlinking;
 
               return (
                 <div
