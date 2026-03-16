@@ -101,6 +101,7 @@ type Executor struct {
 	containerRuntime         compute.ContainerRuntime
 	managedSemaphore         *semaphore.Weighted
 	externalAPIURL           string
+	defaultFlyRegion         string
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -143,6 +144,7 @@ type ExecutorConfig struct {
 	ContainerRuntime           compute.ContainerRuntime
 	ExternalAPIURL             string
 	MaxConcurrentMachines      int
+	DefaultFlyRegion           string
 }
 
 const (
@@ -216,6 +218,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		containerRuntime:         cfg.ContainerRuntime,
 		managedSemaphore:         managedSem,
 		externalAPIURL:           cfg.ExternalAPIURL,
+		defaultFlyRegion:         cfg.DefaultFlyRegion,
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}

@@ -800,3 +800,190 @@ func TestManagedDispatch_Labels(t *testing.T) {
 		t.Errorf("expected timeout 300, got %d", capturedReq.TimeoutSecs)
 	}
 }
+
+// Test 17: Fly 429 → retryable, classified with 10s backoff.
+func TestManagedDispatch_Fly429_Classified(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewRetryableError(429, "rate limited", nil)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	// Should snooze (not system_failed) because it's retryable.
+	updates := store.statusUpdates()
+	var snoozed bool
+	for _, u := range updates {
+		if u.to == domain.StatusQueued {
+			snoozed = true
+		}
+	}
+	if !snoozed {
+		t.Error("expected snooze for 429 retryable error")
+	}
+}
+
+// Test 18: Fly 503 → retryable, 30s backoff.
+func TestManagedDispatch_Fly503_Classified(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewRetryableError(503, "capacity unavailable", nil)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	updates := store.statusUpdates()
+	var snoozed bool
+	for _, u := range updates {
+		if u.to == domain.StatusQueued {
+			snoozed = true
+		}
+	}
+	if !snoozed {
+		t.Error("expected snooze for 503 retryable error")
+	}
+}
+
+// Test 19: Fly 422 → fatal, no retry.
+func TestManagedDispatch_Fly422_Fatal(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewFatalError(422, "invalid config", nil)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	updates := store.statusUpdates()
+	var foundSystemFailed bool
+	for _, u := range updates {
+		if u.to == domain.StatusSystemFailed {
+			foundSystemFailed = true
+		}
+	}
+	if !foundSystemFailed {
+		t.Error("expected system_failed for 422 fatal error")
+	}
+}
+
+// Test 20: Empty job.Region → config default used.
+func TestManagedDispatch_RegionFallback_ConfigDefault(t *testing.T) {
+	t.Parallel()
+
+	var capturedReq compute.RunRequest
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = "" // no job-level region
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedReq.Region != "iad" {
+		t.Errorf("expected region iad (config default), got %q", capturedReq.Region)
+	}
+}
+
+// Test 21: Job region set → used directly, not overridden by default.
+func TestManagedDispatch_RegionFallback_JobRegionUsed(t *testing.T) {
+	t.Parallel()
+
+	var capturedReq compute.RunRequest
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = "lhr" // explicit job region
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedReq.Region != "lhr" {
+		t.Errorf("expected region lhr (job region), got %q", capturedReq.Region)
+	}
+}
+
+// Test 22: Non-RuntimeError → generic handling unchanged.
+func TestManagedDispatch_NonRuntimeError_GenericHandling(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", fmt.Errorf("network timeout")
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	updates := store.statusUpdates()
+	var foundSystemFailed bool
+	for _, u := range updates {
+		if u.to == domain.StatusSystemFailed {
+			foundSystemFailed = true
+		}
+	}
+	if !foundSystemFailed {
+		t.Error("expected system_failed for generic non-RuntimeError")
+	}
+}

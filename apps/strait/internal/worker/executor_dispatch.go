@@ -390,11 +390,17 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env[key] = secret.EncryptedValue
 	}
 
-	// 7. Create the container (non-blocking).
+	// 7. Resolve region: job config > executor default.
+	region := job.Region
+	if region == "" {
+		region = e.defaultFlyRegion
+	}
+
+	// 8. Create the container (non-blocking).
 	runReq := compute.RunRequest{
 		ImageURI:      job.ImageURI,
 		MachinePreset: string(job.MachinePreset),
-		Region:        job.Region,
+		Region:        region,
 		Env:           env,
 		Labels: map[string]string{
 			"run_id":     run.ID,
@@ -406,6 +412,16 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 
 	machineID, createErr := e.containerRuntime.Create(ctx, runReq)
 	if createErr != nil {
+		// Fly-specific error classification for observability.
+		var re *compute.RuntimeError
+		if errors.As(createErr, &re) && re.StatusCode > 0 {
+			retryable, fatal, backoffSecs := compute.ClassifyFlyError(re.StatusCode)
+			e.logger.Warn("fly error classified",
+				"run_id", run.ID, "status_code", re.StatusCode,
+				"retryable", retryable, "fatal", fatal, "backoff_secs", backoffSecs,
+			)
+		}
+
 		if compute.IsRetryable(createErr) {
 			backoff := compute.BackoffHint(createErr)
 			retryAt := time.Now().Add(backoff)
