@@ -136,6 +136,18 @@ type Config struct {
 	FlyRegion             string `mapstructure:"FLY_REGION"`              // Default Fly region
 	ExternalAPIURL        string `mapstructure:"EXTERNAL_API_URL"`        // Public API URL for SDK callbacks
 	MaxConcurrentMachines int    `mapstructure:"MAX_CONCURRENT_MACHINES"` // Max parallel containers
+
+	// ClickHouse (optional analytics)
+	ClickHouseEnabled       bool          `mapstructure:"CLICKHOUSE_ENABLED"`
+	ClickHouseURL           string        `mapstructure:"CLICKHOUSE_URL"`
+	ClickHouseDatabase      string        `mapstructure:"CLICKHOUSE_DATABASE"`
+	ClickHouseBatchSize     int           `mapstructure:"CLICKHOUSE_BATCH_SIZE"`
+	ClickHouseFlushInterval time.Duration `mapstructure:"CLICKHOUSE_FLUSH_INTERVAL"`
+	ClickHouseExportEnabled bool          `mapstructure:"CLICKHOUSE_EXPORT_ENABLED"`
+
+	// OTel metrics push
+	OTLPMetricEndpoint string `mapstructure:"OTLP_METRIC_ENDPOINT"`
+	OTLPMetricEnabled  bool   `mapstructure:"OTLP_METRIC_ENABLED"`
 }
 
 func setDefaults() {
@@ -219,6 +231,12 @@ func setDefaults() {
 	viper.SetDefault("COMPUTE_RUNTIME", "none")
 	viper.SetDefault("FLY_REGION", "iad")
 	viper.SetDefault("MAX_CONCURRENT_MACHINES", 10)
+	viper.SetDefault("CLICKHOUSE_ENABLED", false)
+	viper.SetDefault("CLICKHOUSE_DATABASE", "strait")
+	viper.SetDefault("CLICKHOUSE_BATCH_SIZE", 1000)
+	viper.SetDefault("CLICKHOUSE_FLUSH_INTERVAL", 5*time.Second)
+	viper.SetDefault("CLICKHOUSE_EXPORT_ENABLED", false)
+	viper.SetDefault("OTLP_METRIC_ENABLED", false)
 }
 
 func BindEnv() error {
@@ -254,6 +272,9 @@ func BindEnv() error {
 		"DEQUEUE_STRATEGY",
 		"COMPUTE_RUNTIME", "FLY_API_TOKEN", "FLY_APP_NAME", "FLY_REGION",
 		"EXTERNAL_API_URL", "MAX_CONCURRENT_MACHINES",
+		"CLICKHOUSE_ENABLED", "CLICKHOUSE_URL", "CLICKHOUSE_DATABASE",
+		"CLICKHOUSE_BATCH_SIZE", "CLICKHOUSE_FLUSH_INTERVAL", "CLICKHOUSE_EXPORT_ENABLED",
+		"OTLP_METRIC_ENDPOINT", "OTLP_METRIC_ENABLED",
 	}
 
 	for _, key := range keys {
@@ -345,6 +366,14 @@ func Load() (*Config, error) {
 	cfg.FlyRegion = viper.GetString("FLY_REGION")
 	cfg.ExternalAPIURL = viper.GetString("EXTERNAL_API_URL")
 	cfg.MaxConcurrentMachines = viper.GetInt("MAX_CONCURRENT_MACHINES")
+	cfg.ClickHouseEnabled = viper.GetBool("CLICKHOUSE_ENABLED")
+	cfg.ClickHouseURL = viper.GetString("CLICKHOUSE_URL")
+	cfg.ClickHouseDatabase = viper.GetString("CLICKHOUSE_DATABASE")
+	cfg.ClickHouseBatchSize = viper.GetInt("CLICKHOUSE_BATCH_SIZE")
+	cfg.ClickHouseFlushInterval = viper.GetDuration("CLICKHOUSE_FLUSH_INTERVAL")
+	cfg.ClickHouseExportEnabled = viper.GetBool("CLICKHOUSE_EXPORT_ENABLED")
+	cfg.OTLPMetricEndpoint = viper.GetString("OTLP_METRIC_ENDPOINT")
+	cfg.OTLPMetricEnabled = viper.GetBool("OTLP_METRIC_ENABLED")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
