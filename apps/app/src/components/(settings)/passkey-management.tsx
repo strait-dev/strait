@@ -8,15 +8,16 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
+import { useQuery } from "@tanstack/react-query";
 import {
+  passkeysQueryOptions,
   useAddPasskey,
   useDeletePasskey,
-  usePasskeys,
 } from "@/hooks/auth/use-account";
 import { KeyIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
 
 const PasskeyManagement = () => {
-  const { data: passkeys = [], isLoading } = usePasskeys();
+  const { data: passkeys = [], isLoading } = useQuery(passkeysQueryOptions());
   const addPasskey = useAddPasskey();
   const deletePasskey = useDeletePasskey();
 

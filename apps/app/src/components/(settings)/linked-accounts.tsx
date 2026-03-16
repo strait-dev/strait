@@ -8,8 +8,12 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { useAccounts, useUnlinkAccount } from "@/hooks/auth/use-account";
+import {
+  accountsQueryOptions,
+  useUnlinkAccount,
+} from "@/hooks/auth/use-account";
 import { authClient } from "@/lib/auth-client";
 import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
@@ -23,7 +27,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 const LINKABLE_PROVIDERS = ["google", "github"] as const;
 
 const LinkedAccounts = () => {
-  const { data: accounts = [], isLoading } = useAccounts();
+  const { data: accounts = [], isLoading } = useQuery(accountsQueryOptions());
   const unlinkAccount = useUnlinkAccount();
   const [linkingProvider, setLinkingProvider] = useState<string | null>(null);
 

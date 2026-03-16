@@ -8,16 +8,17 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
+import { useQuery } from "@tanstack/react-query";
 import {
+  sessionsQueryOptions,
   useRevokeAllSessions,
   useRevokeOtherSessions,
   useRevokeSession,
-  useSessions,
 } from "@/hooks/auth/use-account";
 import { GlobeIcon, LoadingIcon, LogOutIcon } from "@/lib/icons";
 
 const SessionManagement = () => {
-  const { data, isLoading } = useSessions();
+  const { data, isLoading } = useQuery(sessionsQueryOptions());
   const revokeSession = useRevokeSession();
   const revokeOtherSessions = useRevokeOtherSessions();
   const revokeAllSessions = useRevokeAllSessions();

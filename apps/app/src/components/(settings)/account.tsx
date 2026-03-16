@@ -1,4 +1,5 @@
-import { useAccounts } from "@/hooks/auth/use-account";
+import { useQuery } from "@tanstack/react-query";
+import { accountsQueryOptions } from "@/hooks/auth/use-account";
 import type { AuthUser } from "@/routes/__root";
 import ChangePassword from "./change-password";
 import DeleteAccount from "./delete-account";
@@ -14,7 +15,7 @@ type Props = {
 };
 
 const Account = ({ user }: Props) => {
-  const { data: accounts } = useAccounts();
+  const { data: accounts } = useQuery(accountsQueryOptions());
 
   const hasPassword = accounts?.some((a) => a.providerId === "credential");
   const twoFactorEnabled = user.twoFactorEnabled ?? false;

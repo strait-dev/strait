@@ -1,8 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { authClient } from "@/lib/auth-client";
 
-// ── Accounts (linked providers) ──────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type Account = {
   id: string;
@@ -10,8 +16,28 @@ type Account = {
   accountId: string;
 };
 
-export const useAccounts = () => {
-  return useQuery({
+type Passkey = {
+  id: string;
+  name: string | null;
+  createdAt: string | Date | null;
+};
+
+type Session = {
+  id: string;
+  token: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  ipAddress: string | null;
+  userAgent: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Query Options — Accounts
+// ---------------------------------------------------------------------------
+
+/** Query options for fetching linked authentication accounts (Google, GitHub, credential). */
+export const accountsQueryOptions = () =>
+  queryOptions({
     queryKey: ["auth", "accounts"],
     queryFn: async () => {
       const result = await authClient.listAccounts();
@@ -23,35 +49,14 @@ export const useAccounts = () => {
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-};
 
-export const useUnlinkAccount = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["auth", "accounts", "unlink"],
-    mutationFn: async (providerId: string) => {
-      const result = await authClient.unlinkAccount({ providerId });
-      if (result.error) {
-        throw new Error(result.error.message ?? "Failed to unlink account");
-      }
-      return result.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "accounts"] });
-    },
-  });
-};
+// ---------------------------------------------------------------------------
+// Query Options — Passkeys
+// ---------------------------------------------------------------------------
 
-// ── Passkeys ─────────────────────────────────────────────────────────────────
-
-type Passkey = {
-  id: string;
-  name: string | null;
-  createdAt: string | Date | null;
-};
-
-export const usePasskeys = () => {
-  return useQuery({
+/** Query options for fetching the user's registered WebAuthn passkeys. */
+export const passkeysQueryOptions = () =>
+  queryOptions({
     queryKey: ["auth", "passkeys"],
     queryFn: async () => {
       const result = await authClient.passkey.listUserPasskeys();
@@ -63,55 +68,14 @@ export const usePasskeys = () => {
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-};
 
-export const useAddPasskey = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["auth", "passkeys", "add"],
-    mutationFn: async () => {
-      const result = await authClient.passkey.addPasskey();
-      if (result?.error) {
-        throw new Error(result.error.message ?? "Failed to add passkey");
-      }
-      return result?.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "passkeys"] });
-    },
-  });
-};
+// ---------------------------------------------------------------------------
+// Query Options — Sessions
+// ---------------------------------------------------------------------------
 
-export const useDeletePasskey = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["auth", "passkeys", "delete"],
-    mutationFn: async (id: string) => {
-      const result = await authClient.passkey.deletePasskey({ id });
-      if (result.error) {
-        throw new Error(result.error.message ?? "Failed to remove passkey");
-      }
-      return result.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "passkeys"] });
-    },
-  });
-};
-
-// ── Sessions ─────────────────────────────────────────────────────────────────
-
-type Session = {
-  id: string;
-  token: string;
-  createdAt: string | Date;
-  updatedAt: string | Date;
-  ipAddress: string | null;
-  userAgent: string | null;
-};
-
-export const useSessions = () => {
-  return useQuery({
+/** Query options for fetching all active sessions and identifying the current one. */
+export const sessionsQueryOptions = () =>
+  queryOptions({
     queryKey: ["auth", "sessions"],
     queryFn: async () => {
       const [sessionsResult, sessionResult] = await Promise.all([
@@ -133,8 +97,74 @@ export const useSessions = () => {
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
+
+// ---------------------------------------------------------------------------
+// Mutations — Accounts
+// ---------------------------------------------------------------------------
+
+/** Unlinks a social provider from the current user's account. */
+export const useUnlinkAccount = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["auth", "accounts", "unlink"],
+    mutationFn: async (providerId: string) => {
+      const result = await authClient.unlinkAccount({ providerId });
+      if (result.error) {
+        throw new Error(result.error.message ?? "Failed to unlink account");
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "accounts"] });
+    },
+  });
 };
 
+// ---------------------------------------------------------------------------
+// Mutations — Passkeys
+// ---------------------------------------------------------------------------
+
+/** Registers a new WebAuthn passkey for the current user. */
+export const useAddPasskey = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["auth", "passkeys", "add"],
+    mutationFn: async () => {
+      const result = await authClient.passkey.addPasskey();
+      if (result?.error) {
+        throw new Error(result.error.message ?? "Failed to add passkey");
+      }
+      return result?.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "passkeys"] });
+    },
+  });
+};
+
+/** Deletes a WebAuthn passkey by ID. */
+export const useDeletePasskey = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["auth", "passkeys", "delete"],
+    mutationFn: async (id: string) => {
+      const result = await authClient.passkey.deletePasskey({ id });
+      if (result.error) {
+        throw new Error(result.error.message ?? "Failed to remove passkey");
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "passkeys"] });
+    },
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Mutations — Sessions
+// ---------------------------------------------------------------------------
+
+/** Revokes a specific session by its token. */
 export const useRevokeSession = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -152,6 +182,7 @@ export const useRevokeSession = () => {
   });
 };
 
+/** Revokes all sessions except the current one. */
 export const useRevokeOtherSessions = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -171,8 +202,9 @@ export const useRevokeOtherSessions = () => {
   });
 };
 
-export const useRevokeAllSessions = () => {
-  return useMutation({
+/** Revokes all sessions including the current one (sign out everywhere). */
+export const useRevokeAllSessions = () =>
+  useMutation({
     mutationKey: ["auth", "sessions", "revokeAll"],
     mutationFn: async () => {
       const result = await authClient.revokeSessions();
@@ -184,4 +216,3 @@ export const useRevokeAllSessions = () => {
       return result.data;
     },
   });
-};
