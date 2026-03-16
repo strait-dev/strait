@@ -201,7 +201,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                         Role
                       </th>
                       <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
+                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
                         scope="col"
                       >
                         Joined
@@ -261,7 +261,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                               organizationId={organizationId}
                             />
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground">
+                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
                             {formatDate(member.createdAt)}
                           </td>
                           <td className="px-4 py-3 text-right">
@@ -427,13 +427,13 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                         Role
                       </th>
                       <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
+                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
                         scope="col"
                       >
                         Status
                       </th>
                       <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
+                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
                         scope="col"
                       >
                         Expires
@@ -475,14 +475,14 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                               {invitation.role}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="hidden px-4 py-3 sm:table-cell">
                             <Badge
                               variant={isExpired ? "destructive" : "outline"}
                             >
                               {isExpired ? "expired" : "pending"}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground">
+                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
                             {formatDate(invitation.expiresAt)}
                           </td>
                           <td className="px-4 py-3 text-right">

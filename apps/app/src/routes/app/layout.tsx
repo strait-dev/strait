@@ -170,10 +170,10 @@ function RouteComponent() {
         <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center border-b bg-background">
           <div className="w-full px-4 sm:px-6 lg:px-8">
             <div className="flex w-full items-center justify-between">
-              <div className="flex flex-column items-center gap-2">
+              <div className="flex items-center gap-2">
                 <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
               </div>
-              <div className="flex flex-column items-center gap-2">
+              <div className="flex items-center gap-2">
                 <ThemeToggle />
                 <FeedbackDialog user={session.user} />
                 <SupportDialog user={session.user} />

@@ -378,19 +378,19 @@ const ApiKeysManagement = () => {
                         Key
                       </th>
                       <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
+                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground md:table-cell"
                         scope="col"
                       >
                         Scopes
                       </th>
                       <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
+                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
                         scope="col"
                       >
                         Created
                       </th>
                       <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
+                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
                         scope="col"
                       >
                         Last Used
@@ -413,7 +413,7 @@ const ApiKeysManagement = () => {
                               {key.key_prefix}...
                             </code>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="hidden px-4 py-3 md:table-cell">
                             <div className="flex flex-wrap gap-1">
                               {key.scopes.map((scope) => (
                                 <Badge key={scope} variant="outline">
@@ -422,10 +422,10 @@ const ApiKeysManagement = () => {
                               ))}
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground">
+                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
                             {formatDate(key.created_at)}
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground">
+                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
                             {formatDate(key.last_used_at)}
                           </td>
                           <td className="px-4 py-3 text-right">

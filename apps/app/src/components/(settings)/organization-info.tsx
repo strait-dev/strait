@@ -193,7 +193,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
         <CardContent>
           <div className="flex flex-col gap-6">
             {/* Logo */}
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
               <Avatar className="size-16">
                 <form.Field name="logo">
                   {(field) =>

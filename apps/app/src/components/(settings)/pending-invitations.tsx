@@ -79,7 +79,7 @@ const PendingInvitations = () => {
 
             return (
               <div
-                className="flex items-center justify-between rounded-md border p-3"
+                className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
                 key={invitation.id}
               >
                 <div className="flex flex-col gap-1">
@@ -93,7 +93,7 @@ const PendingInvitations = () => {
                     </span>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex w-full gap-2 sm:w-auto">
                   <Button
                     disabled={isRejecting || isAccepting}
                     onClick={() => handleReject(invitation.id)}
