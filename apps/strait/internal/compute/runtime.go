@@ -3,8 +3,12 @@ package compute
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrMachineGone indicates the machine was deleted and cannot be reused.
+var ErrMachineGone = errors.New("machine no longer exists")
 
 // ContainerRuntime is the interface that all container backends must implement.
 type ContainerRuntime interface {
@@ -20,6 +24,10 @@ type ContainerRuntime interface {
 
 	// Stop sends a stop signal to a running container.
 	Stop(ctx context.Context, machineID string) error
+
+	// Start restarts a stopped machine with updated environment variables.
+	// Returns ErrMachineGone if the machine was deleted (caller should Create instead).
+	Start(ctx context.Context, machineID string, env map[string]string) error
 
 	// Destroy deletes a container and its resources.
 	Destroy(ctx context.Context, machineID string) error
@@ -39,6 +47,7 @@ type RunRequest struct {
 	Env           map[string]string // Environment variables to inject.
 	Labels        map[string]string // Metadata labels for tracking.
 	TimeoutSecs   int               // Maximum wall-clock seconds before kill.
+	Reusable      bool              // When true, created with auto_destroy=false for pool/pause reuse.
 }
 
 // RunResult captures the outcome of a container execution.

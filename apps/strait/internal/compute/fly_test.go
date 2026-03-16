@@ -3,10 +3,13 @@ package compute
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestFlyRuntime_Run_CreatesWithCorrectConfig(t *testing.T) {
@@ -517,5 +520,346 @@ func TestFlyRuntime_Create_ErrorRedacted(t *testing.T) {
 	}
 	if !strings.Contains(errMsg, "truncated") {
 		t.Error("expected truncated marker in error message")
+	}
+}
+
+func TestFlyStart_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	var putBody flyUpdateRequest
+	var callOrder []string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		callOrder = append(callOrder, "GET")
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{
+			ID:    "m-1",
+			State: "stopped",
+			Config: flyMachineConfig{
+				Image:   "img:latest",
+				Guest:   flyGuestConfig{CPUs: 1, MemoryMB: 256, CPUKind: "shared"},
+				Restart: flyRestartConfig{Policy: "no"},
+				Env:     map[string]string{"OLD_KEY": "old_val"},
+			},
+		})
+	})
+	mux.HandleFunc("PUT /v1/apps/app/machines/m-1", func(w http.ResponseWriter, r *http.Request) {
+		callOrder = append(callOrder, "PUT")
+		_ = json.NewDecoder(r.Body).Decode(&putBody)
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{ID: "m-1", State: "stopped"})
+	})
+	mux.HandleFunc("POST /v1/apps/app/machines/m-1/start", func(w http.ResponseWriter, _ *http.Request) {
+		callOrder = append(callOrder, "POST_START")
+		w.WriteHeader(200)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Start(context.Background(), "m-1", map[string]string{"NEW_KEY": "new_val"})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Verify call order: GET → PUT → POST start
+	if len(callOrder) != 3 || callOrder[0] != "GET" || callOrder[1] != "PUT" || callOrder[2] != "POST_START" {
+		t.Errorf("call order = %v, want [GET PUT POST_START]", callOrder)
+	}
+
+	// Verify PUT body has new env replacing old
+	if putBody.Config.Env["NEW_KEY"] != "new_val" {
+		t.Errorf("PUT env NEW_KEY = %q, want new_val", putBody.Config.Env["NEW_KEY"])
+	}
+	if _, hasOld := putBody.Config.Env["OLD_KEY"]; hasOld {
+		t.Error("PUT env should not contain OLD_KEY (env should be fully replaced)")
+	}
+	// Verify original config fields preserved
+	if putBody.Config.Image != "img:latest" {
+		t.Errorf("PUT image = %q, want img:latest", putBody.Config.Image)
+	}
+}
+
+func TestFlyStart_GET404_ReturnsMachineGone(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Start(context.Background(), "m-gone", map[string]string{"K": "V"})
+	if !errors.Is(err, ErrMachineGone) {
+		t.Errorf("expected ErrMachineGone, got %v", err)
+	}
+}
+
+func TestFlyStart_PUT404_ReturnsMachineGone(t *testing.T) {
+	t.Parallel()
+	var reqCount atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		reqCount.Add(1)
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{
+			ID: "m-1", State: "stopped",
+			Config: flyMachineConfig{Image: "img:latest"},
+		})
+	})
+	mux.HandleFunc("PUT /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		reqCount.Add(1)
+		w.WriteHeader(404) // Machine deleted between GET and PUT
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Start(context.Background(), "m-1", map[string]string{"K": "V"})
+	if !errors.Is(err, ErrMachineGone) {
+		t.Errorf("expected ErrMachineGone, got %v", err)
+	}
+}
+
+func TestFlyStart_POST404_ReturnsMachineGone(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{
+			ID: "m-1", State: "stopped",
+			Config: flyMachineConfig{Image: "img:latest"},
+		})
+	})
+	mux.HandleFunc("PUT /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{ID: "m-1"})
+	})
+	mux.HandleFunc("POST /v1/apps/app/machines/m-1/start", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Start(context.Background(), "m-1", map[string]string{"K": "V"})
+	if !errors.Is(err, ErrMachineGone) {
+		t.Errorf("expected ErrMachineGone, got %v", err)
+	}
+}
+
+func TestFlyStart_ServerError_Retryable(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{
+			ID: "m-1", State: "stopped",
+			Config: flyMachineConfig{Image: "img:latest"},
+		})
+	})
+	mux.HandleFunc("PUT /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Start(context.Background(), "m-1", map[string]string{"K": "V"})
+	if !IsRetryable(err) {
+		t.Errorf("expected retryable error, got %v", err)
+	}
+}
+
+func TestFlyCreate_ReusableDisablesAutoDestroy(t *testing.T) {
+	t.Parallel()
+	var receivedBody flyCreateRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/apps/app/machines", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(flyMachineResponse{ID: "m-1"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Create(context.Background(), RunRequest{
+		ImageURI:      "img:latest",
+		MachinePreset: "micro",
+		Reusable:      true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if receivedBody.Config.AutoDestroy {
+		t.Error("expected auto_destroy=false when Reusable=true")
+	}
+}
+
+func TestFlyCreate_DefaultAutoDestroyTrue(t *testing.T) {
+	t.Parallel()
+	var receivedBody flyCreateRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/apps/app/machines", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(flyMachineResponse{ID: "m-1"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Create(context.Background(), RunRequest{
+		ImageURI:      "img:latest",
+		MachinePreset: "micro",
+		Reusable:      false,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if !receivedBody.Config.AutoDestroy {
+		t.Error("expected auto_destroy=true when Reusable=false")
+	}
+}
+
+func TestFlyStop_404_ReturnsMachineGone(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Stop(context.Background(), "m-gone")
+	if !errors.Is(err, ErrMachineGone) {
+		t.Errorf("expected ErrMachineGone, got %v", err)
+	}
+}
+
+func TestFlyStop_500_ReturnsRetryable(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Stop(context.Background(), "m-1")
+	if !IsRetryable(err) {
+		t.Errorf("expected retryable error, got %v", err)
+	}
+}
+
+func TestFlyStop_200_Success(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Stop(context.Background(), "m-1")
+	if err != nil {
+		t.Fatalf("Stop() expected nil error, got %v", err)
+	}
+}
+
+func TestFlyDestroy_404_ReturnsMachineGone(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Destroy(context.Background(), "m-gone")
+	if !errors.Is(err, ErrMachineGone) {
+		t.Errorf("expected ErrMachineGone, got %v", err)
+	}
+}
+
+func TestFlyDestroy_500_ReturnsRetryable(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Destroy(context.Background(), "m-1")
+	if !IsRetryable(err) {
+		t.Errorf("expected retryable error, got %v", err)
+	}
+}
+
+func TestFlyWait_LongTimeout_NoClientTimeout(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(2 * time.Second) // Simulate slow wait
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"events": []map[string]any{{"type": "exit", "exit_code": 0}},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := runtime.Wait(ctx, "m-1", 300)
+	if err != nil {
+		t.Fatalf("Wait() should not hit client timeout, got %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+	}
+}
+
+func TestFlyStart_EnvMergedCorrectly(t *testing.T) {
+	t.Parallel()
+	var putBody flyUpdateRequest
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{
+			ID: "m-1", State: "stopped",
+			Config: flyMachineConfig{
+				Image: "img:latest",
+				Env:   map[string]string{"A": "1", "B": "2", "C": "3"},
+			},
+		})
+	})
+	mux.HandleFunc("PUT /v1/apps/app/machines/m-1", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&putBody)
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(flyMachineFullResponse{ID: "m-1"})
+	})
+	mux.HandleFunc("POST /v1/apps/app/machines/m-1/start", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	err := runtime.Start(context.Background(), "m-1", map[string]string{"X": "10", "Y": "20"})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// New env should fully replace old env
+	if len(putBody.Config.Env) != 2 {
+		t.Errorf("expected 2 env vars, got %d: %v", len(putBody.Config.Env), putBody.Config.Env)
+	}
+	if putBody.Config.Env["X"] != "10" || putBody.Config.Env["Y"] != "20" {
+		t.Errorf("env = %v, want {X:10 Y:20}", putBody.Config.Env)
 	}
 }

@@ -25,6 +25,9 @@ func (m *mockPrunerRuntime) Create(_ context.Context, _ compute.RunRequest) (str
 func (m *mockPrunerRuntime) Wait(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
 	return &compute.RunResult{MachineID: machineID, ExitCode: 0}, nil
 }
+func (m *mockPrunerRuntime) Start(_ context.Context, _ string, _ map[string]string) error {
+	return compute.ErrMachineGone
+}
 func (m *mockPrunerRuntime) Stop(_ context.Context, _ string) error { return nil }
 func (m *mockPrunerRuntime) Destroy(ctx context.Context, machineID string) error {
 	if m.destroyFn != nil {

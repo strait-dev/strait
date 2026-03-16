@@ -23,6 +23,7 @@ type mockContainerRuntime struct {
 	runFn     func(ctx context.Context, req compute.RunRequest) (*compute.RunResult, error)
 	createFn  func(ctx context.Context, req compute.RunRequest) (string, error)
 	waitFn    func(ctx context.Context, machineID string, timeoutSecs int) (*compute.RunResult, error)
+	startFn   func(ctx context.Context, machineID string, env map[string]string) error
 	stopFn    func(ctx context.Context, machineID string) error
 	destroyFn func(ctx context.Context, machineID string) error
 	statusFn  func(ctx context.Context, machineID string) (compute.MachineStatus, error)
@@ -48,6 +49,13 @@ func (m *mockContainerRuntime) Wait(ctx context.Context, machineID string, timeo
 		return m.waitFn(ctx, machineID, timeoutSecs)
 	}
 	return &compute.RunResult{MachineID: machineID, ExitCode: 0}, nil
+}
+
+func (m *mockContainerRuntime) Start(ctx context.Context, machineID string, env map[string]string) error {
+	if m.startFn != nil {
+		return m.startFn(ctx, machineID, env)
+	}
+	return compute.ErrMachineGone
 }
 
 func (m *mockContainerRuntime) Stop(ctx context.Context, machineID string) error {

@@ -159,6 +159,11 @@ func (d *DockerRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, er
 	return result, nil
 }
 
+// Start is not supported for the Docker dev runtime. Always returns ErrMachineGone.
+func (d *DockerRuntime) Start(_ context.Context, _ string, _ map[string]string) error {
+	return ErrMachineGone
+}
+
 // Stop sends a stop signal to a Docker container.
 func (d *DockerRuntime) Stop(ctx context.Context, containerName string) error {
 	cmd := exec.CommandContext(ctx, "docker", "stop", containerName) //nolint:gosec // Container name from internal state.

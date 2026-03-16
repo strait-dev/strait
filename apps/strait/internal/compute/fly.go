@@ -10,12 +10,14 @@ import (
 	"time"
 )
 
+const maxRedactLen = 200
+
 // redactBody truncates response bodies in error messages to prevent secret leakage.
-func redactBody(body []byte, maxLen int) string {
-	if len(body) <= maxLen {
+func redactBody(body []byte) string {
+	if len(body) <= maxRedactLen {
 		return string(body)
 	}
-	return string(body[:maxLen]) + "...(truncated)"
+	return string(body[:maxRedactLen]) + "...(truncated)"
 }
 
 // FlyRuntime implements ContainerRuntime using the Fly Machines API.
@@ -32,7 +34,14 @@ func NewFlyRuntime(apiToken, appName string) *FlyRuntime {
 		apiToken: apiToken,
 		appName:  appName,
 		baseURL:  "https://api.machines.dev",
-		client:   &http.Client{Timeout: 60 * time.Second},
+		client: &http.Client{
+			Timeout: 0, // Per-request context timeouts used instead.
+			Transport: &http.Transport{
+				MaxIdleConns:        20,
+				MaxIdleConnsPerHost: 20,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 }
 
@@ -74,6 +83,16 @@ type flyMachineResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type flyMachineFullResponse struct {
+	ID     string           `json:"id"`
+	State  string           `json:"state"`
+	Config flyMachineConfig `json:"config"`
+}
+
+type flyUpdateRequest struct {
+	Config flyMachineConfig `json:"config"`
+}
+
 type flyWaitEvent struct {
 	ExitCode int    `json:"exit_code"`
 	ExitedAt string `json:"exited_at"`
@@ -107,7 +126,7 @@ func (f *FlyRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 			},
 			Env:         req.Env,
 			Restart:     flyRestartConfig{Policy: "no"},
-			AutoDestroy: true,
+			AutoDestroy: !req.Reusable,
 		},
 		Labels: req.Labels,
 	}
@@ -141,13 +160,13 @@ func (f *FlyRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 		return "", NewRetryableError(503, "fly capacity unavailable", nil)
 	}
 	if resp.StatusCode == 422 {
-		return "", NewFatalError(422, fmt.Sprintf("fly config error: %s", redactBody(respBody, 200)), nil)
+		return "", NewFatalError(422, fmt.Sprintf("fly config error: %s", redactBody(respBody)), nil)
 	}
 	if resp.StatusCode >= 500 {
-		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", redactBody(respBody, 200)), nil)
+		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", redactBody(respBody)), nil)
 	}
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("unexpected status: %s", redactBody(respBody, 200)), nil)
+		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("unexpected status: %s", redactBody(respBody)), nil)
 	}
 
 	var machine flyMachineResponse
@@ -229,10 +248,105 @@ func (f *FlyRuntime) getExitEvent(ctx context.Context, machineID string) (*flyWa
 	return &flyWaitEvent{ExitCode: -1}, nil
 }
 
+// Start restarts a stopped Fly Machine with updated environment variables.
+// Three-step: GET current config → PUT updated env → POST start.
+// Returns ErrMachineGone if the machine was deleted by Fly (auto_destroy, manual delete).
+func (f *FlyRuntime) Start(ctx context.Context, machineID string, env map[string]string) error {
+	// Step 1: GET current machine config.
+	getCtx, getCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer getCancel()
+
+	getURL := fmt.Sprintf("%s/v1/apps/%s/machines/%s", f.baseURL, f.appName, machineID)
+	getReq, err := http.NewRequestWithContext(getCtx, http.MethodGet, getURL, nil)
+	if err != nil {
+		return NewRetryableError(0, "build start GET request", err)
+	}
+	getReq.Header.Set("Authorization", "Bearer "+f.apiToken)
+
+	getResp, err := f.client.Do(getReq)
+	if err != nil {
+		return NewRetryableError(0, "start GET request failed", err)
+	}
+	defer getResp.Body.Close()
+
+	if getResp.StatusCode == http.StatusNotFound {
+		return ErrMachineGone
+	}
+	if getResp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(getResp.Body, 512))
+		return NewRetryableError(getResp.StatusCode, fmt.Sprintf("start GET machine: %s", redactBody(body)), nil)
+	}
+
+	var machine flyMachineFullResponse
+	if err := json.NewDecoder(getResp.Body).Decode(&machine); err != nil {
+		return NewRetryableError(0, "unmarshal machine for start", err)
+	}
+
+	// Step 2: PUT updated config with new env.
+	machine.Config.Env = env
+
+	updateCtx, updateCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer updateCancel()
+
+	updateBody, _ := json.Marshal(flyUpdateRequest{Config: machine.Config})
+	putURL := fmt.Sprintf("%s/v1/apps/%s/machines/%s", f.baseURL, f.appName, machineID)
+	putReq, err := http.NewRequestWithContext(updateCtx, http.MethodPut, putURL, bytes.NewReader(updateBody))
+	if err != nil {
+		return NewRetryableError(0, "build start PUT request", err)
+	}
+	putReq.Header.Set("Authorization", "Bearer "+f.apiToken)
+	putReq.Header.Set("Content-Type", "application/json")
+
+	putResp, err := f.client.Do(putReq)
+	if err != nil {
+		return NewRetryableError(0, "start PUT request failed", err)
+	}
+	defer putResp.Body.Close()
+	// Drain body to enable connection reuse.
+	_, _ = io.ReadAll(io.LimitReader(putResp.Body, 1<<20))
+
+	if putResp.StatusCode == http.StatusNotFound {
+		return ErrMachineGone
+	}
+	if putResp.StatusCode >= 400 {
+		return NewRetryableError(putResp.StatusCode, fmt.Sprintf("start PUT machine: status %d", putResp.StatusCode), nil)
+	}
+
+	// Step 3: POST start.
+	startCtx, startCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer startCancel()
+
+	startURL := fmt.Sprintf("%s/v1/apps/%s/machines/%s/start", f.baseURL, f.appName, machineID)
+	startReq, err := http.NewRequestWithContext(startCtx, http.MethodPost, startURL, nil)
+	if err != nil {
+		return NewRetryableError(0, "build start POST request", err)
+	}
+	startReq.Header.Set("Authorization", "Bearer "+f.apiToken)
+
+	startResp, err := f.client.Do(startReq)
+	if err != nil {
+		return NewRetryableError(0, "start POST request failed", err)
+	}
+	defer startResp.Body.Close()
+	_, _ = io.ReadAll(io.LimitReader(startResp.Body, 1<<20))
+
+	if startResp.StatusCode == http.StatusNotFound {
+		return ErrMachineGone
+	}
+	if startResp.StatusCode >= 400 {
+		return NewRetryableError(startResp.StatusCode, fmt.Sprintf("start POST machine: status %d", startResp.StatusCode), nil)
+	}
+
+	return nil
+}
+
 // Stop sends a stop signal to a Fly Machine.
 func (f *FlyRuntime) Stop(ctx context.Context, machineID string) error {
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	url := fmt.Sprintf("%s/v1/apps/%s/machines/%s/stop", f.baseURL, f.appName, machineID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, nil)
 	if err != nil {
 		return NewRetryableError(0, "build stop request", err)
 	}
@@ -243,13 +357,24 @@ func (f *FlyRuntime) Stop(ctx context.Context, machineID string) error {
 		return NewRetryableError(0, "stop machine", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrMachineGone
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return NewRetryableError(resp.StatusCode, fmt.Sprintf("stop machine: %s", redactBody(body)), nil)
+	}
 	return nil
 }
 
 // Destroy deletes a Fly Machine.
 func (f *FlyRuntime) Destroy(ctx context.Context, machineID string) error {
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	url := fmt.Sprintf("%s/v1/apps/%s/machines/%s?force=true", f.baseURL, f.appName, machineID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodDelete, url, nil)
 	if err != nil {
 		return NewRetryableError(0, "build destroy request", err)
 	}
@@ -260,6 +385,14 @@ func (f *FlyRuntime) Destroy(ctx context.Context, machineID string) error {
 		return NewRetryableError(0, "destroy machine", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrMachineGone
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return NewRetryableError(resp.StatusCode, fmt.Sprintf("destroy machine: %s", redactBody(body)), nil)
+	}
 	return nil
 }
 
