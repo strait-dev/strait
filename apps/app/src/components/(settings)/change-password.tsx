@@ -14,6 +14,7 @@ import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "@/lib/auth-client";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
@@ -88,7 +89,7 @@ const ChangePassword = () => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>
@@ -109,7 +110,7 @@ const ChangePassword = () => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>
@@ -130,7 +131,7 @@ const ChangePassword = () => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>

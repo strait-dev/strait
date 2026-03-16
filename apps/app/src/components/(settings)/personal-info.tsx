@@ -15,6 +15,7 @@ import { useForm } from "@tanstack/react-form";
 import { useTransition } from "react";
 import { z } from "zod";
 import { useUpdateUser } from "@/hooks/auth/use-user";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon, PencilEditIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
@@ -88,7 +89,7 @@ const PersonalInfo = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>
@@ -109,7 +110,7 @@ const PersonalInfo = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>

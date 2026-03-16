@@ -28,6 +28,7 @@ import { useForm } from "@tanstack/react-form";
 import { useState, useTransition } from "react";
 import * as z from "zod";
 import { authClient } from "@/lib/auth-client";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { AlertIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 
@@ -124,7 +125,7 @@ const DeleteAccount = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>
@@ -144,7 +145,7 @@ const DeleteAccount = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>

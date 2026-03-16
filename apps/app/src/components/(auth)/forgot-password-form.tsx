@@ -7,6 +7,7 @@ import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { z } from "zod";
 import { authClient } from "@/lib/auth-client";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 
@@ -98,7 +99,9 @@ export const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
                 value={field.state.value}
               />
               {field.state.meta.errors.length > 0 && (
-                <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
+                <FieldError>
+                  {formatFieldErrors(field.state.meta.errors)}
+                </FieldError>
               )}
             </Field>
           )}

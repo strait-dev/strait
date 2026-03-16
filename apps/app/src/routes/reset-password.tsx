@@ -11,6 +11,7 @@ import { AuthLayout } from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authClient } from "@/lib/auth-client";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 
@@ -121,7 +122,7 @@ function ResetPasswordPage() {
                     />
                     {field.state.meta.errors.length > 0 && (
                       <FieldError>
-                        {field.state.meta.errors.join(", ")}
+                        {formatFieldErrors(field.state.meta.errors)}
                       </FieldError>
                     )}
                   </Field>
@@ -144,7 +145,7 @@ function ResetPasswordPage() {
                     />
                     {field.state.meta.errors.length > 0 && (
                       <FieldError>
-                        {field.state.meta.errors.join(", ")}
+                        {formatFieldErrors(field.state.meta.errors)}
                       </FieldError>
                     )}
                   </Field>

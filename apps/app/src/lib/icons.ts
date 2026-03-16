@@ -30,6 +30,7 @@ import {
   ArrowUpRight01Icon,
   Briefcase01Icon,
   BubbleChatIcon,
+  Building01Icon,
   Calendar03Icon,
   Cancel01Icon,
   ChartIncreaseIcon,
@@ -48,6 +49,7 @@ import {
   Link01Icon,
   Loading03Icon,
   Logout05Icon,
+  Mail01Icon,
   Moon02Icon,
   PauseIcon,
   PencilEdit02Icon,
@@ -122,6 +124,8 @@ export const StarIcon = _StarIcon;
 // Security / auth
 export const KeyIcon = Key01Icon;
 export const LogOutIcon = Logout05Icon;
+export const MailIcon = Mail01Icon;
+export const BuildingIcon = Building01Icon;
 
 // Infrastructure
 export const SettingsOutlineIcon = Settings01Icon;

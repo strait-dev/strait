@@ -1,3 +1,4 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
@@ -15,6 +16,7 @@ import { SsoForm } from "@/components/(auth)/sso-form";
 import { TwoFactorForm } from "@/components/(auth)/two-factor-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
+import { BuildingIcon, MailIcon } from "@/lib/icons";
 
 export type AuthView =
   | "signin"
@@ -104,7 +106,8 @@ function LoginPage() {
               size="sm"
               variant="ghost"
             >
-              Magic link
+              <HugeiconsIcon className="size-4" icon={MailIcon} />
+              Sign in with magic link
             </Button>
             <Button
               className="flex-1"
@@ -112,7 +115,8 @@ function LoginPage() {
               size="sm"
               variant="ghost"
             >
-              Enterprise SSO
+              <HugeiconsIcon className="size-4" icon={BuildingIcon} />
+              Sign in with SSO
             </Button>
           </div>
           <p className="text-center text-muted-foreground text-sm">
