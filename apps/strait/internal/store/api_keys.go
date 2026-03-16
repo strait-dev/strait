@@ -190,7 +190,9 @@ func (q *Queries) ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, 
 			  FROM api_keys
 			  WHERE rotation_interval_days IS NOT NULL
 			    AND next_rotation_at <= NOW()
-			    AND revoked_at IS NULL`
+			    AND revoked_at IS NULL
+			    AND replaced_by_key_id IS NULL
+			  LIMIT 100`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {

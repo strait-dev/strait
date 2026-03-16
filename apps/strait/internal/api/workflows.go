@@ -260,6 +260,10 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capture the pre-update version for breaking change detection later.
+	previousVersionID := wf.VersionID
+	previousVersion := wf.Version
+
 	var req updateWorkflowRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -395,12 +399,11 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for active runs on the previous version to warn about breaking changes.
-	if wf.VersionID != "" && wf.Version > 1 {
+	if previousVersionID != "" && previousVersion >= 1 {
 		type activeRunCounter interface {
 			CountActiveWorkflowRunsByVersion(ctx context.Context, workflowID, versionID string) (int, error)
 		}
 		if counter, ok := s.store.(activeRunCounter); ok {
-			previousVersionID := wf.VersionID // The version was already bumped; look for the old ID.
 			count, countErr := counter.CountActiveWorkflowRunsByVersion(r.Context(), wf.ID, previousVersionID)
 			if countErr == nil && count > 0 {
 				resp["active_runs_on_previous_version"] = count

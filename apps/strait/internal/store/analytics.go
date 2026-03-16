@@ -48,6 +48,8 @@ func (q *Queries) AggregateHourlyStats(ctx context.Context, hour time.Time) erro
 	hour = hour.Truncate(time.Hour)
 	nextHour := hour.Add(time.Hour)
 
+	// Aggregate run counts and durations separately from cost to avoid
+	// inflated counts when a run has multiple usage rows.
 	query := `
 		INSERT INTO job_stats_hourly (job_id, project_id, hour, total, completed, failed, timed_out, canceled, avg_duration_ms, p95_duration_ms, total_cost_microusd)
 		SELECT
@@ -61,9 +63,8 @@ func (q *Queries) AggregateHourlyStats(ctx context.Context, hour time.Time) erro
 			COUNT(*) FILTER (WHERE jr.status = 'canceled') AS canceled,
 			COALESCE(AVG(EXTRACT(EPOCH FROM (jr.finished_at - jr.started_at)) * 1000)::BIGINT, 0) AS avg_duration_ms,
 			COALESCE((PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (jr.finished_at - jr.started_at)) * 1000))::BIGINT, 0) AS p95_duration_ms,
-			COALESCE(SUM(u.cost_microusd), 0) AS total_cost_microusd
+			COALESCE((SELECT SUM(u.cost_microusd) FROM run_usage u WHERE u.run_id = ANY(ARRAY_AGG(jr.id))), 0) AS total_cost_microusd
 		FROM job_runs jr
-		LEFT JOIN run_usage u ON u.run_id = jr.id
 		WHERE jr.created_at >= $1 AND jr.created_at < $2
 		  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
 		GROUP BY jr.job_id, jr.project_id

@@ -155,6 +155,25 @@ func (s *Server) handleUpdateEventSource(w http.ResponseWriter, r *http.Request)
 		patch["enabled"] = *req.Enabled
 	}
 
+	if req.SignatureHeader != nil {
+		patch["signature_header"] = *req.SignatureHeader
+	}
+	if req.SignatureAlgorithm != nil {
+		patch["signature_algorithm"] = *req.SignatureAlgorithm
+	}
+	if req.SignatureSecret != nil && s.encryptor != nil {
+		if *req.SignatureSecret == "" {
+			patch["signature_secret_enc"] = nil
+		} else {
+			enc, encErr := s.encryptor.Encrypt([]byte(*req.SignatureSecret))
+			if encErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to encrypt signature secret")
+				return
+			}
+			patch["signature_secret_enc"] = enc
+		}
+	}
+
 	if len(patch) == 0 {
 		respondError(w, r, http.StatusBadRequest, "no fields to update")
 		return
@@ -286,7 +305,8 @@ func (s *Server) handleDispatchEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := webhook.ValidateSignature(source.SignatureAlgorithm, string(secret), req.Payload, sigHeader); err != nil {
-			respondError(w, r, http.StatusUnauthorized, "signature validation failed: "+err.Error())
+			slog.Warn("event source signature validation failed", "source_id", source.ID, "error", err)
+			respondError(w, r, http.StatusUnauthorized, "signature validation failed")
 			return
 		}
 	}
