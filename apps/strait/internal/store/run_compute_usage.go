@@ -138,12 +138,48 @@ func (q *Queries) ListRunComputeUsageByProject(ctx context.Context, projectID st
 	return usages, rows.Err()
 }
 
+// ProjectComputeQuota is a lightweight projection for budget monitoring.
+type ProjectComputeQuota struct {
+	ProjectID                     string
+	Timezone                      string
+	ComputeDailyCostLimitMicrousd int64
+}
+
+// ListProjectsWithComputeLimit returns all projects that have a compute daily cost limit set.
+func (q *Queries) ListProjectsWithComputeLimit(ctx context.Context) ([]ProjectComputeQuota, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectsWithComputeLimit")
+	defer span.End()
+
+	query := `
+		SELECT project_id, COALESCE(timezone, 'UTC'), compute_daily_cost_limit_microusd
+		FROM project_quotas
+		WHERE compute_daily_cost_limit_microusd IS NOT NULL
+		  AND compute_daily_cost_limit_microusd > 0`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list projects with compute limit: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ProjectComputeQuota
+	for rows.Next() {
+		var pq ProjectComputeQuota
+		if err := rows.Scan(&pq.ProjectID, &pq.Timezone, &pq.ComputeDailyCostLimitMicrousd); err != nil {
+			return nil, fmt.Errorf("scan project compute quota: %w", err)
+		}
+		results = append(results, pq)
+	}
+	return results, rows.Err()
+}
+
 // RunComputeUsageStore defines compute usage operations.
 type RunComputeUsageStore interface {
 	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
 	GetRunComputeUsage(ctx context.Context, id string) (*domain.RunComputeUsage, error)
 	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
 	ListRunComputeUsageByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.RunComputeUsage, error)
+	ListProjectsWithComputeLimit(ctx context.Context) ([]ProjectComputeQuota, error)
 }
 
 var _ RunComputeUsageStore = (*Queries)(nil)

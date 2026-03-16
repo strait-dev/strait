@@ -29,6 +29,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var createdBy *string
 	var batchID *string
 	var concurrencyKey *string
+	var executionMode *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -62,6 +63,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&createdBy,
 		&batchID,
 		&concurrencyKey,
+		&executionMode,
 	)
 	if err != nil {
 		return nil, err
@@ -116,6 +118,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if concurrencyKey != nil {
 		run.ConcurrencyKey = *concurrencyKey
+	}
+	if executionMode != nil {
+		run.ExecutionMode = domain.ExecutionMode(*executionMode)
 	}
 
 	return &run, nil
