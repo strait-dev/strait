@@ -194,5 +194,11 @@ export const createTestContext = (
     },
   };
 
-  return { ctx: createRunContext(mockClient, runId, { attempt: options?.attempt, signal: options?.signal }), record };
+  return {
+    ctx: createRunContext(mockClient, runId, {
+      attempt: options?.attempt,
+      signal: options?.signal,
+    }),
+    record,
+  };
 };

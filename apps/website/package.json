@@ -38,7 +38,7 @@
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev.20260314.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260316.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "postcss": "^8.5.8",
     "postcss-load-config": "^6.0.1",

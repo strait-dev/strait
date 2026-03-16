@@ -23,7 +23,10 @@ export type CreateStraitToolsOptions = {
   readonly complete?: boolean;
 };
 
-const addCheckpointTool = (tools: Record<string, CoreTool>, ctx: RunContext) => {
+const addCheckpointTool = (
+  tools: Record<string, CoreTool>,
+  ctx: RunContext
+) => {
   tools.strait_checkpoint = {
     description:
       "Save agent state for durable execution. The state will be available if the run is resumed.",
@@ -51,10 +54,19 @@ const addSpawnTool = (tools: Record<string, CoreTool>, ctx: RunContext) => {
     parameters: {
       type: "object",
       properties: {
-        jobSlug: { type: "string", description: "The slug of the job to spawn" },
+        jobSlug: {
+          type: "string",
+          description: "The slug of the job to spawn",
+        },
         projectId: { type: "string", description: "The project ID" },
-        payload: { type: "object", description: "Optional payload for the child job" },
-        priority: { type: "number", description: "Optional priority (higher = sooner)" },
+        payload: {
+          type: "object",
+          description: "Optional payload for the child job",
+        },
+        priority: {
+          type: "number",
+          description: "Optional priority (higher = sooner)",
+        },
       },
       required: ["jobSlug", "projectId"],
     },
@@ -68,7 +80,10 @@ const addSpawnTool = (tools: Record<string, CoreTool>, ctx: RunContext) => {
   };
 };
 
-const addSaveOutputTool = (tools: Record<string, CoreTool>, ctx: RunContext) => {
+const addSaveOutputTool = (
+  tools: Record<string, CoreTool>,
+  ctx: RunContext
+) => {
   const saveOutput = ctx.saveOutput;
   if (!saveOutput) {
     return;
@@ -84,13 +99,19 @@ const addSaveOutputTool = (tools: Record<string, CoreTool>, ctx: RunContext) => 
       required: ["key", "value"],
     },
     execute: async (args) => {
-      await saveOutput(args.key as string, args.value as Record<string, unknown>);
+      await saveOutput(
+        args.key as string,
+        args.value as Record<string, unknown>
+      );
       return { success: true };
     },
   };
 };
 
-const addWaitForEventTool = (tools: Record<string, CoreTool>, ctx: RunContext) => {
+const addWaitForEventTool = (
+  tools: Record<string, CoreTool>,
+  ctx: RunContext
+) => {
   const waitForEvent = ctx.waitForEvent;
   if (!waitForEvent) {
     return;
@@ -101,7 +122,10 @@ const addWaitForEventTool = (tools: Record<string, CoreTool>, ctx: RunContext) =
       type: "object",
       properties: {
         eventKey: { type: "string", description: "The event key to wait for" },
-        timeoutSecs: { type: "number", description: "Maximum wait time in seconds" },
+        timeoutSecs: {
+          type: "number",
+          description: "Maximum wait time in seconds",
+        },
       },
       required: ["eventKey"],
     },
@@ -181,14 +205,45 @@ type ToolEntry = {
   readonly add: (tools: Record<string, CoreTool>, ctx: RunContext) => void;
 };
 
-const getToolEntries = (ctx: RunContext, options?: CreateStraitToolsOptions): ToolEntry[] => [
-  { key: "checkpoint", enabled: (options?.checkpoint ?? true) && !!ctx.checkpoint, add: addCheckpointTool },
-  { key: "spawn", enabled: (options?.spawn ?? true) && !!ctx.spawn, add: addSpawnTool },
-  { key: "saveOutput", enabled: (options?.saveOutput ?? true) && !!ctx.saveOutput, add: addSaveOutputTool },
-  { key: "waitForEvent", enabled: (options?.waitForEvent ?? true) && !!ctx.waitForEvent, add: addWaitForEventTool },
-  { key: "stateGet", enabled: (options?.stateGet ?? true) && !!ctx.state, add: addStateGetTool },
-  { key: "stateSet", enabled: (options?.stateSet ?? true) && !!ctx.state, add: addStateSetTool },
-  { key: "complete", enabled: (options?.complete ?? false) && !!ctx.complete, add: addCompleteTool },
+const getToolEntries = (
+  ctx: RunContext,
+  options?: CreateStraitToolsOptions
+): ToolEntry[] => [
+  {
+    key: "checkpoint",
+    enabled: (options?.checkpoint ?? true) && !!ctx.checkpoint,
+    add: addCheckpointTool,
+  },
+  {
+    key: "spawn",
+    enabled: (options?.spawn ?? true) && !!ctx.spawn,
+    add: addSpawnTool,
+  },
+  {
+    key: "saveOutput",
+    enabled: (options?.saveOutput ?? true) && !!ctx.saveOutput,
+    add: addSaveOutputTool,
+  },
+  {
+    key: "waitForEvent",
+    enabled: (options?.waitForEvent ?? true) && !!ctx.waitForEvent,
+    add: addWaitForEventTool,
+  },
+  {
+    key: "stateGet",
+    enabled: (options?.stateGet ?? true) && !!ctx.state,
+    add: addStateGetTool,
+  },
+  {
+    key: "stateSet",
+    enabled: (options?.stateSet ?? true) && !!ctx.state,
+    add: addStateSetTool,
+  },
+  {
+    key: "complete",
+    enabled: (options?.complete ?? false) && !!ctx.complete,
+    add: addCompleteTool,
+  },
 ];
 
 export const createStraitTools = (

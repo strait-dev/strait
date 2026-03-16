@@ -104,7 +104,11 @@ export type RunContextClient = {
   // LLM streaming (STR-11)
   readonly streamRun: (input: {
     readonly pathParams: { readonly runID: string };
-    readonly body: { readonly chunk: string; readonly stream_id?: string; readonly done?: boolean };
+    readonly body: {
+      readonly chunk: string;
+      readonly stream_id?: string;
+      readonly done?: boolean;
+    };
   }) => Promise<unknown>;
 };
 
@@ -134,17 +138,26 @@ export const createRunContext = (
     logger: {
       info: (message, data) => {
         fireAndForget(
-          sdkClient.logRun({ pathParams, body: { level: "info", message, data } })
+          sdkClient.logRun({
+            pathParams,
+            body: { level: "info", message, data },
+          })
         );
       },
       warn: (message, data) => {
         fireAndForget(
-          sdkClient.logRun({ pathParams, body: { level: "warn", message, data } })
+          sdkClient.logRun({
+            pathParams,
+            body: { level: "warn", message, data },
+          })
         );
       },
       error: (message, data) => {
         fireAndForget(
-          sdkClient.logRun({ pathParams, body: { level: "error", message, data } })
+          sdkClient.logRun({
+            pathParams,
+            body: { level: "error", message, data },
+          })
         );
       },
     },
@@ -263,7 +276,11 @@ export const createRunContext = (
       },
       list: async () => {
         const result = await sdkClient.getStateByRunId({ pathParams });
-        return result as Array<{ key: string; value: unknown; updatedAt: string }>;
+        return result as Array<{
+          key: string;
+          value: unknown;
+          updatedAt: string;
+        }>;
       },
     },
 

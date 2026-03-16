@@ -34,7 +34,8 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^25.5.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260314.1"
+    "@typescript/native-preview": "^7.0.0-dev.20260316.1",
+    "ai": ">=4.0.0"
   },
   "dependencies": {
     "@effect/platform": "^0.94.5",
