@@ -20,20 +20,29 @@ pub async fn with_checkpoint_resume<T, F, Fut>(
     ctx: &RunContext,
     last_checkpoint: Option<Value>,
     f: F,
-    _options: CheckpointResumeOptions,
+    options: CheckpointResumeOptions,
 ) -> Result<T, crate::errors::StraitError>
 where
     F: FnOnce(Value, Box<dyn FnMut(Value) + Send>) -> Fut,
     Fut: std::future::Future<Output = Result<T, crate::errors::StraitError>>,
 {
-    let current_state = last_checkpoint.unwrap_or(_options.initial_state);
+    let current_state = last_checkpoint.unwrap_or(options.initial_state);
+    let interval = if options.checkpoint_interval > 0 {
+        options.checkpoint_interval
+    } else {
+        1
+    };
 
     let state_ref = Arc::new(Mutex::new(current_state.clone()));
+    let step_count = Arc::new(Mutex::new(0usize));
 
     let state_clone = state_ref.clone();
+    let step_clone = step_count.clone();
 
     let update_state = Box::new(move |new_state: Value| {
         *state_clone.lock().unwrap() = new_state;
+        let mut count = step_clone.lock().unwrap();
+        *count += 1;
     });
 
     let initial = state_ref.lock().unwrap().clone();
