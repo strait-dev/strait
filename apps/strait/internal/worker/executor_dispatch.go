@@ -390,8 +390,13 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env[key] = secret.EncryptedValue
 	}
 
-	// 7. Resolve region: job config > executor default.
+	// 7. Resolve region: job config > run metadata hint > executor default.
 	region := job.Region
+	if region == "" {
+		if hint, ok := run.Metadata["_region_hint"]; ok && hint != "" {
+			region = hint
+		}
+	}
 	if region == "" {
 		region = e.defaultFlyRegion
 	}

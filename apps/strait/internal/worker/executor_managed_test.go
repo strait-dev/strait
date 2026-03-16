@@ -959,7 +959,79 @@ func TestManagedDispatch_RegionFallback_JobRegionUsed(t *testing.T) {
 	}
 }
 
-// Test 22: Non-RuntimeError → generic handling unchanged.
+// Test 22: Region hint from run metadata → used when no job region.
+func TestManagedDispatch_RegionFallback_MetadataHint(t *testing.T) {
+	t.Parallel()
+
+	var capturedReq compute.RunRequest
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	run.Metadata = map[string]string{"_region_hint": "lhr"}
+	job := newTestManagedJob()
+	job.Region = "" // no job-level region
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedReq.Region != "lhr" {
+		t.Errorf("expected region lhr (metadata hint), got %q", capturedReq.Region)
+	}
+}
+
+// Test 23: Region resolution chain: job > hint > default.
+func TestManagedDispatch_RegionChain_JobWins(t *testing.T) {
+	t.Parallel()
+
+	var capturedReq compute.RunRequest
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	run.Metadata = map[string]string{"_region_hint": "lhr"}
+	job := newTestManagedJob()
+	job.Region = "nrt" // explicit job region wins over hint and default
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedReq.Region != "nrt" {
+		t.Errorf("expected region nrt (job wins), got %q", capturedReq.Region)
+	}
+}
+
+// Test 24: Non-RuntimeError → generic handling unchanged.
 func TestManagedDispatch_NonRuntimeError_GenericHandling(t *testing.T) {
 	t.Parallel()
 
