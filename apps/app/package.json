@@ -14,7 +14,7 @@
     "biome:fix:unsafe": "biome check --fix --unsafe ./src",
     "test": "vitest run",
     "test:watch": "vitest watch",
-    "typecheck": "NODE_OPTIONS='--max-old-space-size=4096' tsgo --noEmit",
+    "typecheck": "tsgo --noEmit",
     "knip": "knip",
     "knip:fix": "knip --fix",
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck",
