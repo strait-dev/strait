@@ -816,7 +816,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	return runs, nil
 }
 
-func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByProject")
 	defer span.End()
 
@@ -863,6 +863,12 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	if len(payloadContains) > 0 {
 		baseQuery += fmt.Sprintf(" AND payload @> $%d::jsonb", param)
 		args = append(args, payloadContains)
+		param++
+	}
+
+	if executionMode != nil {
+		baseQuery += fmt.Sprintf(" AND execution_mode = $%d", param)
+		args = append(args, string(*executionMode))
 		param++
 	}
 

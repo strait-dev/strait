@@ -158,7 +158,7 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 
 	var capturedTriggeredBy *string
 	ms := &mockAPIStore{
-		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, triggeredBy, _ *string, _ json.RawMessage, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, triggeredBy, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedTriggeredBy = triggeredBy
 			return []domain.JobRun{}, nil
 		},
@@ -174,6 +174,112 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 	}
 	if *capturedTriggeredBy != "api" {
 		t.Fatalf("expected triggeredBy=api, got %q", *capturedTriggeredBy)
+	}
+}
+
+func TestHandleListRuns_ExecutionModeFilter_Managed(t *testing.T) {
+	t.Parallel()
+
+	var capturedMode *domain.ExecutionMode
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedMode = em
+			return []domain.JobRun{
+				{ID: "run-managed", ExecutionMode: domain.ExecutionModeManaged, CreatedAt: time.Now()},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&execution_mode=managed", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedMode == nil {
+		t.Fatal("expected execution_mode to be passed to store")
+	}
+	if *capturedMode != domain.ExecutionModeManaged {
+		t.Fatalf("expected managed, got %q", *capturedMode)
+	}
+}
+
+func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
+	t.Parallel()
+
+	var capturedMode *domain.ExecutionMode
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedMode = em
+			return []domain.JobRun{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&execution_mode=http", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedMode == nil || *capturedMode != domain.ExecutionModeHTTP {
+		t.Fatal("expected http execution mode")
+	}
+}
+
+func TestHandleListRuns_ExecutionModeFilter_Invalid(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockAPIStore{}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&execution_mode=invalid", ""))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid execution_mode, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
+	t.Parallel()
+
+	var capturedMode *domain.ExecutionMode
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedMode = em
+			return []domain.JobRun{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedMode != nil {
+		t.Fatal("expected nil execution_mode when no filter provided")
+	}
+}
+
+func TestHandleListRuns_ExecutionModeFilter_CombinedWithStatus(t *testing.T) {
+	t.Parallel()
+
+	var capturedStatus *domain.RunStatus
+	var capturedMode *domain.ExecutionMode
+	ms := &mockAPIStore{
+		listRunsByProjectFn: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedStatus = status
+			capturedMode = em
+			return []domain.JobRun{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&status=completed&execution_mode=managed", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedStatus == nil || *capturedStatus != domain.StatusCompleted {
+		t.Fatal("expected completed status")
+	}
+	if capturedMode == nil || *capturedMode != domain.ExecutionModeManaged {
+		t.Fatal("expected managed execution mode")
 	}
 }
 

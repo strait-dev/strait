@@ -123,6 +123,16 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		payloadContains = json.RawMessage(pc)
 	}
 
+	var executionMode *domain.ExecutionMode
+	if em := query.Get("execution_mode"); em != "" {
+		parsed := domain.ExecutionMode(em)
+		if !parsed.IsValid() {
+			respondError(w, r, http.StatusBadRequest, "execution_mode is invalid")
+			return
+		}
+		executionMode = &parsed
+	}
+
 	limit, cursor, err := parsePaginationParams(r)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
@@ -133,7 +143,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	if tagKey != "" {
 		runs, err = s.store.ListRunsByTag(r.Context(), projectID, tagKey, tagValue, limit+1, cursor)
 	} else {
-		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, limit+1, cursor)
+		runs, err = s.store.ListRunsByProject(r.Context(), projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, limit+1, cursor)
 	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to list runs")
