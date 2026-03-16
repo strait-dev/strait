@@ -1,3 +1,5 @@
+export * from "./checkpoint-resume";
+export * from "./cost-budget";
 export * from "./deployments";
 export * from "./idempotency";
 export * from "./paginate";
