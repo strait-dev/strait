@@ -10,6 +10,7 @@ type MachinePool struct {
 	mu      sync.Mutex
 	entries map[string][]poolEntry // Key: "{imageURI}:{region}"
 	maxPer  int
+	onEvict func(machineID string) // Called asynchronously when a machine is evicted.
 }
 
 type poolEntry struct {
@@ -26,6 +27,13 @@ func NewMachinePool(maxPerKey int) *MachinePool {
 		entries: make(map[string][]poolEntry),
 		maxPer:  maxPerKey,
 	}
+}
+
+// SetOnEvict sets the callback invoked (asynchronously) when a machine is evicted.
+func (p *MachinePool) SetOnEvict(fn func(machineID string)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onEvict = fn
 }
 
 // PoolKey returns the cache key for a given image and region.
@@ -64,8 +72,12 @@ func (p *MachinePool) Release(imageURI, region, machineID string) {
 
 	// Evict oldest if at capacity.
 	if len(entries) >= p.maxPer {
+		evicted := entries[0]
 		p.entries[key] = entries[1:]
 		entries = p.entries[key]
+		if p.onEvict != nil {
+			go p.onEvict(evicted.MachineID)
+		}
 	}
 
 	p.entries[key] = append(entries, poolEntry{

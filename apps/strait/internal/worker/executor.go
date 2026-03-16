@@ -100,6 +100,7 @@ type Executor struct {
 	jwtSigningKey            string
 	containerRuntime         compute.ContainerRuntime
 	managedSemaphore         *semaphore.Weighted
+	machinePool              *compute.MachinePool
 	externalAPIURL           string
 	defaultFlyRegion         string
 	stop                     chan struct{}
@@ -145,6 +146,8 @@ type ExecutorConfig struct {
 	ExternalAPIURL             string
 	MaxConcurrentMachines      int
 	DefaultFlyRegion           string
+	WarmPoolEnabled            bool
+	WarmPoolMaxPerJob          int
 }
 
 const (
@@ -188,6 +191,11 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		managedSem = semaphore.NewWeighted(int64(maxMachines))
 	}
 
+	var machinePool *compute.MachinePool
+	if cfg.WarmPoolEnabled {
+		machinePool = compute.NewMachinePool(cfg.WarmPoolMaxPerJob)
+	}
+
 	return &Executor{
 		pool:                     cfg.Pool,
 		concurrencyLimit:         cfg.ConcurrencyLimit,
@@ -217,6 +225,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jwtSigningKey:            cfg.JWTSigningKey,
 		containerRuntime:         cfg.ContainerRuntime,
 		managedSemaphore:         managedSem,
+		machinePool:              machinePool,
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
 		stop:                     make(chan struct{}),

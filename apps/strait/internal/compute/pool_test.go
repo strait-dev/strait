@@ -127,6 +127,31 @@ func TestMachinePool_PruneWithNilDestroy(t *testing.T) {
 	}
 }
 
+func TestMachinePool_EvictionCallsDestroy(t *testing.T) {
+	t.Parallel()
+	pool := NewMachinePool(2)
+
+	var evicted atomic.Value
+	pool.SetOnEvict(func(machineID string) {
+		evicted.Store(machineID)
+	})
+
+	pool.Release("img:latest", "iad", "m-1")
+	pool.Release("img:latest", "iad", "m-2")
+	pool.Release("img:latest", "iad", "m-3") // should evict m-1
+
+	// Give async goroutine time to run.
+	time.Sleep(50 * time.Millisecond)
+
+	val := evicted.Load()
+	if val == nil {
+		t.Fatal("expected onEvict to be called")
+	}
+	if val.(string) != "m-1" {
+		t.Errorf("expected m-1 evicted, got %q", val)
+	}
+}
+
 func TestMachinePool_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 	pool := NewMachinePool(100)

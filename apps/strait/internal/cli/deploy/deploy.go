@@ -4,6 +4,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -40,13 +41,14 @@ func DeployJob(ctx context.Context, cli *client.Client, opts DeployOptions) erro
 			}
 		}
 
+		var alreadyPushed bool
 		var err error
-		imageURI, err = BuildImage(ctx, opts.Dockerfile, opts.Tag, opts.Registry, opts.JobSlug, opts.BuildArgs, opts.CacheEnabled)
+		imageURI, alreadyPushed, err = BuildImage(ctx, opts.Dockerfile, opts.Tag, opts.Registry, opts.JobSlug, opts.BuildArgs, opts.CacheEnabled)
 		if err != nil {
 			return fmt.Errorf("build failed: %w", err)
 		}
 
-		if opts.Push {
+		if opts.Push && !alreadyPushed {
 			if err := PushImage(ctx, imageURI); err != nil {
 				return fmt.Errorf("push failed: %w", err)
 			}
@@ -95,8 +97,8 @@ func UpdateJobImage(ctx context.Context, cli *client.Client, slug, imageURI, pre
 }
 
 // BuildImage runs `docker build` (or `docker buildx build` with caching) and
-// returns the tagged image URI.
-func BuildImage(ctx context.Context, dockerfile, tag, registry, slug string, buildArgs []string, cacheEnabled bool) (string, error) {
+// returns the tagged image URI and whether the image was already pushed (buildx --push).
+func BuildImage(ctx context.Context, dockerfile, tag, registry, slug string, buildArgs []string, cacheEnabled bool) (string, bool, error) {
 	imageURI := fmt.Sprintf("%s/%s:%s", registry, slug, tag)
 
 	useBuildx := cacheEnabled && hasBuildx(ctx)
@@ -121,12 +123,13 @@ func BuildImage(ctx context.Context, dockerfile, tag, registry, slug string, bui
 	}
 
 	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // Args from trusted CLI flags.
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("%s\n%w", string(output), err)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", false, fmt.Errorf("docker build failed: %w", err)
 	}
 
-	return imageURI, nil
+	return imageURI, useBuildx, nil
 }
 
 // hasBuildx checks if docker buildx is available.
@@ -138,9 +141,10 @@ func hasBuildx(ctx context.Context) bool {
 // PushImage pushes a Docker image to its registry.
 func PushImage(ctx context.Context, imageURI string) error {
 	cmd := exec.CommandContext(ctx, "docker", "push", imageURI) //nolint:gosec // Image URI from trusted CLI input.
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s\n%w", string(output), err)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker push failed: %w", err)
 	}
 	return nil
 }
