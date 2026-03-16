@@ -326,6 +326,7 @@ func (s *Server) routes() chi.Router {
 	r.Route("/sdk/v1", func(r chi.Router) {
 		r.Use(s.runTokenAuth)
 		r.Route("/runs/{runID}", func(r chi.Router) {
+			r.Get("/payload", s.handleSDKGetPayload)
 			r.Post("/log", s.handleSDKLog)
 			r.Post("/progress", s.handleSDKProgress)
 			r.Post("/annotate", s.handleSDKAnnotate)

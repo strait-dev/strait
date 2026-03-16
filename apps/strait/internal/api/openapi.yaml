@@ -3829,6 +3829,31 @@ paths:
         '409':
           description: Run not in executing state or event key conflict
 
+  /sdk/v1/runs/{runID}/payload:
+    get:
+      tags:
+        - SDK
+      summary: Get run payload
+      description: Returns the full payload for a managed run. Used when payload exceeds inline limit.
+      operationId: getRunPayload
+      security:
+        - RunToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payload returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Run not found
+
   /sdk/v1/runs/{runID}/log:
     post:
       tags:
