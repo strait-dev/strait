@@ -55,7 +55,7 @@ const ChangeEmail = ({
             <Img
               alt="Strait Logo"
               className="mb-6"
-              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+              src="https://app.usestrait.com/strait-logo-black.svg"
               width="150"
             />
           </Section>
@@ -92,9 +92,9 @@ const ChangeEmail = ({
             This link expires in 24 hours. If you didn't request this change,
             please ignore this email or contact our{" "}
             <Link
-              className="text-[#FF4F00] underline"
+              className="text-[#171717] underline"
               href="mailto:support@usestrait.com"
-              style={{ color: "#FF4F00" }}
+              style={{ color: "#171717" }}
             >
               support
             </Link>{" "}
@@ -107,9 +107,9 @@ const ChangeEmail = ({
             If the button doesn't work, copy and paste this link in your
             browser:{" "}
             <Link
-              className="text-[#FF4F00] underline"
+              className="text-[#171717] underline"
               href={url}
-              style={{ color: "#FF4F00" }}
+              style={{ color: "#171717" }}
             >
               {url}
             </Link>

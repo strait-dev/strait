@@ -62,7 +62,7 @@ const OrganizationVerificationCode = ({
             <Img
               alt="Strait"
               className=""
-              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+              src="https://app.usestrait.com/strait-logo-black.svg"
               width="150"
             />
           </Section>
@@ -118,10 +118,10 @@ const OrganizationVerificationCode = ({
             {isPurgeOnly ? "the data removal" : "the deletion"}
             of your organization, please ignore this email or contact our{" "}
             <Link
-              className="text-[#FF4F00] underline"
+              className="text-[#171717] underline"
               href="mailto:support@usestrait.com"
               style={{
-                color: "#FF4F00",
+                color: "#171717",
                 textDecoration: "underline",
               }}
             >

@@ -52,7 +52,7 @@ const PostTrialFollowup = ({ name = "Leonardo" }: Props) => {
               <Img
                 alt="Strait Logo"
                 className=""
-                src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+                src="https://app.usestrait.com/strait-logo-black.svg"
                 width="150"
               />
             </Section>
@@ -86,9 +86,9 @@ const PostTrialFollowup = ({ name = "Leonardo" }: Props) => {
               If you'd like to talk about it, just reply to this email or
               schedule a quick chat through{" "}
               <Link
-                className="text-[#FF4F00] underline"
+                className="text-[#171717] underline"
                 href="https://calendly.com/strait/15min"
-                style={{ color: "#FF4F00", textDecoration: "underline" }}
+                style={{ color: "#171717", textDecoration: "underline" }}
               >
                 this link
               </Link>

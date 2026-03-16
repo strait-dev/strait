@@ -78,7 +78,7 @@ const FeedbackEmail = ({
               <Img
                 alt="Strait"
                 className=""
-                src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+                src="https://app.usestrait.com/strait-logo-black.svg"
                 width="150"
               />
             </Section>

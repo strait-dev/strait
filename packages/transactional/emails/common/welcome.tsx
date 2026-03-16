@@ -51,7 +51,7 @@ const WelcomeEmail = ({ name }: WelcomeEmailProps) => (
             <Img
               alt="Strait"
               className=""
-              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+              src="https://app.usestrait.com/strait-logo-black.svg"
               width="150"
             />
           </Section>
@@ -89,28 +89,28 @@ const WelcomeEmail = ({ name }: WelcomeEmailProps) => (
               • Set up your first{" "}
               <Link
                 href="https://app.usestrait.com/workflows"
-                style={{ color: "#FF4F00", textDecoration: "underline" }}
+                style={{ color: "#171717", textDecoration: "underline" }}
               >
                 workflow
               </Link>
               <br />• Configure your{" "}
               <Link
                 href="https://app.usestrait.com/settings"
-                style={{ color: "#FF4F00", textDecoration: "underline" }}
+                style={{ color: "#171717", textDecoration: "underline" }}
               >
                 team settings
               </Link>
               <br />• Create{" "}
               <Link
                 href="https://app.usestrait.com/schedules"
-                style={{ color: "#FF4F00", textDecoration: "underline" }}
+                style={{ color: "#171717", textDecoration: "underline" }}
               >
                 automated schedules
               </Link>
               <br />• Monitor your{" "}
               <Link
                 href="https://app.usestrait.com/runs"
-                style={{ color: "#FF4F00", textDecoration: "underline" }}
+                style={{ color: "#171717", textDecoration: "underline" }}
               >
                 runs and events
               </Link>
