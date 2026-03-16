@@ -215,7 +215,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => {
+            onClick={() => {
               setDropdownOpen(false);
               navigate({ to: `/app/org/${activeOrganization.id}` });
             }}
