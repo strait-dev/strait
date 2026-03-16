@@ -105,7 +105,7 @@ export const SignInForm = ({
   if (emailNotVerified) {
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <div className="rounded-full bg-primary/10 p-3">
+        <div className="rounded-lg bg-primary/10 p-3">
           <svg
             aria-hidden="true"
             className="size-6 text-primary"

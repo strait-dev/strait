@@ -97,9 +97,7 @@ const UserDropdownMenu = ({ user }: Props) => {
               {user.image ? (
                 <AvatarImage alt="User Avatar" src={user.image} />
               ) : (
-                <AvatarFallback className="rounded-custom">
-                  {getInitials()}
-                </AvatarFallback>
+                <AvatarFallback>{getInitials()}</AvatarFallback>
               )}
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
@@ -122,9 +120,7 @@ const UserDropdownMenu = ({ user }: Props) => {
                     {user.image ? (
                       <AvatarImage alt="User Avatar" src={user.image} />
                     ) : (
-                      <AvatarFallback className="rounded-custom">
-                        {getInitials()}
-                      </AvatarFallback>
+                      <AvatarFallback>{getInitials()}</AvatarFallback>
                     )}
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">

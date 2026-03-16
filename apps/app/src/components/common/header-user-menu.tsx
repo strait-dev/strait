@@ -75,7 +75,7 @@ const HeaderUserMenu = ({ user }: Props) => {
       <DropdownMenuTrigger
         render={
           <Button
-            className="size-8 rounded-full p-0"
+            className="size-8 rounded-lg p-0"
             size="icon"
             variant="ghost"
           />

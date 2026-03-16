@@ -23,7 +23,7 @@ export const TrialStartedModal = ({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader className="text-center">
-          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10">
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-lg bg-primary/10">
             <HugeiconsIcon className="size-6 text-primary" icon={CheckIcon} />
           </div>
           <DialogTitle className="text-center">Welcome to Strait!</DialogTitle>
@@ -35,7 +35,7 @@ export const TrialStartedModal = ({
 
         <div className="space-y-3 py-4">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               <HugeiconsIcon className="size-3 text-primary" icon={CheckIcon} />
             </div>
             <p className="text-muted-foreground text-sm">
@@ -43,7 +43,7 @@ export const TrialStartedModal = ({
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               <HugeiconsIcon className="size-3 text-primary" icon={CheckIcon} />
             </div>
             <p className="text-muted-foreground text-sm">
@@ -51,7 +51,7 @@ export const TrialStartedModal = ({
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               <HugeiconsIcon className="size-3 text-primary" icon={CheckIcon} />
             </div>
             <p className="text-muted-foreground text-sm">
