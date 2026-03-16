@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from strait.authoring._run_context import RunContext, RunContextState
+from strait.authoring._run_context import RunContext
 from strait.authoring._test_client import TestRunRecord, create_test_context
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from strait.authoring._agent import AgentOptions, AgentRunContext, define_agent
