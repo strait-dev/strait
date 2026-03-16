@@ -109,10 +109,7 @@ function LogsPage() {
 
       {logs.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-16 text-center">
-          <HugeiconsIcon
-            className="size-6 text-primary"
-            icon={FileTextIcon}
-          />
+          <HugeiconsIcon className="size-6 text-primary" icon={FileTextIcon} />
           <p className="font-medium">No logs found</p>
           <p className="text-muted-foreground">
             No log entries match the current filters.
@@ -150,7 +147,7 @@ function LogRow({
   const style = LEVEL_STYLES[log.level] ?? LEVEL_STYLES.info;
 
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: log row toggle
+    // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions lint/a11y/noNoninteractiveElementInteractions: log row toggle
     <div
       className="cursor-pointer px-4 py-3 transition-colors hover:bg-muted/40"
       onClick={onToggle}

@@ -229,9 +229,11 @@ function JobsPage() {
                         label: "View",
                         icon: EyeIcon,
                         onClick: () => {
-                          const job = table.getRowModel().rows.find(
-                            (r) => r.id === selectedIds[0]
-                          )?.original;
+                          const job = table
+                            .getRowModel()
+                            .rows.find(
+                              (r) => r.id === selectedIds[0]
+                            )?.original;
                           if (job) {
                             handleRowClick(job);
                           }
@@ -242,12 +244,16 @@ function JobsPage() {
                 {
                   label: "Trigger",
                   icon: PlayActionIcon,
-                  onClick: () => {},
+                  onClick: () => {
+                    /* TODO */
+                  },
                 },
                 {
                   label: "Pause",
                   icon: PauseActionIcon,
-                  onClick: () => {},
+                  onClick: () => {
+                    /* TODO */
+                  },
                 },
               ]}
               onClearSelection={() => setRowSelection({})}

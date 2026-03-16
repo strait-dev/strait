@@ -221,9 +221,11 @@ function RunsPage() {
                         label: "View",
                         icon: EyeIcon,
                         onClick: () => {
-                          const run = table.getRowModel().rows.find(
-                            (r) => r.id === selectedIds[0]
-                          )?.original;
+                          const run = table
+                            .getRowModel()
+                            .rows.find(
+                              (r) => r.id === selectedIds[0]
+                            )?.original;
                           if (run) {
                             handleRowClick(run);
                           }
@@ -234,12 +236,16 @@ function RunsPage() {
                 {
                   label: "Retry",
                   icon: RefreshIcon,
-                  onClick: () => {},
+                  onClick: () => {
+                    /* TODO */
+                  },
                 },
                 {
                   label: "Cancel",
                   icon: XCircleIcon,
-                  onClick: () => {},
+                  onClick: () => {
+                    /* TODO */
+                  },
                   variant: "destructive" as const,
                 },
               ]}

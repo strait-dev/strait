@@ -228,9 +228,11 @@ function WorkflowsPage() {
                         label: "View",
                         icon: EyeIcon,
                         onClick: () => {
-                          const workflow = table.getRowModel().rows.find(
-                            (r) => r.id === selectedIds[0]
-                          )?.original;
+                          const workflow = table
+                            .getRowModel()
+                            .rows.find(
+                              (r) => r.id === selectedIds[0]
+                            )?.original;
                           if (workflow) {
                             handleRowClick(workflow);
                           }
@@ -241,12 +243,16 @@ function WorkflowsPage() {
                 {
                   label: "Trigger",
                   icon: PlayActionIcon,
-                  onClick: () => {},
+                  onClick: () => {
+                    /* TODO */
+                  },
                 },
                 {
                   label: "Pause",
                   icon: PauseActionIcon,
-                  onClick: () => {},
+                  onClick: () => {
+                    /* TODO */
+                  },
                 },
               ]}
               onClearSelection={() => setRowSelection({})}

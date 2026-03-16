@@ -227,9 +227,11 @@ function WebhooksPage() {
                         label: "View",
                         icon: EyeIcon,
                         onClick: () => {
-                          const webhook = table.getRowModel().rows.find(
-                            (r) => r.id === selectedIds[0]
-                          )?.original;
+                          const webhook = table
+                            .getRowModel()
+                            .rows.find(
+                              (r) => r.id === selectedIds[0]
+                            )?.original;
                           if (webhook) {
                             handleRowClick(webhook);
                           }
@@ -240,7 +242,9 @@ function WebhooksPage() {
                 {
                   label: "Delete",
                   icon: TrashIcon,
-                  onClick: () => {},
+                  onClick: () => {
+                    /* TODO */
+                  },
                   variant: "destructive" as const,
                 },
               ]}
