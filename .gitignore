@@ -2,6 +2,7 @@
 # LOGS & DEBUGGING
 # ==============================================================================
 logs
+!**/routes/**/logs
 *.log
 npm-debug.log*
 yarn-debug.log*
