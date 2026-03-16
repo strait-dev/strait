@@ -69,7 +69,9 @@ const LinkedAccounts = () => {
   };
 
   const handleUnlink = async (provider: string) => {
-    if (accounts.length <= 1) {
+    // Ensure at least one other sign-in method remains
+    const remainingAccounts = accounts.filter((a) => a.providerId !== provider);
+    if (remainingAccounts.length === 0) {
       toast.error(
         "You must have at least one sign-in method. Add another before unlinking."
       );

@@ -22,6 +22,7 @@ export const useUpdateUser = () => {
 
       const result = await authClient.updateUser({
         name,
+        ...(data.email && { email: data.email }),
       });
 
       if (result.error) {

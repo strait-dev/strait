@@ -36,12 +36,8 @@ const Account = ({ user }: Props) => {
     checkAccounts();
   }, []);
 
-  // Check if 2FA is enabled from user data
   useEffect(() => {
-    setTwoFactorEnabled(
-      (user as unknown as { twoFactorEnabled?: boolean }).twoFactorEnabled ??
-        false
-    );
+    setTwoFactorEnabled(user.twoFactorEnabled ?? false);
   }, [user]);
 
   const handleTwoFactorStatusChange = () => {

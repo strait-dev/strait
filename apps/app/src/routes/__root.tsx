@@ -23,6 +23,7 @@ export type AuthUser = {
   image?: string | null;
   defaultOrganizationId?: string;
   onboarded?: boolean;
+  twoFactorEnabled?: boolean;
   createdAt: Date;
   updatedAt: Date;
 };

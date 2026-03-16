@@ -10,7 +10,9 @@ export const OneTapInitializer = () => {
     if (!googleClientId) {
       return;
     }
-    authClient.oneTap();
+    authClient.oneTap().catch(() => {
+      // Google One Tap may fail silently (blocked by browser, not loaded, etc.)
+    });
   }, []);
 
   return null;

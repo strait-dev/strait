@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
+import { toast } from "@strait/ui/components/toast/index";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { LoadingIcon } from "@/lib/icons";
@@ -23,17 +24,21 @@ export const SocialProviders = ({
     try {
       const result = await authClient.signIn.social({
         provider,
-        callbackURL: redirectTo ?? "/onboarding",
+        callbackURL: redirectTo ?? "/app",
       });
       if (result.error) {
         captureSentryAuthError(result.error, {
           operation: "signin",
           provider,
         });
+        toast.error(
+          result.error.message ?? "Failed to sign in. Please try again."
+        );
         setLoadingProvider(null);
       }
     } catch (error) {
       captureSentryAuthError(error, { operation: "signin", provider });
+      toast.error("Failed to sign in. Please try again.");
       setLoadingProvider(null);
     }
   };

@@ -24,6 +24,7 @@ type Session = {
 
 const SessionManagement = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentToken, setCurrentToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
   const [isRevokingAll, setIsRevokingAll] = useState(false);
@@ -31,9 +32,15 @@ const SessionManagement = () => {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const result = await authClient.listSessions();
-      if (result.data) {
-        setSessions(result.data as unknown as Session[]);
+      const [sessionsResult, sessionResult] = await Promise.all([
+        authClient.listSessions(),
+        authClient.getSession(),
+      ]);
+      if (sessionsResult.data) {
+        setSessions(sessionsResult.data as unknown as Session[]);
+      }
+      if (sessionResult.data?.session) {
+        setCurrentToken(sessionResult.data.session.token);
       }
     } catch (error) {
       captureException(error);
@@ -196,8 +203,8 @@ const SessionManagement = () => {
         )}
         {!isLoading && sessions.length > 0 && (
           <div className="flex flex-col gap-3">
-            {sessions.map((session, index) => {
-              const isCurrent = index === 0;
+            {sessions.map((session) => {
+              const isCurrent = session.token === currentToken;
               return (
                 <div
                   className="flex items-center justify-between rounded-md border p-3"
