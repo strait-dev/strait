@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+// redactBody truncates response bodies in error messages to prevent secret leakage.
+func redactBody(body []byte, maxLen int) string {
+	if len(body) <= maxLen {
+		return string(body)
+	}
+	return string(body[:maxLen]) + "...(truncated)"
+}
+
 // FlyRuntime implements ContainerRuntime using the Fly Machines API.
 type FlyRuntime struct {
 	apiToken string
@@ -133,13 +141,13 @@ func (f *FlyRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 		return "", NewRetryableError(503, "fly capacity unavailable", nil)
 	}
 	if resp.StatusCode == 422 {
-		return "", NewFatalError(422, fmt.Sprintf("fly config error: %s", string(respBody)), nil)
+		return "", NewFatalError(422, fmt.Sprintf("fly config error: %s", redactBody(respBody, 200)), nil)
 	}
 	if resp.StatusCode >= 500 {
-		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", string(respBody)), nil)
+		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("fly server error: %s", redactBody(respBody, 200)), nil)
 	}
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("unexpected status: %s", string(respBody)), nil)
+		return "", NewRetryableError(resp.StatusCode, fmt.Sprintf("unexpected status: %s", redactBody(respBody, 200)), nil)
 	}
 
 	var machine flyMachineResponse

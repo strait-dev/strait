@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -157,16 +158,19 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Stop managed containers for cancelled workflow runs (non-fatal).
+	// Use detached context so client disconnect doesn't abort stops.
 	if s.containerRuntime != nil {
 		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(r.Context(), run.ID)
 		if listErr != nil {
 			slog.Warn("failed to list managed machines for workflow cancel", "workflow_run_id", run.ID, "error", listErr)
 		}
 		for _, mid := range machineIDs {
-			if stopErr := s.containerRuntime.Stop(r.Context(), mid); stopErr != nil {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if stopErr := s.containerRuntime.Stop(stopCtx, mid); stopErr != nil {
 				slog.Warn("failed to stop managed container on workflow cancel",
 					"workflow_run_id", run.ID, "machine_id", mid, "error", stopErr)
 			}
+			stopCancel()
 		}
 	}
 

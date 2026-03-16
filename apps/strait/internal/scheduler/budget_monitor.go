@@ -74,25 +74,47 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 
+	// Cleanup old entries in a single pass under the lock.
+	bm.alertedMu.Lock()
+	for k := range bm.alerted {
+		if len(k) > 10 {
+			dateStr := k[len(k)-10:]
+			if dateStr != today {
+				delete(bm.alerted, k)
+			}
+		}
+	}
+	bm.alertedMu.Unlock()
+
 	for _, pq := range projects {
 		alertKey := pq.ProjectID + ":" + today
 
+		// Optimistic lock: set alerted before the expensive query, revert on failure.
 		bm.alertedMu.Lock()
-		already := bm.alerted[alertKey]
-		bm.alertedMu.Unlock()
-		if already {
+		if bm.alerted[alertKey] {
+			bm.alertedMu.Unlock()
 			continue
+		}
+		bm.alerted[alertKey] = true
+		bm.alertedMu.Unlock()
+
+		revert := func() {
+			bm.alertedMu.Lock()
+			delete(bm.alerted, alertKey)
+			bm.alertedMu.Unlock()
 		}
 
 		dailyCost, costErr := bm.store.SumDailyComputeCost(ctx, pq.ProjectID, pq.Timezone)
 		if costErr != nil {
 			bm.logger.Warn("budget monitor: failed to sum daily cost",
 				"project_id", pq.ProjectID, "error", costErr)
+			revert()
 			continue
 		}
 
 		threshold := pq.ComputeDailyCostLimitMicrousd * int64(domain.ComputeBudgetAlertThresholdPct) / 100
 		if dailyCost < threshold {
+			revert()
 			continue
 		}
 
@@ -115,22 +137,11 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 			if enqErr := bm.enqueuer.EnqueueBudgetAlert(ctx, pq.ProjectID, payload); enqErr != nil {
 				bm.logger.Warn("budget monitor: failed to enqueue alert",
 					"project_id", pq.ProjectID, "error", enqErr)
+				revert()
 				continue
 			}
 		}
-
-		bm.alertedMu.Lock()
-		bm.alerted[alertKey] = true
-		// Clean old entries (anything not today).
-		for k := range bm.alerted {
-			if len(k) > 10 {
-				dateStr := k[len(k)-10:]
-				if dateStr != today {
-					delete(bm.alerted, k)
-				}
-			}
-		}
-		bm.alertedMu.Unlock()
+		// Alert succeeded — keep alertKey set (optimistic lock confirmed).
 	}
 }
 

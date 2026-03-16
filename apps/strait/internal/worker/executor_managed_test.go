@@ -1059,3 +1059,228 @@ func TestManagedDispatch_NonRuntimeError_GenericHandling(t *testing.T) {
 		t.Error("expected system_failed for generic non-RuntimeError")
 	}
 }
+
+// Test 25: Nil result guard — Wait returns nil → system_failed.
+func TestManagedDispatch_NilResultGuard(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return nil, nil // nil result, no error
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	updates := store.statusUpdates()
+	var foundSystemFailed bool
+	for _, u := range updates {
+		if u.to == domain.StatusSystemFailed {
+			foundSystemFailed = true
+			if !strings.Contains(u.fields["error"].(string), "nil result") {
+				t.Errorf("expected error about nil result, got %s", u.fields["error"])
+			}
+		}
+	}
+	if !foundSystemFailed {
+		t.Error("expected system_failed when Wait returns nil result")
+	}
+}
+
+// Test 26: Cancel race during Create → Stop called.
+func TestManagedDispatch_CancelRaceDuringCreate(t *testing.T) {
+	t.Parallel()
+
+	var stopCalled atomic.Bool
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:     "run-1",
+				Status: domain.StatusCanceled, // Cancel arrived during Create→SetMachineID window
+			}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		stopFn: func(_ context.Context, machineID string) error {
+			stopCalled.Store(true)
+			if machineID != "test-machine" {
+				t.Errorf("expected stop for test-machine, got %s", machineID)
+			}
+			return nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			t.Error("Wait should not be called when cancel race detected")
+			return nil, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if !stopCalled.Load() {
+		t.Error("expected Stop to be called when cancel race detected")
+	}
+}
+
+// Test 28: Pool acquire hit → skip Create.
+func TestManagedDispatch_PoolAcquireHit(t *testing.T) {
+	t.Parallel()
+
+	var createCalled atomic.Bool
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "new-machine", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+	pool.Release("alpine:latest", "iad", "pooled-machine")
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = ""
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if createCalled.Load() {
+		t.Error("expected Create to be skipped when pool has a machine")
+	}
+}
+
+// Test 29: Pool release — clean exit → machine returned to pool.
+func TestManagedDispatch_PoolRelease(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	pool := compute.NewMachinePool(3)
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = ""
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if pool.Size() != 1 {
+		t.Errorf("expected pool size 1 after clean exit, got %d", pool.Size())
+	}
+}
+
+// Test 30: Pool disabled (nil) → normal Create flow.
+func TestManagedDispatch_PoolDisabled(t *testing.T) {
+	t.Parallel()
+
+	var createCalled atomic.Bool
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalled.Store(true)
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime) // no pool
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if !createCalled.Load() {
+		t.Error("expected Create to be called when pool is nil")
+	}
+}
+
+// Test 27: Invalid region hint → falls back to default.
+func TestManagedDispatch_InvalidRegionHint(t *testing.T) {
+	t.Parallel()
+
+	var capturedReq compute.RunRequest
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedReq = req
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	run.Metadata = map[string]string{"_region_hint": "xyzzy-bogus"} // invalid region
+	job := newTestManagedJob()
+	job.Region = "" // no job region
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedReq.Region != "iad" {
+		t.Errorf("expected fallback to default region iad, got %q", capturedReq.Region)
+	}
+}

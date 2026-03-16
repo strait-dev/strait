@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -373,5 +374,36 @@ func TestFormatBudgetAlertKey(t *testing.T) {
 	expected := "proj-1:2026-03-16"
 	if key != expected {
 		t.Fatalf("expected %q, got %q", expected, key)
+	}
+}
+
+func TestBudgetMonitor_ConcurrentCheck_NoDuplicateAlert(t *testing.T) {
+	t.Parallel()
+
+	enqueuer := &mockEnqueuer{}
+	s := &mockBudgetStore{
+		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
+			return []store.ProjectComputeQuota{
+				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
+			}, nil
+		},
+		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
+			time.Sleep(10 * time.Millisecond) // simulate slow query
+			return 90_000, nil
+		},
+	}
+
+	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() {
+			bm.check(context.Background())
+		})
+	}
+	wg.Wait()
+
+	if len(enqueuer.calls) != 1 {
+		t.Fatalf("expected exactly 1 alert with concurrent checks, got %d", len(enqueuer.calls))
 	}
 }

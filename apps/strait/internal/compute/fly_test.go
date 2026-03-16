@@ -344,3 +344,32 @@ func TestFlyRuntime_Run_ConnectionRefused_ReturnsRetryable(t *testing.T) {
 		t.Errorf("connection refused should be retryable, got: %v", err)
 	}
 }
+
+func TestFlyRuntime_Create_ErrorRedacted(t *testing.T) {
+	t.Parallel()
+
+	// Return a long error body that should be truncated.
+	longBody := strings.Repeat("sensitive-data-", 50) // 750 chars
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(longBody))
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Create(context.Background(), RunRequest{
+		ImageURI:      "img:latest",
+		MachinePreset: "micro",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	errMsg := err.Error()
+	if len(errMsg) > 300 {
+		t.Errorf("error message too long (%d chars), should be truncated", len(errMsg))
+	}
+	if !strings.Contains(errMsg, "truncated") {
+		t.Error("expected truncated marker in error message")
+	}
+}

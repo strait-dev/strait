@@ -394,7 +394,9 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	region := job.Region
 	if region == "" {
 		if hint, ok := run.Metadata["_region_hint"]; ok && hint != "" {
-			region = hint
+			if validated := compute.NearestFlyRegion(hint); validated != "" {
+				region = validated
+			}
 		}
 	}
 	if region == "" {
@@ -415,7 +417,18 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		TimeoutSecs: job.TimeoutSecs,
 	}
 
-	machineID, createErr := e.containerRuntime.Create(ctx, runReq)
+	var machineID string
+	var createErr error
+
+	// Try warm pool first.
+	if e.machinePool != nil {
+		if pooledID, ok := e.machinePool.Acquire(job.ImageURI, region); ok {
+			machineID = pooledID
+		}
+	}
+	if machineID == "" {
+		machineID, createErr = e.containerRuntime.Create(ctx, runReq)
+	}
 	if createErr != nil {
 		// Fly-specific error classification for observability.
 		var re *compute.RuntimeError
@@ -445,6 +458,16 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			e.logger.Warn("failed to store machine_id on run", "run_id", run.ID, "error", setErr)
 		}
 		run.MachineID = machineID
+
+		// Race check: if cancel arrived between Create and now, stop the machine.
+		currentRun, readErr := e.store.GetRun(ctx, run.ID)
+		if readErr == nil && currentRun.Status == domain.StatusCanceled {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer stopCancel()
+			_ = e.containerRuntime.Stop(stopCtx, machineID)
+			e.recordManagedMetric(ctx, "canceled_race", dispatchStart)
+			return
+		}
 	}
 
 	// 8. Wait for container exit.
@@ -463,10 +486,15 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 
-	// 9. Record compute usage.
-	if result != nil {
-		e.recordComputeUsage(ctx, run, job, result)
+	// Guard: Wait() returned nil result (shouldn't happen, but prevents nil-deref).
+	if result == nil {
+		e.handleSystemFailure(ctx, run, "container wait returned nil result")
+		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
+		return
 	}
+
+	// 9. Record compute usage.
+	e.recordComputeUsage(ctx, run, job, result)
 
 	// 10. Re-read run status from DB (SDK race check).
 	currentRun, readErr := e.store.GetRun(ctx, run.ID)
@@ -480,6 +508,9 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	if currentRun.Status.IsTerminal() {
 		e.logger.Info("managed run already terminal (SDK race)",
 			"run_id", run.ID, "status", currentRun.Status, "exit_code", result.ExitCode)
+		if e.machinePool != nil && result.ExitCode == 0 {
+			e.machinePool.Release(job.ImageURI, region, machineID)
+		}
 		e.recordManagedMetric(ctx, "success", dispatchStart)
 		return
 	}

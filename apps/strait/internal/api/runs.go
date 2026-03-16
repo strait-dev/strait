@@ -189,9 +189,13 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Stop managed container if running.
+	// Stop managed container if running — use detached context so client
+	// disconnect doesn't abort the stop, and cap at 10s to avoid blocking
+	// if the Fly API is unresponsive.
 	if s.containerRuntime != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
-		if stopErr := s.containerRuntime.Stop(r.Context(), run.MachineID); stopErr != nil {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
 			slog.Warn("failed to stop managed container on cancel",
 				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
 		}
