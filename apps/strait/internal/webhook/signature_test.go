@@ -162,3 +162,74 @@ func TestValidateSignature_UnsupportedAlgorithm(t *testing.T) {
 		t.Fatal("expected error for unsupported algorithm")
 	}
 }
+
+func TestValidateSignature_StripeV1_TimestampBoundary(t *testing.T) {
+	t.Parallel()
+	secret := "test"
+	body := []byte(`{}`)
+
+	t.Run("exactly 300 seconds old is accepted", func(t *testing.T) {
+		t.Parallel()
+		ts := strconv.FormatInt(time.Now().Add(-300*time.Second).Unix(), 10)
+		signed := append([]byte(ts+"."), body...)
+		sig := computeHMACSHA256(secret, signed)
+		err := ValidateSignature("stripe-v1", secret, body, fmt.Sprintf("t=%s,v1=%s", ts, sig))
+		if err != nil {
+			t.Fatalf("300s should be accepted, got %v", err)
+		}
+	})
+
+	t.Run("301 seconds old is rejected", func(t *testing.T) {
+		t.Parallel()
+		ts := strconv.FormatInt(time.Now().Add(-301*time.Second).Unix(), 10)
+		signed := append([]byte(ts+"."), body...)
+		sig := computeHMACSHA256(secret, signed)
+		err := ValidateSignature("stripe-v1", secret, body, fmt.Sprintf("t=%s,v1=%s", ts, sig))
+		if err == nil {
+			t.Fatal("301s should be rejected")
+		}
+	})
+
+	t.Run("future timestamp is accepted within window", func(t *testing.T) {
+		t.Parallel()
+		ts := strconv.FormatInt(time.Now().Add(60*time.Second).Unix(), 10)
+		signed := append([]byte(ts+"."), body...)
+		sig := computeHMACSHA256(secret, signed)
+		err := ValidateSignature("stripe-v1", secret, body, fmt.Sprintf("t=%s,v1=%s", ts, sig))
+		if err != nil {
+			t.Fatalf("future timestamp within 5min should be accepted, got %v", err)
+		}
+	})
+}
+
+func TestValidateSignature_HMACSHA256_EmptySecret(t *testing.T) {
+	t.Parallel()
+	body := []byte(`test payload`)
+	sig := computeHMACSHA256("", body)
+	err := ValidateSignature("hmac-sha256", "", body, "sha256="+sig)
+	if err != nil {
+		t.Fatalf("empty secret should still validate, got %v", err)
+	}
+}
+
+func TestValidateSignature_StripeV1_InvalidTimestamp(t *testing.T) {
+	t.Parallel()
+	err := ValidateSignature("stripe-v1", "secret", []byte(`{}`), "t=notanumber,v1=abc123")
+	if err == nil {
+		t.Fatal("expected error for non-numeric timestamp")
+	}
+}
+
+func TestValidateSignature_LargeBody(t *testing.T) {
+	t.Parallel()
+	secret := "test-key"
+	body := make([]byte, 1<<20) // 1MB
+	for i := range body {
+		body[i] = byte('A' + (i % 26))
+	}
+	sig := computeHMACSHA256(secret, body)
+	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
+	if err != nil {
+		t.Fatalf("large body should validate, got %v", err)
+	}
+}
