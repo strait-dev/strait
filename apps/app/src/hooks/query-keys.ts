@@ -98,4 +98,8 @@ export const queryKeys = createQueryKeyStore({
   dlq: {
     list: (search?: ListDlqSearch) => [{ search }],
   },
+
+  apiKeys: {
+    list: (search?: ListParams) => [{ search }],
+  },
 });
