@@ -6,6 +6,7 @@ import { OneTapInitializer } from "@/components/(auth)/one-tap-initializer";
 import { PasskeyButton } from "@/components/(auth)/passkey-button";
 import { SignInForm } from "@/components/(auth)/sign-in-form";
 import { SocialProviders } from "@/components/(auth)/social-providers";
+import { ButtonLink } from "@/components/common/button-link";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
@@ -47,20 +48,14 @@ function LoginPage() {
       <SocialProviders redirectTo={redirectTo} />
       <AuthDivider label="or continue with" />
       <PasskeyButton />
-      <Link
-        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 font-medium text-sm hover:bg-accent hover:text-accent-foreground"
-        to="/magic-link"
-      >
+      <ButtonLink to="/magic-link">
         <HugeiconsIcon className="size-4" icon={MailIcon} />
         Sign in with magic link
-      </Link>
-      <Link
-        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 font-medium text-sm hover:bg-accent hover:text-accent-foreground"
-        to="/sso"
-      >
+      </ButtonLink>
+      <ButtonLink to="/sso">
         <HugeiconsIcon className="size-4" icon={BuildingIcon} />
         Sign in with SSO
-      </Link>
+      </ButtonLink>
       <p className="text-center text-muted-foreground text-sm">
         Don't have an account?{" "}
         <Link
