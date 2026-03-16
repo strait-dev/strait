@@ -1,6 +1,5 @@
 import {
   SidebarInset,
-  SidebarMenuButton,
   SidebarProvider,
   SidebarTrigger,
 } from "@strait/ui/components/sidebar";
@@ -12,15 +11,15 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { Suspense, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import * as z from "zod";
 import ErrorComponent from "@/components/common/error-component";
+import HeaderUserMenu from "@/components/common/header-user-menu";
 import { RequireOrganization } from "@/components/common/require-organization";
 import Sidebar from "@/components/common/sidebar";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
-import OrganizationDropdownMenu from "@/components/organization/organization-dropdown-menu";
 import { usePostHog } from "@/components/providers/posthog-provider";
 import UpgradeBanner from "@/components/subscription/trial-upgrade-banner";
 import { TrialStartedModal } from "@/components/upgrade/trial-started-modal";
@@ -173,28 +172,12 @@ function RouteComponent() {
             <div className="flex w-full items-center justify-between">
               <div className="flex flex-column items-center gap-2">
                 <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
-                <Suspense
-                  fallback={
-                    <SidebarMenuButton
-                      className="w-full max-w-[200px]"
-                      size="lg"
-                    >
-                      <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-normal">Loading...</span>
-                      </div>
-                    </SidebarMenuButton>
-                  }
-                >
-                  <OrganizationDropdownMenu
-                    session={session}
-                    user={session.user}
-                  />
-                </Suspense>
               </div>
               <div className="flex flex-column items-center gap-2">
                 <ThemeToggle />
                 <FeedbackDialog user={session.user} />
                 <SupportDialog user={session.user} />
+                <HeaderUserMenu user={session.user} />
               </div>
             </div>
           </div>

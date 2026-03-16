@@ -36,6 +36,7 @@ import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
 import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
+import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -174,6 +175,11 @@ const AppRunsIdRoute = AppRunsIdRouteImport.update({
   path: '/runs/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppOrgIdRoute = AppOrgIdRouteImport.update({
+  id: '/org/$id',
+  path: '/org/$id',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppJobsIdRoute = AppJobsIdRouteImport.update({
   id: '/jobs/$id',
   path: '/jobs/$id',
@@ -203,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/org/$id': typeof AppOrgIdRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
@@ -233,6 +240,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/org/$id': typeof AppOrgIdRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
@@ -265,6 +273,7 @@ export interface FileRoutesById {
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/org/$id': typeof AppOrgIdRoute
   '/app/runs/$id': typeof AppRunsIdRoute
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
@@ -298,6 +307,7 @@ export interface FileRouteTypes {
     | '/onboarding/'
     | '/api/auth/$'
     | '/app/jobs/$id'
+    | '/app/org/$id'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
@@ -328,6 +338,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/api/auth/$'
     | '/app/jobs/$id'
+    | '/app/org/$id'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
@@ -359,6 +370,7 @@ export interface FileRouteTypes {
     | '/onboarding/'
     | '/api/auth/$'
     | '/app/jobs/$id'
+    | '/app/org/$id'
     | '/app/runs/$id'
     | '/app/schedules/$id'
     | '/app/workflows/$id'
@@ -580,6 +592,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/org/$id': {
+      id: '/app/org/$id'
+      path: '/org/$id'
+      fullPath: '/app/org/$id'
+      preLoaderRoute: typeof AppOrgIdRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/jobs/$id': {
       id: '/app/jobs/$id'
       path: '/jobs/$id'
@@ -602,6 +621,7 @@ interface AppLayoutRouteChildren {
   AppUpgradeRoute: typeof AppUpgradeRoute
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
+  AppOrgIdRoute: typeof AppOrgIdRoute
   AppRunsIdRoute: typeof AppRunsIdRoute
   AppSchedulesIdRoute: typeof AppSchedulesIdRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
@@ -621,6 +641,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppUpgradeRoute: AppUpgradeRoute,
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,
+  AppOrgIdRoute: AppOrgIdRoute,
   AppRunsIdRoute: AppRunsIdRoute,
   AppSchedulesIdRoute: AppSchedulesIdRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,

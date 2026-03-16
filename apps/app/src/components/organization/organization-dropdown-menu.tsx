@@ -221,7 +221,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
           <DropdownMenuItem
             onSelect={(e) => {
               e.preventDefault();
-              navigate({ to: "/app/settings" });
+              navigate({ to: `/app/org/${activeOrganization.id}` });
             }}
           >
             <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />

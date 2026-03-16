@@ -23,10 +23,8 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@strait/ui/components/sidebar";
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
-import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { Suspense, useState } from "react";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -41,9 +39,7 @@ import {
   WorkflowIcon,
 } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
-import PaymentPendingCard from "../subscription/payment-pending-card";
-import TrialUpgradeCard from "../subscription/trial-upgrade-card";
-import UserDropdownMenu from "./user-dropdown-menu";
+import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
 
 type NavItem = {
   title: string;
@@ -95,11 +91,6 @@ type Props = {
 };
 
 const AppSidebar = ({ session }: Props) => {
-  const { data: subscriptionState } = useSuspenseQuery(
-    subscriptionStateQueryOptions()
-  );
-  const { shouldShowUpgrade, hasPendingPayment } = subscriptionState;
-
   const [environment, setEnvironment] = useState<Environment>("production");
   const currentEnv =
     environments.find((e) => e.value === environment) ?? environments[0];
@@ -221,11 +212,18 @@ const AppSidebar = ({ session }: Props) => {
         </SidebarGroup>
       </SidebarContent>
 
-      {hasPendingPayment ? <PaymentPendingCard /> : null}
-      {shouldShowUpgrade ? <TrialUpgradeCard /> : null}
-
       <SidebarFooter className="flex flex-col border-sidebar-border border-t">
-        <UserDropdownMenu user={session.user} />
+        <Suspense
+          fallback={
+            <SidebarMenuButton className="w-full" size="lg">
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-normal">Loading...</span>
+              </div>
+            </SidebarMenuButton>
+          }
+        >
+          <OrganizationDropdownMenu session={session} user={session.user} />
+        </Suspense>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
