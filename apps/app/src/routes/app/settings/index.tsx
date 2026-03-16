@@ -18,6 +18,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 import Account from "@/components/(settings)/account";
 import SubscriptionOverview from "@/components/(settings)/subscription-overview";
+import TeamMembers from "@/components/(settings)/team-members";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import PageHeader from "@/components/common/page-header";
@@ -63,30 +64,6 @@ const MOCK_API_KEYS = [
     scopes: ["read", "write", "admin"],
     createdAt: "2026-02-20T16:45:00Z",
     lastUsed: null,
-  },
-] as const;
-
-const MOCK_TEAM_MEMBERS = [
-  {
-    id: "usr_1",
-    name: "You",
-    email: "you@example.com",
-    role: "Owner",
-    joinedAt: "2025-10-01T00:00:00Z",
-  },
-  {
-    id: "usr_2",
-    name: "Jane Smith",
-    email: "jane@example.com",
-    role: "Admin",
-    joinedAt: "2025-11-15T00:00:00Z",
-  },
-  {
-    id: "usr_3",
-    name: "Bob Johnson",
-    email: "bob@example.com",
-    role: "Member",
-    joinedAt: "2026-01-10T00:00:00Z",
   },
 ] as const;
 
@@ -197,87 +174,6 @@ function ApiKeysTab() {
   );
 }
 
-function TeamTab() {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Team Members</CardTitle>
-            <CardDescription>
-              Manage who has access to your organization.
-            </CardDescription>
-          </div>
-          <Button size="sm">Invite Member</Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th
-                    className="px-4 py-2 text-left font-medium text-muted-foreground"
-                    scope="col"
-                  >
-                    Member
-                  </th>
-                  <th
-                    className="px-4 py-2 text-left font-medium text-muted-foreground"
-                    scope="col"
-                  >
-                    Role
-                  </th>
-                  <th
-                    className="px-4 py-2 text-left font-medium text-muted-foreground"
-                    scope="col"
-                  >
-                    Joined
-                  </th>
-                  <th
-                    className="px-4 py-2 text-right font-medium text-muted-foreground"
-                    scope="col"
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {MOCK_TEAM_MEMBERS.map((member) => (
-                  <tr className="border-b last:border-b-0" key={member.id}>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col">
-                        <span className="font-medium">{member.name}</span>
-                        <span className="text-muted-foreground text-xs">
-                          {member.email}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex rounded-full border px-2 py-0.5 font-medium text-muted-foreground text-xs">
-                        {member.role}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {formatDate(member.joinedAt)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {member.role !== "Owner" && (
-                        <Button size="sm" variant="outline">
-                          Remove
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function RouteComponent() {
   const { session } = Route.useLoaderData();
 
@@ -333,7 +229,20 @@ function RouteComponent() {
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="team">
-            <TeamTab />
+            {session.user.defaultOrganizationId ? (
+              <TeamMembers
+                currentUserId={session.user.id}
+                organizationId={session.user.defaultOrganizationId}
+              />
+            ) : (
+              <Card>
+                <CardContent className="py-8">
+                  <p className="text-center text-muted-foreground text-sm">
+                    Create an organization first to manage team members.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
       </div>
