@@ -83,10 +83,15 @@ func (r *Registry) CheckAll(ctx context.Context) CheckResult {
 	wg.Wait()
 
 	overall := StatusUp
-	for _, cr := range results {
+	for i, cr := range results {
 		if cr.Status == StatusDown {
-			overall = StatusDown
-			break
+			if IsCritical(checkers[i]) {
+				overall = StatusDown
+				break
+			}
+			if overall != StatusDown {
+				overall = StatusDegraded
+			}
 		}
 	}
 

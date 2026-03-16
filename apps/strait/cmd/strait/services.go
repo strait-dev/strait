@@ -268,8 +268,16 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	}
 
 	if pinger != nil {
-		healthReg.Register(health.NewChecker("redis", func(ctx context.Context) error {
+		healthReg.Register(health.NewCriticalChecker("redis", false, func(ctx context.Context) error {
 			return pinger.Ping(ctx)
+		}))
+	}
+	if cfg.SequinBaseURL != "" {
+		healthReg.Register(health.NewCriticalChecker("sequin_cdc", false, func(_ context.Context) error {
+			// Sequin is configured — health is checked at consumer level.
+			// A non-critical marker here allows the API to report degraded
+			// instead of down when the CDC consumer is unreachable.
+			return nil
 		}))
 	}
 

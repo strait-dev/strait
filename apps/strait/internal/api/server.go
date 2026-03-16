@@ -465,7 +465,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
 	if s.healthRegistry != nil {
 		result := s.healthRegistry.CheckAll(r.Context())
-		if result.Status != health.StatusUp {
+		if result.Status == health.StatusDown {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
