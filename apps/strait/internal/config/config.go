@@ -127,6 +127,7 @@ type Config struct {
 	DebouncePollerInterval     time.Duration `mapstructure:"DEBOUNCE_POLLER_INTERVAL"`
 	BatchFlushInterval         time.Duration `mapstructure:"BATCH_FLUSH_INTERVAL"`
 	WebhookRequireTLS          bool          `mapstructure:"WEBHOOK_REQUIRE_TLS"`
+	DequeueStrategy            string        `mapstructure:"DEQUEUE_STRATEGY"`
 }
 
 func setDefaults() {
@@ -206,6 +207,7 @@ func setDefaults() {
 	viper.SetDefault("DEBOUNCE_POLLER_INTERVAL", time.Second)
 	viper.SetDefault("BATCH_FLUSH_INTERVAL", time.Second)
 	viper.SetDefault("WEBHOOK_REQUIRE_TLS", false)
+	viper.SetDefault("DEQUEUE_STRATEGY", "priority")
 }
 
 func BindEnv() error {
@@ -238,6 +240,7 @@ func BindEnv() error {
 		"MIGRATION_MODE", "MIGRATION_LOCK_TIMEOUT",
 		"MAX_SNOOZE_COUNT",
 		"DEBOUNCE_POLLER_INTERVAL", "BATCH_FLUSH_INTERVAL", "WEBHOOK_REQUIRE_TLS",
+		"DEQUEUE_STRATEGY",
 	}
 
 	for _, key := range keys {
@@ -322,6 +325,7 @@ func Load() (*Config, error) {
 	cfg.DebouncePollerInterval = viper.GetDuration("DEBOUNCE_POLLER_INTERVAL")
 	cfg.BatchFlushInterval = viper.GetDuration("BATCH_FLUSH_INTERVAL")
 	cfg.WebhookRequireTLS = viper.GetBool("WEBHOOK_REQUIRE_TLS")
+	cfg.DequeueStrategy = viper.GetString("DEQUEUE_STRATEGY")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")

@@ -369,6 +369,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 		JWTSigningKey:           cfg.JWTSigningKey,
+		DequeueStrategy:         cfg.DequeueStrategy,
 	})
 
 	exec.Use(worker.TracingMiddleware())

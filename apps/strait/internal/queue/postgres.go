@@ -395,6 +395,91 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	return runs, nil
 }
 
+// DequeueNFair dequeues up to n runs using fair round-robin across jobs.
+// It picks at most one run per job before cycling, preventing high-volume
+// jobs from starving others. Falls back to priority ordering within the
+// fair selection.
+func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNFair")
+	defer span.End()
+
+	q.setStatementTimeout(ctx)
+
+	orderBy := q.dequeueOrderByClause()
+
+	query := fmt.Sprintf(`
+		WITH candidates AS (
+			SELECT DISTINCT ON (jr.job_id) jr.id
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			WHERE jr.status = '%s'
+			  AND j.enabled = true
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (
+				j.max_concurrency IS NULL OR (
+					SELECT COUNT(*)
+					FROM job_runs active
+					WHERE active.job_id = jr.job_id
+					  AND active.status IN ('dequeued', 'executing')
+				) < j.max_concurrency
+			  )
+			  AND (
+				j.max_concurrency_per_key IS NULL
+				OR jr.concurrency_key IS NULL
+				OR jr.concurrency_key = ''
+				OR (
+					SELECT COUNT(*)
+					FROM job_runs active
+					WHERE active.project_id = jr.project_id
+					  AND active.concurrency_key = jr.concurrency_key
+					  AND active.status IN ('dequeued', 'executing')
+				) < j.max_concurrency_per_key
+			  )
+			ORDER BY jr.job_id, %s
+		), claimed AS (
+			SELECT c.id
+			FROM candidates c
+			JOIN job_runs jr ON jr.id = c.id
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1
+		), updated AS (
+			UPDATE job_runs
+			SET status = '%s', started_at = NOW()
+			WHERE id IN (SELECT id FROM claimed)
+			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
+			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+		)
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+		FROM updated
+		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, orderBy, domain.StatusDequeued)
+
+	rows, err := q.db.Query(ctx, query, n)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue runs fair: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, n)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue runs fair scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue runs fair rows: %w", err)
+	}
+
+	return runs, nil
+}
+
 func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
 	defer span.End()

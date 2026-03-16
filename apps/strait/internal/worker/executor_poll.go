@@ -39,10 +39,12 @@ func (e *Executor) poll(ctx context.Context) {
 
 	var runs []domain.JobRun
 	var err error
-	if len(e.partitionCycle) == 0 {
-		runs, err = e.queue.DequeueN(ctx, available)
-	} else {
+	if len(e.partitionCycle) > 0 {
 		runs, err = e.dequeueAcrossPartitions(ctx, available)
+	} else if e.dequeueStrategy == "fair_round_robin" {
+		runs, err = e.queue.DequeueNFair(ctx, available)
+	} else {
+		runs, err = e.queue.DequeueN(ctx, available)
 	}
 	if e.metrics != nil {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())

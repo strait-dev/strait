@@ -87,6 +87,7 @@ type Executor struct {
 	jobCacheTTL              time.Duration
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
+	dequeueStrategy          string
 	jwtSigningKey            string
 	stop                     chan struct{}
 	done                     chan struct{}
@@ -126,6 +127,7 @@ type ExecutorConfig struct {
 	JobCacheTTL                time.Duration
 	MaxSnoozeCount             int
 	JWTSigningKey              string
+	DequeueStrategy            string
 }
 
 const (
@@ -185,6 +187,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCacheTTL:              cfg.JobCacheTTL,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
+		dequeueStrategy:          cfg.DequeueStrategy,
 		jwtSigningKey:            cfg.JWTSigningKey,
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
