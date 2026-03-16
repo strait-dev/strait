@@ -83,8 +83,15 @@ export const useCreateApiKey = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["apiKeys", "create"],
-    mutationFn: async (data: { name: string; scopes: string[] }) => {
+    mutationFn: async (data: {
+      name: string;
+      scopes: string[];
+      expiresInDays?: number;
+    }) => {
       await mockDelay();
+      const expiresAt = data.expiresInDays
+        ? new Date(Date.now() + data.expiresInDays * 86_400_000).toISOString()
+        : null;
       const newKey: APIKey & { key: string } = {
         id: `key_${Date.now()}`,
         project_id: "proj_01",
@@ -92,7 +99,7 @@ export const useCreateApiKey = () => {
         key_prefix: `strait_${Math.random().toString(36).slice(2, 8)}`,
         key: `strait_${Array.from({ length: 64 }, () => Math.random().toString(36)[2]).join("")}`,
         scopes: data.scopes,
-        expires_at: null,
+        expires_at: expiresAt,
         last_used_at: null,
         created_at: new Date().toISOString(),
         revoked_at: null,

@@ -26,15 +26,27 @@ import {
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import ChangeRoleDropdown from "@/components/(settings)/change-role-dropdown";
 import InviteMemberDialog from "@/components/(settings)/invite-member-dialog";
 import {
   invitationsQueryOptions,
   useCancelInvitation,
+  useCreateInvitation,
 } from "@/hooks/auth/use-invitation";
-import { membersQueryOptions, useRemoveMember } from "@/hooks/auth/use-member";
+import {
+  membersQueryOptions,
+  useLeaveOrganization,
+  useRemoveMember,
+} from "@/hooks/auth/use-member";
 import { useOrganizationRole } from "@/hooks/auth/use-permissions";
-import { LoadingIcon, MailIcon, TrashIcon } from "@/lib/icons";
+import {
+  LoadingIcon,
+  LogOutIcon,
+  MailIcon,
+  RefreshIcon,
+  TrashIcon,
+} from "@/lib/icons";
 
 interface TeamMembersProps {
   currentUserId: string;
@@ -78,6 +90,9 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
 
   const cancelInvitation = useCancelInvitation();
   const removeMember = useRemoveMember();
+  const leaveOrganization = useLeaveOrganization();
+  const createInvitation = useCreateInvitation();
+  const navigate = useNavigate();
   const { isOwner, isAdmin } = useOrganizationRole(
     organizationId,
     currentUserId
@@ -105,6 +120,36 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to remove member."
+      );
+    }
+  };
+
+  const handleLeaveOrganization = async (memberId: string) => {
+    try {
+      await leaveOrganization.mutateAsync({
+        memberIdOrEmail: memberId,
+        organizationId,
+      });
+      toast.success("You have left the organization.");
+      navigate({ to: "/app" });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to leave organization."
+      );
+    }
+  };
+
+  const handleResendInvitation = async (email: string, role: string) => {
+    try {
+      await createInvitation.mutateAsync({
+        email,
+        role: role as "member" | "admin" | "owner",
+        organizationId,
+      });
+      toast.success(`Invitation resent to ${email}.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to resend invitation."
       );
     }
   };
@@ -212,6 +257,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                                 member.role === "owner"
                               }
                               memberId={member.id}
+                              memberName={member.name}
                               organizationId={organizationId}
                             />
                           </td>
@@ -219,6 +265,56 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                             {formatDate(member.createdAt)}
                           </td>
                           <td className="px-4 py-3 text-right">
+                            {isCurrentUser && member.role !== "owner" && (
+                              <AlertDialog>
+                                <AlertDialogTrigger
+                                  render={
+                                    <Button
+                                      disabled={leaveOrganization.isPending}
+                                      size="sm"
+                                      variant="outline"
+                                    />
+                                  }
+                                >
+                                  {leaveOrganization.isPending ? (
+                                    <HugeiconsIcon
+                                      className="size-3 animate-spin"
+                                      icon={LoadingIcon}
+                                    />
+                                  ) : (
+                                    <HugeiconsIcon
+                                      className="size-3"
+                                      icon={LogOutIcon}
+                                    />
+                                  )}
+                                  Leave
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                      Leave Organization?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      You will lose access to this organization
+                                      immediately. You will need a new
+                                      invitation to rejoin.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>
+                                      Cancel
+                                    </AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() =>
+                                        handleLeaveOrganization(member.id)
+                                      }
+                                    >
+                                      Leave Organization
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
                             {isAdmin &&
                               !isCurrentUser &&
                               member.role !== "owner" && (
@@ -391,27 +487,55 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                           </td>
                           <td className="px-4 py-3 text-right">
                             {isAdmin && (
-                              <Button
-                                disabled={isCancelling}
-                                onClick={() =>
-                                  handleCancelInvitation(invitation.id)
-                                }
-                                size="sm"
-                                variant="outline"
-                              >
-                                {isCancelling ? (
-                                  <HugeiconsIcon
-                                    className="size-3 animate-spin"
-                                    icon={LoadingIcon}
-                                  />
-                                ) : (
-                                  <HugeiconsIcon
-                                    className="size-3"
-                                    icon={TrashIcon}
-                                  />
+                              <div className="flex items-center justify-end gap-2">
+                                {isExpired && (
+                                  <Button
+                                    disabled={createInvitation.isPending}
+                                    onClick={() =>
+                                      handleResendInvitation(
+                                        invitation.email,
+                                        invitation.role
+                                      )
+                                    }
+                                    size="sm"
+                                    variant="outline"
+                                  >
+                                    {createInvitation.isPending ? (
+                                      <HugeiconsIcon
+                                        className="size-3 animate-spin"
+                                        icon={LoadingIcon}
+                                      />
+                                    ) : (
+                                      <HugeiconsIcon
+                                        className="size-3"
+                                        icon={RefreshIcon}
+                                      />
+                                    )}
+                                    Resend
+                                  </Button>
                                 )}
-                                Cancel
-                              </Button>
+                                <Button
+                                  disabled={isCancelling}
+                                  onClick={() =>
+                                    handleCancelInvitation(invitation.id)
+                                  }
+                                  size="sm"
+                                  variant="outline"
+                                >
+                                  {isCancelling ? (
+                                    <HugeiconsIcon
+                                      className="size-3 animate-spin"
+                                      icon={LoadingIcon}
+                                    />
+                                  ) : (
+                                    <HugeiconsIcon
+                                      className="size-3"
+                                      icon={TrashIcon}
+                                    />
+                                  )}
+                                  Cancel
+                                </Button>
+                              </div>
                             )}
                           </td>
                         </tr>

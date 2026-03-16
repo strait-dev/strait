@@ -6,9 +6,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 import ApiKeysManagement from "@/components/(settings)/api-keys-management";
+import DeleteOrganization from "@/components/(settings)/delete-organization";
 import OrganizationInfo from "@/components/(settings)/organization-info";
 import PendingInvitations from "@/components/(settings)/pending-invitations";
 import SubscriptionOverview from "@/components/(settings)/subscription-overview";
@@ -16,6 +18,7 @@ import TeamMembers from "@/components/(settings)/team-members";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import PageHeader from "@/components/common/page-header";
+import { organizationQueryOptions } from "@/hooks/auth/use-organization";
 import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 
@@ -40,6 +43,9 @@ function RouteComponent() {
   const { session } = Route.useLoaderData() as LoaderData;
   const params = Route.useParams();
   const organizationId = params.id;
+  const { data: organization } = useQuery(
+    organizationQueryOptions(organizationId)
+  );
 
   return (
     <Shell>
@@ -77,6 +83,12 @@ function RouteComponent() {
 
           <TabsContent className="mt-6 space-y-6" value="organization">
             <OrganizationInfo organizationId={organizationId} />
+            {organization && (
+              <DeleteOrganization
+                organizationId={organizationId}
+                organizationName={organization.name}
+              />
+            )}
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="subscription">

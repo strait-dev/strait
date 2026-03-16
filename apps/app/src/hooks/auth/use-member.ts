@@ -131,3 +131,21 @@ export const useRemoveMember = () => {
     },
   });
 };
+
+/** Leaves the current organization (removes self). */
+export const useLeaveOrganization = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["members", "leave"],
+    mutationFn: (data: { memberIdOrEmail: string; organizationId: string }) =>
+      removeMemberServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.members.list(variables.organizationId).queryKey,
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["organizations"],
+      });
+    },
+  });
+};

@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { Checkbox } from "@strait/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,13 @@ import {
 } from "@strait/ui/components/dialog";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
@@ -43,8 +51,30 @@ import {
 import { formatFieldErrors } from "@/lib/form-errors";
 import { CheckIcon, LoadingIcon, PlusIcon, TrashIcon } from "@/lib/icons";
 
+const AVAILABLE_SCOPES = [
+  "jobs:read",
+  "jobs:write",
+  "jobs:trigger",
+  "runs:read",
+  "workflows:read",
+  "workflows:write",
+  "webhooks:read",
+  "webhooks:write",
+  "api_keys:manage",
+] as const;
+
+const EXPIRATION_OPTIONS = [
+  { label: "Never", value: "" },
+  { label: "30 days", value: "30" },
+  { label: "60 days", value: "60" },
+  { label: "90 days", value: "90" },
+  { label: "1 year", value: "365" },
+] as const;
+
 const createKeySchema = z.object({
   name: z.string().min(1, "Key name is required"),
+  scopes: z.array(z.string()).min(1, "Select at least one scope"),
+  expiresInDays: z.string(),
 });
 
 const formatDate = (iso: string | null) => {
@@ -68,13 +98,21 @@ const ApiKeysManagement = () => {
   const keys = data?.data ?? [];
 
   const form = useForm({
-    defaultValues: { name: "" },
+    defaultValues: {
+      name: "",
+      scopes: ["jobs:read", "jobs:write", "jobs:trigger"] as string[],
+      expiresInDays: "",
+    },
     validators: { onChange: createKeySchema },
     onSubmit: async ({ value }) => {
       try {
+        const expiresInDays = value.expiresInDays
+          ? Number(value.expiresInDays)
+          : undefined;
         const result = await createKey.mutateAsync({
           name: value.name,
-          scopes: ["jobs:read", "jobs:write", "jobs:trigger"],
+          scopes: value.scopes,
+          expiresInDays,
         });
         setCreatedKey(result.key);
         toast.success(`API key "${value.name}" created.`);
@@ -165,7 +203,7 @@ const ApiKeysManagement = () => {
                         Create a new API key for programmatic access.
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="py-4">
+                    <div className="flex flex-col gap-4 py-4">
                       <form.Field name="name">
                         {(field) => (
                           <Field>
@@ -187,6 +225,78 @@ const ApiKeysManagement = () => {
                                 {formatFieldErrors(field.state.meta.errors)}
                               </FieldError>
                             )}
+                          </Field>
+                        )}
+                      </form.Field>
+
+                      <form.Field name="scopes">
+                        {(field) => (
+                          <Field>
+                            <FieldLabel>Scopes</FieldLabel>
+                            <div className="grid grid-cols-2 gap-2">
+                              {AVAILABLE_SCOPES.map((scope) => (
+                                <div
+                                  className="flex items-center gap-2"
+                                  key={scope}
+                                >
+                                  <Checkbox
+                                    checked={field.state.value.includes(scope)}
+                                    id={`scope-${scope}`}
+                                    onCheckedChange={(checked) => {
+                                      const current = field.state.value;
+                                      if (checked) {
+                                        field.handleChange([...current, scope]);
+                                      } else {
+                                        field.handleChange(
+                                          current.filter((s) => s !== scope)
+                                        );
+                                      }
+                                    }}
+                                  />
+                                  <label
+                                    className="cursor-pointer text-sm"
+                                    htmlFor={`scope-${scope}`}
+                                  >
+                                    {scope}
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                            {field.state.meta.errors.length > 0 && (
+                              <FieldError>
+                                {formatFieldErrors(field.state.meta.errors)}
+                              </FieldError>
+                            )}
+                          </Field>
+                        )}
+                      </form.Field>
+
+                      <form.Field name="expiresInDays">
+                        {(field) => (
+                          <Field>
+                            <FieldLabel htmlFor={field.name}>
+                              Expiration
+                            </FieldLabel>
+                            <Select
+                              onValueChange={(value) =>
+                                field.handleChange(value ?? "")
+                              }
+                              value={field.state.value}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Never" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {EXPIRATION_OPTIONS.map((option) => (
+                                  <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                  >
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </Field>
                         )}
                       </form.Field>
