@@ -1,4 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@strait/ui/components/avatar";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -13,15 +18,16 @@ import { Input } from "@strait/ui/components/input";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
-import { useQuery } from "@tanstack/react-query";
-import { useTransition } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useTransition } from "react";
 import { z } from "zod/v4";
 import {
   organizationQueryOptions,
   useUpdateOrganization,
 } from "@/hooks/auth/use-organization";
+import { queryKeys } from "@/hooks/query-keys";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PencilEditIcon } from "@/lib/icons";
+import { LoadingIcon, PencilEditIcon, StoreIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 const orgFormSchema = z.object({
@@ -30,8 +36,21 @@ const orgFormSchema = z.object({
   description: z.string(),
   email: z.string(),
   website: z.string(),
-  phone: z.string(),
+  logo: z.string(),
 });
+
+type OrgMetadata = {
+  description?: string;
+  email?: string;
+  website?: string;
+};
+
+function parseMetadata(metadata: unknown): OrgMetadata {
+  if (metadata && typeof metadata === "object") {
+    return metadata as OrgMetadata;
+  }
+  return {};
+}
 
 interface OrganizationInfoProps {
   organizationId: string;
@@ -39,30 +58,50 @@ interface OrganizationInfoProps {
 
 const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
   const [isSubmitting, startTransition] = useTransition();
+  const queryClient = useQueryClient();
   const { data: organization, isLoading } = useQuery(
     organizationQueryOptions(organizationId)
   );
   const updateOrganization = useUpdateOrganization();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const meta = parseMetadata(organization?.metadata);
 
   const form = useForm({
     defaultValues: {
       name: organization?.name ?? "",
       slug: organization?.slug ?? "",
-      description: "",
-      email: "",
-      website: "",
-      phone: "",
+      description: meta.description ?? "",
+      email: meta.email ?? "",
+      website: meta.website ?? "",
+      logo: organization?.logo ?? "",
     },
     validators: { onChange: orgFormSchema },
     onSubmit: ({ value }) => {
+      const metadata = JSON.stringify({
+        ...parseMetadata(organization?.metadata),
+        description: value.description || undefined,
+        email: value.email || undefined,
+        website: value.website || undefined,
+      });
+
       startTransition(() => {
         try {
           toast.promise(
-            updateOrganization.mutateAsync({
-              organizationId,
-              name: value.name,
-              slug: value.slug || undefined,
-            }),
+            updateOrganization
+              .mutateAsync({
+                organizationId,
+                name: value.name,
+                slug: value.slug || undefined,
+                logo: value.logo || undefined,
+                metadata,
+              })
+              .then(() => {
+                queryClient.invalidateQueries({
+                  queryKey:
+                    queryKeys.organizations.detail(organizationId).queryKey,
+                });
+              }),
             {
               loading: "Updating organization...",
               success: "Organization updated successfully!",
@@ -78,6 +117,45 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
       });
     },
   });
+
+  // Sync form when organization data loads or changes
+  useEffect(() => {
+    if (organization) {
+      const orgMeta = parseMetadata(organization.metadata);
+      form.reset({
+        name: organization.name ?? "",
+        slug: organization.slug ?? "",
+        description: orgMeta.description ?? "",
+        email: orgMeta.email ?? "",
+        website: orgMeta.website ?? "",
+        logo: organization.logo ?? "",
+      });
+    }
+  }, [organization, form]);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be under 2MB.");
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("File must be an image.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      form.setFieldValue("logo", result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const isProcessing = isSubmitting || updateOrganization.isPending;
 
@@ -103,7 +181,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
       <CardHeader>
         <CardTitle>Organization Details</CardTitle>
         <CardDescription>
-          Update your organization's name and information.
+          Update your organization's name, logo, and information.
         </CardDescription>
       </CardHeader>
       <form
@@ -113,7 +191,47 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
         }}
       >
         <CardContent>
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-6">
+            {/* Logo */}
+            <div className="flex items-center gap-4">
+              <Avatar className="size-16">
+                <form.Field name="logo">
+                  {(field) =>
+                    field.state.value ? (
+                      <AvatarImage
+                        alt={organization.name}
+                        src={field.state.value}
+                      />
+                    ) : null
+                  }
+                </form.Field>
+                <AvatarFallback className="text-lg">
+                  <HugeiconsIcon className="size-6" icon={StoreIcon} />
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col gap-1">
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Upload Logo
+                </Button>
+                <p className="text-muted-foreground text-xs">
+                  PNG, JPG or SVG. Max 2MB.
+                </p>
+                <input
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoUpload}
+                  ref={fileInputRef}
+                  type="file"
+                />
+              </div>
+            </div>
+
+            {/* Name & Slug */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <form.Field name="name">
                 {(field) => (
@@ -158,6 +276,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
               </form.Field>
             </div>
 
+            {/* Email & Website */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <form.Field name="email">
                 {(field) => (
@@ -202,6 +321,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
               </form.Field>
             </div>
 
+            {/* Description */}
             <form.Field name="description">
               {(field) => (
                 <Field className="w-full">
