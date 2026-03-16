@@ -7,6 +7,8 @@ import (
 
 	"github.com/sourcegraph/conc"
 
+	"time"
+
 	"strait/internal/config"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -22,6 +24,7 @@ type SchedulerStore interface {
 	StatsAggregatorStore
 	store.DebounceStore
 	store.BatchStore
+	store.RunComputeUsageStore
 }
 
 type Scheduler struct {
@@ -32,6 +35,7 @@ type Scheduler struct {
 	debouncePoller  *DebouncePoller
 	batchFlusher    *BatchFlusher
 	statsAggregator *StatsAggregator
+	budgetMonitor   *BudgetMonitor
 	wg              conc.WaitGroup
 }
 
@@ -50,6 +54,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		debouncePoller:  NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:    NewBatchFlusher(s, q, cfg.BatchFlushInterval),
 		statsAggregator: NewStatsAggregator(s),
+		budgetMonitor:   NewBudgetMonitor(s, nil, 5*time.Minute),
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -67,6 +72,13 @@ func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	}
 }
 
+// WithBudgetWebhookEnqueuer sets the webhook enqueuer for the budget monitor.
+func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.budgetMonitor.enqueuer = enqueuer
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -79,6 +91,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.debouncePoller.Run(ctx) })
 	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
 	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
+	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
 
 	slog.Info("scheduler started")
 	return nil

@@ -500,7 +500,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
-		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine, scheduler.WithSchedulerMetrics(metrics))
+		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter(queries)
+		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
+			scheduler.WithSchedulerMetrics(metrics),
+			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
+		)
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
