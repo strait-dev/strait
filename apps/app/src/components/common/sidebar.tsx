@@ -40,6 +40,7 @@ import {
 } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
+import CommandMenu from "./command-menu";
 
 type NavItem = {
   title: string;
@@ -152,6 +153,11 @@ const AppSidebar = ({ session }: Props) => {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Search */}
+        <SidebarGroup>
+          <CommandMenu organizationId={session.user.defaultOrganizationId} />
+        </SidebarGroup>
+
         {/* Main navigation */}
         <SidebarGroup>
           <SidebarMenu>
