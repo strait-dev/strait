@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { queryKeys } from "@/hooks/query-keys";
 import { authClient } from "@/lib/auth-client";
 
 /** Parameters for updating user information. */
@@ -13,7 +14,7 @@ type UpdateUserData = {
 /** Updates the current user's information. */
 export const useUpdateUser = () => {
   return useMutation({
-    mutationKey: ["users", "update"],
+    mutationKey: queryKeys.users.update.queryKey,
     mutationFn: async (data: UpdateUserData) => {
       const name =
         data.first_name && data.last_name

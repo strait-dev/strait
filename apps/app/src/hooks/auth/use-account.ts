@@ -3,6 +3,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { authClient } from "@/lib/auth-client";
 
@@ -38,7 +39,7 @@ type Session = {
 /** Query options for fetching linked authentication accounts (Google, GitHub, credential). */
 export const accountsQueryOptions = () =>
   queryOptions({
-    queryKey: ["auth", "accounts"],
+    queryKey: queryKeys.auth.accounts.queryKey,
     queryFn: async () => {
       const result = await authClient.listAccounts();
       if (result.error) {
@@ -57,7 +58,7 @@ export const accountsQueryOptions = () =>
 /** Query options for fetching the user's registered WebAuthn passkeys. */
 export const passkeysQueryOptions = () =>
   queryOptions({
-    queryKey: ["auth", "passkeys"],
+    queryKey: queryKeys.auth.passkeys.queryKey,
     queryFn: async () => {
       const result = await authClient.passkey.listUserPasskeys();
       if (result.error) {
@@ -76,7 +77,7 @@ export const passkeysQueryOptions = () =>
 /** Query options for fetching all active sessions and identifying the current one. */
 export const sessionsQueryOptions = () =>
   queryOptions({
-    queryKey: ["auth", "sessions"],
+    queryKey: queryKeys.auth.sessions.queryKey,
     queryFn: async () => {
       const [sessionsResult, sessionResult] = await Promise.all([
         authClient.listSessions(),
@@ -106,7 +107,6 @@ export const sessionsQueryOptions = () =>
 export const useUnlinkAccount = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["auth", "accounts", "unlink"],
     mutationFn: async (providerId: string) => {
       const result = await authClient.unlinkAccount({ providerId });
       if (result.error) {
@@ -115,7 +115,9 @@ export const useUnlinkAccount = () => {
       return result.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "accounts"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.auth.accounts.queryKey,
+      });
     },
   });
 };
@@ -128,7 +130,6 @@ export const useUnlinkAccount = () => {
 export const useAddPasskey = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["auth", "passkeys", "add"],
     mutationFn: async () => {
       const result = await authClient.passkey.addPasskey();
       if (result?.error) {
@@ -137,7 +138,9 @@ export const useAddPasskey = () => {
       return result?.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "passkeys"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.auth.passkeys.queryKey,
+      });
     },
   });
 };
@@ -146,7 +149,6 @@ export const useAddPasskey = () => {
 export const useDeletePasskey = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["auth", "passkeys", "delete"],
     mutationFn: async (id: string) => {
       const result = await authClient.passkey.deletePasskey({ id });
       if (result.error) {
@@ -155,7 +157,9 @@ export const useDeletePasskey = () => {
       return result.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "passkeys"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.auth.passkeys.queryKey,
+      });
     },
   });
 };
@@ -168,7 +172,6 @@ export const useDeletePasskey = () => {
 export const useRevokeSession = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["auth", "sessions", "revoke"],
     mutationFn: async (token: string) => {
       const result = await authClient.revokeSession({ token });
       if (result.error) {
@@ -177,7 +180,9 @@ export const useRevokeSession = () => {
       return result.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "sessions"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.auth.sessions.queryKey,
+      });
     },
   });
 };
@@ -186,7 +191,6 @@ export const useRevokeSession = () => {
 export const useRevokeOtherSessions = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["auth", "sessions", "revokeOthers"],
     mutationFn: async () => {
       const result = await authClient.revokeOtherSessions();
       if (result.error) {
@@ -197,7 +201,9 @@ export const useRevokeOtherSessions = () => {
       return result.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "sessions"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.auth.sessions.queryKey,
+      });
     },
   });
 };
@@ -205,7 +211,6 @@ export const useRevokeOtherSessions = () => {
 /** Revokes all sessions including the current one (sign out everywhere). */
 export const useRevokeAllSessions = () =>
   useMutation({
-    mutationKey: ["auth", "sessions", "revokeAll"],
     mutationFn: async () => {
       const result = await authClient.revokeSessions();
       if (result.error) {

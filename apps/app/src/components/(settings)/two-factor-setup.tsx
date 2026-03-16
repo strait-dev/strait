@@ -17,6 +17,7 @@ import { PasswordInput } from "@strait/ui/components/password-input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
+import { queryKeys } from "@/hooks/query-keys";
 import { authClient } from "@/lib/auth-client";
 import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
@@ -86,7 +87,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
       }
 
       setStep("backup-codes");
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth._def });
     } catch (err) {
       captureException(err);
       toast.error("Verification failed.");
@@ -117,7 +118,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
       toast.success("Two-factor authentication disabled.");
       setStep("idle");
       setPassword("");
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth._def });
     } catch (err) {
       captureException(err);
       setError("Something went wrong.");
