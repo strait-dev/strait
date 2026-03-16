@@ -113,6 +113,17 @@ module Strait
     end
   end
 
+  # Raised when a cost budget is exceeded.
+  class CostBudgetExceededError < Error
+    attr_reader :current_cost_microusd, :max_cost_microusd
+
+    def initialize(message, current_cost_microusd:, max_cost_microusd:)
+      @current_cost_microusd = current_cost_microusd
+      @max_cost_microusd = max_cost_microusd
+      super(message)
+    end
+  end
+
   # Map an HTTP status code to the appropriate error class.
   #
   # @param status  [Integer] HTTP status code

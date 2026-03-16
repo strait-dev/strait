@@ -1,5 +1,7 @@
 package composition
 
+import "maps"
+
 // WithIdempotency returns a new header map with the idempotency key added.
 // If headers is nil, a new map is created.
 func WithIdempotency(headers map[string]string, key string) map[string]string {
@@ -10,9 +12,7 @@ func WithIdempotency(headers map[string]string, key string) map[string]string {
 // using a custom header name.
 func WithIdempotencyHeader(headers map[string]string, key string, headerName string) map[string]string {
 	result := make(map[string]string, len(headers)+1)
-	for k, v := range headers {
-		result[k] = v
-	}
+	maps.Copy(result, headers)
 	result[headerName] = key
 	return result
 }

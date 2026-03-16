@@ -93,6 +93,15 @@ type DagValidationError struct {
 
 func (e *DagValidationError) Error() string { return e.Message }
 
+// CostBudgetExceededError is raised when an operation exceeds its cost budget.
+type CostBudgetExceededError struct {
+	Message             string
+	CurrentCostMicrousd int64
+	MaxCostMicrousd     int64
+}
+
+func (e *CostBudgetExceededError) Error() string { return e.Message }
+
 // MapHttpError maps an HTTP status code to the appropriate SDK error type.
 func MapHttpError(status int, message string, body any) error {
 	if message == "" {

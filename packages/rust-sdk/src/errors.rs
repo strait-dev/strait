@@ -69,6 +69,13 @@ pub enum StraitError {
         missing_refs: Vec<String>,
         duplicate_refs: Vec<String>,
     },
+
+    #[error("cost budget exceeded: {message}")]
+    CostBudgetExceeded {
+        message: String,
+        current_cost_microusd: i64,
+        max_cost_microusd: i64,
+    },
 }
 
 pub fn map_http_error(status: u16, message: String, body: Option<Value>) -> StraitError {
@@ -345,6 +352,36 @@ mod tests {
                 assert_eq!(elapsed_ms, Some(10000));
             }
             _ => panic!("expected Timeout"),
+        }
+    }
+
+    #[test]
+    fn test_error_display_cost_budget_exceeded() {
+        let err = StraitError::CostBudgetExceeded {
+            message: "over budget".to_string(),
+            current_cost_microusd: 150_000,
+            max_cost_microusd: 100_000,
+        };
+        assert_eq!(format!("{}", err), "cost budget exceeded: over budget");
+    }
+
+    #[test]
+    fn test_cost_budget_exceeded_fields() {
+        let err = StraitError::CostBudgetExceeded {
+            message: "exceeded".to_string(),
+            current_cost_microusd: 200_000,
+            max_cost_microusd: 100_000,
+        };
+        match err {
+            StraitError::CostBudgetExceeded {
+                current_cost_microusd,
+                max_cost_microusd,
+                ..
+            } => {
+                assert_eq!(current_cost_microusd, 200_000);
+                assert_eq!(max_cost_microusd, 100_000);
+            }
+            _ => panic!("expected CostBudgetExceeded"),
         }
     }
 

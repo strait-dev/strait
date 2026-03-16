@@ -108,6 +108,15 @@ class DagValidationError(StraitError):
         self.duplicate_refs = duplicate_refs or []
 
 
+class CostBudgetExceededError(StraitError):
+    """Raised when the cost budget for an operation is exceeded."""
+
+    def __init__(self, message: str, current_cost_microusd: int, max_cost_microusd: int) -> None:
+        super().__init__(message)
+        self.current_cost_microusd = current_cost_microusd
+        self.max_cost_microusd = max_cost_microusd
+
+
 def map_http_error(status: int, message: str, body: Any = None) -> StraitError:
     """Map an HTTP status code to the appropriate SDK error type."""
     if not message:
