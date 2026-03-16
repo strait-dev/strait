@@ -8,10 +8,44 @@ import {
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type * as React from "react";
+import * as React from "react";
 import { cn } from "../utils/index";
 
-const Select = SelectPrimitive.Root;
+type ItemsMap = Map<string, string>;
+const SelectItemsContext = React.createContext<{
+  register: (value: string, label: string) => void;
+  items: ItemsMap;
+}>({
+  register: () => {
+    // default no-op
+  },
+  items: new Map(),
+});
+
+function Select({ children, ...props }: SelectPrimitive.Root.Props<string>) {
+  const itemsRef = React.useRef<ItemsMap>(new Map());
+  const [, forceUpdate] = React.useState(0);
+
+  const contextValue = React.useMemo(
+    () => ({
+      register: (value: string, label: string) => {
+        if (itemsRef.current.get(value) !== label) {
+          itemsRef.current.set(value, label);
+          forceUpdate((n) => n + 1);
+        }
+      },
+      items: itemsRef.current,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  return (
+    <SelectItemsContext.Provider value={contextValue}>
+      <SelectPrimitive.Root {...props}>{children}</SelectPrimitive.Root>
+    </SelectItemsContext.Provider>
+  );
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
@@ -23,13 +57,29 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   );
 }
 
-function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+function SelectValue({
+  className,
+  placeholder,
+  ...props
+}: Omit<SelectPrimitive.Value.Props, "children"> & {
+  placeholder?: string;
+}) {
+  const { items } = React.useContext(SelectItemsContext);
+
   return (
     <SelectPrimitive.Value
       className={cn("flex flex-1 text-left", className)}
       data-slot="select-value"
       {...props}
-    />
+    >
+      {(value) => {
+        if (value == null || value === "") {
+          return <span className="text-muted-foreground">{placeholder}</span>;
+        }
+        const label = items.get(String(value));
+        return <>{label ?? String(value)}</>;
+      }}
+    </SelectPrimitive.Value>
   );
 }
 
@@ -123,8 +173,18 @@ function SelectLabel({
 function SelectItem({
   className,
   children,
+  value,
   ...props
 }: SelectPrimitive.Item.Props) {
+  const { register } = React.useContext(SelectItemsContext);
+
+  React.useEffect(() => {
+    if (value != null) {
+      const label = typeof children === "string" ? children : String(value);
+      register(String(value), label);
+    }
+  }, [value, children, register]);
+
   return (
     <SelectPrimitive.Item
       className={cn(
@@ -132,6 +192,7 @@ function SelectItem({
         className
       )}
       data-slot="select-item"
+      value={value}
       {...props}
     >
       <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
