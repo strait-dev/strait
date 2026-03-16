@@ -33,8 +33,11 @@ import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   CalendarIcon,
+  EyeIcon,
   FilterIcon,
+  RefreshIcon,
   SearchIcon,
+  XCircleIcon,
 } from "@/lib/icons";
 
 const searchSchema = z.object({
@@ -211,7 +214,35 @@ function RunsPage() {
           }
           floatingBar={
             <DataTableFloatingBar
-              actions={[]}
+              actions={[
+                ...(selectedIds.length === 1
+                  ? [
+                      {
+                        label: "View",
+                        icon: EyeIcon,
+                        onClick: () => {
+                          const run = table.getRowModel().rows.find(
+                            (r) => r.id === selectedIds[0]
+                          )?.original;
+                          if (run) {
+                            handleRowClick(run);
+                          }
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Retry",
+                  icon: RefreshIcon,
+                  onClick: () => {},
+                },
+                {
+                  label: "Cancel",
+                  icon: XCircleIcon,
+                  onClick: () => {},
+                  variant: "destructive" as const,
+                },
+              ]}
               onClearSelection={() => setRowSelection({})}
               selectedCount={selectedIds.length}
             />

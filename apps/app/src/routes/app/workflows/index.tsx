@@ -29,7 +29,15 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Workflow } from "@/hooks/api/types";
 import { workflowsQueryOptions } from "@/hooks/api/use-workflows";
-import { FilterIcon, PlusIcon, SearchIcon, WorkflowIcon } from "@/lib/icons";
+import {
+  EyeIcon,
+  FilterIcon,
+  PauseActionIcon,
+  PlayActionIcon,
+  PlusIcon,
+  SearchIcon,
+  WorkflowIcon,
+} from "@/lib/icons";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -213,7 +221,34 @@ function WorkflowsPage() {
           }
           floatingBar={
             <DataTableFloatingBar
-              actions={[]}
+              actions={[
+                ...(selectedIds.length === 1
+                  ? [
+                      {
+                        label: "View",
+                        icon: EyeIcon,
+                        onClick: () => {
+                          const workflow = table.getRowModel().rows.find(
+                            (r) => r.id === selectedIds[0]
+                          )?.original;
+                          if (workflow) {
+                            handleRowClick(workflow);
+                          }
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Trigger",
+                  icon: PlayActionIcon,
+                  onClick: () => {},
+                },
+                {
+                  label: "Pause",
+                  icon: PauseActionIcon,
+                  onClick: () => {},
+                },
+              ]}
               onClearSelection={() => setRowSelection({})}
               selectedCount={selectedIds.length}
             />

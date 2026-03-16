@@ -28,7 +28,13 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
-import { FilterIcon, SearchIcon } from "@/lib/icons";
+import {
+  EyeIcon,
+  FilterIcon,
+  PauseActionIcon,
+  PlayActionIcon,
+  SearchIcon,
+} from "@/lib/icons";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -190,7 +196,35 @@ function SchedulesPage() {
           emptyState={<div>No schedules found</div>}
           floatingBar={
             <DataTableFloatingBar
-              actions={[]}
+              actions={[
+                ...(selectedIds.length === 1
+                  ? [
+                      {
+                        label: "View",
+                        icon: EyeIcon,
+                        onClick: () => {
+                          const schedule = table.getRowModel().rows.find(
+                            (r) => r.id === selectedIds[0]
+                          )?.original;
+                          if (schedule) {
+                            setSelectedSchedule(schedule);
+                            setSheetOpen(true);
+                          }
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Trigger",
+                  icon: PlayActionIcon,
+                  onClick: () => {},
+                },
+                {
+                  label: "Pause",
+                  icon: PauseActionIcon,
+                  onClick: () => {},
+                },
+              ]}
               onClearSelection={() => setRowSelection({})}
               selectedCount={selectedIds.length}
             />

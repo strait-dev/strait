@@ -29,7 +29,15 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
-import { BriefcaseIcon, FilterIcon, PlusIcon, SearchIcon } from "@/lib/icons";
+import {
+  BriefcaseIcon,
+  EyeIcon,
+  FilterIcon,
+  PauseActionIcon,
+  PlayActionIcon,
+  PlusIcon,
+  SearchIcon,
+} from "@/lib/icons";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -214,7 +222,34 @@ function JobsPage() {
           }
           floatingBar={
             <DataTableFloatingBar
-              actions={[]}
+              actions={[
+                ...(selectedIds.length === 1
+                  ? [
+                      {
+                        label: "View",
+                        icon: EyeIcon,
+                        onClick: () => {
+                          const job = table.getRowModel().rows.find(
+                            (r) => r.id === selectedIds[0]
+                          )?.original;
+                          if (job) {
+                            handleRowClick(job);
+                          }
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Trigger",
+                  icon: PlayActionIcon,
+                  onClick: () => {},
+                },
+                {
+                  label: "Pause",
+                  icon: PauseActionIcon,
+                  onClick: () => {},
+                },
+              ]}
               onClearSelection={() => setRowSelection({})}
               selectedCount={selectedIds.length}
             />

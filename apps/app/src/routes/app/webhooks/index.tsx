@@ -36,10 +36,12 @@ import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floa
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
 import {
+  EyeIcon,
   FilterIcon,
   GlobeIcon,
   PlusIcon,
   SearchIcon,
+  TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
 
@@ -218,7 +220,30 @@ function WebhooksPage() {
           }
           floatingBar={
             <DataTableFloatingBar
-              actions={[]}
+              actions={[
+                ...(selectedIds.length === 1
+                  ? [
+                      {
+                        label: "View",
+                        icon: EyeIcon,
+                        onClick: () => {
+                          const webhook = table.getRowModel().rows.find(
+                            (r) => r.id === selectedIds[0]
+                          )?.original;
+                          if (webhook) {
+                            handleRowClick(webhook);
+                          }
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Delete",
+                  icon: TrashIcon,
+                  onClick: () => {},
+                  variant: "destructive" as const,
+                },
+              ]}
               onClearSelection={() => setRowSelection({})}
               selectedCount={selectedIds.length}
             />
