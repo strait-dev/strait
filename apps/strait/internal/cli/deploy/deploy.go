@@ -13,16 +13,17 @@ import (
 
 // DeployOptions configures a single job deployment.
 type DeployOptions struct {
-	JobSlug    string
-	ImageURI   string
-	Dockerfile string
-	Registry   string
-	Tag        string
-	BuildArgs  []string
-	Push       bool
-	Preset     string
-	Region     string
-	DryRun     bool
+	JobSlug      string
+	ImageURI     string
+	Dockerfile   string
+	Registry     string
+	Tag          string
+	BuildArgs    []string
+	Push         bool
+	Preset       string
+	Region       string
+	DryRun       bool
+	CacheEnabled bool
 }
 
 // DeployJob orchestrates the build → push → update flow for a single job.
@@ -40,7 +41,7 @@ func DeployJob(ctx context.Context, cli *client.Client, opts DeployOptions) erro
 		}
 
 		var err error
-		imageURI, err = BuildImage(ctx, opts.Dockerfile, opts.Tag, opts.Registry, opts.JobSlug, opts.BuildArgs)
+		imageURI, err = BuildImage(ctx, opts.Dockerfile, opts.Tag, opts.Registry, opts.JobSlug, opts.BuildArgs, opts.CacheEnabled)
 		if err != nil {
 			return fmt.Errorf("build failed: %w", err)
 		}
@@ -93,12 +94,28 @@ func UpdateJobImage(ctx context.Context, cli *client.Client, slug, imageURI, pre
 	return nil
 }
 
-// BuildImage runs `docker build` and returns the tagged image URI.
-func BuildImage(ctx context.Context, dockerfile, tag, registry, slug string, buildArgs []string) (string, error) {
+// BuildImage runs `docker build` (or `docker buildx build` with caching) and
+// returns the tagged image URI.
+func BuildImage(ctx context.Context, dockerfile, tag, registry, slug string, buildArgs []string, cacheEnabled bool) (string, error) {
 	imageURI := fmt.Sprintf("%s/%s:%s", registry, slug, tag)
 
-	args := make([]string, 0, 6+2*len(buildArgs))
-	args = append(args, "build", "-t", imageURI, "-f", dockerfile, ".")
+	useBuildx := cacheEnabled && hasBuildx(ctx)
+
+	args := make([]string, 0, 12+2*len(buildArgs))
+	if useBuildx {
+		cacheRef := fmt.Sprintf("%s/%s:cache", registry, slug)
+		args = append(args, "buildx", "build",
+			"--cache-from", fmt.Sprintf("type=registry,ref=%s", cacheRef),
+			"--cache-to", fmt.Sprintf("type=registry,ref=%s,mode=max", cacheRef),
+			"--push",
+			"-t", imageURI, "-f", dockerfile, ".")
+	} else {
+		if cacheEnabled {
+			fmt.Println("warning: docker buildx not available, falling back to docker build")
+		}
+		args = append(args, "build", "-t", imageURI, "-f", dockerfile, ".")
+	}
+
 	for _, arg := range buildArgs {
 		args = append(args, "--build-arg", arg)
 	}
@@ -110,6 +127,12 @@ func BuildImage(ctx context.Context, dockerfile, tag, registry, slug string, bui
 	}
 
 	return imageURI, nil
+}
+
+// hasBuildx checks if docker buildx is available.
+func hasBuildx(ctx context.Context) bool {
+	cmd := exec.CommandContext(ctx, "docker", "buildx", "version")
+	return cmd.Run() == nil
 }
 
 // PushImage pushes a Docker image to its registry.

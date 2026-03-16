@@ -10,16 +10,17 @@ import (
 
 func newDeployCommand(state *appState) *cobra.Command {
 	var (
-		jobSlug    string
-		imageURI   string
-		dockerfile string
-		registry   string
-		tag        string
-		buildArgs  []string
-		push       bool
-		preset     string
-		region     string
-		dryRun     bool
+		jobSlug      string
+		imageURI     string
+		dockerfile   string
+		registry     string
+		tag          string
+		buildArgs    []string
+		push         bool
+		preset       string
+		region       string
+		dryRun       bool
+		cacheEnabled bool
 	)
 
 	cmd := &cobra.Command{
@@ -37,16 +38,17 @@ func newDeployCommand(state *appState) *cobra.Command {
 			}
 
 			opts := deploy.DeployOptions{
-				JobSlug:    jobSlug,
-				ImageURI:   imageURI,
-				Dockerfile: dockerfile,
-				Registry:   registry,
-				Tag:        tag,
-				BuildArgs:  buildArgs,
-				Push:       push,
-				Preset:     preset,
-				Region:     region,
-				DryRun:     dryRun,
+				JobSlug:      jobSlug,
+				ImageURI:     imageURI,
+				Dockerfile:   dockerfile,
+				Registry:     registry,
+				Tag:          tag,
+				BuildArgs:    buildArgs,
+				Push:         push,
+				Preset:       preset,
+				Region:       region,
+				DryRun:       dryRun,
+				CacheEnabled: cacheEnabled,
 			}
 
 			if err := deploy.DeployJob(cmd.Context(), cli, opts); err != nil {
@@ -70,6 +72,7 @@ func newDeployCommand(state *appState) *cobra.Command {
 	cmd.Flags().StringVar(&preset, "preset", "", "machine preset override")
 	cmd.Flags().StringVar(&region, "region", "", "region override")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print plan without executing")
+	cmd.Flags().BoolVar(&cacheEnabled, "cache", true, "enable Docker layer caching via buildx")
 
 	return cmd
 }
