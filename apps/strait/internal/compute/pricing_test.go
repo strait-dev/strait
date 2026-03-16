@@ -40,6 +40,41 @@ func TestCalculateCost_InvalidPreset(t *testing.T) {
 	}
 }
 
+func TestCalculateCost_NegativeDuration(t *testing.T) {
+	t.Parallel()
+	cost, err := CalculateCost("micro", -10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cost != 0 {
+		t.Errorf("cost = %d, want 0 for negative duration", cost)
+	}
+}
+
+func TestCalculateCost_VerySmallFraction(t *testing.T) {
+	t.Parallel()
+	// 17 * 0.001 = 0.017 → rounds to 0
+	cost, err := CalculateCost("micro", 0.001)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cost != 0 {
+		t.Errorf("cost = %d, want 0 for sub-penny fraction", cost)
+	}
+}
+
+func TestCalculateCost_LargeDuration(t *testing.T) {
+	t.Parallel()
+	// large-2x for 1 hour: 680 * 3600 = 2,448,000 micro-USD
+	cost, err := CalculateCost("large-2x", 3600)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cost != 2448000 {
+		t.Errorf("cost = %d, want 2448000", cost)
+	}
+}
+
 func TestEstimateCost(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

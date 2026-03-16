@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS run_compute_usage (
 
 CREATE INDEX IF NOT EXISTS idx_run_compute_usage_run_id ON run_compute_usage (run_id);
 CREATE INDEX IF NOT EXISTS idx_run_compute_usage_project_day ON run_compute_usage (project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_run_compute_usage_job_day ON run_compute_usage (job_id, created_at);
 
 -- Add compute_daily_cost_limit_microusd to project_quotas for budget enforcement.
 ALTER TABLE project_quotas ADD COLUMN IF NOT EXISTS compute_daily_cost_limit_microusd BIGINT;

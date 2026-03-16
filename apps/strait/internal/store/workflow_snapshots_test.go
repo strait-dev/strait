@@ -370,3 +370,75 @@ func TestParseSnapshotDefinition_ExhaustiveFieldCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSnapshotDefinition_EmptyDefinition(t *testing.T) {
+	t.Parallel()
+	_, err := ParseSnapshotDefinition(nil)
+	if err == nil {
+		t.Error("expected error for nil definition")
+	}
+	_, err = ParseSnapshotDefinition(json.RawMessage(``))
+	if err == nil {
+		t.Error("expected error for empty definition")
+	}
+}
+
+func TestParseSnapshotDefinition_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	_, err := ParseSnapshotDefinition(json.RawMessage(`{broken`))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestParseSnapshotDefinition_DuplicateStepRefs(t *testing.T) {
+	t.Parallel()
+	def := domain.WorkflowSnapshotDefinition{
+		Steps: []domain.WorkflowStep{
+			{StepRef: "build", StepType: domain.WorkflowStepTypeJob},
+			{StepRef: "build", StepType: domain.WorkflowStepTypeJob}, // duplicate
+		},
+	}
+	data, _ := json.Marshal(def)
+	_, err := ParseSnapshotDefinition(data)
+	if err == nil {
+		t.Error("expected error for duplicate step_ref")
+	}
+}
+
+func TestParseSnapshotDefinition_ZeroSteps(t *testing.T) {
+	t.Parallel()
+	def := domain.WorkflowSnapshotDefinition{
+		Workflow: domain.WorkflowSnapshotMeta{ID: "wf-1"},
+		Steps:    []domain.WorkflowStep{},
+	}
+	data, _ := json.Marshal(def)
+	// Zero steps is valid — a workflow can have no steps at trigger time
+	// (e.g., all steps disabled via overrides).
+	parsed, err := ParseSnapshotDefinition(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(parsed.Steps) != 0 {
+		t.Errorf("steps = %d, want 0", len(parsed.Steps))
+	}
+}
+
+func TestParseSnapshotDefinition_UniqueStepRefs_Pass(t *testing.T) {
+	t.Parallel()
+	def := domain.WorkflowSnapshotDefinition{
+		Steps: []domain.WorkflowStep{
+			{StepRef: "a"},
+			{StepRef: "b"},
+			{StepRef: "c"},
+		},
+	}
+	data, _ := json.Marshal(def)
+	parsed, err := ParseSnapshotDefinition(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(parsed.Steps) != 3 {
+		t.Errorf("steps = %d, want 3", len(parsed.Steps))
+	}
+}

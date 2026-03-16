@@ -114,7 +114,7 @@ func (f *FlyRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // Cap at 1MB.
 
 	if resp.StatusCode == 429 {
 		return nil, NewRetryableError(429, "fly rate limit", nil)
@@ -178,7 +178,10 @@ func (f *FlyRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, error
 
 func (f *FlyRuntime) getExitEvent(ctx context.Context, machineID string) (*flyWaitEvent, error) {
 	url := fmt.Sprintf("%s/v1/apps/%s/machines/%s", f.baseURL, f.appName, machineID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build exit event request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+f.apiToken)
 
 	resp, err := f.client.Do(req)
@@ -208,7 +211,10 @@ func (f *FlyRuntime) getExitEvent(ctx context.Context, machineID string) (*flyWa
 // Stop sends a stop signal to a Fly Machine.
 func (f *FlyRuntime) Stop(ctx context.Context, machineID string) error {
 	url := fmt.Sprintf("%s/v1/apps/%s/machines/%s/stop", f.baseURL, f.appName, machineID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return NewRetryableError(0, "build stop request", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+f.apiToken)
 
 	resp, err := f.client.Do(req)
@@ -222,7 +228,10 @@ func (f *FlyRuntime) Stop(ctx context.Context, machineID string) error {
 // Destroy deletes a Fly Machine.
 func (f *FlyRuntime) Destroy(ctx context.Context, machineID string) error {
 	url := fmt.Sprintf("%s/v1/apps/%s/machines/%s?force=true", f.baseURL, f.appName, machineID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return NewRetryableError(0, "build destroy request", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+f.apiToken)
 
 	resp, err := f.client.Do(req)
@@ -236,7 +245,10 @@ func (f *FlyRuntime) Destroy(ctx context.Context, machineID string) error {
 // Status returns the current state of a Fly Machine.
 func (f *FlyRuntime) Status(ctx context.Context, machineID string) (MachineStatus, error) {
 	url := fmt.Sprintf("%s/v1/apps/%s/machines/%s", f.baseURL, f.appName, machineID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return MachineStatusUnknown, fmt.Errorf("build status request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+f.apiToken)
 
 	resp, err := f.client.Do(req)
@@ -271,7 +283,10 @@ func (f *FlyRuntime) Status(ctx context.Context, machineID string) (MachineStatu
 // GetLogs returns the last N lines of container stdout/stderr.
 func (f *FlyRuntime) GetLogs(ctx context.Context, machineID string, lines int) (string, error) {
 	url := fmt.Sprintf("%s/v1/apps/%s/machines/%s/logs?limit=%d", f.baseURL, f.appName, machineID, lines)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build logs request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+f.apiToken)
 
 	resp, err := f.client.Do(req)
@@ -280,7 +295,7 @@ func (f *FlyRuntime) GetLogs(ctx context.Context, machineID string, lines int) (
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // Cap at 1MB.
 	return string(body), nil
 }
 

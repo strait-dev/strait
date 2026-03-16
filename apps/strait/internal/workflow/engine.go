@@ -190,9 +190,12 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 
 	// Create an immutable snapshot of the workflow definition (metadata + steps)
 	// so that in-flight runs are immune to live workflow_steps changes.
+	// Snapshot failure is fatal — without it the run would silently read live
+	// definitions, breaking the immutability contract.
 	snapshot, snapshotErr := e.store.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
 	if snapshotErr != nil {
-		e.logger.Warn("failed to create workflow snapshot (non-fatal)", "workflow_id", workflowID, "error", snapshotErr)
+		triggerStatus = "error"
+		return nil, fmt.Errorf("create workflow snapshot: %w", snapshotErr)
 	}
 
 	if wf.MaxConcurrentRuns > 0 {

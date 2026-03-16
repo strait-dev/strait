@@ -234,3 +234,113 @@ func TestFlyRuntime_GetLogs(t *testing.T) {
 		t.Errorf("logs = %q, expected line1", logs)
 	}
 }
+
+func TestFlyRuntime_Run_CPUKind_PerformanceForLargePresets(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody flyCreateRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/apps/app/machines", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(flyMachineResponse{ID: "m-1"})
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"events": []map[string]any{{"type": "exit", "exit_code": 0}}})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Run(context.Background(), RunRequest{
+		ImageURI:      "img:latest",
+		MachinePreset: "medium-1x", // 2 CPUs, 4096 MB → performance
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if receivedBody.Config.Guest.CPUKind != "performance" {
+		t.Errorf("CPUKind = %q, want performance for medium-1x", receivedBody.Config.Guest.CPUKind)
+	}
+}
+
+func TestFlyRuntime_Run_CPUKind_SharedForSmallPresets(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody flyCreateRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/apps/app/machines", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(flyMachineResponse{ID: "m-1"})
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"events": []map[string]any{{"type": "exit", "exit_code": 0}}})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Run(context.Background(), RunRequest{
+		ImageURI:      "img:latest",
+		MachinePreset: "micro", // 1 CPU, 256 MB → shared
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if receivedBody.Config.Guest.CPUKind != "shared" {
+		t.Errorf("CPUKind = %q, want shared for micro", receivedBody.Config.Guest.CPUKind)
+	}
+}
+
+func TestFlyRuntime_Status_AllStates(t *testing.T) {
+	t.Parallel()
+
+	states := map[string]MachineStatus{
+		"created":   MachineStatusCreated,
+		"starting":  MachineStatusStarting,
+		"started":   MachineStatusRunning,
+		"running":   MachineStatusRunning,
+		"stopping":  MachineStatusStopping,
+		"stopped":   MachineStatusStopped,
+		"destroyed": MachineStatusDestroyed,
+		"weird":     MachineStatusUnknown,
+	}
+	for state, want := range states {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(flyMachineResponse{ID: "m-1", State: state})
+		}))
+
+		runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+		got, err := runtime.Status(context.Background(), "m-1")
+		srv.Close()
+		if err != nil {
+			t.Errorf("Status(%q) error = %v", state, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("Status(%q) = %q, want %q", state, got, want)
+		}
+	}
+}
+
+func TestFlyRuntime_Run_ConnectionRefused_ReturnsRetryable(t *testing.T) {
+	t.Parallel()
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL("http://127.0.0.1:1") // Nothing listening.
+	_, err := runtime.Run(context.Background(), RunRequest{
+		ImageURI:      "img:latest",
+		MachinePreset: "micro",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !IsRetryable(err) {
+		t.Errorf("connection refused should be retryable, got: %v", err)
+	}
+}

@@ -496,6 +496,42 @@ func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
 	}
 }
 
+func TestTriggerWorkflow_SnapshotFailureIsFatal(t *testing.T) {
+	t.Parallel()
+
+	snapshotCalled := false
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "s1", JobID: "j1", StepRef: "a"}}, nil
+		},
+	}
+	// Override the mock snapshot to return an error.
+	origGetOrCreate := ms.GetOrCreateWorkflowSnapshot
+	_ = origGetOrCreate
+
+	engine := NewWorkflowEngine(&snapshotFailStore{mockEngineStore: ms}, &mockEngineQueue{}, slog.Default())
+	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err == nil {
+		t.Fatal("expected error when snapshot creation fails")
+	}
+	if !strings.Contains(err.Error(), "create workflow snapshot") {
+		t.Errorf("error = %q, want it to contain 'create workflow snapshot'", err.Error())
+	}
+	_ = snapshotCalled
+}
+
+// snapshotFailStore wraps mockEngineStore but fails GetOrCreateWorkflowSnapshot.
+type snapshotFailStore struct {
+	*mockEngineStore
+}
+
+func (s *snapshotFailStore) GetOrCreateWorkflowSnapshot(_ context.Context, _ *domain.Workflow, _ []domain.WorkflowStep) (*domain.WorkflowSnapshot, error) {
+	return nil, fmt.Errorf("database connection failed")
+}
+
 func TestTriggerWorkflow_NestingDepthExceeded(t *testing.T) {
 	t.Parallel()
 

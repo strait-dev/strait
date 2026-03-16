@@ -132,11 +132,24 @@ func (q *Queries) getWorkflowSnapshotByVersion(ctx context.Context, workflowID, 
 	return &s, nil
 }
 
-// ParseSnapshotDefinition deserializes a snapshot's JSONB definition into steps.
+// ParseSnapshotDefinition deserializes a snapshot's JSONB definition into steps
+// and validates that the result is well-formed.
 func ParseSnapshotDefinition(definition json.RawMessage) (*domain.WorkflowSnapshotDefinition, error) {
+	if len(definition) == 0 {
+		return nil, fmt.Errorf("snapshot definition is empty")
+	}
 	var def domain.WorkflowSnapshotDefinition
 	if err := json.Unmarshal(definition, &def); err != nil {
 		return nil, fmt.Errorf("unmarshal snapshot definition: %w", err)
+	}
+	// Validate: check for duplicate step refs which would silently overwrite
+	// in any stepByRef map built from these steps.
+	seen := make(map[string]struct{}, len(def.Steps))
+	for _, step := range def.Steps {
+		if _, dup := seen[step.StepRef]; dup && step.StepRef != "" {
+			return nil, fmt.Errorf("duplicate step_ref %q in snapshot", step.StepRef)
+		}
+		seen[step.StepRef] = struct{}{}
 	}
 	return &def, nil
 }

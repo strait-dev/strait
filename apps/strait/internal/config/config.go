@@ -433,6 +433,24 @@ func Load() (*Config, error) {
 		}
 	}
 
+	switch cfg.ComputeRuntime {
+	case "none", "fly", "docker", "":
+		// valid
+	default:
+		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, fly, or docker"}
+	}
+	if cfg.ComputeRuntime == "fly" {
+		if cfg.FlyAPIToken == "" {
+			return nil, &domain.ConfigError{Field: "FLY_API_TOKEN", Message: "is required when COMPUTE_RUNTIME=fly"}
+		}
+		if cfg.FlyAppName == "" {
+			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
+		}
+	}
+	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
+		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
+	}
+
 	slog.Info("config loaded",
 		"mode", cfg.Mode,
 		"port", cfg.Port,

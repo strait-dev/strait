@@ -19,9 +19,11 @@ type Client struct {
 
 // Config holds ClickHouse connection settings.
 type Config struct {
-	URL      string // ClickHouse native protocol URL (e.g., clickhouse://localhost:9000)
-	Database string // Target database name
-	Enabled  bool   // Feature gate
+	URL          string // ClickHouse native protocol URL (e.g., clickhouse://localhost:9000)
+	Database     string // Target database name
+	Enabled      bool   // Feature gate
+	MaxOpenConns int    // Max open connections (default 10)
+	MaxIdleConns int    // Max idle connections (default 5)
 }
 
 // New creates a new ClickHouse client. Returns nil if disabled.
@@ -41,8 +43,16 @@ func New(cfg Config, logger *slog.Logger) (*Client, error) {
 		return nil, fmt.Errorf("clickhouse: open connection: %w", err)
 	}
 
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 10
+	}
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
 	return &Client{db: db, logger: logger}, nil

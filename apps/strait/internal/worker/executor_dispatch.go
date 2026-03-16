@@ -134,8 +134,15 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	policy = resolved
 
 	// Route based on execution mode.
-	if job.ExecutionMode == domain.ExecutionModeManaged {
+	switch job.ExecutionMode {
+	case domain.ExecutionModeManaged:
 		e.managedDispatch(ctx, run, job)
+		return
+	case domain.ExecutionModeHTTP, "":
+		// Fall through to HTTP dispatch.
+	default:
+		e.logger.Error("unknown execution_mode", "run_id", run.ID, "job_id", run.JobID, "execution_mode", job.ExecutionMode)
+		e.handleSystemFailure(ctx, run, fmt.Sprintf("unknown execution_mode: %s", job.ExecutionMode))
 		return
 	}
 
