@@ -1,15 +1,16 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"log/slog"
-	"time"
-
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -72,6 +73,7 @@ type AutoRotateAPIKeysStore interface {
 	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 }
 
 // DLQJobDepth represents the dead-letter queue depth for a single job.
@@ -870,6 +872,58 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 		}
 
 		r.logger.Info("auto-rotated api key", "old_key_id", oldKey.ID, "new_key_id", newKey.ID)
+
+		// Record audit event.
+		details, _ := json.Marshal(map[string]any{
+			"old_key_id":       oldKey.ID,
+			"new_key_id":       newKey.ID,
+			"grace_expires_at": graceExpiresAt,
+		})
+		_ = rotateStore.CreateAuditEvent(ctx, &domain.AuditEvent{
+			ProjectID:    oldKey.ProjectID,
+			ActorID:      "system",
+			ActorType:    "system",
+			Action:       "api_key.auto_rotated",
+			ResourceType: "api_key",
+			ResourceID:   oldKey.ID,
+			Details:      details,
+		})
+
+		// Notify rotation webhook if configured.
+		if oldKey.RotationWebhookURL != "" {
+			r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, newKey.KeyPrefix, oldKey.ProjectID)
+		}
+	}
+}
+
+func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKeyPrefix, projectID string) {
+	payload, _ := json.Marshal(map[string]any{
+		"event":          "api_key.auto_rotated",
+		"old_key_id":     oldKeyID,
+		"new_key_id":     newKeyID,
+		"new_key_prefix": newKeyPrefix,
+		"project_id":     projectID,
+		"rotated_at":     time.Now().UTC(),
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
+	if err != nil {
+		r.logger.Error("failed to create rotation webhook request", "url", webhookURL, "error", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		r.logger.Warn("rotation webhook notification failed", "url", webhookURL, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		r.logger.Warn("rotation webhook returned non-success", "url", webhookURL, "status", resp.StatusCode)
 	}
 }
 

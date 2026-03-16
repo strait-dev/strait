@@ -412,6 +412,11 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 			if countErr == nil && count > 0 {
 				resp.ActiveRunsOnPreviousVersion = &count
 				resp.PreviousVersionID = previousVersionID
+				s.emitAuditEvent(r.Context(), "workflow.updated_breaking", "workflow", wf.ID, map[string]any{
+					"previous_version_id":             previousVersionID,
+					"active_runs_on_previous_version": count,
+					"new_version":                     wf.Version,
+				})
 			}
 		}
 	}

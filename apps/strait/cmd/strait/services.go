@@ -273,10 +273,21 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		}))
 	}
 	if cfg.SequinBaseURL != "" {
-		healthReg.Register(health.NewCriticalChecker("sequin_cdc", false, func(_ context.Context) error {
-			// Sequin is configured — health is checked at consumer level.
-			// A non-critical marker here allows the API to report degraded
-			// instead of down when the CDC consumer is unreachable.
+		sequinHealthURL := cfg.SequinBaseURL + "/health"
+		healthReg.Register(health.NewCriticalChecker("sequin_cdc", false, func(ctx context.Context) error {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, sequinHealthURL, nil)
+			if err != nil {
+				return fmt.Errorf("sequin health request: %w", err)
+			}
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("sequin unreachable: %w", err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 500 {
+				return fmt.Errorf("sequin unhealthy: HTTP %d", resp.StatusCode)
+			}
 			return nil
 		}))
 	}
