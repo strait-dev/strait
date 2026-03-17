@@ -22,11 +22,16 @@ func (q *Queries) CreateLogDrain(ctx context.Context, drain *domain.LogDrain) er
 
 	authConfigJSON, _ := json.Marshal(drain.AuthConfig)
 
+	levelFilter := drain.LevelFilter
+	if levelFilter == nil {
+		levelFilter = []string{}
+	}
+
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO log_drains (id, project_id, name, drain_type, endpoint_url, auth_type, auth_config, level_filter, enabled)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, drain.ID, drain.ProjectID, drain.Name, drain.DrainType, drain.EndpointURL,
-		drain.AuthType, authConfigJSON, drain.LevelFilter, drain.Enabled)
+		drain.AuthType, authConfigJSON, levelFilter, drain.Enabled)
 	if err != nil {
 		return fmt.Errorf("create log drain: %w", err)
 	}
@@ -71,7 +76,7 @@ func (q *Queries) ListLogDrains(ctx context.Context, projectID string) ([]domain
 	}
 	defer rows.Close()
 
-	var drains []domain.LogDrain
+	drains := make([]domain.LogDrain, 0)
 	for rows.Next() {
 		var d domain.LogDrain
 		var authConfigJSON []byte
