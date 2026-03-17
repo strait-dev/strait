@@ -5,10 +5,22 @@ pre-commit:
   parallel: true
   commands:
     # --- Go backend ---
+    go_build:
+      run: cd apps/strait && go build ./...
+      glob: "apps/strait/**/*.go"
+      fail_text: "Go build failed — fix compile errors before committing"
+    go_vet:
+      run: cd apps/strait && go vet ./...
+      glob: "apps/strait/**/*.go"
+      fail_text: "Go vet failed — run 'go vet ./...' in apps/strait"
     lint:
       run: cd apps/strait && golangci-lint run --timeout=5m ./...
       glob: "*.go"
       fail_text: "golangci-lint failed — fix lint errors before committing"
+    govulncheck:
+      run: cd apps/strait && govulncheck ./...
+      glob: "{apps/strait/**/*.go,apps/strait/go.mod,apps/strait/go.sum}"
+      fail_text: "govulncheck found vulnerabilities — run 'govulncheck ./...' in apps/strait"
     openapi_parity:
       run: cd apps/strait && go run ./scripts/check-openapi-parity
       glob: "{apps/strait/internal/api/routes.go,apps/strait/internal/api/openapi.yaml,docs/openapi.yaml,apps/strait/scripts/check-openapi-parity/main.go}"
@@ -49,6 +61,10 @@ pre-commit:
       run: cd packages/python-sdk && ruff check strait/ tests/
       glob: "packages/python-sdk/**/*.py"
       fail_text: "Python SDK lint failed — run 'ruff check strait/ tests/' in packages/python-sdk"
+    python_sdk_typecheck:
+      run: cd packages/python-sdk && mypy strait/
+      glob: "packages/python-sdk/**/*.py"
+      fail_text: "Python SDK typecheck failed — run 'mypy strait/' in packages/python-sdk"
 
 commit-msg:
   commands:
