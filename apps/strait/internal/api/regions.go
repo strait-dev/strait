@@ -9,12 +9,12 @@ import (
 
 // RegionResponse is the API representation of a region.
 type RegionResponse struct {
-	Code         string            `json:"code"`
-	Label        string            `json:"label"`
-	City         string            `json:"city"`
-	Country      string            `json:"country"`
-	Continent    string            `json:"continent"`
-	Availability map[string]bool   `json:"availability,omitempty"`
+	Code         string          `json:"code"`
+	Label        string          `json:"label"`
+	City         string          `json:"city"`
+	Country      string          `json:"country"`
+	Continent    string          `json:"continent"`
+	Availability map[string]bool `json:"availability,omitempty"`
 }
 
 // RegionsListResponse wraps the region list.

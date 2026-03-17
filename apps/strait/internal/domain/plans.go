@@ -1,5 +1,7 @@
 package domain
 
+import "slices"
+
 // PlanTier represents a pricing tier that determines region access.
 type PlanTier string
 
@@ -21,10 +23,10 @@ func (p PlanTier) IsValid() bool {
 
 // PlanConfig defines the capabilities of a plan tier.
 type PlanConfig struct {
-	Tier              PlanTier
-	MaxRegions        int      // Max regions for multi-region preference list
-	AllowedRegions    []string // Empty means all regions
-	MultiRegion       bool     // Can configure preferred_regions list
+	Tier           PlanTier
+	MaxRegions     int      // Max regions for multi-region preference list
+	AllowedRegions []string // Empty means all regions
+	MultiRegion    bool     // Can configure preferred_regions list
 }
 
 // AllPlanConfigs returns the configuration for all plan tiers.
@@ -73,10 +75,5 @@ func IsRegionAllowed(tier PlanTier, region string) bool {
 	if len(cfg.AllowedRegions) == 0 {
 		return true // no restriction
 	}
-	for _, r := range cfg.AllowedRegions {
-		if r == region {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(cfg.AllowedRegions, region)
 }

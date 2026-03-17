@@ -6,7 +6,6 @@ import (
 
 	"strait/internal/compute"
 	"strait/internal/domain"
-	"strait/internal/store"
 )
 
 // validateRegionForPlan validates a region against plan-based gating rules.
@@ -83,13 +82,4 @@ func (s *Server) getProjectPlanTier(r *http.Request, projectID string) domain.Pl
 		return domain.PlanFree
 	}
 	return domain.PlanTier(quota.PlanTier)
-}
-
-// getProjectQuotaOrDefault fetches project quota, returning nil-safe defaults.
-func (s *Server) getProjectQuotaOrDefault(r *http.Request, projectID string) *store.ProjectQuota {
-	quota, err := s.store.GetProjectQuota(r.Context(), projectID)
-	if err != nil || quota == nil {
-		return &store.ProjectQuota{ProjectID: projectID}
-	}
-	return quota
 }
