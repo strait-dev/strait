@@ -66,22 +66,50 @@ export const Route = createFileRoute("/app/jobs/$id")({
   component: JobDetailPage,
 });
 
-// --- Mock chart data (last 7 days) ---
+// --- Mock chart data generator ---
 
-const CHART_DATA = (() => {
-  const days: { date: string; completed: number; failed: number }[] = [];
+type DateRange = "7d" | "14d" | "30d" | "90d";
+
+const DATE_RANGES: { value: DateRange; label: string; days: number }[] = [
+  { value: "7d", label: "7 days", days: 7 },
+  { value: "14d", label: "14 days", days: 14 },
+  { value: "30d", label: "30 days", days: 30 },
+  { value: "90d", label: "90 days", days: 90 },
+];
+
+function generateChartData(days: number) {
+  const data: { date: string; completed: number; failed: number }[] = [];
   const now = new Date();
-  for (let i = 6; i >= 0; i--) {
+  const fmt =
+    days <= 14
+      ? { month: "short" as const, day: "numeric" as const }
+      : { month: "short" as const, day: "numeric" as const };
+  for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    days.push({
-      date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    data.push({
+      date: d.toLocaleDateString("en-US", fmt),
       completed: Math.floor(Math.random() * 40) + 60,
       failed: Math.floor(Math.random() * 6),
     });
   }
-  return days;
-})();
+  return data;
+}
+
+function computeStats(chartData: { completed: number; failed: number }[]) {
+  const totalSuccess = chartData.reduce((s, d) => s + d.completed, 0);
+  const totalFailed = chartData.reduce((s, d) => s + d.failed, 0);
+  const totalRuns = totalSuccess + totalFailed;
+  const successRate =
+    totalRuns > 0 ? ((totalSuccess / totalRuns) * 100).toFixed(1) : "0";
+  const avgDuration = (2 + Math.random() * 5).toFixed(1);
+  return {
+    successRate: `${successRate}%`,
+    totalRuns: totalRuns.toLocaleString(),
+    avgDuration: `${avgDuration}s`,
+    failedRuns: totalFailed.toLocaleString(),
+  };
+}
 
 const CHART_LABEL_MAP = {
   completed: { label: "Completed", color: CHART_COLORS.success },
@@ -105,6 +133,7 @@ function JobDetailPage() {
   };
 
   const [activeTab, setActiveTab] = useState("overview");
+  const [dateRange, setDateRange] = useState<DateRange>("7d");
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
@@ -130,25 +159,14 @@ function JobDetailPage() {
 
   const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
 
+  const rangeDays = DATE_RANGES.find((r) => r.value === dateRange)?.days ?? 7;
+  const chartData = useMemo(() => generateChartData(rangeDays), [rangeDays]);
+  const stats = useMemo(() => computeStats(chartData), [chartData]);
+
   function handleRowClick(run: JobRun) {
     setSelectedRun(run);
     setSheetOpen(true);
   }
-
-  // Derive stats
-  const stats = useMemo(() => {
-    const totalSuccess = CHART_DATA.reduce((s, d) => s + d.completed, 0);
-    const totalFailed = CHART_DATA.reduce((s, d) => s + d.failed, 0);
-    const totalRuns = totalSuccess + totalFailed;
-    const successRate =
-      totalRuns > 0 ? ((totalSuccess / totalRuns) * 100).toFixed(1) : "0";
-    return {
-      successRate: `${successRate}%`,
-      totalRuns: totalRuns.toLocaleString(),
-      avgDuration: "4.2s",
-      failedRuns: totalFailed.toLocaleString(),
-    };
-  }, []);
 
   if (!job) {
     return (
@@ -205,6 +223,20 @@ function JobDetailPage() {
         </TabsList>
 
         <TabsContent className="mt-6 space-y-6" value="overview">
+          {/* Date range selector */}
+          <div className="flex items-center gap-1">
+            {DATE_RANGES.map((range) => (
+              <Button
+                key={range.value}
+                onClick={() => setDateRange(range.value)}
+                size="sm"
+                variant={dateRange === range.value ? "default" : "outline"}
+              >
+                {range.label}
+              </Button>
+            ))}
+          </div>
+
           {/* Stats row */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label="Success Rate" value={stats.successRate} />
@@ -217,7 +249,7 @@ function JobDetailPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="font-medium text-sm">
-                Run History (Last 7 Days)
+                Run History (Last {rangeDays} Days)
               </CardTitle>
               <div className="flex items-center gap-1">
                 {CHART_LEGEND.map((item) => (
@@ -242,7 +274,7 @@ function JobDetailPage() {
                   minWidth={1}
                   width="100%"
                 >
-                  <BarChart data={CHART_DATA}>
+                  <BarChart data={chartData}>
                     <CartesianGrid
                       className="stroke-border"
                       strokeDasharray="3 3"
