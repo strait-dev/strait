@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
       { hostname: "api.basehub.com" },
     ],
   },
-  transpilePackages: ["@strait/ui"],
+  transpilePackages: ["@strait/ui", "@strait/billing"],
   headers() {
     return [
       {

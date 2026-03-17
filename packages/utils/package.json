@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260316.1"
+    "@typescript/native-preview": "^7.0.0-dev.20260317.1"
   },
   "exports": {
     "./chart": "./src/chart.ts",

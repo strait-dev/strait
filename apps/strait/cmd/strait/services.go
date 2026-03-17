@@ -543,7 +543,9 @@ func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
 	}
 	defer db.Close()
 
-	driver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{})
+	driver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{
+		MigrationsTable: "strait_schema_migrations",
+	})
 	if err != nil {
 		return fmt.Errorf("create migration driver: %w", err)
 	}

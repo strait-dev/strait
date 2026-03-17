@@ -297,7 +297,9 @@ function WebhookDetailSheet({
                 icon={GlobeIcon}
                 size={14}
               />
-              <code className="min-w-0 break-all text-xs">{webhook.webhook_url}</code>
+              <code className="min-w-0 break-all text-xs">
+                {webhook.webhook_url}
+              </code>
             </div>
           </div>
 

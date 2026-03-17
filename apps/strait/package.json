@@ -7,6 +7,8 @@
     "lint": "golangci-lint run --timeout=5m ./...",
     "typecheck": "go vet ./...",
     "dev": "go run ./cmd/strait",
+    "deploy": "make deploy",
+    "deploy:staging": "make deploy-staging",
     "clean": "git clean -xdf .turbo node_modules"
   }
 }
