@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -3267,12 +3268,12 @@ func TestHandlePauseWorkflowRun_TerminalState(t *testing.T) {
 func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 	t.Parallel()
 
-	webhookCreated := false
-	getCalls := 0
+	var webhookCreated atomic.Bool
+	var getCalls atomic.Int32
 	ms := &mockAPIStore{
 		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			getCalls++
-			if getCalls == 1 {
+			n := getCalls.Add(1)
+			if n == 1 {
 				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
 			}
 			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused}, nil
@@ -3286,7 +3287,7 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 			}, nil
 		},
 		createWebhookDeliveryFn: func(_ context.Context, d *domain.WebhookDelivery) error {
-			webhookCreated = true
+			webhookCreated.Store(true)
 			if d.WebhookURL != "https://example.com/hook" {
 				t.Errorf("expected webhook URL, got %s", d.WebhookURL)
 			}
@@ -3306,7 +3307,7 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 	// Give the background goroutine a moment to complete.
 	time.Sleep(100 * time.Millisecond)
 
-	if !webhookCreated {
+	if !webhookCreated.Load() {
 		t.Error("expected webhook delivery to be created for pause event")
 	}
 }
@@ -3314,11 +3315,11 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 func TestPublishWorkflowRunHook_NilDelivery(t *testing.T) {
 	t.Parallel()
 
-	getCalls := 0
+	var getCalls atomic.Int32
 	ms := &mockAPIStore{
 		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			getCalls++
-			if getCalls == 1 {
+			n := getCalls.Add(1)
+			if n == 1 {
 				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
 			}
 			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused}, nil
