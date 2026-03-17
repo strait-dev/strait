@@ -50,12 +50,15 @@ Top-level directories you will use most:
 
 - `apps/strait/cmd/strait/` — CLI commands and app entrypoint wiring
 - `apps/strait/internal/api/` — HTTP routes, middleware, API auth paths
+  - `apps/strait/internal/api/sdk_resources.go` — in-container resource monitoring endpoint (`/sdk/v1/runs/{runID}/resources`)
 - `apps/strait/internal/worker/` — execution worker pool and dispatch behavior
 - `apps/strait/internal/workflow/` — DAG orchestration engine and step progression
 - `apps/strait/internal/compute/` — container runtime abstraction (Fly Machines, Docker), warm machine pool, machine lifecycle, cost estimation
+  - `apps/strait/internal/compute/signals.go` — exit code classification (OOM, SIGTERM, SIGSEGV), crash log fetch, OOM preset upgrade logic
 - `apps/strait/internal/scheduler/` — cron/poller/reaper/retention/pool-pruner background loops
 - `apps/strait/internal/queue/` — dequeue/queue logic and concurrency-safe claiming
 - `apps/strait/internal/store/` — raw SQL data access layer
+  - `apps/strait/internal/store/job_preset_recommendations.go` — OOM-aware preset recommendation storage with 24h decay
 - `apps/strait/internal/domain/` — domain models, FSM types/errors
 - `apps/strait/internal/clickhouse/` — optional ClickHouse analytics export (run events, analytics, compute usage)
 - `apps/strait/internal/webhook/` — async webhook delivery with retry, circuit breaker, HMAC signing

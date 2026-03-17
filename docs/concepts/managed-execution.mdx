@@ -165,6 +165,8 @@ The executor injects the following environment variables into every managed mach
 | `STRAIT_PAYLOAD` | The run payload, inline if the serialized size is 64 KB or less. |
 | `STRAIT_PAYLOAD_MODE` | Set to `fetch` when the payload exceeds 64 KB. The SDK must fetch it from the API. |
 | `STRAIT_SECRET_*` | One variable per project secret, prefixed with `STRAIT_SECRET_`. |
+| `STRAIT_MEMORY_LIMIT_MB` | Memory limit for the container in MB, derived from the machine preset. |
+| `STRAIT_CLEAN_START` | Set to `true` when a pooled or paused machine is reused, signaling the SDK to clear scratch state. |
 | `STRAIT_LAST_CHECKPOINT` | Last checkpoint data saved by the SDK (retry only). |
 | `STRAIT_CHECKPOINT_AT` | Timestamp of the last checkpoint (retry only). |
 | `STRAIT_PREVIOUS_ERROR` | Error message from the previous attempt (retry only). |
@@ -185,6 +187,75 @@ Each preset has a per-second cost rate in micro-USD. The rate reflects the CPU a
 ### Daily Budget Enforcement
 
 Projects can set a daily compute cost limit. The budget is checked at dispatch time (step 3 in the dispatch flow). If the project has exceeded its daily limit, the run is rejected before a machine is provisioned.
+
+## Error Classification
+
+The executor classifies container exit codes into categories for appropriate handling:
+
+| Exit Code | Signal | Classification | Action |
+| :--- | :--- | :--- | :--- |
+| `0` | -- | Success | Complete run, return machine to pool |
+| `1`-`128` | -- | Application error | Retry (respects `max_attempts`) |
+| `137` | SIGKILL (OOM) | Out of memory | Trigger OOM preset auto-upgrade |
+| `139` | SIGSEGV | Segmentation fault | Fail run, fetch crash logs |
+| `143` | SIGTERM | Graceful termination | Retry with backoff |
+
+On any non-zero exit, the executor fetches crash logs from the Fly API and attaches them to the run record for post-mortem debugging.
+
+## OOM Handling and Preset Auto-Upgrade
+
+When a container exits with code `137` (OOM kill), the executor automatically upgrades the machine preset and retries:
+
+```text
+micro -> small-1x -> small-2x -> medium-1x -> medium-2x -> large-1x -> large-2x
+```
+
+- The upgrade is recorded in `job_preset_recommendations` with a 24-hour decay window.
+- If the run is already on `large-2x` (max preset), it transitions to `dead_letter`.
+- Historical OOM data influences future runs: if a job has OOM'd within the last 24 hours, new runs start at the recommended preset instead of the configured default.
+
+## Crash Diagnostics
+
+When a managed run exits with a non-zero exit code, the executor fetches the container's stdout/stderr logs from the Fly API. These logs are stored on the run record and surfaced through the API, enabling developers to diagnose failures without accessing Fly directly.
+
+## Multi-Region Failover
+
+When machine provisioning returns a `503` (region capacity exhaustion), the executor fails over to alternate regions:
+
+1. The primary region (from `FLY_REGION`) is attempted first.
+2. On `503`, the executor retries in configured fallback regions.
+3. The run is snoozed only if all regions are exhausted.
+
+This prevents regional outages from blocking execution when capacity is available elsewhere.
+
+## Budget Reservation
+
+Budget enforcement uses a two-phase atomic reservation model to prevent over-spend under concurrent dispatch:
+
+1. **Reserve**: Before provisioning a machine, the executor atomically reserves estimated cost against the project's daily budget. If the reservation would exceed the budget, the run is rejected.
+2. **Commit**: After the run completes, the reservation is replaced with the actual computed cost.
+
+A soft-limit warning fires at **80%** of the daily budget, emitting a structured log and metric alert before runs start being rejected.
+
+## Resource Monitoring
+
+The SDK resource monitoring endpoint (`/sdk/v1/runs/{runID}/resources`) accepts in-container resource usage reports from the SDK.
+
+### How It Works
+
+1. The executor injects `STRAIT_MEMORY_LIMIT_MB` into the container environment, set to the preset's memory allocation.
+2. The Python and TypeScript SDKs start a background monitor at **5-second intervals** that reads container memory usage from `/sys/fs/cgroup`.
+3. At **80%** memory utilization, the SDK emits a warning log.
+4. At **90%** memory utilization, the SDK emits an error log.
+5. Resource reports are posted to the orchestrator API for tracking and alerting.
+
+## Disk Sanitization
+
+Machines reused from the warm pool or resumed from a paused state receive a clean filesystem via `STRAIT_CLEAN_START`:
+
+- When a pooled or paused machine is started, `STRAIT_CLEAN_START=true` is injected into the environment.
+- The SDK (or user code) uses this signal to clear scratch directories, temp files, and cached state from previous runs.
+- This prevents data leakage between runs sharing the same machine.
 
 ## Error Handling
 
