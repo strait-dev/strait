@@ -91,6 +91,7 @@ typings/
 .env.*.local
 .secrets
 .dev.vars
+.doppler.yaml
 
 # ==============================================================================
 # BUILD OUTPUT & DISTRIBUTIONS
