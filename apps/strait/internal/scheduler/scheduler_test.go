@@ -174,6 +174,16 @@ func (m *mockSchedulerStore) ListRunComputeUsageByProject(_ context.Context, _ s
 func (m *mockSchedulerStore) ListProjectsWithComputeLimit(_ context.Context) ([]store.ProjectComputeQuota, error) {
 	return nil, nil
 }
+func (m *mockSchedulerStore) ReserveBudget(_ context.Context, _, _, _, _ string, _ int64, _ string, _ int64) error {
+	return nil
+}
+func (m *mockSchedulerStore) CommitReservation(_ context.Context, _ string, _ int64, _ float64, _ string, _, _ *time.Time) error {
+	return nil
+}
+func (m *mockSchedulerStore) ReleaseReservation(_ context.Context, _ string) error { return nil }
+func (m *mockSchedulerStore) CleanupStaleReservations(_ context.Context, _ time.Duration) (int64, error) {
+	return 0, nil
+}
 
 func testSchedulerConfig() *config.Config {
 	return &config.Config{

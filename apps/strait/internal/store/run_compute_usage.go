@@ -173,6 +173,119 @@ func (q *Queries) ListProjectsWithComputeLimit(ctx context.Context) ([]ProjectCo
 	return results, rows.Err()
 }
 
+// ErrBudgetExceeded is returned when a budget reservation would exceed the daily limit.
+var ErrBudgetExceeded = errors.New("compute budget exceeded")
+
+// ReserveBudget atomically reserves estimated cost for a run using advisory locking.
+// Requires the underlying DBTX to implement TxBeginner (e.g., *pgxpool.Pool).
+func (q *Queries) ReserveBudget(ctx context.Context, projectID, runID, jobID, preset string, estimatedCost int64, tz string, limit int64) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReserveBudget")
+	defer span.End()
+
+	if tz == "" {
+		tz = "UTC"
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("reserve budget: db does not support transactions")
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Advisory lock scoped to project to serialize concurrent reservations.
+	lockID := hashString(projectID)
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockID); err != nil {
+		return fmt.Errorf("advisory lock: %w", err)
+	}
+
+	// Sum daily cost including both reserved and committed.
+	var dailyCost int64
+	sumQuery := `
+		SELECT COALESCE(SUM(cost_microusd), 0)
+		FROM run_compute_usage
+		WHERE project_id = $1
+		  AND status IN ('reserved', 'committed')
+		  AND created_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2`
+	if err := tx.QueryRow(ctx, sumQuery, projectID, tz).Scan(&dailyCost); err != nil {
+		return fmt.Errorf("sum daily cost: %w", err)
+	}
+
+	if dailyCost+estimatedCost > limit {
+		return ErrBudgetExceeded
+	}
+
+	id := uuid.Must(uuid.NewV7()).String()
+	insertQuery := `
+		INSERT INTO run_compute_usage (id, run_id, project_id, job_id, machine_preset, cost_microusd, status)
+		VALUES ($1, $2, $3, $4, $5, $6, 'reserved')`
+	if _, err := tx.Exec(ctx, insertQuery, id, runID, projectID, jobID, preset, estimatedCost); err != nil {
+		return fmt.Errorf("insert reservation: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// CommitReservation updates a reserved row to committed with actual cost and timing.
+func (q *Queries) CommitReservation(ctx context.Context, runID string, actualCost int64, durationSecs float64, machineID string, startedAt, finishedAt *time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CommitReservation")
+	defer span.End()
+
+	query := `
+		UPDATE run_compute_usage
+		SET status = 'committed', cost_microusd = $2, duration_secs = $3,
+		    machine_id = $4, started_at = $5, finished_at = $6
+		WHERE run_id = $1 AND status = 'reserved'`
+	tag, err := q.db.Exec(ctx, query, runID, actualCost, durationSecs, machineID, startedAt, finishedAt)
+	if err != nil {
+		return fmt.Errorf("commit reservation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// No reservation to commit — fall back to inserting directly.
+		return nil
+	}
+	return nil
+}
+
+// ReleaseReservation deletes a reserved row (on Create failure).
+func (q *Queries) ReleaseReservation(ctx context.Context, runID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReleaseReservation")
+	defer span.End()
+
+	query := `DELETE FROM run_compute_usage WHERE run_id = $1 AND status = 'reserved'`
+	if _, err := q.db.Exec(ctx, query, runID); err != nil {
+		return fmt.Errorf("release reservation: %w", err)
+	}
+	return nil
+}
+
+// CleanupStaleReservations deletes reserved rows older than the given duration.
+func (q *Queries) CleanupStaleReservations(ctx context.Context, olderThan time.Duration) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CleanupStaleReservations")
+	defer span.End()
+
+	query := `DELETE FROM run_compute_usage WHERE status = 'reserved' AND created_at < $1`
+	cutoff := time.Now().Add(-olderThan)
+	tag, err := q.db.Exec(ctx, query, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("cleanup stale reservations: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// hashString returns a deterministic int64 hash for advisory lock keys.
+func hashString(s string) int64 {
+	var h int64
+	for _, c := range s {
+		h = h*31 + int64(c)
+	}
+	return h
+}
+
 // RunComputeUsageStore defines compute usage operations.
 type RunComputeUsageStore interface {
 	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
@@ -180,6 +293,10 @@ type RunComputeUsageStore interface {
 	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
 	ListRunComputeUsageByProject(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.RunComputeUsage, error)
 	ListProjectsWithComputeLimit(ctx context.Context) ([]ProjectComputeQuota, error)
+	ReserveBudget(ctx context.Context, projectID, runID, jobID, preset string, estimatedCost int64, tz string, limit int64) error
+	CommitReservation(ctx context.Context, runID string, actualCost int64, durationSecs float64, machineID string, startedAt, finishedAt *time.Time) error
+	ReleaseReservation(ctx context.Context, runID string) error
+	CleanupStaleReservations(ctx context.Context, olderThan time.Duration) (int64, error)
 }
 
 var _ RunComputeUsageStore = (*Queries)(nil)
