@@ -1,4 +1,5 @@
 import { Shell } from "@strait/ui/components/shell";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
@@ -11,6 +12,8 @@ import { RunsChart } from "@/components/dashboard/runs-chart";
 import { StatusDistributionChart } from "@/components/dashboard/status-distribution-chart";
 import { ThroughputChart } from "@/components/dashboard/throughput-chart";
 import { TopJobsChart } from "@/components/dashboard/top-jobs-chart";
+import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { fetchStats } from "@/lib/api";
 import {
   ActivityIcon,
   AlertIcon,
@@ -19,46 +22,61 @@ import {
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 
+const statsQueryOptions = {
+  queryKey: ["stats"],
+  queryFn: () => fetchStats(),
+  staleTime: 60_000,
+};
+
 export const Route = createFileRoute("/app/dashboard")({
+  loader: async ({ context }) => {
+    await Promise.allSettled([
+      context.queryClient.ensureQueryData(statsQueryOptions),
+      context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
+    ]);
+  },
   component: RouteComponent,
 });
 
 function RouteComponent() {
+  const { data: stats } = useQuery(statsQueryOptions);
+
+  const totalRuns = Number(stats?.total_runs ?? 0);
+  const successRate = Number(stats?.success_rate ?? 0);
+  const failedRuns = Number(stats?.failed_runs ?? 0);
+  const queuedRuns = Number(stats?.queued_runs ?? 0);
+
   return (
     <Shell>
       {/* Row 1: Metrics */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <MetricsCard
-          change={{ value: 12.5, label: "vs last 24h" }}
           chartColor={CHART_COLORS.active}
-          chartData={[42, 28, 65, 89, 74, 56, 48]}
+          chartData={[]}
           icon={ActivityIcon}
           title="Total Runs"
-          value="2,847"
+          value={totalRuns.toLocaleString()}
         />
         <MetricsCard
-          change={{ value: 2.1, label: "vs last 24h" }}
           chartColor={CHART_COLORS.success}
-          chartData={[91, 93, 92, 95, 94, 96, 94]}
+          chartData={[]}
           icon={CheckCircleIcon}
           title="Success Rate"
-          value="94.2%"
+          value={`${successRate.toFixed(1)}%`}
         />
         <MetricsCard
-          change={{ value: -8.3, label: "vs last 24h" }}
           chartColor={CHART_COLORS.error}
-          chartData={[3, 1, 5, 7, 4, 2, 3]}
+          chartData={[]}
           icon={AlertIcon}
           title="Failed Runs"
-          value="168"
+          value={failedRuns.toLocaleString()}
         />
         <MetricsCard
-          change={{ value: -15.0, label: "vs last hour" }}
           chartColor={CHART_COLORS.neutral}
-          chartData={[8, 4, 15, 28, 22, 12, 6]}
+          chartData={[]}
           icon={ClockIcon}
           title="Queued"
-          value="23"
+          value={queuedRuns.toLocaleString()}
         />
       </div>
 

@@ -443,5 +443,7 @@ export const fetchStats = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
     const { apiRequest } = await import("@/lib/api-client.server");
-    return apiRequest<Record<string, string | number | boolean | null>>("/v1/stats");
+    return apiRequest<Record<string, string | number | boolean | null>>(
+      "/v1/stats"
+    );
   });
