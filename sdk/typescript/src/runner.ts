@@ -4,6 +4,9 @@ import { StraitClient } from "./client";
 
 const HEARTBEAT_INTERVAL_MS = 10_000;
 const SIGTERM_GRACE_MS = 5_000;
+const RESOURCE_MONITOR_INTERVAL_MS = 5_000;
+const MEMORY_WARN_PERCENT = 80;
+const MEMORY_ERROR_PERCENT = 90;
 
 /** Context passed to the user's handler function. */
 export interface RunContext {
@@ -120,6 +123,8 @@ export class StraitRunner {
     };
     process.on("SIGTERM", onSigterm);
 
+    let resourceTimer: ReturnType<typeof setInterval> | undefined;
+
     let exitCode = 0;
     try {
       // Start heartbeat.
@@ -128,6 +133,32 @@ export class StraitRunner {
           // Heartbeat failures are non-fatal; the server will time out the run.
         });
       }, HEARTBEAT_INTERVAL_MS);
+
+      // Start resource monitor.
+      const memoryLimitMb = process.env.STRAIT_MEMORY_LIMIT_MB
+        ? Number.parseFloat(process.env.STRAIT_MEMORY_LIMIT_MB)
+        : undefined;
+
+      resourceTimer = setInterval(() => {
+        try {
+          const mem = process.memoryUsage();
+          const rssMb = mem.rss / (1024 * 1024);
+          let memPct: number | undefined;
+
+          if (memoryLimitMb && memoryLimitMb > 0) {
+            memPct = (rssMb / memoryLimitMb) * 100;
+            if (memPct >= MEMORY_ERROR_PERCENT) {
+              console.error(`[strait] memory pressure critical: ${rssMb.toFixed(1)}MB (${memPct.toFixed(1)}%)`);
+            } else if (memPct >= MEMORY_WARN_PERCENT) {
+              console.warn(`[strait] memory pressure warning: ${rssMb.toFixed(1)}MB (${memPct.toFixed(1)}%)`);
+            }
+          }
+
+          this.client.reportResources(this.runId, rssMb, memPct).catch(() => {});
+        } catch {
+          // Resource monitoring is non-fatal.
+        }
+      }, RESOURCE_MONITOR_INTERVAL_MS);
 
       // Resolve payload.
       let payload: unknown = this.inlinePayload;
@@ -168,6 +199,9 @@ export class StraitRunner {
     } finally {
       if (heartbeatTimer !== undefined) {
         clearInterval(heartbeatTimer);
+      }
+      if (resourceTimer !== undefined) {
+        clearInterval(resourceTimer);
       }
       if (graceTimer !== undefined) {
         clearTimeout(graceTimer);

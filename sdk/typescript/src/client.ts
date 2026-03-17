@@ -160,4 +160,28 @@ export class StraitClient {
       );
     }
   }
+
+  /** Report in-container resource usage (best-effort, non-fatal). */
+  async reportResources(
+    runId: string,
+    memoryMb: number,
+    memoryPercent?: number,
+    cpuPercent?: number
+  ): Promise<void> {
+    const url = `${this.baseUrl}/sdk/v1/runs/${runId}/resources`;
+    const body: Record<string, number> = { memory_mb: memoryMb };
+    if (memoryPercent !== undefined) body.memory_percent = memoryPercent;
+    if (cpuPercent !== undefined) body.cpu_percent = cpuPercent;
+
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      // Resource reporting is best-effort.
+    }
+  }
 }

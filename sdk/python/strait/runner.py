@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import resource
 import signal
 import sys
 import threading
@@ -15,6 +17,11 @@ T = TypeVar("T")
 
 HEARTBEAT_INTERVAL_SECS = 10.0
 SIGTERM_GRACE_SECS = 5.0
+RESOURCE_MONITOR_INTERVAL_SECS = 5.0
+MEMORY_WARN_PERCENT = 80.0
+MEMORY_ERROR_PERCENT = 90.0
+
+_logger = logging.getLogger("strait.runner")
 
 
 @dataclass
@@ -152,6 +159,41 @@ class StraitRunner:
         heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
         heartbeat_thread.start()
 
+        # Start resource monitor daemon thread.
+        resource_stop = threading.Event()
+        memory_limit_mb = os.environ.get("STRAIT_MEMORY_LIMIT_MB")
+        memory_limit: float | None = float(memory_limit_mb) if memory_limit_mb else None
+
+        def _resource_monitor_loop() -> None:
+            while not resource_stop.wait(RESOURCE_MONITOR_INTERVAL_SECS):
+                try:
+                    usage = resource.getrusage(resource.RUSAGE_SELF)
+                    rss_bytes = usage.ru_maxrss
+                    # macOS reports in bytes, Linux in KB.
+                    if sys.platform == "darwin":
+                        rss_mb = rss_bytes / (1024 * 1024)
+                    else:
+                        rss_mb = rss_bytes / 1024
+
+                    mem_pct: float | None = None
+                    if memory_limit and memory_limit > 0:
+                        mem_pct = (rss_mb / memory_limit) * 100
+                        if mem_pct >= MEMORY_ERROR_PERCENT:
+                            _logger.error("memory pressure critical: %.1fMB (%.1f%%)", rss_mb, mem_pct)
+                        elif mem_pct >= MEMORY_WARN_PERCENT:
+                            _logger.warning("memory pressure warning: %.1fMB (%.1f%%)", rss_mb, mem_pct)
+
+                    self._client.report_resources(
+                        self._run_id,
+                        memory_mb=rss_mb,
+                        memory_percent=mem_pct,
+                    )
+                except Exception:
+                    pass  # Resource monitoring is non-fatal.
+
+        resource_thread = threading.Thread(target=_resource_monitor_loop, daemon=True)
+        resource_thread.start()
+
         exit_code = 0
         try:
             # Resolve payload.
@@ -178,7 +220,9 @@ class StraitRunner:
                 pass  # If fail reporting itself fails, we still exit.
         finally:
             heartbeat_stop.set()
+            resource_stop.set()
             heartbeat_thread.join(timeout=1.0)
+            resource_thread.join(timeout=1.0)
             self._client.close()
             try:
                 signal.signal(signal.SIGTERM, prev_handler)

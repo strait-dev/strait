@@ -81,6 +81,25 @@ class StraitClient:
         resp = self._client.post(url, json={"level": level, "message": message})
         resp.raise_for_status()
 
+    def report_resources(
+        self,
+        run_id: str,
+        memory_mb: float,
+        memory_percent: float | None = None,
+        cpu_percent: float | None = None,
+    ) -> None:
+        """Report in-container resource usage (best-effort, non-fatal)."""
+        url = f"{self._base_url}/sdk/v1/runs/{run_id}/resources"
+        body: dict[str, Any] = {"memory_mb": memory_mb}
+        if memory_percent is not None:
+            body["memory_percent"] = memory_percent
+        if cpu_percent is not None:
+            body["cpu_percent"] = cpu_percent
+        try:
+            self._client.post(url, json=body)
+        except Exception:
+            pass  # Resource reporting is best-effort.
+
     def close(self) -> None:
         """Close the underlying HTTP client."""
         self._client.close()
