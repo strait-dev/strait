@@ -22,6 +22,9 @@ var AllPresets = map[string]Preset{
 	"large-2x":  {Name: "large-2x", CPUs: 16, MemoryMB: 32768, FlyGuestSize: "performance-8x", CostPerSecond: 680},
 }
 
+// PresetOrder defines the canonical ordering of presets from smallest to largest.
+var PresetOrder = []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"}
+
 // PresetFromName returns the preset definition for a given name.
 func PresetFromName(name string) (Preset, error) {
 	p, ok := AllPresets[name]
@@ -29,4 +32,38 @@ func PresetFromName(name string) (Preset, error) {
 		return Preset{}, fmt.Errorf("unknown machine preset: %q", name)
 	}
 	return p, nil
+}
+
+// NextPreset returns the next larger preset in the ordering.
+// Returns ("", false) if the preset is already the largest or unknown.
+func NextPreset(current string) (string, bool) {
+	idx := PresetIndex(current)
+	if idx < 0 || idx >= len(PresetOrder)-1 {
+		return "", false
+	}
+	return PresetOrder[idx+1], true
+}
+
+// IsMaxPreset returns true if the preset is the largest available.
+func IsMaxPreset(name string) bool {
+	return name == PresetOrder[len(PresetOrder)-1]
+}
+
+// PresetMemoryMB returns the memory in MB for a preset, or 0 if unknown.
+func PresetMemoryMB(name string) int {
+	p, ok := AllPresets[name]
+	if !ok {
+		return 0
+	}
+	return p.MemoryMB
+}
+
+// PresetIndex returns the index of a preset in the ordering, or -1 if unknown.
+func PresetIndex(name string) int {
+	for i, p := range PresetOrder {
+		if p == name {
+			return i
+		}
+	}
+	return -1
 }

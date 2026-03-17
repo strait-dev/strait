@@ -2695,3 +2695,230 @@ func TestManagedDispatch_BeltAndSuspendersLogFetch(t *testing.T) {
 		t.Errorf("expected belt-and-suspenders logs, got %q", capturedLogs)
 	}
 }
+
+// Phase 2: OOM-aware retry with preset upgrade.
+
+func TestManagedDispatch_OOM_PresetUpgrade(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedMetadata map[string]string
+	var capturedError string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusQueued {
+				if md, ok := fields["metadata"]; ok {
+					capturedMetadata = md.(map[string]string)
+				}
+				if e, ok := fields["error"]; ok {
+					capturedError = e.(string)
+				}
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 137,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MachinePreset = domain.PresetMicro
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedMetadata == nil {
+		t.Fatal("expected metadata with _preset_override")
+	}
+	if capturedMetadata["_preset_override"] != "small-1x" {
+		t.Errorf("expected _preset_override=small-1x, got %s", capturedMetadata["_preset_override"])
+	}
+	if capturedMetadata["_oom_upgraded_from"] != "micro" {
+		t.Errorf("expected _oom_upgraded_from=micro, got %s", capturedMetadata["_oom_upgraded_from"])
+	}
+	if !strings.Contains(capturedError, "OOM on micro") {
+		t.Errorf("expected OOM upgrade message, got %s", capturedError)
+	}
+}
+
+func TestManagedDispatch_OOM_MaxPreset_DeadLetter(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var deadLettered bool
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusDeadLetter {
+				deadLettered = true
+				errMsg := fields["error"].(string)
+				if !strings.Contains(errMsg, "largest preset") {
+					t.Errorf("expected max preset error message, got %s", errMsg)
+				}
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 137,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	run.Metadata = map[string]string{"_preset_override": "large-2x"}
+	job := newTestManagedJob()
+	job.MachinePreset = "large-2x"
+	job.MaxAttempts = 3 // Has retries remaining, but OOM on max → dead_letter.
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if !deadLettered {
+		t.Error("expected dead_letter for OOM on max preset, even with retries remaining")
+	}
+}
+
+func TestManagedDispatch_NonOOM_NoPresetOverride(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedMetadata map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusQueued {
+				if md, ok := fields["metadata"]; ok {
+					capturedMetadata = md.(map[string]string)
+				}
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 1,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedMetadata != nil {
+		if _, ok := capturedMetadata["_preset_override"]; ok {
+			t.Error("non-OOM exit should not set _preset_override")
+		}
+	}
+}
+
+func TestManagedDispatch_OOM_UpgradeChain(t *testing.T) {
+	t.Parallel()
+
+	// Verify micro → small-1x → small-2x upgrade chain.
+	chain := []struct {
+		currentPreset string
+		expectedNext  string
+	}{
+		{"micro", "small-1x"},
+		{"small-1x", "small-2x"},
+		{"small-2x", "medium-1x"},
+	}
+	for _, step := range chain {
+		next, ok := compute.NextPreset(step.currentPreset)
+		if !ok {
+			t.Errorf("NextPreset(%q) returned false", step.currentPreset)
+		}
+		if next != step.expectedNext {
+			t.Errorf("NextPreset(%q) = %q, want %q", step.currentPreset, next, step.expectedNext)
+		}
+	}
+}
+
+func TestManagedDispatch_OOM_PreservesSnoozeCount(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedFields map[string]any
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusQueued {
+				capturedFields = fields
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 137,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	run.Metadata = map[string]string{"snooze_count": "3"}
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedFields == nil {
+		t.Fatal("expected retry fields")
+	}
+	// The OOM upgrade metadata should be set.
+	if md, ok := capturedFields["metadata"]; ok {
+		m := md.(map[string]string)
+		if m["_preset_override"] != "small-1x" {
+			t.Errorf("expected _preset_override=small-1x, got %s", m["_preset_override"])
+		}
+	}
+}

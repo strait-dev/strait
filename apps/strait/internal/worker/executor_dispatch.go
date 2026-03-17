@@ -688,6 +688,34 @@ func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRu
 // handleManagedFailure handles a non-zero exit from a managed container.
 // Retries per max_attempts policy; moves to dead_letter when exhausted.
 func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, classification compute.ExitClassification) {
+	currentPreset := string(job.MachinePreset)
+	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
+		currentPreset = override
+	}
+
+	// OOM at max preset → dead_letter immediately.
+	if classification.IsOOM && compute.IsMaxPreset(currentPreset) {
+		memMB := compute.PresetMemoryMB(currentPreset)
+		errMsg := fmt.Sprintf("OOM on largest preset %s (%dMB); cannot upgrade further", currentPreset, memMB)
+		now := time.Now()
+		run.Status = domain.StatusDeadLetter
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+			"finished_at": now,
+			"error":       errMsg,
+			"error_class": classification.ErrorClass,
+		}); err != nil {
+			e.logger.Error("failed to mark managed run dead_letter", "run_id", run.ID, "error", err)
+			return
+		}
+		e.emit(ctx, RunLifecycleEvent{
+			Type: EventDeadLettered, Run: run, Job: job,
+			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusDeadLetter,
+			Attempt: run.Attempt,
+		})
+		e.notifyWorkflowCallback(ctx, run)
+		return
+	}
+
 	if run.Attempt < job.MaxAttempts {
 		retryAt := NextRetryAt(run.Attempt)
 		fields := map[string]any{
@@ -698,6 +726,20 @@ func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun,
 			"started_at":    nil,
 			"finished_at":   nil,
 		}
+
+		// OOM → upgrade to next preset for the retry.
+		if classification.IsOOM {
+			if nextPreset, ok := compute.NextPreset(currentPreset); ok {
+				nextMemMB := compute.PresetMemoryMB(nextPreset)
+				curMemMB := compute.PresetMemoryMB(currentPreset)
+				fields["metadata"] = map[string]string{
+					"_preset_override":   nextPreset,
+					"_oom_upgraded_from": currentPreset,
+				}
+				fields["error"] = fmt.Sprintf("OOM on %s (%dMB), retrying on %s (%dMB)", currentPreset, curMemMB, nextPreset, nextMemMB)
+			}
+		}
+
 		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
 			e.logger.Error("failed to re-enqueue managed run", "run_id", run.ID, "error", err)
 			return
