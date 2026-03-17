@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::config::{normalize_base_url, AuthMode, AuthType, Config};
+use crate::config::{AuthMode, AuthType, Config, normalize_base_url};
 use crate::errors::StraitError;
 
 #[derive(Debug, Clone, Deserialize)]

@@ -105,8 +105,8 @@ mod tests {
 
     #[test]
     fn test_middleware_on_request_invoked() {
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
         let called = Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
         let mw = Middleware {
@@ -127,8 +127,8 @@ mod tests {
 
     #[test]
     fn test_middleware_on_response_invoked() {
-        use std::sync::atomic::{AtomicU16, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicU16, Ordering};
         let status_seen = Arc::new(AtomicU16::new(0));
         let s = status_seen.clone();
         let mw = Middleware {

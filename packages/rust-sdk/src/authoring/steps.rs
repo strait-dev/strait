@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub const STEP_TYPE_JOB: &str = "job";
 pub const STEP_TYPE_APPROVAL: &str = "approval";
@@ -275,9 +275,7 @@ pub fn ai_step(
     options: BaseStepOptions,
 ) -> Step {
     let merged = BaseStepOptions {
-        timeout_secs_override: options
-            .timeout_secs_override
-            .or(Some(600)),
+        timeout_secs_override: options.timeout_secs_override.or(Some(600)),
         retry_max_attempts: options.retry_max_attempts.or(Some(5)),
         retry_backoff: options
             .retry_backoff

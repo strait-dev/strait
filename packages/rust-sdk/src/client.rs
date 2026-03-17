@@ -6,9 +6,9 @@ use reqwest::Client;
 use serde_json::Value;
 
 use crate::config::config_from_env;
-use crate::config::{normalize_base_url, AuthMode, AuthType, Config};
+use crate::config::{AuthMode, AuthType, Config, normalize_base_url};
 use crate::config_file::config_from_file;
-use crate::errors::{map_http_error, StraitError};
+use crate::errors::{StraitError, map_http_error};
 use crate::middleware::{ErrorContext, Middleware, RequestContext, ResponseContext};
 use crate::operations::analytics::AnalyticsService;
 use crate::operations::api_keys::ApiKeysService;

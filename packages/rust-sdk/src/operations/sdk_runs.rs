@@ -165,9 +165,7 @@ impl SdkRunsService {
 
     pub async fn list_state(&self, run_id: &str) -> Result<serde_json::Value, StraitError> {
         let path = substitute_path_params("/sdk/v1/runs/{runID}/state", &[("runID", run_id)]);
-        self.client
-            .do_request("GET", &path, None, None, None)
-            .await
+        self.client.do_request("GET", &path, None, None, None).await
     }
 
     pub async fn get_state(
@@ -179,9 +177,7 @@ impl SdkRunsService {
             "/sdk/v1/runs/{runID}/state/{key}",
             &[("runID", run_id), ("key", key)],
         );
-        self.client
-            .do_request("GET", &path, None, None, None)
-            .await
+        self.client.do_request("GET", &path, None, None, None).await
     }
 
     pub async fn delete_state(
@@ -200,9 +196,7 @@ impl SdkRunsService {
 
     pub async fn get_payload(&self, run_id: &str) -> Result<serde_json::Value, StraitError> {
         let path = substitute_path_params("/sdk/v1/runs/{runID}/payload", &[("runID", run_id)]);
-        self.client
-            .do_request("GET", &path, None, None, None)
-            .await
+        self.client.do_request("GET", &path, None, None, None).await
     }
 
     pub async fn resources_run(
