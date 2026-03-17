@@ -150,26 +150,26 @@ const StepObserve = () => (
 const STEPS: Step[] = [
   {
     description:
-      "Write your workflow in TypeScript, Go, or Python. Define steps, retries, and timeouts — no YAML, no config files.",
+      "Write workflows in TypeScript, Go, or Python. Steps, retries, timeouts, and dependencies — all in code you can review and test.",
     label: "Define",
     number: "01",
-    title: "Define your workflow in code",
+    title: "Write workflows in code",
     visual: StepDefine,
   },
   {
     description:
-      "Trigger a run with a single API call. Workers pick it up instantly and execute each step in order.",
+      "One API call triggers a run. Workers claim it from Postgres and execute each step with automatic retries and backoff.",
     label: "Run",
     number: "02",
-    title: "Trigger and execute runs",
+    title: "Trigger with one API call",
     visual: StepRun,
   },
   {
     description:
-      "See every run on a timeline. Inspect failures, read logs, and replay from the exact point of failure.",
+      "Every run on a timeline. Inspect failures, read logs, and replay from the exact step that broke — in seconds.",
     label: "Observe",
     number: "03",
-    title: "Observe and recover",
+    title: "Debug in seconds, not hours",
     visual: StepObserve,
   },
 ];
@@ -194,12 +194,10 @@ const HowItWorks = () => {
             className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl"
             id={headingId}
           >
-            <span className="text-foreground">
-              Three steps. No YAML nightmare.
-            </span>{" "}
+            <span className="text-foreground">Define. Run. Observe.</span>{" "}
             <span className="text-muted-foreground">
-              From first job definition to production observability in under ten
-              minutes.
+              Go from zero to production workflows in under ten minutes. No
+              config files, no YAML.
             </span>
           </h2>
         </div>
@@ -237,7 +235,7 @@ const HowItWorks = () => {
                 </div>
                 <div className="mt-5">
                   <div className="flex items-center gap-3">
-                    <span className="font-heading text-3xl text-muted-foreground/30 leading-none">
+                    <span className="text-3xl text-muted-foreground/30 leading-none">
                       {step.number}
                     </span>
                     <div>
@@ -282,7 +280,7 @@ const HowItWorks = () => {
 
         <div className="mt-10 flex justify-center">
           <Button render={<Link href={dashboardHref("/login")} />}>
-            Create your first workflow
+            Try it free
             <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
           </Button>
         </div>

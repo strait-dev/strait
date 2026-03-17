@@ -80,11 +80,11 @@ const ProblemSection = () => (
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
-              Your current stack is held together with duct tape.
+              Your job infra is the bottleneck.
             </span>{" "}
             <span className="text-muted-foreground">
-              Every team that runs background work hits the same wall — and
-              patches it with more tools until the system becomes the problem.
+              Teams bolt on queues, cron hacks, and retry wrappers until the
+              glue code is harder to maintain than the product itself.
             </span>
           </h2>
         </div>
@@ -131,9 +131,7 @@ const ProblemSection = () => (
           <Reveal spring variant="scale">
             <div className="flex flex-col items-center gap-4">
               <div className="rounded-xl border border-foreground/10 bg-card px-8 py-6 text-center shadow-sm">
-                <p className="font-heading font-semibold text-foreground text-lg">
-                  Strait
-                </p>
+                <p className="font-semibold text-foreground text-lg">Strait</p>
                 <p className="mt-1 text-muted-foreground text-sm">
                   One runtime. One queue. One dashboard.
                 </p>

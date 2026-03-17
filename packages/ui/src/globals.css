@@ -8,14 +8,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: "Clash Grotesk";
-  src: url("./fonts/ClashGrotesk-Variable.woff2") format("woff2");
-  font-weight: 200 700;
-  font-display: swap;
-  font-style: normal;
-}
-
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -24,8 +16,8 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.9927 0.0364 107.04);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(1 0 0);
+  --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.97 0 0);
@@ -44,14 +36,14 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.88 0.09 107);
-  --chart-2: oklch(0.75 0.08 107);
-  --chart-3: oklch(0.62 0.06 107);
-  --chart-4: oklch(0.5 0.05 107);
-  --chart-5: oklch(0.4 0.04 107);
+  --chart-1: oklch(0.9 0 0);
+  --chart-2: oklch(0.75 0 0);
+  --chart-3: oklch(0.6 0 0);
+  --chart-4: oklch(0.45 0 0);
+  --chart-5: oklch(0.3 0 0);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.62 0.06 107);
+  --sidebar-primary: oklch(0.145 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
@@ -66,8 +58,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.9927 0.0364 107.04);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(1 0 0);
+  --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -86,14 +78,14 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.88 0.09 107);
-  --chart-2: oklch(0.75 0.08 107);
-  --chart-3: oklch(0.62 0.06 107);
-  --chart-4: oklch(0.5 0.05 107);
-  --chart-5: oklch(0.4 0.04 107);
+  --chart-1: oklch(0.9 0 0);
+  --chart-2: oklch(0.75 0 0);
+  --chart-3: oklch(0.6 0 0);
+  --chart-4: oklch(0.45 0 0);
+  --chart-5: oklch(0.3 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.75 0.08 107);
+  --sidebar-primary: oklch(0.985 0 0);
   --sidebar-primary-foreground: oklch(0.205 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
@@ -180,14 +172,6 @@
   html {
     @apply font-sans;
   }
-  h1,
-  h2 {
-    font-family: "Clash Grotesk", system-ui, sans-serif;
-  }
-}
-
-@utility font-heading {
-  font-family: "Clash Grotesk", system-ui, sans-serif;
 }
 
 .scrollbar-hide::-webkit-scrollbar {

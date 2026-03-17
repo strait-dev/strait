@@ -37,10 +37,10 @@ const PricingTeaser = () => (
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
-              Start free. Scale when you&apos;re ready.
+              Free to start. Pay as you grow.
             </span>{" "}
             <span className="text-muted-foreground">
-              No credit card to start. Runs on your Postgres.
+              No credit card required. Self-host or let us run it for you.
             </span>
           </h2>
         </div>

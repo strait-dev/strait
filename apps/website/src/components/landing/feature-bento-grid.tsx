@@ -328,7 +328,7 @@ const HealthAnimation = () => {
         </div>
       ))}
       <div className="mt-1 text-center">
-        <span className="font-heading font-semibold text-2xl text-foreground tabular-nums">
+        <span className="font-semibold text-2xl text-foreground tabular-nums">
           {score}
         </span>
         <span className="ml-1 text-muted-foreground text-xs">/100</span>
@@ -461,12 +461,10 @@ const FeatureBentoGrid = () => (
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-          <span className="text-foreground">
-            Everything you need to run production workflows.
-          </span>{" "}
+          <span className="text-foreground">One runtime. Every feature.</span>{" "}
           <span className="text-muted-foreground">
-            Not a framework. Not a library. A complete runtime with queueing,
-            orchestration, and operations built in.
+            Queues, DAGs, retries, approvals, cost budgets, and a dashboard —
+            not a framework you wire together yourself.
           </span>
         </h2>
       </div>

@@ -41,14 +41,14 @@ const CTA = () => {
               className="max-w-3xl text-balance text-2xl text-primary-foreground leading-[1.1] sm:text-3xl lg:text-4xl"
               id={headingId}
             >
-              Stop building job infrastructure. Start shipping workflows.
+              Ship your first workflow in 10 minutes.
             </h2>
           </Reveal>
 
           <Reveal delay={0.1}>
             <p className="mt-6 max-w-2xl text-pretty text-base text-primary-foreground/70 leading-relaxed sm:text-lg">
-              Deploy your first workflow in under 10 minutes. Zero-broker,
-              production-grade from the first run.
+              Connect your Postgres, define a workflow, and trigger your first
+              run. No broker, no config files, no vendor lock-in.
             </p>
           </Reveal>
 
@@ -59,7 +59,7 @@ const CTA = () => {
                 render={<Link href={dashboardHref("/login")} />}
                 variant="outline"
               >
-                Deploy your first workflow
+                Start building free
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               <p className="text-primary-foreground/50 text-sm">

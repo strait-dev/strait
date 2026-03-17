@@ -142,30 +142,30 @@ const AIWorkflowVisual = () => (
 const CARDS = [
   {
     id: "zero-broker",
-    title: "Drop the message broker",
+    title: "Zero brokers to manage",
     description:
-      "Postgres becomes your job queue. No Redis cluster, no RabbitMQ, no extra infrastructure to monitor.",
+      "Postgres is your queue. No Redis cluster, no RabbitMQ — one fewer service to provision, monitor, and pay for.",
     Visual: StackCollapseVisual,
   },
   {
     id: "fsm-states",
-    title: "Every state is intentional",
+    title: "No ambiguous job states",
     description:
-      "From queued to terminal, every transition is tracked and queryable. No ambiguous job status.",
+      "Every transition from queued to terminal is tracked and queryable. Know exactly where every run is, always.",
     Visual: FSMVisual,
   },
   {
     id: "observability",
-    title: "Built-in observability",
+    title: "Observability out of the box",
     description:
-      "Events, debug bundles, usage tracking, and health scoring ship with the runtime.",
+      "Events, debug bundles, usage tracking, and health scoring — included, not bolted on after your first outage.",
     Visual: ObservabilityVisual,
   },
   {
     id: "ai-workflows",
-    title: "Budget-aware orchestration",
+    title: "Cost controls built in",
     description:
-      "Track token spend, enforce cost limits, and add human approval gates to long-running agent workflows.",
+      "Set per-run and daily budgets, track token spend, and require human approval before expensive steps execute.",
     Visual: AIWorkflowVisual,
   },
 ] as const;
@@ -198,10 +198,10 @@ const WhyStrait = () => {
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-            <span className="text-foreground">Why teams switch to Strait.</span>{" "}
+            <span className="text-foreground">Less infra. More shipping.</span>{" "}
             <span className="text-muted-foreground">
-              Less infrastructure. Faster recovery. One system your whole team
-              understands.
+              Replace your patchwork of queues, cron, and retry wrappers with
+              one runtime your whole team can reason about.
             </span>
           </h2>
         </div>

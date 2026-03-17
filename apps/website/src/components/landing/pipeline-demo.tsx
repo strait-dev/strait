@@ -276,12 +276,10 @@ const PipelineDemo = () => {
       <Shell variant="wide">
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
-            <span className="text-foreground">
-              Watch a workflow execute in real time.
-            </span>{" "}
+            <span className="text-foreground">See every run, live.</span>{" "}
             <span className="text-muted-foreground">
-              From trigger to completion — retries, approval gates, and fan-out
-              in a single replay.
+              Watch retries, approval gates, and fan-out execute step by step.
+              Replay any failure in one click.
             </span>
           </h2>
         </div>
@@ -392,27 +390,27 @@ const PipelineDemo = () => {
         {/* Stat cards */}
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5">
-            <p className="font-heading font-semibold text-2xl text-foreground">
+            <p className="font-semibold text-2xl text-foreground">
               Full lifecycle tracking
             </p>
             <p className="mt-1 text-muted-foreground text-sm">
-              Every run state visible from queued to completed
+              Every state from queued to completed, queryable via API
             </p>
           </div>
           <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5">
-            <p className="font-heading font-semibold text-2xl text-foreground">
-              Real-time streaming
+            <p className="font-semibold text-2xl text-foreground">
+              Real-time events
             </p>
             <p className="mt-1 text-muted-foreground text-sm">
-              Stream state changes instantly to your webhooks
+              Stream state changes to webhooks as they happen
             </p>
           </div>
           <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5">
-            <p className="font-heading font-semibold text-2xl text-foreground">
+            <p className="font-semibold text-2xl text-foreground">
               Debug bundles
             </p>
             <p className="mt-1 text-muted-foreground text-sm">
-              Inspect any failed run with full execution context
+              Full execution context for every failed run, instantly
             </p>
           </div>
         </div>

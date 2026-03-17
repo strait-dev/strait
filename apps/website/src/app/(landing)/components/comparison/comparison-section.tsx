@@ -56,10 +56,10 @@ const ComparisonSection = () => {
         <div className="mb-14 max-w-3xl">
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             <span className="text-foreground">
-              See the difference in one toggle.
+              2,400 lines of glue vs. 10 lines of Strait.
             </span>{" "}
             <span className="text-muted-foreground">
-              From fragmented infrastructure to a single, clean SDK call.
+              Toggle to see what your infra looks like before and after.
             </span>
           </h2>
         </div>
@@ -116,7 +116,7 @@ const ComparisonSection = () => {
                 className="rounded-xl border border-border/60 bg-card p-5 text-center"
                 key={metric.label}
               >
-                <p className="font-heading font-semibold text-3xl text-foreground tabular-nums transition-opacity duration-300">
+                <p className="font-semibold text-3xl text-foreground tabular-nums transition-opacity duration-300">
                   {value}
                   {metric.unit}
                 </p>
@@ -130,7 +130,7 @@ const ComparisonSection = () => {
 
         <div className="mt-10 flex justify-center">
           <Button render={<Link href={dashboardHref("/login")} />}>
-            See Strait in action
+            Try it free
             <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
           </Button>
         </div>
