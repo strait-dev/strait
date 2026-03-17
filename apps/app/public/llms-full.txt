@@ -1,313 +1,193 @@
-# Strait — Comprehensive Product Documentation
+# Strait — Full Reference
 
-> For a quick summary, see: https://trystrait.ai/llms.txt
+> Open-source job orchestration platform with 13-state FSM, workflow DAGs, smart retry, event triggers, and multi-language SDK support across TypeScript, Python, Go, Ruby, and Rust.
 
-Strait is an AI-powered writing platform built on a conversation-first workflow. Instead of starting with a blank document, users begin with an AI interview that gathers context about purpose, audience, key points, and tone — then generates multiple draft angles for the user to refine.
+For a quick summary, see: https://app.strait.dev/llms.txt
 
-Website: https://trystrait.ai
-App: https://app.trystrait.ai
-Version: 2.0
-Last updated: 2025-02-07
+## Architecture
 
----
+Strait is a job orchestration platform that provides:
+- **API Server**: REST API with 186 endpoints across 19 services
+- **Worker Executor**: Processes job runs with configurable concurrency
+- **Scheduler**: Cron-based job scheduling with timezone support
+- **PostgreSQL Queue**: Durable message queue for job runs (PlanetScale compatible)
+- **Redis**: Optional caching and rate limiting (Upstash compatible)
 
-## 1. Product Overview
+### Operation Modes
+- `api`: API server only
+- `worker`: Worker executor only
+- `all`: Both API server and worker (default)
 
-### Mission
+## Core Concepts
 
-Help writers worldwide produce better content faster by replacing the blank page with a guided AI conversation.
+### Jobs
+Jobs are durable, retriable units of work. Each job has:
+- Unique slug identifier
+- Endpoint URL for execution
+- Configurable retry strategy (exponential, fixed, custom delays)
+- Concurrency limits and rate limiting
+- Cron scheduling with timezone support
+- Webhook notifications
 
-### Target Market
+### Runs
+Runs are individual job executions following a 13-state FSM:
 
-- Content creators and bloggers
-- Marketing teams and copywriters
-- Freelance writers managing multiple clients
-- Non-native English speakers
-- Anyone who writes professionally
+**States**: delayed, queued, dequeued, executing, waiting, completed, failed, timed_out, crashed, system_failed, canceled, expired, dead_letter, replay_staged
 
-### Key Differentiators
+**Terminal states**: completed, failed, timed_out, crashed, system_failed, canceled, expired
 
-1. **Conversation-first**: Writing begins with an AI interview, not a blank page.
-2. **Multiple draft angles**: Every session produces 3 distinct content approaches.
-3. **Style profiles**: Capture and replicate your unique writing voice across sessions.
-4. **10 content types**: Specialized prompts for blog posts, social media, emails, and more.
-5. **Real-time sync**: Convex-powered reactive queries for instant updates across devices.
+**Events**: ENQUEUE, DEQUEUE, EXECUTE, COMPLETE, FAIL, TIMEOUT, CRASH, SYSTEM_FAIL, CANCEL, EXPIRE, WAIT, REQUEUE, DEAD_LETTER, REPLAY
 
----
+### Workflows
+Multi-step DAG orchestration with 5 step types:
+- **Job**: Execute a job as a workflow step
+- **Approval**: Human approval gate with timeout
+- **Sub-workflow**: Nested workflow execution
+- **Wait for Event**: Pause until external event arrives
+- **Sleep**: Fixed delay between steps
 
-## 2. Core Features
+Steps support: depends_on (DAG edges), conditions, on_failure actions, retry configuration, timeout overrides, output transforms, concurrency keys, resource classes.
 
-### 2.1 Conversation-First Writing
+### Event Triggers
+Pub/sub event system supporting:
+- Key-based event routing
+- Prefix-based event matching
+- Event purging
+- Multiple job/workflow subscribers per event
 
-The core workflow replaces the blank page with a structured AI conversation:
+### Deployments
+Atomic deployment pipeline:
+1. Create deployment version (upload artifact)
+2. Finalize (validate)
+3. Promote (activate)
+4. Rollback (revert to previous)
 
-1. **Interview phase**: An AI interviewer asks about purpose, audience, key points, and tone.
-2. **Draft generation**: The writing assistant generates 3 distinct draft angles based on the brief.
-3. **Refinement**: Users chat with the AI to adjust tone, restructure, or request changes.
-4. **Completion**: Final draft is saved to the editor for manual polishing and export.
+## Dashboard
 
-**Draft angle examples:**
-- Hook-First: Opens with a compelling hook or question
-- Story-Led: Begins with a narrative or anecdote
-- Data-Driven: Leads with statistics or research
+The Strait dashboard provides real-time monitoring and management:
+- **Overview**: System health metrics and recent activity
+- **Jobs**: List, search, filter, and manage all jobs with run history charts
+- **Workflows**: Visual DAG editor with React Flow, run history, and step management
+- **Runs**: Real-time run monitoring with status filters, execution traces, and log viewer
+- **Schedules**: Cron schedule management with run history
+- **Dead Letter Queue**: Failed run recovery with retry and discard actions
+- **Logs**: Searchable log viewer with level filters (info, warn, error, debug)
+- **Events**: Event stream with type-based filtering
+- **Webhooks**: Webhook subscription management
+- **Command Menu**: Global search with keyboard shortcut (Cmd+K)
 
-### 2.2 Content Types
+### Organization Management
+- Role-based access: Owner, Admin, Member
+- Invitation system with email notifications via Resend
+- Organization switching from sidebar
+- API key management with granular scopes and expiration
+- Subscription management via Polar
 
-10 built-in content types with specialized angle prompts and few-shot examples:
+## SDK Architecture
 
-| # | Type | Description |
-|---|------|-------------|
-| 1 | Blog Post | Long-form articles with SEO-friendly structure |
-| 2 | Twitter Thread | Multi-tweet threads with hooks and engagement |
-| 3 | LinkedIn Post | Professional content with thought leadership angle |
-| 4 | Follow-Up Email | Business emails with clear CTAs |
-| 5 | Article | In-depth pieces with research and analysis |
-| 6 | Newsletter | Subscriber-focused content with sections |
-| 7 | Product Description | Feature-benefit copy for products |
-| 8 | Ad Copy | Short-form persuasive content |
-| 9 | Press Release | Formal announcements with quotes |
-| 10 | Custom | Freeform content with user-defined parameters |
-
-### 2.3 Style Profiles
-
-Users can define and save their writing voice:
-
-- **Voice presets**: Formality scale (1-5) and energy scale (1-5)
-- **Sample texts**: Upload reference writing for AI to match
-- **Custom instructions**: Specific style rules the AI should follow
-- **Per-session binding**: Apply any profile to any writing session
-
-### 2.4 Style Analysis
-
-Analyze existing writing to understand style characteristics:
-
-- **Document upload**: PDFs, text files, Markdown
-- **URL extraction**: Provide a URL and Strait extracts text for analysis
-- **Paste content**: Direct text input for quick analysis
-- **AI analysis**: Automated breakdown of voice, formality, energy, and patterns
-
-### 2.5 Rich Text Editor
-
-Tiptap-powered editor with 20+ extensions:
-
-- Text formatting: Bold, italic, underline, strikethrough
-- Headings: H1-H6
-- Lists: Ordered, unordered, task lists
-- Code blocks with syntax highlighting
-- Blockquotes and horizontal rules
-- Images (inline and block)
-- Links with preview
-- Text alignment
-- Subscript/superscript
-- Highlight colors
-- Typography enhancements
-- Character and word count
-- Auto-save with debounce (1.5 seconds)
-- Reading time estimates
-
-### 2.6 Workspaces and Organization
-
-- **Multi-workspace support**: Separate workspaces for different projects or clients
-- **Color coding**: Assign colors and icons to workspaces
-- **Nested folders**: Organize documents within workspaces
-- **Custom tags**: Color-coded tags with usage tracking
-- **Default workspace**: Auto-assign new sessions
-- **Workspace archiving**: Archive completed projects
-
-### 2.7 BYOK (Bring Your Own Key)
-
-8 AI providers supported — use the default or bring your own API keys:
-
-| Provider | Default Model | Notes |
-|----------|---------------|-------|
-| xAI (default) | grok-4-1-fast | Default provider, no key needed |
-| OpenAI | gpt-4o | GPT-4 and GPT-4 Turbo available |
-| Anthropic | claude-3-7-sonnet | Claude family |
-| Google | gemini-2.5-flash | Gemini Pro and Flash |
-| Groq | llama-3.1-70b | Fast inference |
-| Together AI | Llama-3.3-70B | Open-source models |
-| Perplexity | sonar-pro | Search-augmented |
-| DeepSeek | deepseek-chat | Cost-effective |
-
----
-
-## 3. Pricing
-
-### Plans
-
-| Feature | Personal | Pro |
-|---------|----------|-----|
-| Monthly price | $30/mo | $50/mo |
-| Yearly price | $24/mo | $40/mo |
-| Sessions per month | 50 | 150 |
-| Messages per session | Unlimited | Unlimited |
-| Style profiles | 5 | Unlimited |
-| Workspaces | 3 | Unlimited |
-| Drafts per session | 3 | 5 |
-| Languages | All 50+ | All 50+ |
-| Support | Email (48h) | Priority (12h) |
-| Early access | — | ✓ |
-
-### Billing
-
-- Managed through Polar
-- Monthly and yearly billing cycles
-- Yearly billing saves ~20%
-- Customer portal for subscription management
-
----
-
-## 4. AI Capabilities
-
-### 4.1 Interviewer Agent
-
-The interviewer agent conducts a structured conversation to build a writing brief:
-
-- Asks about purpose, audience, key points, and tone
-- Adapts questions based on content type
-- Builds a complete brief before triggering draft generation
-- Supports follow-up questions for clarification
-
-### 4.2 Writing Assistant Agent
-
-The writing assistant generates and refines content:
-
-- Produces 3 distinct draft angles per session
-- Each angle has a unique approach (e.g., Hook-First, Story-Led, Data-Driven)
-- Supports iterative refinement through chat
-- Adapts to style profiles when bound to a session
-- Respects content type constraints and formatting
-
-### 4.3 Session State Machine
-
-Full XState state machine managing the writing workflow:
+All 5 SDKs follow the same 5-layer architecture:
 
 ```
-idle → interview → drafts → refinement → completion
+Authoring DSL (defineJob / defineWorkflow)
+|
+Composition Helpers (retry, wait, paginate, deploy)
+|
+Domain Operations (19 services, 186 endpoints)
+|
+HTTP Client + Middleware (auth, headers, error mapping)
+|
+Configuration (strait.json / env vars / inline)
 ```
 
-- **idle**: Session created, waiting to start
-- **interview**: AI interviewer gathering brief
-- **drafts**: Writing assistant generating 3 angles
-- **refinement**: User refining selected draft through chat
-- **completion**: Final draft saved to editor
+### 19 Domain Services
+1. **Jobs** — CRUD, clone, trigger, bulk trigger, versions, dependencies, batch operations
+2. **Runs** — CRUD, checkpoints, children, debug, DLQ, events, lineage, outputs, replay, tool calls, usage
+3. **Workflows** — CRUD, clone, dry run, plan, simulate, trigger, graph, versions, diff, policy, explain, labels, impact
+4. **Workflow Runs** — CRUD, pause, resume, retry, steps, approve/retry/skip/force-complete/replay-subtree steps
+5. **Deployments** — List, create, finalize, promote, rollback
+6. **Environments** — CRUD, variables
+7. **Secrets** — List, create, delete
+8. **API Keys** — List, create, delete, rotate
+9. **Webhooks** — Subscriptions CRUD, deliveries, retry
+10. **Event Triggers** — Events CRUD, send, send by prefix, purge, stats
+11. **Event Sources** — CRUD, subscribe, subscriptions, dispatch
+12. **Batch Operations** — List, get
+13. **Stats** — List
+14. **Analytics** — Performance metrics
+15. **Log Drains** — CRUD
+16. **SDK Runs** — 13 endpoints: annotate, checkpoint, complete, continue, fail, heartbeat, log, output, progress, spawn, tool-call, usage, wait-for-event
+17. **RBAC** — Audit events, members, roles, resource policies, tag policies, seed
+18. **Job Groups** — CRUD, list jobs, pause/resume all, stats
+19. **Health** — Health check, readiness, metrics
 
-### 4.4 Memory Integration
+### Error Types (10)
+1. TransportError — Network failures
+2. DecodeError — JSON parse failures
+3. ValidationError — Config/input validation (with issues list)
+4. UnauthorizedError — 401/403 (with status, body)
+5. NotFoundError — 404
+6. ConflictError — 409
+7. RateLimitedError — 429
+8. ApiError — Other HTTP errors
+9. TimeoutError — Polling timeout (with run_id, elapsed_ms)
+10. DagValidationError — DAG issues (cycles, missing_refs, duplicate_refs)
 
-Optional Mem0 integration for conversational memory:
+## Configuration
 
-- Remembers writing preferences across sessions
-- Learns from past interactions
-- Feature-flagged (degrades gracefully without API key)
+### strait.json
+```json
+{
+  "$schema": "https://strait.dev/schema/strait.json",
+  "project": { "id": "proj_xxx", "name": "My Project" },
+  "sdk": { "base_url": "https://api.strait.dev", "auth_type": "apiKey", "timeout_ms": 30000 }
+}
+```
 
----
+### Environment Variables
+- `STRAIT_BASE_URL` — API base URL (required)
+- `STRAIT_API_KEY` — API key (required, always from env)
+- `STRAIT_AUTH_TYPE` — Auth type: bearer, apiKey, runToken (default: apiKey)
+- `STRAIT_TIMEOUT_MS` — Request timeout in ms (default: 30000)
 
-## 5. Technical Stack
+Priority: env vars > strait.json > inline options
 
-### Frontend
+## SDK Quick Start
 
-- TanStack Start (React 19 + Vite)
-- TanStack Router (file-based routing)
-- TanStack Query (data fetching and caching)
-- Tiptap (rich text editor)
-- Tailwind CSS 4
-- Framer Motion (animations)
-- Zustand (state management)
-- XState (session lifecycle)
+### TypeScript
+```typescript
+import { createClient } from "@strait/sdk";
+const client = createClient({ baseUrl: "...", apiKey: "..." });
+const jobs = await client.jobs.list();
+```
 
-### Backend
+### Python
+```python
+from strait import Client
+client = Client.from_env()
+jobs = client.jobs.list()
+```
 
-- Convex (real-time database with reactive queries)
-- Convex Agent (AI agent framework)
-- Better Auth (authentication with Google OAuth)
-- Polar (subscription billing)
-- Vercel AI SDK v6 (streaming AI responses)
+### Go
+```go
+client, _ := strait.NewClientFromEnv()
+jobs, _ := client.Jobs.List(ctx, nil)
+```
 
-### Infrastructure
+### Ruby
+```ruby
+client = Strait::Client.from_env
+jobs = client.jobs.list
+```
 
-- Vercel (hosting)
-- Cloudflare (WAF and DDoS protection)
-- Infisical (secrets management)
-- Sentry (error tracking)
-- PostHog (product analytics)
+### Rust
+```rust
+let client = StraitClient::from_env()?;
+let jobs = client.jobs().list(None).await?;
+```
 
-### Build Tools
+## Links
 
-- Turborepo (monorepo management)
-- Bun (package manager and runtime)
-- Biome (linting and formatting)
-- TypeScript (strict mode)
-
----
-
-## 6. Security
-
-- **Input sanitization**: Detects SQL injection, XSS, command injection, path traversal, prompt injection, and encoding attacks
-- **Rate limiting**: Per-user limits on session creation, messaging, draft generation, and file uploads
-- **Threat logging**: All detected security threats logged with risk levels
-- **User isolation**: Every query and mutation filters by authenticated userId
-- **Authentication**: Better Auth with Google OAuth
-- **Infrastructure**: Cloudflare WAF and DDoS protection
-
----
-
-## 7. Use Cases
-
-### Content Creators
-
-- Start blog posts with an AI interview instead of staring at a blank page
-- Generate 3 different angles for the same topic
-- Apply consistent style profiles across all content
-- Export to Markdown for CMS publishing
-
-### Marketing Teams
-
-- Produce ad copy, product descriptions, and press releases at scale
-- Maintain brand voice with shared style profiles
-- Organize campaigns in workspaces with folders and tags
-- Generate social media content (Twitter threads, LinkedIn posts)
-
-### Freelance Writers
-
-- Manage multiple client projects with separate workspaces
-- Create client-specific style profiles
-- Track writing sessions and output
-- Export in client-preferred formats (PDF, DOCX, Markdown)
-
-### Non-Native Speakers
-
-- Write confidently in 50+ languages
-- AI understands grammar rules and cultural context
-- Automatic language detection
-- RTL text support for Arabic, Hebrew, etc.
-
----
-
-## 8. Competitive Position
-
-| Competitor | Strait Advantage |
-|------------|-------------------|
-| Blank page | Replaces with guided AI conversation |
-| ChatGPT | Purpose-built for writing with structured interviews and style profiles |
-| Grammarly | Goes beyond corrections to generate full drafts |
-| Jasper | Conversation-first approach vs. template-based generation |
-| Copy.ai | Style analysis and voice matching vs. generic templates |
-| Notion AI | Dedicated writing workflow vs. general-purpose assistant |
-
----
-
-## 9. Support and Resources
-
-- **Email support**: leonardomso11@gmail.com
-- **Priority support**: Available on Pro plan (12h response time)
-- **Blog**: https://trystrait.ai/blog
-- **Pricing**: https://trystrait.ai/pricing
-
----
-
-## 10. Contact
-
-- Website: https://trystrait.ai
-- Email: leonardomso11@gmail.com
-- Twitter: https://twitter.com/leonardomso
-- GitHub: https://github.com/leonardomso
+- Website: https://strait.dev
+- App: https://app.strait.dev
+- Docs: https://docs.strait.dev
+- GitHub: https://github.com/leonardomso/strait
