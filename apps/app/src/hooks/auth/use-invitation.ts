@@ -74,7 +74,10 @@ const listInvitationsServerFn = createServerFn({ method: "GET" })
       headers,
     });
 
-    return (invitations ?? []).map((invitation: Parameters<typeof mapInvitation>[0]) => mapInvitation(invitation));
+    return (invitations ?? []).map(
+      (invitation: Parameters<typeof mapInvitation>[0]) =>
+        mapInvitation(invitation)
+    );
   });
 
 const getInvitationServerFn = createServerFn({ method: "GET" })

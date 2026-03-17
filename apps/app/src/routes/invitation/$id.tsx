@@ -346,7 +346,9 @@ function RouteComponent() {
                       onSuccess: () => {
                         navigate({ to: "/login" });
                       },
-                      onError: (ctx: { error: Error & { message?: string } }) => {
+                      onError: (ctx: {
+                        error: Error & { message?: string };
+                      }) => {
                         captureException(ctx.error);
                         toast.error("Error signing out. Please try again.");
                       },

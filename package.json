@@ -46,7 +46,7 @@
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260316.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260317.1",
     "baseline-browser-mapping": "^2.10.8",
     "knip": "^5.87.0",
     "lefthook": "^2.1.4",
