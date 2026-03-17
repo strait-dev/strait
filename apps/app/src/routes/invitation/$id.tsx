@@ -125,7 +125,7 @@ function RouteComponent() {
               },
             });
           },
-          onError: (ctx) => {
+          onError: (ctx: { error: Error & { message?: string } }) => {
             captureException(ctx.error);
             setAcceptingError(
               ctx.error.message ||
@@ -157,7 +157,7 @@ function RouteComponent() {
             toast.success("Invitation rejected");
             navigate({ to: "/login" });
           },
-          onError: (ctx) => {
+          onError: (ctx: { error: Error & { message?: string } }) => {
             captureException(ctx.error);
             toast.error("Error rejecting invitation");
           },
@@ -183,7 +183,7 @@ function RouteComponent() {
           onSuccess: () => {
             setIsGooglePending(false);
           },
-          onError: (ctx) => {
+          onError: (ctx: { error: Error & { message?: string } }) => {
             setIsGooglePending(false);
             captureSentryAuthError(ctx.error, {
               operation: "google-oauth",
@@ -215,9 +215,9 @@ function RouteComponent() {
       <AuthLayout title="Accept Invitation">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col items-center gap-4 text-center">
-            <div className="rounded-full bg-primary/10 p-3">
+            <div className="rounded-full bg-muted p-3">
               <HugeiconsIcon
-                className="size-8 text-primary"
+                className="size-8 text-foreground"
                 icon={UsersAltIcon}
               />
             </div>
@@ -274,9 +274,9 @@ function RouteComponent() {
     <AuthLayout title="Accept Invitation">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-4 text-center">
-          <div className="rounded-full bg-primary/10 p-3">
+          <div className="rounded-full bg-muted p-3">
             <HugeiconsIcon
-              className="size-8 text-primary"
+              className="size-8 text-foreground"
               icon={UsersAltIcon}
             />
           </div>
@@ -336,7 +336,7 @@ function RouteComponent() {
           <p className="text-muted-foreground text-sm">
             Not you?{" "}
             <button
-              className="inline-flex items-center gap-1 text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1 text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isSigningOut}
               onClick={async () => {
                 setIsSigningOut(true);
@@ -346,7 +346,7 @@ function RouteComponent() {
                       onSuccess: () => {
                         navigate({ to: "/login" });
                       },
-                      onError: (ctx) => {
+                      onError: (ctx: { error: Error & { message?: string } }) => {
                         captureException(ctx.error);
                         toast.error("Error signing out. Please try again.");
                       },

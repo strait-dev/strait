@@ -2,7 +2,6 @@
 import {
   Bar,
   CartesianGrid,
-  // biome-ignore lint/suspicious/noDeprecatedImports: Cell is marked deprecated in recharts 3.x types but has no replacement API for per-slice styling
   Cell,
   Line,
   Pie,

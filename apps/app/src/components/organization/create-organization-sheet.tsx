@@ -29,6 +29,7 @@ import { nanoid } from "nanoid";
 import { useId, useMemo, useTransition } from "react";
 import { z } from "zod/v4";
 import { useCreateOrganization } from "@/hooks/auth/use-organization";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon, PlusIcon, SearchIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants";
@@ -209,7 +210,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -230,7 +231,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -259,7 +260,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         </Select>
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -284,7 +285,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -305,7 +306,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                       />
                       {field.state.meta.errors.length > 0 && (
                         <FieldError>
-                          {field.state.meta.errors.join(", ")}
+                          {formatFieldErrors(field.state.meta.errors)}
                         </FieldError>
                       )}
                     </Field>
@@ -355,7 +356,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         </Select>
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -390,7 +391,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         </Select>
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -411,7 +412,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -436,7 +437,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -471,7 +472,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         </Select>
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -496,7 +497,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -519,7 +520,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -553,7 +554,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         </Select>
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -585,7 +586,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         </Select>
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -633,7 +634,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -654,7 +655,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -678,7 +679,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -699,7 +700,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -724,7 +725,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -747,7 +748,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -770,7 +771,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         />
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>
@@ -806,7 +807,7 @@ const CreateOrganizationSheet = ({ onClose, user }: Props) => {
                         </Select>
                         {field.state.meta.errors.length > 0 && (
                           <FieldError>
-                            {field.state.meta.errors.join(", ")}
+                            {formatFieldErrors(field.state.meta.errors)}
                           </FieldError>
                         )}
                       </Field>

@@ -1,6 +1,5 @@
 import {
   SidebarInset,
-  SidebarMenuButton,
   SidebarProvider,
   SidebarTrigger,
 } from "@strait/ui/components/sidebar";
@@ -12,17 +11,17 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { Suspense, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import * as z from "zod";
 import ErrorComponent from "@/components/common/error-component";
+import HeaderBreadcrumb from "@/components/common/header-breadcrumb";
+import HeaderUserMenu from "@/components/common/header-user-menu";
 import { RequireOrganization } from "@/components/common/require-organization";
 import Sidebar from "@/components/common/sidebar";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
-import OrganizationDropdownMenu from "@/components/organization/organization-dropdown-menu";
 import { usePostHog } from "@/components/providers/posthog-provider";
-import UpgradeBanner from "@/components/subscription/trial-upgrade-banner";
 import { TrialStartedModal } from "@/components/upgrade/trial-started-modal";
 import {
   organizationQueryOptions,
@@ -169,37 +168,21 @@ function RouteComponent() {
       <Sidebar session={session} />
       <SidebarInset>
         <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center border-b bg-background">
-          <div className="mx-auto w-full max-w-[1800px] px-4 sm:px-8 lg:px-20">
+          <div className="w-full px-2">
             <div className="flex w-full items-center justify-between">
-              <div className="flex flex-column items-center gap-2">
+              <div className="flex items-center gap-3">
                 <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
-                <Suspense
-                  fallback={
-                    <SidebarMenuButton
-                      className="w-full max-w-[200px]"
-                      size="lg"
-                    >
-                      <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-normal">Loading...</span>
-                      </div>
-                    </SidebarMenuButton>
-                  }
-                >
-                  <OrganizationDropdownMenu
-                    session={session}
-                    user={session.user}
-                  />
-                </Suspense>
+                <HeaderBreadcrumb />
               </div>
-              <div className="flex flex-column items-center gap-2">
+              <div className="flex items-center gap-2">
                 <ThemeToggle />
                 <FeedbackDialog user={session.user} />
                 <SupportDialog user={session.user} />
+                <HeaderUserMenu user={session.user} />
               </div>
             </div>
           </div>
         </header>
-        {session ? <UpgradeBanner /> : null}
         <div
           className="flex flex-1 flex-col gap-4 bg-background pt-0"
           vaul-drawer-wrapper=""

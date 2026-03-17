@@ -10,6 +10,7 @@ import {
 import { Textarea } from "@strait/ui/components/textarea";
 import { useCallback, useId, useRef } from "react";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { environments, teamSizes } from "../data/company-sizes";
 import type { OnboardingStepProps } from "../types";
 
@@ -59,7 +60,9 @@ export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
                 value={field.state.value}
               />
               {field.state.meta.errors.length > 0 && (
-                <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
+                <FieldError>
+                  {formatFieldErrors(field.state.meta.errors)}
+                </FieldError>
               )}
             </Field>
           )}
@@ -92,7 +95,9 @@ export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
                   </SelectContent>
                 </Select>
                 {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
+                  <FieldError>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
                 )}
               </Field>
             )}
@@ -125,7 +130,9 @@ export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
                   </SelectContent>
                 </Select>
                 {field.state.meta.errors.length > 0 && (
-                  <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
+                  <FieldError>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
                 )}
               </Field>
             )}
@@ -153,7 +160,9 @@ export const CompanyInfoStep = ({ form }: OnboardingStepProps) => {
                 value={field.state.value ?? ""}
               />
               {field.state.meta.errors.length > 0 && (
-                <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
+                <FieldError>
+                  {formatFieldErrors(field.state.meta.errors)}
+                </FieldError>
               )}
             </Field>
           )}

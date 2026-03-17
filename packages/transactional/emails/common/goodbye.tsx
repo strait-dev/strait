@@ -50,7 +50,7 @@ const GoodbyeEmail = ({ name }: GoodbyeEmailProps) => (
             <Img
               alt="Strait Logo"
               className=""
-              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+              src="/static/strait-logo-black.svg"
               width="150"
             />
           </Section>
@@ -78,7 +78,7 @@ const GoodbyeEmail = ({ name }: GoodbyeEmailProps) => (
               email{" "}
               <Link
                 href="mailto:support@usestrait.com"
-                style={{ color: "#FF4F00", textDecoration: "underline" }}
+                style={{ color: "#171717", textDecoration: "underline" }}
               >
                 support@usestrait.com
               </Link>{" "}
@@ -96,8 +96,9 @@ const GoodbyeEmail = ({ name }: GoodbyeEmailProps) => (
             <br />
 
             <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
-              Thank you for being part of Strait and we wish you success in your
-              next steps!
+              Thank you for being part of Strait and for trusting us to simplify
+              your workflow orchestration. We wish you success in your next
+              steps!
             </Text>
           </Section>
 
@@ -106,6 +107,12 @@ const GoodbyeEmail = ({ name }: GoodbyeEmailProps) => (
           <Hr className="mx-0 w-full border-[#EBEBEB] border-t" />
 
           <br />
+
+          <Section>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              © 2026 Strait, All rights reserved
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Tailwind>

@@ -15,7 +15,6 @@ type WorkflowDAGProps = {
   className?: string;
 };
 
-// --- Status colors for node borders and icon backgrounds ---
 const STATUS_BORDER_COLORS: Record<StepRunStatus, string> = {
   completed: "var(--color-chart-1)",
   running: "var(--color-chart-3)",
@@ -44,7 +43,6 @@ const TYPE_LABELS: Record<WorkflowStepType, string> = {
   sleep: "Sleep",
 };
 
-// --- Layout constants ---
 const NODE_WIDTH = 200;
 const NODE_HEIGHT = 80;
 const H_GAP = 100;

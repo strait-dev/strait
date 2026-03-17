@@ -6,10 +6,6 @@ import {
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import type { Job, ListParams } from "./types";
 
-// ---------------------------------------------------------------------------
-// Mock data — schedules are jobs with non-empty cron fields
-// ---------------------------------------------------------------------------
-
 const MOCK_SCHEDULES: Job[] = [
   {
     id: "sched_01",
@@ -211,10 +207,6 @@ const MOCK_SCHEDULES: Job[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Data-access functions (mock)
-// ---------------------------------------------------------------------------
-
 // TODO: Replace with real API call
 async function listSchedules(params: ListParams) {
   await Promise.resolve();
@@ -275,10 +267,6 @@ async function triggerSchedule(data: { id: string }) {
   }
   return { success: true, schedule_id: schedule.id };
 }
-
-// ---------------------------------------------------------------------------
-// Query options & mutations
-// ---------------------------------------------------------------------------
 
 /** Query options for listing schedules (cron-enabled jobs). */
 export const schedulesQueryOptions = (search?: ListParams) =>

@@ -6,7 +6,9 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { cn } from "@strait/ui/utils/index";
+import { Bar, BarChart, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowDownRightIcon, ArrowUpRightIcon } from "@/lib/icons";
+import { ChartTooltip } from "./chart-tooltip";
 
 type MetricsCardProps = {
   title: string;
@@ -15,6 +17,8 @@ type MetricsCardProps = {
   icon?: any;
   description?: string;
   className?: string;
+  chartData?: number[];
+  chartColor?: string;
 };
 
 export function MetricsCard({
@@ -24,11 +28,18 @@ export function MetricsCard({
   icon,
   description,
   className,
+  chartData,
+  chartColor = "var(--color-chart-1)",
 }: MetricsCardProps) {
   const isPositive = change && change.value >= 0;
+  const barData = chartData?.map((v) => ({ value: v }));
+
+  const labelMap = {
+    value: { label: title, color: chartColor },
+  };
 
   return (
-    <Card className={cn(className)}>
+    <Card className={cn("overflow-visible", className)}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="font-medium text-muted-foreground text-sm">
           {title}
@@ -59,6 +70,25 @@ export function MetricsCard({
         )}
         {description && (
           <p className="mt-1 text-muted-foreground text-xs">{description}</p>
+        )}
+        {barData && (
+          <div className="relative z-10 mt-3 h-[32px]">
+            <ResponsiveContainer
+              height="100%"
+              minHeight={1}
+              minWidth={1}
+              width="100%"
+            >
+              <BarChart data={barData}>
+                <Tooltip
+                  content={<ChartTooltip labelMap={labelMap} />}
+                  cursor={{ fill: "var(--muted)" }}
+                  wrapperStyle={{ zIndex: 50 }}
+                />
+                <Bar dataKey="value" fill={chartColor} radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </CardContent>
     </Card>

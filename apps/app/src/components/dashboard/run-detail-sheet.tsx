@@ -86,6 +86,11 @@ export function RunDetailSheet({
     run.status === "crashed" ||
     run.status === "system_failed";
 
+  const isActive =
+    run.status === "executing" ||
+    run.status === "queued" ||
+    run.status === "waiting";
+
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="flex flex-col overflow-y-auto">
@@ -195,14 +200,14 @@ export function RunDetailSheet({
           )}
 
           {/* Logs */}
-          <CollapsibleSection title="Logs">
+          <CollapsibleSection defaultOpen title="Logs">
             <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap text-muted-foreground text-xs">
               No logs available for this run.
             </pre>
           </CollapsibleSection>
 
           {/* Payload */}
-          <CollapsibleSection title="Payload">
+          <CollapsibleSection defaultOpen title="Payload">
             <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap text-muted-foreground text-xs">
               {run.payload
                 ? JSON.stringify(run.payload, null, 2)
@@ -227,16 +232,18 @@ export function RunDetailSheet({
           >
             View details
           </Button>
-          <div className="flex gap-2">
-            <Button className="flex-1" variant="outline">
+          {isFailed && (
+            <Button className="w-full" variant="outline">
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
               Retry
             </Button>
-            <Button className="flex-1" variant="outline">
+          )}
+          {isActive && (
+            <Button className="w-full" variant="outline">
               <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
               Cancel
             </Button>
-          </div>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>

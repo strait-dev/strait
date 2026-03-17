@@ -6,10 +6,6 @@ import {
 import type { Job, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
 const now = new Date().toISOString();
 const yesterday = new Date(Date.now() - 86_400_000).toISOString();
 const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
@@ -252,10 +248,6 @@ const MOCK_JOBS: Job[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Data access functions
-// ---------------------------------------------------------------------------
-
 type ListJobsInput = ListParams & { status?: string[] };
 
 async function listJobs(data: ListJobsInput): Promise<PaginatedResponse<Job>> {
@@ -340,10 +332,6 @@ async function deleteJob(data: { id: string }) {
   return { success: true, job_id: job.id };
 }
 
-// ---------------------------------------------------------------------------
-// Query options
-// ---------------------------------------------------------------------------
-
 export const jobsQueryOptions = (search?: ListJobsInput) =>
   queryOptions({
     queryKey: ["jobs", search ?? {}],
@@ -360,10 +348,6 @@ export const jobQueryOptions = (id: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
-
-// ---------------------------------------------------------------------------
-// Mutation hooks
-// ---------------------------------------------------------------------------
 
 export const useTriggerJob = () =>
   useMutation({

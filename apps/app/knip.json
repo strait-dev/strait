@@ -15,16 +15,12 @@
   "paths": {
     "@/*": ["./src/*"],
     "@strait/ui/*": ["../../packages/ui/src/*"],
-    "@strait/mail": ["../../packages/mail/index.ts"],
-    "@strait/kv": ["../../packages/kv/index.ts"],
     "@strait/transactional": ["../../packages/transactional/src/index.ts"],
     "@strait/utils": ["../../packages/utils/src/index"]
   },
   "ignoreDependencies": [
     "@strait/ui",
-    "@strait/mail",
     "@strait/transactional",
-    "@strait/kv",
     "@strait/utils",
     "@tailwindcss/postcss",
     "@radix-ui/react-accordion"
@@ -34,6 +30,11 @@
   "ignoreExportsUsedInFile": {
     "interface": true,
     "type": true
+  },
+  "rules": {
+    "unlisted": "off",
+    "exports": "warn",
+    "types": "warn"
   },
   "vite": true,
   "vitest": {

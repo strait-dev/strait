@@ -24,11 +24,14 @@ export function createSelectColumn<T>(): ColumnDef<T> {
       />
     ),
     cell: ({ row }) => (
-      <Checkbox
-        aria-label="Select row"
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-      />
+      // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: stopPropagation isolates checkbox from row-click delegation
+      <div onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          aria-label="Select row"
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+        />
+      </div>
     ),
     enableSorting: false,
     enableHiding: false,

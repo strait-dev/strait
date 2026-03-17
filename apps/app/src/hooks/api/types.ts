@@ -2,10 +2,6 @@
 // Field names use snake_case to match Go JSON tags exactly — no mapping layer needed.
 // All timestamps are ISO 8601 strings; nullable Go *time.Time maps to string | null.
 
-// ---------------------------------------------------------------------------
-// Status enums
-// ---------------------------------------------------------------------------
-
 /** Matches Go domain.RunStatus constants. */
 export type RunStatus =
   | "delayed"
@@ -77,10 +73,6 @@ export type RetryBackoffPolicy = "exponential" | "fixed";
 
 /** Matches Go domain.CircuitState. */
 export type CircuitState = "closed" | "open" | "half_open";
-
-// ---------------------------------------------------------------------------
-// Domain entities
-// ---------------------------------------------------------------------------
 
 /** Timing breakdown for a job run execution. Matches Go domain.ExecutionTrace. */
 export type ExecutionTrace = {
@@ -416,10 +408,6 @@ export type EventTrigger = {
   trigger_type: string;
   sent_by: string;
 };
-
-// ---------------------------------------------------------------------------
-// Composite / utility types
-// ---------------------------------------------------------------------------
 
 /** Union of RunStatus and WorkflowRunStatus, used by StatusBadge. */
 export type DisplayStatus = RunStatus | WorkflowRunStatus;

@@ -12,9 +12,11 @@ import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useForm } from "@tanstack/react-form";
-import { useTransition } from "react";
+import { useRef, useTransition } from "react";
 import { z } from "zod";
 import { useUpdateUser } from "@/hooks/auth/use-user";
+import { authClient } from "@/lib/auth-client";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon, PencilEditIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
@@ -31,6 +33,7 @@ type Props = {
 
 const PersonalInfo = ({ user }: Props) => {
   const [isSubmitting, startTransition] = useTransition();
+  const originalEmail = useRef(user.email);
 
   const updateCurrentUser = useUpdateUser();
 
@@ -41,16 +44,30 @@ const PersonalInfo = ({ user }: Props) => {
     },
     onSubmit: ({ value }) => {
       const values = userFormSchema.parse(value);
+      const emailChanged = values.email !== originalEmail.current;
+
       startTransition(() => {
         try {
-          toast.promise(updateCurrentUser.mutateAsync(values), {
-            loading: "Updating data...",
-            success: "Data updated successfully!",
-            error: (err: unknown) => {
-              captureException(err);
-              return "Something went wrong while updating your data";
-            },
-          });
+          toast.promise(
+            updateCurrentUser.mutateAsync(values).then(async () => {
+              if (emailChanged) {
+                await authClient.sendVerificationEmail({
+                  email: values.email,
+                  callbackURL: "/verify-email",
+                });
+              }
+            }),
+            {
+              loading: "Updating data...",
+              success: emailChanged
+                ? "Data updated! Check your new email for a verification link."
+                : "Data updated successfully!",
+              error: (err: unknown) => {
+                captureException(err);
+                return "Something went wrong while updating your data";
+              },
+            }
+          );
         } catch (error) {
           captureException(error);
         }
@@ -88,7 +105,7 @@ const PersonalInfo = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>
@@ -109,7 +126,7 @@ const PersonalInfo = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>

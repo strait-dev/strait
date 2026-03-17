@@ -107,9 +107,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
         open={createOrganizationSheetOpen}
       >
         <SheetTrigger
-          render={
-            <SidebarMenuButton className="w-full max-w-[200px]" size="lg" />
-          }
+          render={<SidebarMenuButton className="w-full" size="lg" />}
         >
           <Avatar className="size-10">
             <AvatarFallback>
@@ -149,9 +147,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
     >
       <DropdownMenu onOpenChange={setDropdownOpen} open={dropdownOpen}>
         <DropdownMenuTrigger
-          render={
-            <SidebarMenuButton className="w-full max-w-[200px]" size="lg" />
-          }
+          render={<SidebarMenuButton className="w-full" size="lg" />}
         >
           <Avatar className="size-10">
             {activeOrganization.logo ? (
@@ -219,9 +215,9 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={(e) => {
-              e.preventDefault();
-              navigate({ to: "/app/settings" });
+            onClick={() => {
+              setDropdownOpen(false);
+              navigate({ to: `/app/org/${activeOrganization.id}` });
             }}
           >
             <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />

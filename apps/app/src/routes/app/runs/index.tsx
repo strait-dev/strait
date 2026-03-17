@@ -21,7 +21,7 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import TableEmptyState from "@/components/common/table-empty-state";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { StatusBadge } from "@/components/dashboard/status-badge";
@@ -33,8 +33,11 @@ import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   CalendarIcon,
+  EyeIcon,
   FilterIcon,
+  RefreshIcon,
   SearchIcon,
+  XCircleIcon,
 } from "@/lib/icons";
 
 const searchSchema = z.object({
@@ -120,13 +123,8 @@ function RunsPage() {
 
   return (
     <Shell>
-      <PageHeader
-        text="View and monitor all job run executions."
-        title="Runs"
-      />
-
-      <div className="flex items-center gap-3 py-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}
@@ -170,7 +168,7 @@ function RunsPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button disabled size="sm" variant="outline">
+        <Button disabled variant="outline">
           <HugeiconsIcon className="mr-1.5" icon={CalendarIcon} size={14} />
           Date Range
         </Button>
@@ -184,19 +182,11 @@ function RunsPage() {
           if (target.closest("a, button")) {
             return;
           }
-          const tr = target.closest("tbody tr");
-          if (!tr) {
+          const row = target.closest("tr[data-row-index]");
+          if (!row) {
             return;
           }
-          const tbody = tr.closest("tbody");
-          if (!tbody) {
-            return;
-          }
-          const rows = Array.from(tbody.querySelectorAll(":scope > tr"));
-          const idx = rows.indexOf(tr);
-          if (idx < 0) {
-            return;
-          }
+          const idx = Number(row.getAttribute("data-row-index"));
           const run = table.getRowModel().rows[idx]?.original;
           if (run) {
             handleRowClick(run);
@@ -210,7 +200,7 @@ function RunsPage() {
               hideButton
               icon={
                 <HugeiconsIcon
-                  className="size-6 text-primary"
+                  className="size-6 text-foreground"
                   icon={ActivityIcon}
                 />
               }
@@ -219,7 +209,41 @@ function RunsPage() {
           }
           floatingBar={
             <DataTableFloatingBar
-              actions={[]}
+              actions={[
+                ...(selectedIds.length === 1
+                  ? [
+                      {
+                        label: "View",
+                        icon: EyeIcon,
+                        onClick: () => {
+                          const run = table
+                            .getRowModel()
+                            .rows.find(
+                              (r) => r.id === selectedIds[0]
+                            )?.original;
+                          if (run) {
+                            handleRowClick(run);
+                          }
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Retry",
+                  icon: RefreshIcon,
+                  onClick: () => {
+                    /* TODO */
+                  },
+                },
+                {
+                  label: "Cancel",
+                  icon: XCircleIcon,
+                  onClick: () => {
+                    /* TODO */
+                  },
+                  variant: "destructive" as const,
+                },
+              ]}
               onClearSelection={() => setRowSelection({})}
               selectedCount={selectedIds.length}
             />

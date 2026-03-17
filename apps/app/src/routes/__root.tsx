@@ -23,6 +23,7 @@ export type AuthUser = {
   image?: string | null;
   defaultOrganizationId?: string;
   onboarded?: boolean;
+  twoFactorEnabled?: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -161,7 +162,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         />
       </head>
       <body
-        className="h-full bg-background text-foreground selection:bg-primary selection:text-primary-foreground"
+        className="h-full bg-background text-foreground selection:bg-foreground selection:text-background"
         suppressHydrationWarning
       >
         {children}
