@@ -52,7 +52,7 @@ const DeleteAccount = ({ name, url }: Props) => (
             <Img
               alt="Strait Logo"
               className="mb-6"
-              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+              src="/static/strait-logo-black.svg"
               width="150"
             />
           </Section>
@@ -83,7 +83,7 @@ const DeleteAccount = ({ name, url }: Props) => (
 
           <Section>
             <Button
-              className="inline-flex h-10 items-center justify-center rounded-[0.3rem] bg-[#FF4F00] px-6 font-medium text-sm text-white no-underline transition-colors"
+              className="inline-flex h-10 items-center justify-center rounded-[0.3rem] bg-[#171717] px-6 font-medium text-sm text-white no-underline transition-colors"
               href={url}
             >
               Confirm deletion
@@ -96,8 +96,9 @@ const DeleteAccount = ({ name, url }: Props) => (
             This link expires in 24 hours. If you did not request the deletion
             of your account, please ignore this email or contact our{" "}
             <Link
-              className="text-[#FF4F00] underline"
+              className="text-[#171717] underline"
               href="mailto:support@usestrait.com"
+              style={{ color: "#171717" }}
             >
               support
             </Link>{" "}
@@ -109,7 +110,11 @@ const DeleteAccount = ({ name, url }: Props) => (
           <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
             If the button does not work, copy and paste this link in your
             browser:{" "}
-            <Link className="text-[#FF4F00] underline" href={url}>
+            <Link
+              className="text-[#171717] underline"
+              href={url}
+              style={{ color: "#171717" }}
+            >
               {url}
             </Link>
           </Text>
@@ -119,6 +124,12 @@ const DeleteAccount = ({ name, url }: Props) => (
           <Hr className="mx-0 w-full border-[#EBEBEB] border-t" />
 
           <br />
+
+          <Section>
+            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+              © 2026 Strait, All rights reserved
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Tailwind>

@@ -1,6 +1,7 @@
 import { Badge } from "@strait/ui/components/badge";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
+import { StatusBadge } from "@/components/dashboard/status-badge";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { EyeIcon, TrashIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
@@ -20,16 +21,7 @@ export const webhookColumns: ColumnDef<WebhookSubscription>[] = [
     accessorKey: "active",
     header: "Status",
     cell: ({ row }) => (
-      <Badge
-        className={
-          row.original.active
-            ? "border-[hsl(var(--chart-1))] text-[hsl(var(--chart-1))]"
-            : "text-muted-foreground"
-        }
-        variant="outline"
-      >
-        {row.original.active ? "Active" : "Inactive"}
-      </Badge>
+      <StatusBadge status={row.original.active ? "completed" : "pending"} />
     ),
   },
   {

@@ -11,12 +11,7 @@ import {
 import { cn } from "@strait/ui/utils/index";
 import { Link } from "@tanstack/react-router";
 import type { Workflow, WorkflowStepType } from "@/hooks/api/types";
-import {
-  ClockIcon,
-  PauseActionIcon,
-  PlayActionIcon,
-  TagIcon,
-} from "@/lib/icons";
+import { ClockIcon, PlayActionIcon, TagIcon } from "@/lib/icons";
 import { StatusBadge } from "./status-badge";
 
 type WorkflowDetailSheetProps = {
@@ -203,24 +198,10 @@ export function WorkflowDetailSheet({
           >
             View details
           </Button>
-          <div className="flex gap-2">
-            <Button className="flex-1">
-              <HugeiconsIcon
-                className="mr-1.5"
-                icon={PlayActionIcon}
-                size={14}
-              />
-              Trigger
-            </Button>
-            <Button className="flex-1" variant="outline">
-              <HugeiconsIcon
-                className="mr-1.5"
-                icon={PauseActionIcon}
-                size={14}
-              />
-              Pause
-            </Button>
-          </div>
+          <Button className="w-full">
+            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+            Trigger
+          </Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

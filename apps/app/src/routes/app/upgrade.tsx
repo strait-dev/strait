@@ -191,7 +191,7 @@ function RouteComponent() {
       <div className="space-y-8">
         {/* Portal Access for Existing Customers */}
         {hasActiveSubscription ? (
-          <Card className="border-primary/20 bg-primary/5">
+          <Card className="border-border bg-muted/50">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <HugeiconsIcon className="size-5" icon={LinkSquareIcon} />

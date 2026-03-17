@@ -1,13 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb";
+
 import { Button } from "@strait/ui/components/button";
 import { Shell } from "@strait/ui/components/shell";
 import {
@@ -17,7 +10,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -25,6 +18,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
+import EntityNotFound from "@/components/common/entity-not-found";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
@@ -74,30 +68,13 @@ function ScheduleDetailPage() {
   if (!job) {
     return (
       <Shell>
-        <div className="flex items-center justify-center py-20">
-          <p className="text-muted-foreground">Schedule not found.</p>
-        </div>
+        <EntityNotFound backTo="/app/schedules" entity="Schedule" />
       </Shell>
     );
   }
 
   return (
     <Shell>
-      {/* Breadcrumb */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink>
-              <Link to="/app/schedules">Schedules</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{job.name}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       {/* Header */}
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
@@ -162,7 +139,7 @@ function ScheduleDetailPage() {
                 hideButton
                 icon={
                   <HugeiconsIcon
-                    className="size-6 text-primary"
+                    className="size-6 text-foreground"
                     icon={ActivityIcon}
                   />
                 }

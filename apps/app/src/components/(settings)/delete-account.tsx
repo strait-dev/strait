@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,6 +29,7 @@ import { useForm } from "@tanstack/react-form";
 import { useState, useTransition } from "react";
 import * as z from "zod";
 import { authClient } from "@/lib/auth-client";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { AlertIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 
@@ -100,13 +102,13 @@ const DeleteAccount = ({ user }: Props) => {
       >
         <CardContent>
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 rounded-custom border border-destructive/50 bg-destructive/5 px-3 py-2 text-destructive text-sm">
+            <Alert variant="destructive">
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
-              <span>
+              <AlertDescription>
                 Warning: This action is irreversible and all your data will be
                 permanently lost.
-              </span>
-            </div>
+              </AlertDescription>
+            </Alert>
 
             <form.Field name="email">
               {(field) => (
@@ -124,7 +126,7 @@ const DeleteAccount = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>
@@ -144,7 +146,7 @@ const DeleteAccount = ({ user }: Props) => {
                   />
                   {field.state.meta.errors.length > 0 && (
                     <FieldError>
-                      {field.state.meta.errors.join(", ")}
+                      {formatFieldErrors(field.state.meta.errors)}
                     </FieldError>
                   )}
                 </Field>

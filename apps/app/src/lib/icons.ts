@@ -9,17 +9,11 @@
 import {
   AlarmClockIcon as _AlarmClockIcon,
   AlertCircleIcon as _AlertCircleIcon,
-  ArrowUpDownIcon as _ArrowUpDownIcon,
-  CommandIcon as _CommandIcon,
-  CpuIcon as _CpuIcon,
   CreditCardIcon as _CreditCardIcon,
   FilterIcon as _FilterIcon,
-  HardDriveIcon as _HardDriveIcon,
   HelpCircleIcon as _HelpCircleIcon,
   LinkSquare01Icon as _LinkSquare01Icon,
-  LockIcon as _LockIcon,
   MoreVerticalIcon as _MoreVerticalIcon,
-  ShieldKeyIcon as _ShieldKeyIcon,
   SparklesIcon as _SparklesIcon,
   StarIcon as _StarIcon,
   UnfoldMoreIcon as _UnfoldMoreIcon,
@@ -33,79 +27,57 @@ import {
   ArrowLeftDoubleIcon,
   ArrowRight01Icon,
   ArrowRightDoubleIcon,
-  ArrowUp01Icon,
   ArrowUpRight01Icon,
   Briefcase01Icon,
   BubbleChatIcon,
-  Building02Icon,
+  Building01Icon,
   Calendar03Icon,
   Cancel01Icon,
   ChartIncreaseIcon,
   CheckmarkCircle01Icon,
   CheckmarkCircle02Icon,
-  CheckmarkSquare01Icon,
   Clock01Icon,
-  Copy01Icon,
   Crown03Icon,
   Delete02Icon,
-  Download01Icon,
   File01Icon,
   FlashIcon,
   GitBranchIcon,
   Globe02Icon,
   Home07Icon,
-  InformationCircleIcon,
   Key01Icon,
   Layers01Icon,
   Link01Icon,
   Loading03Icon,
   Logout05Icon,
   Mail01Icon,
-  Menu01Icon,
-  MinusSignIcon,
   Moon02Icon,
-  Notification03Icon,
   PauseIcon,
   PencilEdit02Icon,
   PlayIcon,
   Refresh01Icon,
-  RotateLeft01Icon,
   Search01Icon,
-  SecurityCheckIcon,
-  ServerStack01Icon,
   Settings01Icon,
-  Settings05Icon,
-  SortingAZ01Icon,
-  SortingZA01Icon,
-  SquareLock02Icon,
   Store01Icon,
   Sun01Icon,
   Tag01Icon,
   Tick02Icon,
-  UserAdd01Icon,
   UserMultiple02Icon,
   UserMultipleIcon,
   ViewIcon,
-  ViewOffIcon,
 } from "@hugeicons/core-free-icons";
 
 // Navigation / layout
 export const DashboardIcon = Home07Icon;
 export const BriefcaseIcon = Briefcase01Icon;
 export const WorkflowIcon = GitBranchIcon;
-export const SettingsIcon = Settings05Icon;
-export const ListIcon = Menu01Icon;
 
 // Actions
 export const PlayActionIcon = PlayIcon;
 export const PauseActionIcon = PauseIcon;
 export const PlusIcon = Add01Icon;
 export const TrashIcon = Delete02Icon;
-export const CopyIcon = Copy01Icon;
-export const DownloadIcon = Download01Icon;
 export const FilterIcon = _FilterIcon;
 export const RefreshIcon = Refresh01Icon;
-export const RotateCcwIcon = RotateLeft01Icon;
 export const SearchIcon = Search01Icon;
 export const PencilEditIcon = PencilEdit02Icon;
 
@@ -114,13 +86,11 @@ export const AlertIcon = Alert02Icon;
 export const XCircleIcon = Cancel01Icon;
 export const CheckCircleIcon = CheckmarkCircle01Icon;
 export const CheckIcon = Tick02Icon;
-export const InfoIcon = InformationCircleIcon;
 export const HelpCircleIcon = _HelpCircleIcon;
 export const ClockIcon = Clock01Icon;
 export const ActivityIcon = Activity01Icon;
 export const CheckCircle2Icon = CheckmarkCircle02Icon;
 export const ChatIcon = BubbleChatIcon;
-export const LockSquareIcon = SquareLock02Icon;
 
 // Arrows / navigation
 export const ChevronDownIcon = ArrowDown01Icon;
@@ -128,11 +98,8 @@ export const ChevronLeftIcon = ArrowLeft01Icon;
 export const ChevronRightIcon = ArrowRight01Icon;
 export const ArrowLeftIcon = ArrowLeft01Icon;
 export const ArrowRightIcon = ArrowRight01Icon;
-export const ExternalLinkIcon = ArrowUpRight01Icon;
 export const ArrowUpRightIcon = ArrowUpRight01Icon;
 export const ArrowDownRightIcon = ArrowDownRight01Icon;
-export const ArrowUpDownIcon = _ArrowUpDownIcon;
-export const ChevronUpIcon = ArrowUp01Icon;
 export const ChevronsLeftIcon = ArrowLeftDoubleIcon;
 export const ChevronsRightIcon = ArrowRightDoubleIcon;
 
@@ -140,35 +107,27 @@ export const ChevronsRightIcon = ArrowRightDoubleIcon;
 export const FileTextIcon = File01Icon;
 export const LayersIcon = Layers01Icon;
 export const GlobeIcon = Globe02Icon;
-export const LinkIcon = Link01Icon;
 export const WebhookIcon = Link01Icon;
 export const TagIcon = Tag01Icon;
 export const CalendarIcon = Calendar03Icon;
 
 // Users
 export const UserIcon = _UserIcon;
-export const UserPlusIcon = UserAdd01Icon;
 export const UsersIcon = UserMultiple02Icon;
 
 // Visual / theme
 export const EyeIcon = ViewIcon;
-export const EyeOffIcon = ViewOffIcon;
 export const SunIcon = Sun01Icon;
 export const MoonIcon = Moon02Icon;
 export const StarIcon = _StarIcon;
 
 // Security / auth
 export const KeyIcon = Key01Icon;
-export const ShieldKeyIcon = _ShieldKeyIcon;
-export const ShieldCheckIcon = SecurityCheckIcon;
-export const LockIcon = _LockIcon;
 export const LogOutIcon = Logout05Icon;
+export const MailIcon = Mail01Icon;
+export const BuildingIcon = Building01Icon;
 
 // Infrastructure
-export const ServerIcon = ServerStack01Icon;
-export const CpuIcon = _CpuIcon;
-export const HardDriveIcon = _HardDriveIcon;
-export const CommandIcon = _CommandIcon;
 export const SettingsOutlineIcon = Settings01Icon;
 
 // Commerce / billing
@@ -176,17 +135,8 @@ export const CreditCardIcon = _CreditCardIcon;
 export const CrownIcon = Crown03Icon;
 export const StoreIcon = Store01Icon;
 
-// Communication
-export const BellIcon = Notification03Icon;
-export const MailIcon = Mail01Icon;
-
 // Misc
 export const MoreVerticalIcon = _MoreVerticalIcon;
-export const MinusIcon = MinusSignIcon;
-export const BuildingIcon = Building02Icon;
-export const SortAscIcon = SortingAZ01Icon;
-export const SortDescIcon = SortingZA01Icon;
-export const CheckSquareIcon = CheckmarkSquare01Icon;
 export const ZapIcon = FlashIcon;
 export const TrendingUpIcon = ChartIncreaseIcon;
 export const AlarmClockIcon = _AlarmClockIcon;

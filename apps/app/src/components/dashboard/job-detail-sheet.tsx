@@ -13,7 +13,6 @@ import type { Job } from "@/hooks/api/types";
 import {
   ClockIcon,
   GlobeIcon,
-  PauseActionIcon,
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
@@ -45,10 +44,12 @@ function DetailRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
-      <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto font-mono text-sm">{value}</span>
+    <div className="flex items-start justify-between gap-2 text-sm">
+      <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+        <HugeiconsIcon className="shrink-0" icon={icon} size={14} />
+        {label}
+      </span>
+      <span className="truncate text-right font-mono text-sm">{value}</span>
     </div>
   );
 }
@@ -170,24 +171,10 @@ export function JobDetailSheet({
           >
             View details
           </Button>
-          <div className="flex gap-2">
-            <Button className="flex-1">
-              <HugeiconsIcon
-                className="mr-1.5"
-                icon={PlayActionIcon}
-                size={14}
-              />
-              Trigger
-            </Button>
-            <Button className="flex-1" variant="outline">
-              <HugeiconsIcon
-                className="mr-1.5"
-                icon={PauseActionIcon}
-                size={14}
-              />
-              Pause
-            </Button>
-          </div>
+          <Button className="w-full">
+            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+            Trigger
+          </Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

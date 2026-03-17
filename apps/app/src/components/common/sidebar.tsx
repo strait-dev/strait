@@ -25,7 +25,7 @@ import {
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import {
   AlertIcon,
@@ -41,13 +41,10 @@ import {
   WorkflowIcon,
 } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
+import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
 import PaymentPendingCard from "../subscription/payment-pending-card";
 import TrialUpgradeCard from "../subscription/trial-upgrade-card";
-import UserDropdownMenu from "./user-dropdown-menu";
-
-// ---------------------------------------------------------------------------
-// Navigation data
-// ---------------------------------------------------------------------------
+import CommandMenu from "./command-menu";
 
 type NavItem = {
   title: string;
@@ -73,10 +70,6 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
-// ---------------------------------------------------------------------------
-// Environment selector (UI-only stub)
-// ---------------------------------------------------------------------------
-
 type Environment = "production" | "staging" | "development";
 
 const environments: { value: Environment; label: string; dotClass: string }[] =
@@ -97,10 +90,6 @@ const environments: { value: Environment; label: string; dotClass: string }[] =
       dotClass: "bg-chart-2", // blue
     },
   ];
-
-// ---------------------------------------------------------------------------
-// Sidebar component
-// ---------------------------------------------------------------------------
 
 type Props = {
   session: NonNullable<Session>;
@@ -173,6 +162,11 @@ const AppSidebar = ({ session }: Props) => {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Search */}
+        <SidebarGroup>
+          <CommandMenu organizationId={session.user.defaultOrganizationId} />
+        </SidebarGroup>
+
         {/* Main navigation */}
         <SidebarGroup>
           <SidebarMenu>
@@ -237,7 +231,17 @@ const AppSidebar = ({ session }: Props) => {
       {shouldShowUpgrade ? <TrialUpgradeCard /> : null}
 
       <SidebarFooter className="flex flex-col border-sidebar-border border-t">
-        <UserDropdownMenu user={session.user} />
+        <Suspense
+          fallback={
+            <SidebarMenuButton className="w-full" size="lg">
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-normal">Loading...</span>
+              </div>
+            </SidebarMenuButton>
+          }
+        >
+          <OrganizationDropdownMenu session={session} user={session.user} />
+        </Suspense>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

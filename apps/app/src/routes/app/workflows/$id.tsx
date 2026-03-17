@@ -1,14 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb";
 import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
@@ -17,7 +15,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -27,9 +25,10 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
+import EntityNotFound from "@/components/common/entity-not-found";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
-import { WorkflowDAG } from "@/components/dashboard/workflow-dag";
+import { WorkflowDAGFlow } from "@/components/dashboard/workflow-dag-flow";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { WorkflowRun, WorkflowStep } from "@/hooks/api/types";
 import {
@@ -39,6 +38,7 @@ import {
 } from "@/hooks/api/use-workflows";
 import {
   ActivityIcon,
+  CheckCircleIcon,
   ClockIcon,
   PauseActionIcon,
   PlayActionIcon,
@@ -101,9 +101,9 @@ function WorkflowDetailPage() {
   const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id));
   const { data: apiSteps } = useSuspenseQuery(workflowStepsQueryOptions(id));
   const { data: runs } = useSuspenseQuery(workflowRunsQueryOptions(id));
-  const [activeTab, setActiveTab] = useState("dag");
+  const [activeTab, setActiveTab] = useState("overview");
 
-  // Map API steps to the shape WorkflowDAG expects
+  // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
     id: s.id,
     name: s.step_ref,
@@ -120,33 +120,24 @@ function WorkflowDetailPage() {
     getPaginationRowModel: getPaginationRowModel(),
   });
 
+  // Compute overview stats from runs
+  const totalRuns = runs?.length ?? 0;
+  const successfulRuns =
+    runs?.filter((r) => r.status === "completed").length ?? 0;
+  const successRate =
+    totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
+  const recentRuns = (runs ?? []).slice(0, 5);
+
   if (!workflow) {
     return (
       <Shell>
-        <div className="flex items-center justify-center py-20">
-          <p className="text-muted-foreground">Workflow not found.</p>
-        </div>
+        <EntityNotFound backTo="/app/workflows" entity="Workflow" />
       </Shell>
     );
   }
 
   return (
     <Shell>
-      {/* Breadcrumb */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink>
-              <Link to="/app/workflows">Workflows</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{workflow.name}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       {/* Header */}
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
@@ -184,15 +175,104 @@ function WorkflowDetailPage() {
       {/* Tabs */}
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
         <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="dag">DAG</TabsTrigger>
           <TabsTrigger value="runs">Recent Runs</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
-        <TabsContent className="mt-6" value="dag">
-          <WorkflowDAG steps={dagSteps} />
+        {/* Overview Tab */}
+        <TabsContent className="mt-6 space-y-6" value="overview">
+          {/* Stats row */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
+                  <HugeiconsIcon icon={CheckCircleIcon} size={14} />
+                  Success Rate
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="font-semibold text-2xl tabular-nums">
+                  {successRate}%
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
+                  <HugeiconsIcon icon={ActivityIcon} size={14} />
+                  Total Runs
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="font-semibold text-2xl tabular-nums">
+                  {totalRuns}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
+                  <HugeiconsIcon icon={ClockIcon} size={14} />
+                  Avg Duration
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="font-semibold text-2xl tabular-nums">--</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Recent activity timeline */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Recent Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {recentRuns.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  No recent activity.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {recentRuns.map((run) => (
+                    <div
+                      className="flex items-center gap-3 text-sm"
+                      key={run.id}
+                    >
+                      <StatusBadge showDot size="xs" status={run.status} />
+                      <span className="font-mono text-muted-foreground text-xs">
+                        {run.id.slice(0, 8)}
+                      </span>
+                      <Badge className="capitalize" size="xs" variant="outline">
+                        {run.triggered_by}
+                      </Badge>
+                      <span className="ml-auto text-muted-foreground text-xs">
+                        {formatDistanceToNow(new Date(run.created_at), {
+                          addSuffix: true,
+                        })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
+        {/* DAG Tab */}
+        <TabsContent className="mt-6" value="dag">
+          <Card>
+            <CardContent className="p-0">
+              <WorkflowDAGFlow steps={dagSteps} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Recent Runs Tab */}
         <TabsContent className="mt-6" value="runs">
           <DataTable
             emptyState={
@@ -201,7 +281,7 @@ function WorkflowDetailPage() {
                 hideButton
                 icon={
                   <HugeiconsIcon
-                    className="size-6 text-primary"
+                    className="size-6 text-foreground"
                     icon={ActivityIcon}
                   />
                 }
@@ -212,6 +292,7 @@ function WorkflowDetailPage() {
           />
         </TabsContent>
 
+        {/* Settings Tab */}
         <TabsContent className="mt-6 space-y-6" value="settings">
           {/* Configuration */}
           <div className="space-y-3 rounded-md border p-4">

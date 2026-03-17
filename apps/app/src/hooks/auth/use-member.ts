@@ -2,158 +2,150 @@ import {
   keepPreviousData,
   queryOptions,
   useMutation,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
 
-type MemberData = {
+export type MemberData = {
   id: string;
   userId: string;
-  organizationId: string;
-  role: string;
+  role: "owner" | "admin" | "member";
+  email: string;
+  name: string;
+  image: string | null;
   createdAt: Date;
-  user?: {
-    id: string;
-    name: string;
-    email: string;
-    image?: string | null;
-  };
 };
 
-/** API response format for members list. */
-export type MembersApiResponse = {
-  page: MemberData[];
-  pageCount: number;
-};
-
-/** Parameters for member queries. */
-interface MemberParams {
-  organizationId: string;
-}
+type MemberRole = "owner" | "admin" | "member";
 
 const toDate = (value: unknown) =>
   value instanceof Date ? value : new Date(String(value));
 
-const mapMember = (member: {
-  id: string;
-  userId: string;
-  organizationId: string;
-  role: string;
-  createdAt: unknown;
-  user?: {
-    id: string;
-    name?: string | null;
-    email: string;
-    image?: string | null;
-  } | null;
-}): MemberData => ({
-  id: member.id,
-  userId: member.userId,
-  organizationId: member.organizationId,
-  role: member.role,
-  createdAt: toDate(member.createdAt),
-  user: member.user
-    ? {
-        id: member.user.id,
-        name: member.user.name ?? "",
-        email: member.user.email,
-        image: member.user.image ?? null,
-      }
-    : undefined,
-});
-
 const listMembersServerFn = createServerFn({ method: "GET" })
-  .inputValidator((data: MemberParams) => data)
+  .inputValidator((data: { organizationId: string }) => data)
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const result = await auth.api.listMembers({
+    const organization = await auth.api.getFullOrganization({
       query: { organizationId: data.organizationId },
       headers,
     });
 
-    return (result.members ?? []).map((member) => mapMember(member));
+    if (!organization) {
+      return [];
+    }
+
+    return (organization.members ?? []).map(
+      (member: {
+        id: string;
+        userId: string;
+        role: string;
+        createdAt: unknown;
+        user: { name: string; email: string; image?: string | null };
+      }): MemberData => ({
+        id: member.id,
+        userId: member.userId,
+        role: member.role as MemberRole,
+        email: member.user.email,
+        name: member.user.name,
+        image: member.user.image ?? null,
+        createdAt: toDate(member.createdAt),
+      })
+    );
   });
 
 const updateMemberRoleServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { memberId: string; role: string }) => data)
+  .inputValidator(
+    (data: { memberId: string; role: MemberRole; organizationId: string }) =>
+      data
+  )
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    const member = await auth.api.updateMemberRole({
+    await auth.api.updateMemberRole({
       body: {
         memberId: data.memberId,
         role: data.role,
+        organizationId: data.organizationId,
       },
       headers,
     });
-
-    return mapMember(member);
   });
 
 const removeMemberServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { memberIdOrEmail: string }) => data)
+  .inputValidator(
+    (data: { memberIdOrEmail: string; organizationId: string }) => data
+  )
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
     await auth.api.removeMember({
       body: {
         memberIdOrEmail: data.memberIdOrEmail,
+        organizationId: data.organizationId,
       },
       headers,
     });
   });
 
-/** Query options for fetching members in an organization. */
-export const membersQueryOptions = (params: MemberParams) =>
+/** Query options for fetching members of an organization. */
+export const membersQueryOptions = (params: { organizationId: string }) =>
   queryOptions({
-    queryKey: ["members", params.organizationId],
+    queryKey: queryKeys.members.list(params.organizationId).queryKey,
     queryFn: () => listMembersServerFn({ data: params }),
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
   });
 
-/** Parameters for member detail queries. */
-interface MemberDetailParams {
-  id: string;
-}
-
-/** Query options for fetching a single member. */
-export const memberQueryOptions = (params: MemberDetailParams) =>
-  queryOptions({
-    queryKey: ["members", "detail", params.id],
-    queryFn: () =>
-      listMembersServerFn({ data: { organizationId: params.id } }).then(
-        (members) => members[0] ?? null
-      ),
-    staleTime: DEFAULT_STALE_TIME,
-    gcTime: DEFAULT_GC_TIME,
-  });
-
-/** Updates a member's role. */
-const useUpdateMemberRole = () => {
+/** Updates a member's role within an organization. */
+export const useUpdateMemberRole = () => {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["members", "update"],
-    mutationFn: (data: { memberId: string; role: string }) =>
-      updateMemberRoleServerFn({ data }),
+    mutationKey: ["members", "updateRole"],
+    mutationFn: (data: {
+      memberId: string;
+      role: MemberRole;
+      organizationId: string;
+    }) => updateMemberRoleServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.members.list(variables.organizationId).queryKey,
+      });
+    },
   });
 };
 
 /** Removes a member from an organization. */
-const useRemoveMember = () => {
+export const useRemoveMember = () => {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationKey: ["members", "bulkDelete"],
-    mutationFn: (data: { memberIdOrEmail: string } | string) =>
-      removeMemberServerFn({
-        data:
-          typeof data === "string"
-            ? { memberIdOrEmail: data }
-            : { memberIdOrEmail: data.memberIdOrEmail },
-      }),
+    mutationKey: ["members", "remove"],
+    mutationFn: (data: { memberIdOrEmail: string; organizationId: string }) =>
+      removeMemberServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.members.list(variables.organizationId).queryKey,
+      });
+    },
   });
 };
 
-export const useUpdateMember = useUpdateMemberRole;
-export const useDeleteMembers = useRemoveMember;
-
-export type { MemberParams };
+/** Leaves the current organization (removes self). */
+export const useLeaveOrganization = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["members", "leave"],
+    mutationFn: (data: { memberIdOrEmail: string; organizationId: string }) =>
+      removeMemberServerFn({ data }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.members.list(variables.organizationId).queryKey,
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["organizations"],
+      });
+    },
+  });
+};

@@ -1,13 +1,17 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@strait/ui/components/breadcrumb";
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
@@ -16,12 +20,18 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import EntityNotFound from "@/components/common/entity-not-found";
 import { StatusBadge } from "@/components/dashboard/status-badge";
-import type { JobRun, RunEvent, RunStatus } from "@/hooks/api/types";
+import type {
+  ExecutionTrace,
+  JobRun,
+  RunEvent,
+  RunStatus,
+} from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
-import { AlertIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
+import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/runs/$id")({
   loader: async ({ context, params }) => {
@@ -59,9 +69,7 @@ function RunDetailPage() {
   if (!run) {
     return (
       <Shell>
-        <div className="flex items-center justify-center py-20">
-          <p className="text-muted-foreground">Run not found.</p>
-        </div>
+        <EntityNotFound backTo="/app/runs" entity="Run" />
       </Shell>
     );
   }
@@ -71,23 +79,6 @@ function RunDetailPage() {
 
   return (
     <Shell>
-      {/* Breadcrumb */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink>
-              <Link to="/app/runs">Runs</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage className="font-mono text-xs">
-              {run.id}
-            </BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       {/* Header */}
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
@@ -98,7 +89,10 @@ function RunDetailPage() {
             <StatusBadge showDot status={run.status} />
           </div>
           <p className="text-pretty text-muted-foreground text-sm">
-            Job: <span className="font-mono">{run.job_id}</span>
+            Job:{" "}
+            <span className="font-mono underline underline-offset-2">
+              {run.job_id}
+            </span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -119,40 +113,58 @@ function RunDetailPage() {
 
       {/* Error banner */}
       {isFailed && run.error && (
-        <div className="mb-6 flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
-          <HugeiconsIcon
-            className="mt-0.5 shrink-0 text-destructive"
-            icon={AlertIcon}
-            size={16}
-          />
-          <div>
-            <p className="font-medium text-destructive text-sm">Error</p>
-            <p className="mt-0.5 text-muted-foreground text-xs">{run.error}</p>
-          </div>
-        </div>
+        <Alert className="mb-6" variant="destructive">
+          <HugeiconsIcon icon={AlertCircleIcon} size={16} />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{run.error}</AlertDescription>
+        </Alert>
       )}
 
-      {/* Execution details */}
-      <div className="mb-6 grid grid-cols-2 gap-4 rounded-md border p-4 sm:grid-cols-3 lg:grid-cols-5">
-        <DetailCell
-          label="Duration"
-          value={formatDuration(run.started_at, run.finished_at)}
-        />
-        <DetailCell
-          label="Started"
-          value={
-            run.started_at ? new Date(run.started_at).toLocaleString() : "-"
-          }
-        />
-        <DetailCell
-          label="Completed"
-          value={
-            run.finished_at ? new Date(run.finished_at).toLocaleString() : "-"
-          }
-        />
-        <DetailCell label="Triggered By" value={run.triggered_by} />
-        <DetailCell label="Attempt" value={String(run.attempt)} />
-      </div>
+      {/* Execution Overview */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Execution Overview</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <DetailCell label="Status" value={run.status} />
+            <DetailCell
+              label="Duration"
+              value={formatDuration(run.started_at, run.finished_at)}
+            />
+            <DetailCell
+              label="Started"
+              value={
+                run.started_at ? new Date(run.started_at).toLocaleString() : "-"
+              }
+            />
+            <DetailCell
+              label="Completed"
+              value={
+                run.finished_at
+                  ? new Date(run.finished_at).toLocaleString()
+                  : "-"
+              }
+            />
+            <DetailCell label="Triggered By" value={run.triggered_by} />
+            <DetailCell label="Attempt" value={String(run.attempt)} />
+            <DetailCell label="Job Version" value={String(run.job_version)} />
+            <DetailCell label="Priority" value={String(run.priority)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Execution Trace */}
+      {run.execution_trace && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Execution Trace</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ExecutionTraceBar trace={run.execution_trace} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
@@ -163,38 +175,30 @@ function RunDetailPage() {
         </TabsList>
 
         <TabsContent className="mt-6" value="logs">
-          <div className="rounded-md border bg-muted/30 p-4">
-            <pre className="max-h-[500px] overflow-auto font-mono text-muted-foreground text-xs leading-relaxed">
-              {events && events.length > 0
-                ? events
-                    .map(
-                      (evt) =>
-                        `[${new Date(evt.created_at).toISOString()}] [${evt.level.toUpperCase()}] ${evt.message}`
-                    )
-                    .join("\n")
-                : "No log events available for this run."}
-            </pre>
-          </div>
+          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+            {events && events.length > 0
+              ? events
+                  .map(
+                    (evt) =>
+                      `[${new Date(evt.created_at).toISOString()}] [${evt.level.toUpperCase()}] ${evt.message}`
+                  )
+                  .join("\n")
+              : "No log events available for this run."}
+          </pre>
         </TabsContent>
 
         <TabsContent className="mt-6" value="payload">
-          <div className="rounded-md border bg-muted/30 p-4">
-            <pre className="max-h-[500px] overflow-auto font-mono text-muted-foreground text-xs leading-relaxed">
-              {run.payload
-                ? JSON.stringify(run.payload, null, 2)
-                : "No payload"}
-            </pre>
-          </div>
+          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+            {run.payload ? JSON.stringify(run.payload, null, 2) : "No payload"}
+          </pre>
         </TabsContent>
 
         <TabsContent className="mt-6" value="response">
-          <div className="rounded-md border bg-muted/30 p-4">
-            <pre className="max-h-[500px] overflow-auto font-mono text-muted-foreground text-xs leading-relaxed">
-              {run.result
-                ? JSON.stringify(run.result, null, 2)
-                : "No response data"}
-            </pre>
-          </div>
+          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+            {run.result
+              ? JSON.stringify(run.result, null, 2)
+              : "No response data"}
+          </pre>
         </TabsContent>
       </Tabs>
     </Shell>
@@ -203,11 +207,67 @@ function RunDetailPage() {
 
 function DetailCell({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="font-medium text-muted-foreground text-xs uppercase">
-        {label}
-      </span>
-      <span className="font-mono text-xs capitalize tabular-nums">{value}</span>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className="font-mono text-sm">{value}</span>
+    </div>
+  );
+}
+
+const TRACE_SEGMENTS: {
+  key: keyof ExecutionTrace;
+  label: string;
+  color: string;
+}[] = [
+  { key: "queue_wait_ms", label: "Queue Wait", color: "bg-blue-500" },
+  { key: "dequeue_ms", label: "Dequeue", color: "bg-indigo-500" },
+  { key: "dispatch_ms", label: "Dispatch", color: "bg-violet-500" },
+  { key: "connect_ms", label: "Connect", color: "bg-amber-500" },
+  { key: "ttfb_ms", label: "TTFB", color: "bg-emerald-500" },
+  { key: "transfer_ms", label: "Transfer", color: "bg-cyan-500" },
+];
+
+function ExecutionTraceBar({ trace }: { trace: ExecutionTrace }) {
+  const total = trace.total_ms || 1;
+
+  return (
+    <div className="space-y-3">
+      {/* Bar visualization */}
+      <div className="flex h-6 w-full overflow-hidden rounded-md">
+        {TRACE_SEGMENTS.map((seg) => {
+          const ms = trace[seg.key];
+          const pct = (ms / total) * 100;
+          if (pct < 0.5) {
+            return null;
+          }
+          return (
+            <div
+              className={`${seg.color} opacity-80`}
+              key={seg.key}
+              style={{ width: `${pct}%` }}
+              title={`${seg.label}: ${ms}ms`}
+            />
+          );
+        })}
+      </div>
+
+      {/* Legend / key-value list */}
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+        {TRACE_SEGMENTS.map((seg) => (
+          <div className="flex items-center gap-2" key={seg.key}>
+            <span
+              className={`inline-block h-2.5 w-2.5 rounded-sm ${seg.color} opacity-80`}
+            />
+            <span className="text-muted-foreground text-xs">{seg.label}</span>
+            <span className="font-mono text-xs">{trace[seg.key]}ms</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-foreground/20" />
+          <span className="text-muted-foreground text-xs">Total</span>
+          <span className="font-mono text-xs">{trace.total_ms}ms</span>
+        </div>
+      </div>
     </div>
   );
 }

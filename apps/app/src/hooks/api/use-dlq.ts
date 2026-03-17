@@ -6,10 +6,6 @@ import {
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import type { JobRun, ListParams } from "./types";
 
-// ---------------------------------------------------------------------------
-// Mock data — dead letter queue items (runs with status "dead_letter")
-// ---------------------------------------------------------------------------
-
 const MOCK_DLQ_ITEMS: JobRun[] = [
   {
     id: "dlq_run_01",
@@ -319,10 +315,6 @@ const MOCK_DLQ_ITEMS: JobRun[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Data-access functions (mock)
-// ---------------------------------------------------------------------------
-
 // TODO: Replace with real API call
 async function listDlq(params: ListParams) {
   await Promise.resolve();
@@ -385,10 +377,6 @@ async function bulkDiscardDlq(data: { ids: string[] }) {
   await Promise.resolve();
   return { discarded: data.ids.length, ids: data.ids };
 }
-
-// ---------------------------------------------------------------------------
-// Query options & mutations
-// ---------------------------------------------------------------------------
 
 /** Query options for listing dead letter queue items. */
 export const dlqQueryOptions = (search?: ListParams) =>

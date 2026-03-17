@@ -138,9 +138,20 @@ export function clearSentryUser() {
 export function captureSentryAuthError(
   error: unknown,
   context: {
-    operation: "signin" | "accept-invitation" | "google-oauth";
+    operation:
+      | "signin"
+      | "signup"
+      | "email-signin"
+      | "magic-link"
+      | "passkey"
+      | "sso"
+      | "2fa-verify"
+      | "password-reset"
+      | "password-reset-request"
+      | "accept-invitation"
+      | "google-oauth";
     email?: string;
-    provider?: "google";
+    provider?: "google" | "github" | "passkey" | "magic-link" | "sso" | "email";
     invitationId?: string;
   }
 ) {

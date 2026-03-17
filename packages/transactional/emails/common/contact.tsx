@@ -66,7 +66,7 @@ const ContactEmail = ({
               <Img
                 alt="Strait"
                 className=""
-                src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+                src="/static/strait-logo-black.svg"
                 width="150"
               />
             </Section>
@@ -170,6 +170,12 @@ const ContactEmail = ({
             <Hr className="mx-0 w-full border-[#EBEBEB] border-t" />
 
             <br />
+
+            <Section>
+              <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
+                © 2026 Strait, All rights reserved
+              </Text>
+            </Section>
           </Container>
         </Body>
       </Tailwind>

@@ -25,7 +25,7 @@ const TableEmptyState = ({
 }: TableEmptyStateProps) => (
   <div className="flex h-[300px] flex-col items-center justify-center gap-4 rounded-xl border border-muted-foreground/10 border-dashed p-8 text-center">
     <div>
-      <div className="flex aspect-square h-14 items-center justify-center rounded-xl bg-primary/10">
+      <div className="flex aspect-square h-14 items-center justify-center rounded-xl bg-muted">
         {icon}
       </div>
     </div>

@@ -1,5 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { useSuspenseQuery } from "@tanstack/react-query";
@@ -14,7 +22,7 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
-import PageHeader from "@/components/common/page-header";
+
 import TableEmptyState from "@/components/common/table-empty-state";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { dlqColumns } from "@/components/tables/dlq-columns";
@@ -25,10 +33,24 @@ import {
   useBulkDiscardDlq,
   useBulkRetryDlq,
 } from "@/hooks/api/use-dlq";
-import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
+import {
+  AlertIcon,
+  FilterIcon,
+  RefreshIcon,
+  SearchIcon,
+  TrashIcon,
+} from "@/lib/icons";
+
+const ERROR_TYPE_OPTIONS = [
+  "timeout",
+  "connection",
+  "validation",
+  "internal",
+] as const;
 
 const searchSchema = z.object({
   query: z.string().optional(),
+  errorType: z.array(z.string()).optional(),
   page: z.number().optional().default(1),
 });
 
@@ -86,29 +108,43 @@ function DlqPage() {
     bulkDiscard.mutate({ ids: selectedIds });
   }, [selectedIds, bulkDiscard]);
 
+  const selectedErrorTypes = search.errorType ?? [];
+
+  function toggleErrorType(errorType: string) {
+    const current = new Set(selectedErrorTypes);
+    if (current.has(errorType)) {
+      current.delete(errorType);
+    } else {
+      current.add(errorType);
+    }
+    const arr = Array.from(current);
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        errorType: arr.length > 0 ? arr : undefined,
+        page: 1,
+      }),
+    });
+  }
+
   const totalCount = data?.total_count ?? 0;
 
   return (
     <Shell>
-      <PageHeader
-        text="Failed runs that have exhausted all retry attempts."
-        title="Dead Letter Queue"
-      />
-
       {/* Alert banner */}
       {totalCount > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-destructive text-sm">
+        <Alert variant="destructive">
           <HugeiconsIcon className="shrink-0" icon={AlertIcon} size={16} />
-          <span className="font-medium">
+          <AlertDescription className="font-medium">
             {totalCount} failed run{totalCount === 1 ? "" : "s"} require
             attention
-          </span>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2 pt-4">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-2 pb-2.5">
+        <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
             className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
             icon={SearchIcon}
@@ -130,6 +166,27 @@ function DlqPage() {
             value={search.query ?? ""}
           />
         </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="outline" />}>
+            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
+            Error Type
+            {selectedErrorTypes.length > 0 && (
+              <Badge variant="default">{selectedErrorTypes.length}</Badge>
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {ERROR_TYPE_OPTIONS.map((errorType) => (
+              <DropdownMenuCheckboxItem
+                checked={selectedErrorTypes.includes(errorType)}
+                key={errorType}
+                onCheckedChange={() => toggleErrorType(errorType)}
+              >
+                <span className="capitalize">{errorType}</span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {hasSelection && (
           <>
@@ -184,7 +241,7 @@ function DlqPage() {
                 hideButton
                 icon={
                   <HugeiconsIcon
-                    className="size-6 text-primary"
+                    className="size-6 text-foreground"
                     icon={AlertIcon}
                   />
                 }

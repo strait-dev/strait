@@ -51,7 +51,7 @@ const PasswordUpdate = ({ name }: PasswordUpdateProps) => (
             <Img
               alt="Strait"
               className="mb-6"
-              src="https://mwesulbn1k.ufs.sh/f/DedoMBfQiCy9vOEDu2YCvLugTtO8VEnoywN2DbkUr6QB1MP3"
+              src="/static/strait-logo-black.svg"
               width="150"
             />
           </Section>
@@ -78,9 +78,9 @@ const PasswordUpdate = ({ name }: PasswordUpdateProps) => (
             If you didn't make this change, please contact our support
             immediately through email at{" "}
             <Link
-              className="text-[#FF4F00] underline"
+              className="text-[#171717] underline"
               href="mailto:support@usestrait.com"
-              style={{ color: "#FF4F00" }}
+              style={{ color: "#171717" }}
             >
               support@usestrait.com
             </Link>{" "}
@@ -91,7 +91,7 @@ const PasswordUpdate = ({ name }: PasswordUpdateProps) => (
 
           <Section>
             <Button
-              className="inline-flex h-10 items-center justify-center rounded-[0.3rem] bg-[#FF4F00] px-6 font-medium text-sm text-white no-underline transition-colors"
+              className="inline-flex h-10 items-center justify-center rounded-[0.3rem] bg-[#171717] px-6 font-medium text-sm text-white no-underline transition-colors"
               href="https://app.usestrait.com/help"
             >
               Help Center
@@ -114,13 +114,7 @@ const PasswordUpdate = ({ name }: PasswordUpdateProps) => (
 
           <Section>
             <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
-              © 2025 Strait, All rights reserved
-            </Text>
-            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
-              CNPJ 59.888.832/0001-39
-            </Text>
-            <Text className="m-0 text-left text-[#8D8D8D] text-[12px] leading-6">
-              Av. Princesa Isabel — Vitória, ES, Brazil 29.010-361
+              © 2026 Strait, All rights reserved
             </Text>
           </Section>
         </Container>

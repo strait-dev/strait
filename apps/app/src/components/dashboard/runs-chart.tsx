@@ -5,14 +5,16 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { CHART_COLORS } from "@/lib/status-colors";
+import { ChartTooltip } from "./chart-tooltip";
 
 const MOCK_DATA = [
   { time: "00:00", completed: 42, failed: 3, executing: 8 },
@@ -24,27 +26,36 @@ const MOCK_DATA = [
   { time: "24:00", completed: 48, failed: 3, executing: 7 },
 ];
 
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-      <span
-        className="inline-block size-2 rounded-full"
-        style={{ backgroundColor: `var(--color-${color})` }}
-      />
-      {label}
-    </div>
-  );
-}
+const LABEL_MAP = {
+  completed: { label: "Completed", color: CHART_COLORS.success },
+  failed: { label: "Failed", color: CHART_COLORS.error },
+  executing: { label: "Executing", color: CHART_COLORS.active },
+};
+
+const LEGEND_ITEMS = [
+  { label: "Completed", color: CHART_COLORS.success },
+  { label: "Failed", color: CHART_COLORS.error },
+  { label: "Executing", color: CHART_COLORS.active },
+];
 
 export function RunsChart() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="font-medium text-sm">Run Activity</CardTitle>
-        <div className="flex items-center gap-3">
-          <LegendDot color="chart-1" label="Completed" />
-          <LegendDot color="chart-4" label="Failed" />
-          <LegendDot color="chart-3" label="Executing" />
+        <div className="flex items-center gap-1">
+          {LEGEND_ITEMS.map((item) => (
+            <div
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              key={item.label}
+            >
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: item.color }}
+              />
+              <span>{item.label}</span>
+            </div>
+          ))}
         </div>
       </CardHeader>
       <CardContent>
@@ -55,85 +66,40 @@ export function RunsChart() {
             minWidth={1}
             width="100%"
           >
-            <AreaChart data={MOCK_DATA}>
-              <defs>
-                <linearGradient id="gradCompleted" x1="0" x2="0" y1="0" y2="1">
-                  <stop
-                    offset="0%"
-                    stopColor="var(--color-chart-1)"
-                    stopOpacity={0.3}
-                  />
-                  <stop
-                    offset="100%"
-                    stopColor="var(--color-chart-1)"
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-                <linearGradient id="gradFailed" x1="0" x2="0" y1="0" y2="1">
-                  <stop
-                    offset="0%"
-                    stopColor="var(--color-chart-4)"
-                    stopOpacity={0.3}
-                  />
-                  <stop
-                    offset="100%"
-                    stopColor="var(--color-chart-4)"
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-                <linearGradient id="gradExecuting" x1="0" x2="0" y1="0" y2="1">
-                  <stop
-                    offset="0%"
-                    stopColor="var(--color-chart-3)"
-                    stopOpacity={0.3}
-                  />
-                  <stop
-                    offset="100%"
-                    stopColor="var(--color-chart-3)"
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-              </defs>
+            <BarChart data={MOCK_DATA}>
               <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
               <XAxis
                 className="text-muted-foreground"
                 dataKey="time"
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 14 }}
               />
               <YAxis
                 className="text-muted-foreground"
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 14 }}
               />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  borderColor: "hsl(var(--border))",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
+                content={<ChartTooltip labelMap={LABEL_MAP} />}
+                cursor={{ fill: "var(--muted)" }}
               />
-              <Area
+              <Bar
                 dataKey="completed"
-                fill="url(#gradCompleted)"
-                stroke="var(--color-chart-1)"
-                strokeWidth={2}
-                type="monotone"
+                fill={CHART_COLORS.success}
+                radius={[2, 2, 0, 0]}
+                stackId="runs"
               />
-              <Area
+              <Bar
                 dataKey="failed"
-                fill="url(#gradFailed)"
-                stroke="var(--color-chart-4)"
-                strokeWidth={2}
-                type="monotone"
+                fill={CHART_COLORS.error}
+                radius={[0, 0, 0, 0]}
+                stackId="runs"
               />
-              <Area
+              <Bar
                 dataKey="executing"
-                fill="url(#gradExecuting)"
-                stroke="var(--color-chart-3)"
-                strokeWidth={2}
-                type="monotone"
+                fill={CHART_COLORS.active}
+                radius={[2, 2, 0, 0]}
+                stackId="runs"
               />
-            </AreaChart>
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </CardContent>

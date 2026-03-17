@@ -5,6 +5,7 @@ import {
 import { FieldError } from "@strait/ui/components/field";
 import { useCallback } from "react";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
+import { formatFieldErrors } from "@/lib/form-errors";
 import { useCaseOptions } from "../data/business-needs-options";
 import type { OnboardingStepProps } from "../types";
 
@@ -65,7 +66,9 @@ export const BusinessNeedsStep = ({ form }: OnboardingStepProps) => {
               ))}
             </CardCheckboxGroup>
             {field.state.meta.errors.length > 0 && (
-              <FieldError>{field.state.meta.errors.join(", ")}</FieldError>
+              <FieldError>
+                {formatFieldErrors(field.state.meta.errors)}
+              </FieldError>
             )}
           </div>
         )}
