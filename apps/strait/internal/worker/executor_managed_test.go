@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -3386,5 +3387,312 @@ func TestManagedDispatch_MemoryLimitPerPreset(t *testing.T) {
 		if capturedEnv["STRAIT_MEMORY_LIMIT_MB"] != expectedMB {
 			t.Errorf("preset %s: expected STRAIT_MEMORY_LIMIT_MB=%s, got %q", preset, expectedMB, capturedEnv["STRAIT_MEMORY_LIMIT_MB"])
 		}
+	}
+}
+
+// handleManagedFailure and managedDispatch edge case tests.
+
+func TestHandleManagedFailure_RecordOOMEventStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	var retryQueued atomic.Bool
+	store := &mockExecutorStore{
+		recordOOMEventFn: func(_ context.Context, _, _ string) error {
+			return errors.New("db error recording oom")
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusQueued {
+				retryQueued.Store(true)
+				// Verify OOM upgrade still happened despite RecordOOMEvent failure.
+				if meta, ok := fields["metadata"].(map[string]string); ok {
+					if _, hasOverride := meta["_preset_override"]; !hasOverride {
+						t.Error("expected _preset_override in retry metadata despite RecordOOMEvent failure")
+					}
+				}
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, &mockContainerRuntime{})
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	classification := compute.ExitClassification{
+		Signal:       "SIGKILL",
+		IsOOM:        true,
+		ErrorClass:   "oom",
+		HumanMessage: "OOM killed",
+	}
+
+	e.handleManagedFailure(context.Background(), run, job, classification)
+
+	if !retryQueued.Load() {
+		t.Error("expected retry to proceed despite RecordOOMEvent failure")
+	}
+}
+
+func TestHandleManagedFailure_UpdateRunStatusFailsOnRetry(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, _ map[string]any) error {
+			if to == domain.StatusQueued {
+				return errors.New("db error on retry transition")
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, &mockContainerRuntime{})
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	classification := compute.ExitClassification{
+		ErrorClass:   "application_error",
+		HumanMessage: "exit 1",
+	}
+
+	// Should return early without panic.
+	e.handleManagedFailure(context.Background(), run, job, classification)
+}
+
+func TestHandleManagedFailure_UpdateRunStatusFailsOnDeadLetter(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, _ map[string]any) error {
+			if to == domain.StatusDeadLetter {
+				return errors.New("db error on dead_letter transition")
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, &mockContainerRuntime{})
+	run := newTestRun()
+	run.Attempt = 3 // exhausted
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	classification := compute.ExitClassification{
+		ErrorClass:   "application_error",
+		HumanMessage: "exit 1",
+	}
+
+	// Should return early without panic.
+	e.handleManagedFailure(context.Background(), run, job, classification)
+}
+
+func TestHandleManagedFailure_OOMWithExistingPresetOverride(t *testing.T) {
+	t.Parallel()
+
+	var capturedPreset atomic.Value
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusQueued {
+				if meta, ok := fields["metadata"].(map[string]string); ok {
+					capturedPreset.Store(meta["_preset_override"])
+				}
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, &mockContainerRuntime{})
+	run := newTestRun()
+	run.Attempt = 1
+	run.Metadata = map[string]string{"_preset_override": "small-2x"}
+	job := newTestManagedJob()
+	job.MachinePreset = domain.PresetMicro
+	job.MaxAttempts = 3
+
+	classification := compute.ExitClassification{
+		Signal:       "SIGKILL",
+		IsOOM:        true,
+		ErrorClass:   "oom",
+		HumanMessage: "OOM killed",
+	}
+
+	e.handleManagedFailure(context.Background(), run, job, classification)
+
+	preset := capturedPreset.Load()
+	if preset == nil {
+		t.Fatal("expected _preset_override in retry metadata")
+	}
+	// small-2x → medium-1x
+	if preset.(string) != "medium-1x" {
+		t.Errorf("expected upgrade to medium-1x, got %s", preset)
+	}
+}
+
+func TestHandleManagedFailure_NonOOMExhausted_ErrorClass(t *testing.T) {
+	t.Parallel()
+
+	var capturedErrorClass atomic.Value
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusDeadLetter {
+				if ec, ok := fields["error_class"].(string); ok {
+					capturedErrorClass.Store(ec)
+				}
+			}
+			return nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, &mockContainerRuntime{})
+	run := newTestRun()
+	run.Attempt = 3 // exhausted
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	classification := compute.ExitClassification{
+		ErrorClass:   "application_error",
+		HumanMessage: "exit 1",
+	}
+
+	e.handleManagedFailure(context.Background(), run, job, classification)
+
+	ec := capturedErrorClass.Load()
+	if ec == nil {
+		t.Fatal("expected error_class to be set")
+	}
+	if ec.(string) != "application_error" {
+		t.Errorf("expected error_class application_error, got %s", ec)
+	}
+}
+
+func TestManagedDispatch_BudgetWarningInsertEventFailure(t *testing.T) {
+	t.Parallel()
+
+	var dispatchCompleted atomic.Bool
+	store := &mockExecutorStore{
+		getProjectQuotaFn: func(_ context.Context, _ string) (*orcstore.ProjectQuota, error) {
+			return &orcstore.ProjectQuota{
+				ComputeDailyCostLimitMicrousd: 100000,
+			}, nil
+		},
+		sumDailyComputeCostFn: func(_ context.Context, _, _ string) (int64, error) {
+			// At 79% of budget — will cross 80% threshold with estimated cost.
+			return 79000, nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			if event.Type == "budget_warning" {
+				return errors.New("failed to insert budget warning")
+			}
+			return nil
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			dispatchCompleted.Store(true)
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if !dispatchCompleted.Load() {
+		t.Error("dispatch should continue normally despite budget warning InsertEvent failure")
+	}
+}
+
+func TestManagedDispatch_GetPresetRecommendationFailure(t *testing.T) {
+	t.Parallel()
+
+	var capturedPreset atomic.Value
+	store := &mockExecutorStore{
+		getPresetRecommendationFn: func(_ context.Context, _ string) (*orcstore.PresetRecommendation, error) {
+			return nil, errors.New("recommendation db error")
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedPreset.Store(req.MachinePreset)
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.MachinePreset = "small-1x"
+
+	e.managedDispatch(context.Background(), run, job)
+
+	preset := capturedPreset.Load()
+	if preset == nil {
+		t.Fatal("expected preset to be captured")
+	}
+	if preset.(string) != "small-1x" {
+		t.Errorf("expected original preset small-1x on recommendation failure, got %s", preset)
+	}
+}
+
+func TestManagedDispatch_RecommendationLowerThanCurrent(t *testing.T) {
+	t.Parallel()
+
+	var capturedPreset atomic.Value
+	store := &mockExecutorStore{
+		getPresetRecommendationFn: func(_ context.Context, _ string) (*orcstore.PresetRecommendation, error) {
+			return &orcstore.PresetRecommendation{
+				RecommendedPreset: "micro",
+				OOMCount:          3,
+			}, nil
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedPreset.Store(req.MachinePreset)
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.MachinePreset = "small-2x" // Higher than recommendation "micro"
+
+	e.managedDispatch(context.Background(), run, job)
+
+	preset := capturedPreset.Load()
+	if preset == nil {
+		t.Fatal("expected preset to be captured")
+	}
+	if preset.(string) != "small-2x" {
+		t.Errorf("expected current preset small-2x (recommendation ignored), got %s", preset)
 	}
 }
