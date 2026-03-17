@@ -1,0 +1,14 @@
+{
+  "$schema": "https://github.com/changesets/changesets/blob/main/packages/config/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    ["@strait/ts", "strait-python", "strait-go", "strait-ruby", "strait-sdk-rust"]
+  ],
+  "access": "public",
+  "baseBranch": "master",
+  "privatePackages": {
+    "version": true,
+    "tag": true
+  }
+}

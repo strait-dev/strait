@@ -1,0 +1,21 @@
+{
+  "name": "@strait/kv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.37.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260316.1"
+  },
+  "scripts": {
+    "build": "echo 'No build step for @strait/kv'",
+    "typecheck": "tsgo --noEmit",
+    "clean": "git clean -xdf .turbo node_modules"
+  }
+}
