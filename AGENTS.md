@@ -232,6 +232,8 @@ Git hooks:
 lefthook install
 ```
 
+**Lefthook is mandatory.** Never skip or bypass lefthook hooks (e.g. `--no-verify`). All pre-commit and commit-msg hooks must pass before a commit is accepted. If a hook fails, fix the underlying issue — do not circumvent it.
+
 ---
 
 ## 7) Database and migration safety
@@ -302,7 +304,7 @@ Keep scope narrow: one logical change per PR.
 
 ### 10.1 Conventional Commits (mandatory)
 
-Every commit must follow Conventional Commits:
+Every commit must follow Conventional Commits. No exceptions.
 
 ```text
 type(scope): short summary
@@ -323,6 +325,8 @@ Rules:
 3. include scope when useful
 4. use `!` for breaking changes and explain in body
 5. avoid vague messages (`update`, `misc`, `fix stuff`)
+6. **never** add "Co-Authored-By" lines (e.g. "Co-Authored-By: Claude") to commit messages
+7. **never** add AI attribution of any kind to commit messages
 
 ### 10.2 PR expectations (quality bar)
 
@@ -370,12 +374,14 @@ Every PR description should include:
 - Follow-up work:
 ```
 
-### 10.2.2 PR description DON'Ts
+### 10.2.2 PR description DON’Ts
 
 - Don’t omit **why** the change is needed.
 - Don’t paste generic text that could apply to any PR.
 - Don’t claim validation without listing commands/results.
 - Don’t skip test impact details for behavior changes.
+- **Never** add "Generated with Claude Code" or any AI attribution to PR descriptions.
+- **Never** add AI-generated boilerplate footers to PRs. Always write helpful, human-quality descriptions about what was actually worked on.
 
 ### 10.3 PR testing notes template (mandatory)
 
