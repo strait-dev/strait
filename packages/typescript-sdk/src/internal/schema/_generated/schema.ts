@@ -118,6 +118,8 @@ componentSchemas["DispatchEventResponse"] = Schema.Struct({ "dispatched": Schema
 componentSchemas["BulkCancelAllRequest"] = Schema.Struct({ "job_id": Schema.optional(Schema.String), "batch_id": Schema.optional(Schema.String), "triggered_by": Schema.optional(Schema.String), "status": Schema.optional(Schema.suspend(() => componentSchemas["RunStatus"] ?? Schema.Unknown)) });
 componentSchemas["BulkReplayRequest"] = Schema.Struct({ "run_ids": Schema.Array(Schema.String) });
 componentSchemas["BulkWorkflowRunRequest"] = Schema.Struct({ "workflow_run_ids": Schema.Array(Schema.String) });
+componentSchemas["Region"] = Schema.Struct({ "code": Schema.optional(Schema.String), "label": Schema.optional(Schema.String), "city": Schema.optional(Schema.String), "country": Schema.optional(Schema.String), "continent": Schema.optional(Schema.String) });
+componentSchemas["ProjectSettings"] = Schema.Struct({ "project_id": Schema.optional(Schema.String), "default_region": Schema.optional(Schema.String), "plan_tier": Schema.optional(Schema.String) });
 
 export const generatedOperationSchemas = {
   "getHealth": { response: Schema.Struct({ "status": Schema.optional(Schema.String) }) },
@@ -214,6 +216,9 @@ export const generatedOperationSchemas = {
   "postV1Members": { request: Schema.suspend(() => componentSchemas["AssignMemberRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["ProjectMember"] ?? Schema.Unknown) },
   "deleteV1MembersByUserID": {},
   "postV1MembersBulk": { request: Schema.suspend(() => componentSchemas["BulkAssignMembersRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["BulkAssignMembersResponse"] ?? Schema.Unknown) },
+  "getV1ProjectsByProjectIDSettings": { response: Schema.suspend(() => componentSchemas["ProjectSettings"] ?? Schema.Unknown) },
+  "putV1ProjectsByProjectIDSettings": { request: Schema.Struct({ "default_region": Schema.optional(Schema.String) }), response: Schema.suspend(() => componentSchemas["ProjectSettings"] ?? Schema.Unknown) },
+  "getV1Regions": { response: Schema.Struct({ "regions": Schema.optional(Schema.Array(Schema.suspend(() => componentSchemas["Region"] ?? Schema.Unknown))) }) },
   "getV1ResourcePolicies": { response: Schema.suspend(() => componentSchemas["ListResourcePoliciesResponse"] ?? Schema.Unknown) },
   "postV1ResourcePolicies": { request: Schema.suspend(() => componentSchemas["CreateResourcePolicyRequest"] ?? Schema.Unknown), response: Schema.suspend(() => componentSchemas["ResourcePolicy"] ?? Schema.Unknown) },
   "deleteV1ResourcePoliciesByPolicyID": {},

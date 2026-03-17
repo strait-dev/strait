@@ -1,6 +1,8 @@
 package compute
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestNearestFlyRegion_DirectCode(t *testing.T) {
 	t.Parallel()
@@ -95,6 +97,127 @@ func TestRegionFallbackChain_NoDuplicates(t *testing.T) {
 				t.Errorf("region %q: duplicate %q in fallback chain", region, r)
 			}
 			seen[r] = true
+		}
+	}
+}
+
+func TestIsValidRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		code string
+		want bool
+	}{
+		{"iad", true},
+		{"lhr", true},
+		{"nrt", true},
+		{"syd", true},
+		{"fra", true},
+		{"", false},
+		{"invalid", false},
+		{"us-east", false},
+		{"IAD", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.code+"_valid="+boolStr(tt.want), func(t *testing.T) {
+			t.Parallel()
+			if got := IsValidRegion(tt.code); got != tt.want {
+				t.Errorf("IsValidRegion(%q) = %v, want %v", tt.code, got, tt.want)
+			}
+		})
+	}
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+func TestAllRegionCodes(t *testing.T) {
+	t.Parallel()
+
+	codes := AllRegionCodes()
+	if len(codes) != len(flyRegions) {
+		t.Fatalf("AllRegionCodes() returned %d codes, want %d", len(codes), len(flyRegions))
+	}
+
+	// Verify sorted order.
+	for i := 1; i < len(codes); i++ {
+		if codes[i] <= codes[i-1] {
+			t.Fatalf("AllRegionCodes() not sorted: %q <= %q at index %d", codes[i], codes[i-1], i)
+		}
+	}
+
+	// All codes must be valid.
+	for _, code := range codes {
+		if !IsValidRegion(code) {
+			t.Errorf("AllRegionCodes() returned invalid code %q", code)
+		}
+	}
+}
+
+func TestRegionLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		code string
+		want string
+	}{
+		{"iad", "Ashburn, Virginia (US)"},
+		{"lhr", "London, United Kingdom"},
+		{"nrt", "Tokyo, Japan"},
+		{"syd", "Sydney, Australia"},
+		{"fra", "Frankfurt, Germany"},
+		{"unknown", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			t.Parallel()
+			if got := RegionLabel(tt.code); got != tt.want {
+				t.Errorf("RegionLabel(%q) = %q, want %q", tt.code, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAllRegions(t *testing.T) {
+	t.Parallel()
+
+	regions := AllRegions()
+	if len(regions) != len(flyRegions) {
+		t.Fatalf("AllRegions() returned %d regions, want %d", len(regions), len(flyRegions))
+	}
+
+	// Verify sorted by code.
+	for i := 1; i < len(regions); i++ {
+		if regions[i].Code <= regions[i-1].Code {
+			t.Fatalf("AllRegions() not sorted by code: %q <= %q", regions[i].Code, regions[i-1].Code)
+		}
+	}
+
+	// All entries must have required fields.
+	for _, r := range regions {
+		if r.Code == "" || r.Label == "" || r.City == "" || r.Country == "" || r.Continent == "" {
+			t.Errorf("region %q has empty required field", r.Code)
+		}
+	}
+}
+
+func TestAllRegions_MetadataConsistency(t *testing.T) {
+	t.Parallel()
+
+	for code := range flyRegions {
+		if _, ok := regionMetadata[code]; !ok {
+			t.Errorf("region %q in flyRegions but not in regionMetadata", code)
+		}
+	}
+	for code := range regionMetadata {
+		if _, ok := flyRegions[code]; !ok {
+			t.Errorf("region %q in regionMetadata but not in flyRegions", code)
 		}
 	}
 }

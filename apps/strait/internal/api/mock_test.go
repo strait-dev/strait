@@ -194,6 +194,7 @@ type mockAPIStore struct {
 	listManagedMachineIDsByWorkflowRunFn func(ctx context.Context, workflowRunID string) ([]string, error)
 	markJobRunsPausedByWorkflowRunFn     func(ctx context.Context, workflowRunID string) (int64, error)
 	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
+	updateProjectDefaultRegionFn         func(ctx context.Context, projectID, defaultRegion string) error
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -1604,4 +1605,11 @@ func (m *mockAPIStore) RequeuePausedJobRuns(ctx context.Context, workflowRunID s
 		return m.requeuePausedJobRunsFn(ctx, workflowRunID)
 	}
 	return 0, nil
+}
+
+func (m *mockAPIStore) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {
+	if m.updateProjectDefaultRegionFn != nil {
+		return m.updateProjectDefaultRegionFn(ctx, projectID, defaultRegion)
+	}
+	return nil
 }

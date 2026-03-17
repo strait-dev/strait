@@ -417,8 +417,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env["STRAIT_MEMORY_LIMIT_MB"] = strconv.Itoa(presetInfo.MemoryMB)
 	}
 
-	// 7. Resolve region: job config > run metadata hint > executor default.
+	// 7. Resolve region: job config > project default > run metadata hint > executor default.
 	region := job.Region
+	if region == "" && quota != nil && quota.DefaultRegion != "" {
+		region = quota.DefaultRegion
+	}
 	if region == "" {
 		if hint, ok := run.Metadata["_region_hint"]; ok && hint != "" {
 			if validated := compute.NearestFlyRegion(hint); validated != "" {

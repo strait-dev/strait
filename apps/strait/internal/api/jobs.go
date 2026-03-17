@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -159,6 +160,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	if req.DebounceWindowSecs > 0 && req.BatchWindowSecs > 0 {
 		respondError(w, r, http.StatusBadRequest, "debounce_window_secs and batch_window_secs are mutually exclusive")
+		return
+	}
+
+	// Region validation.
+	if req.Region != "" && !compute.IsValidRegion(req.Region) {
+		respondError(w, r, http.StatusBadRequest, "invalid region: "+req.Region)
 		return
 	}
 
@@ -481,6 +488,10 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		job.ImageURI = *req.ImageURI
 	}
 	if req.Region != nil {
+		if *req.Region != "" && !compute.IsValidRegion(*req.Region) {
+			respondError(w, r, http.StatusBadRequest, "invalid region: "+*req.Region)
+			return
+		}
 		job.Region = *req.Region
 	}
 	// Cross-field validation for managed mode.

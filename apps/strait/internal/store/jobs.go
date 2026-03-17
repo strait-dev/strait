@@ -469,7 +469,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 
 	query := `
 		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
-		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd
+		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd, default_region
 		FROM project_quotas
 		WHERE project_id = $1`
 
@@ -483,6 +483,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	var rateLimitRequests *int
 	var rateLimitWindowSecs *int
 	var computeDailyCostLimit *int64
+	var defaultRegion *string
 	err := q.db.QueryRow(ctx, query, projectID).Scan(
 		&quota.ProjectID,
 		&maxQueued,
@@ -494,6 +495,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		&rateLimitRequests,
 		&rateLimitWindowSecs,
 		&computeDailyCostLimit,
+		&defaultRegion,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -528,6 +530,9 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	}
 	if computeDailyCostLimit != nil {
 		quota.ComputeDailyCostLimitMicrousd = *computeDailyCostLimit
+	}
+	if defaultRegion != nil {
+		quota.DefaultRegion = *defaultRegion
 	}
 
 	return quota, nil
@@ -565,6 +570,24 @@ func (q *Queries) CountProjectActiveRuns(ctx context.Context, projectID string) 
 	}
 
 	return count, nil
+}
+
+// UpdateProjectDefaultRegion sets the default_region for a project's quota row.
+// It upserts the row if it does not exist.
+func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectDefaultRegion")
+	defer span.End()
+
+	query := `
+		INSERT INTO project_quotas (project_id, default_region)
+		VALUES ($1, $2)
+		ON CONFLICT (project_id) DO UPDATE SET default_region = EXCLUDED.default_region`
+
+	_, err := q.db.Exec(ctx, query, projectID, defaultRegion)
+	if err != nil {
+		return fmt.Errorf("update project default region: %w", err)
+	}
+	return nil
 }
 
 type scanTarget interface {

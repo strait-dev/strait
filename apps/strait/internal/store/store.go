@@ -144,6 +144,8 @@ type ProjectQuota struct {
 	MaxActiveEventTriggers        int // 0 = unlimited
 	RateLimitRequests             int
 	RateLimitWindowSecs           int
+	DefaultRegion                 string
+	PlanTier                      string
 }
 
 // JobHealthStats contains aggregated health metrics for a job.

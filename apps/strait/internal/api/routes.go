@@ -89,6 +89,13 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", s.handleDeleteSecret)
 		})
 
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/regions", s.handleListRegions)
+
+		r.Route("/projects/{projectID}/settings", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetProjectSettings)
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/", s.handleUpdateProjectSettings)
+		})
+
 		r.Route("/jobs", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(30, time.Minute)).Post("/", s.handleCreateJob)
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListJobs)
