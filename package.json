@@ -37,7 +37,8 @@
   "overrides": {
     "better-auth": "1.4.18",
     "@tanstack/query-core": "5.90.20",
-    "@tanstack/react-query": "5.90.21"
+    "@tanstack/react-query": "5.90.21",
+    "camelcase": "6.3.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",
