@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -50,6 +51,7 @@ type CreateJobRequest struct {
 	MachinePreset        string            `json:"machine_preset,omitempty"`
 	ImageURI             string            `json:"image_uri,omitempty"`
 	Region               string            `json:"region,omitempty"`
+	PreferredRegions     []string          `json:"preferred_regions,omitempty"`
 }
 
 type UpdateJobRequest struct {
@@ -88,6 +90,7 @@ type UpdateJobRequest struct {
 	MachinePreset        *string            `json:"machine_preset,omitempty"`
 	ImageURI             *string            `json:"image_uri,omitempty"`
 	Region               *string            `json:"region,omitempty"`
+	PreferredRegions     *[]string          `json:"preferred_regions,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +165,14 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Region and plan-based gating validation.
+	if !s.validateRegionForPlan(w, r, req.ProjectID, req.Region) {
+		return
+	}
+	if !s.validatePreferredRegionsForPlan(w, r, req.ProjectID, req.PreferredRegions) {
+		return
+	}
+
 	// Execution mode validation.
 	execMode := domain.ExecutionMode(req.ExecutionMode)
 	if execMode == "" {
@@ -226,6 +237,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		MachinePreset:        domain.MachinePreset(req.MachinePreset),
 		ImageURI:             req.ImageURI,
 		Region:               req.Region,
+		PreferredRegions:     req.PreferredRegions,
 		Enabled:              true,
 		VersionPolicy:        domain.VersionPolicyPin,
 		CreatedBy:            actorFromContext(r.Context()),
@@ -481,7 +493,16 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		job.ImageURI = *req.ImageURI
 	}
 	if req.Region != nil {
+		if !s.validateRegionForPlan(w, r, job.ProjectID, *req.Region) {
+			return
+		}
 		job.Region = *req.Region
+	}
+	if req.PreferredRegions != nil {
+		if !s.validatePreferredRegionsForPlan(w, r, job.ProjectID, *req.PreferredRegions) {
+			return
+		}
+		job.PreferredRegions = *req.PreferredRegions
 	}
 	// Cross-field validation for managed mode.
 	if job.ExecutionMode == domain.ExecutionModeManaged && job.ImageURI == "" {
@@ -597,6 +618,11 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		Enabled:              true,
 		VersionPolicy:        source.VersionPolicy,
 		BackwardsCompatible:  source.BackwardsCompatible,
+		ExecutionMode:        source.ExecutionMode,
+		MachinePreset:        source.MachinePreset,
+		ImageURI:             source.ImageURI,
+		Region:               source.Region,
+		PreferredRegions:     source.PreferredRegions,
 		CreatedBy:            actorFromContext(r.Context()),
 		UpdatedBy:            actorFromContext(r.Context()),
 	}
@@ -744,6 +770,18 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Region validation.
+		if jobReq.Region != "" && !compute.IsValidRegion(jobReq.Region) {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid region: " + jobReq.Region})
+			continue
+		}
+		for _, pr := range jobReq.PreferredRegions {
+			if !compute.IsValidRegion(pr) {
+				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid preferred region: " + pr})
+				continue
+			}
+		}
+
 		job := &domain.Job{
 			ProjectID:           jobReq.ProjectID,
 			GroupID:             jobReq.GroupID,
@@ -767,6 +805,8 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			RetryStrategy:       jobReq.RetryStrategy,
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
 			EnvironmentID:       jobReq.EnvironmentID,
+			Region:              jobReq.Region,
+			PreferredRegions:    jobReq.PreferredRegions,
 			Enabled:             true,
 		}
 

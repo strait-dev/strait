@@ -140,6 +140,9 @@ type Config struct {
 	WarmPoolMaxPerJob     int           `mapstructure:"WARM_POOL_MAX_PER_JOB"`   // Max warm machines per job/region
 	WarmPoolTTL           time.Duration `mapstructure:"WARM_POOL_TTL"`           // TTL for idle warm machines
 
+	// Region gating
+	EnforceRegionGating bool `mapstructure:"ENFORCE_REGION_GATING"`
+
 	// ClickHouse (optional analytics)
 	ClickHouseEnabled       bool          `mapstructure:"CLICKHOUSE_ENABLED"`
 	ClickHouseURL           string        `mapstructure:"CLICKHOUSE_URL"`
@@ -231,6 +234,7 @@ func setDefaults() {
 	viper.SetDefault("BATCH_FLUSH_INTERVAL", time.Second)
 	viper.SetDefault("WEBHOOK_REQUIRE_TLS", false)
 	viper.SetDefault("DEQUEUE_STRATEGY", "priority")
+	viper.SetDefault("ENFORCE_REGION_GATING", false)
 	viper.SetDefault("COMPUTE_RUNTIME", "none")
 	viper.SetDefault("FLY_REGION", "iad")
 	viper.SetDefault("MAX_CONCURRENT_MACHINES", 10)
@@ -273,6 +277,7 @@ func BindEnv() error {
 		"MAX_SNOOZE_COUNT",
 		"DEBOUNCE_POLLER_INTERVAL", "BATCH_FLUSH_INTERVAL", "WEBHOOK_REQUIRE_TLS",
 		"DEQUEUE_STRATEGY",
+		"ENFORCE_REGION_GATING",
 		"COMPUTE_RUNTIME", "FLY_API_TOKEN", "FLY_APP_NAME", "FLY_REGION",
 		"EXTERNAL_API_URL", "MAX_CONCURRENT_MACHINES",
 		"CLICKHOUSE_ENABLED", "CLICKHOUSE_URL", "CLICKHOUSE_DATABASE",
@@ -363,6 +368,7 @@ func Load() (*Config, error) {
 	cfg.BatchFlushInterval = viper.GetDuration("BATCH_FLUSH_INTERVAL")
 	cfg.WebhookRequireTLS = viper.GetBool("WEBHOOK_REQUIRE_TLS")
 	cfg.DequeueStrategy = viper.GetString("DEQUEUE_STRATEGY")
+	cfg.EnforceRegionGating = viper.GetBool("ENFORCE_REGION_GATING")
 	cfg.ComputeRuntime = viper.GetString("COMPUTE_RUNTIME")
 	cfg.FlyAPIToken = viper.GetString("FLY_API_TOKEN")
 	cfg.FlyAppName = viper.GetString("FLY_APP_NAME")

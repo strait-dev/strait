@@ -417,8 +417,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		env["STRAIT_MEMORY_LIMIT_MB"] = strconv.Itoa(presetInfo.MemoryMB)
 	}
 
-	// 7. Resolve region: job config > run metadata hint > executor default.
+	// 7. Resolve region: job config > project default > run metadata hint > executor default.
 	region := job.Region
+	if region == "" && quota != nil && quota.DefaultRegion != "" && compute.IsValidRegion(quota.DefaultRegion) {
+		region = quota.DefaultRegion
+	}
 	if region == "" {
 		if hint, ok := run.Metadata["_region_hint"]; ok && hint != "" {
 			if validated := compute.NearestFlyRegion(hint); validated != "" {
@@ -500,11 +503,14 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		machineID, createErr = e.containerRuntime.Create(ctx, runReq)
 		dispatchSource = "cold_start"
 
-		// Multi-region failover: on 503, try fallback regions (only if user didn't pin a region).
+		// Multi-region failover: on 503, try preferred_regions first, then geo-proximate fallbacks.
 		if createErr != nil && job.Region == "" {
 			var re *compute.RuntimeError
 			if errors.As(createErr, &re) && re.StatusCode == 503 {
-				fallbacks := compute.RegionFallbackChain(region)
+				fallbacks := job.PreferredRegions
+				if len(fallbacks) == 0 {
+					fallbacks = compute.RegionFallbackChain(region)
+				}
 				for _, fbRegion := range fallbacks {
 					e.logger.Info("attempting region failover",
 						"run_id", run.ID, "from", region, "to", fbRegion)

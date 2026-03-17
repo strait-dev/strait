@@ -132,6 +132,75 @@ paths:
               schema:
                 type: string
 
+  /v1/regions:
+    get:
+      tags:
+        - Regions
+      summary: List available regions
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of available regions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  regions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Region'
+
+  /v1/projects/{projectID}/settings:
+    get:
+      tags:
+        - Projects
+      summary: Get project settings
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: projectID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Project settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectSettings'
+    put:
+      tags:
+        - Projects
+      summary: Update project settings
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: projectID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default_region:
+                  type: string
+      responses:
+        '200':
+          description: Updated project settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectSettings'
+
   /v1/jobs:
     get:
       tags:
@@ -7114,3 +7183,27 @@ components:
             type: string
           minItems: 1
           maxItems: 100
+
+    Region:
+      type: object
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+        continent:
+          type: string
+
+    ProjectSettings:
+      type: object
+      properties:
+        project_id:
+          type: string
+        default_region:
+          type: string
+        plan_tier:
+          type: string

@@ -102,6 +102,9 @@ export type OperationPathParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": { "userID": string };
   "postV1MembersBulk": undefined;
+  "getV1ProjectsByProjectIDSettings": { "projectID": string };
+  "putV1ProjectsByProjectIDSettings": { "projectID": string };
+  "getV1Regions": undefined;
   "getV1ResourcePolicies": undefined;
   "postV1ResourcePolicies": undefined;
   "deleteV1ResourcePoliciesByPolicyID": { "policyID": string };
@@ -291,6 +294,9 @@ export type OperationQueryParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
+  "getV1ProjectsByProjectIDSettings": undefined;
+  "putV1ProjectsByProjectIDSettings": undefined;
+  "getV1Regions": undefined;
   "getV1ResourcePolicies": { "project_id": string; "user_id"?: string; "limit"?: number; "cursor"?: string };
   "postV1ResourcePolicies": undefined;
   "deleteV1ResourcePoliciesByPolicyID": undefined;
@@ -480,6 +486,9 @@ export type OperationHeaderParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
+  "getV1ProjectsByProjectIDSettings": undefined;
+  "putV1ProjectsByProjectIDSettings": undefined;
+  "getV1Regions": undefined;
   "getV1ResourcePolicies": undefined;
   "postV1ResourcePolicies": undefined;
   "deleteV1ResourcePoliciesByPolicyID": undefined;
@@ -691,6 +700,9 @@ export const generatedOperationMetadataById = {
   "postV1Members": { functionName: "createMember", domainName: "rbac", domainMethodName: "createMember", pathParamNames: [], summary: "Assign member role" },
   "deleteV1MembersByUserID": { functionName: "deleteMember", domainName: "rbac", domainMethodName: "deleteMember", pathParamNames: ["userID"], summary: "Remove project member" },
   "postV1MembersBulk": { functionName: "bulkMember", domainName: "rbac", domainMethodName: "bulkMember", pathParamNames: [], summary: "Bulk assign members" },
+  "getV1ProjectsByProjectIDSettings": { functionName: "listSettings", domainName: "projects", domainMethodName: "listSettings", pathParamNames: ["projectID"], summary: "Get project settings" },
+  "putV1ProjectsByProjectIDSettings": { functionName: "upsertSetting", domainName: "projects", domainMethodName: "upsertSetting", pathParamNames: ["projectID"], summary: "Update project settings" },
+  "getV1Regions": { functionName: "listRegions", domainName: "regions", domainMethodName: "list", pathParamNames: [], summary: "List available regions" },
   "getV1ResourcePolicies": { functionName: "listResourcePolicies", domainName: "rbac", domainMethodName: "listResourcePolicies", pathParamNames: [], summary: "List resource policies" },
   "postV1ResourcePolicies": { functionName: "createResourcePolicy", domainName: "rbac", domainMethodName: "createResourcePolicy", pathParamNames: [], summary: "Create resource policy" },
   "deleteV1ResourcePoliciesByPolicyID": { functionName: "deleteResourcePolicy", domainName: "rbac", domainMethodName: "deleteResourcePolicy", pathParamNames: ["policyID"], summary: "Delete resource policy" },
