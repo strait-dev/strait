@@ -2922,3 +2922,105 @@ func TestManagedDispatch_OOM_PreservesSnoozeCount(t *testing.T) {
 		}
 	}
 }
+
+// Phase 3: STRAIT_CLEAN_START tests.
+
+func TestManagedDispatch_PooledMachine_HasCleanStart(t *testing.T) {
+	t.Parallel()
+
+	var capturedEnv map[string]string
+	pool := compute.NewMachinePool(3)
+	pool.Release("alpine:latest", "iad", "pooled-m")
+
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, env map[string]string) error {
+			capturedEnv = env
+			return nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.machinePool = pool
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv["STRAIT_CLEAN_START"] != "true" {
+		t.Errorf("expected STRAIT_CLEAN_START=true for pooled machine, got %q", capturedEnv["STRAIT_CLEAN_START"])
+	}
+}
+
+func TestManagedDispatch_PausedMachine_HasCleanStart(t *testing.T) {
+	t.Parallel()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		startFn: func(_ context.Context, _ string, env map[string]string) error {
+			capturedEnv = env
+			return nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.MachineID = "paused-m"
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv["STRAIT_CLEAN_START"] != "true" {
+		t.Errorf("expected STRAIT_CLEAN_START=true for paused machine, got %q", capturedEnv["STRAIT_CLEAN_START"])
+	}
+}
+
+func TestManagedDispatch_ColdCreate_NoCleanStart(t *testing.T) {
+	t.Parallel()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "new-m", nil
+		},
+		waitFn: func(_ context.Context, machineID string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: machineID, ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if _, ok := capturedEnv["STRAIT_CLEAN_START"]; ok {
+		t.Error("cold create should NOT have STRAIT_CLEAN_START")
+	}
+}

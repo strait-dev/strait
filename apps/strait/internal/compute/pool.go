@@ -17,6 +17,7 @@ type MachinePool struct {
 type poolEntry struct {
 	MachineID string
 	StoppedAt time.Time
+	LastRunID string
 }
 
 // NewMachinePool creates a new machine pool with the given max entries per key.
@@ -41,6 +42,12 @@ func (p *MachinePool) SetOnEvict(fn func(machineID string)) {
 // PoolKey returns the cache key for a given image and region.
 func PoolKey(imageURI, region string) string {
 	return imageURI + ":" + region
+}
+
+// AcquireResult holds the machine ID and metadata from a pool Acquire.
+type AcquireResult struct {
+	MachineID string
+	LastRunID string
 }
 
 // Acquire removes and returns the oldest machine from the pool for the given key.

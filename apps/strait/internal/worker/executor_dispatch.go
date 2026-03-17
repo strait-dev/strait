@@ -446,9 +446,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	// Try warm pool first (acquire stopped machine and Start with new env).
 	if e.machinePool != nil {
 		if pooledID, ok := e.machinePool.Acquire(job.ImageURI, region); ok {
+			env["STRAIT_CLEAN_START"] = "true"
 			if startErr := e.containerRuntime.Start(ctx, pooledID, env); startErr != nil {
 				e.logger.Warn("pooled machine start failed, falling back to create",
 					"machine_id", pooledID, "run_id", run.ID, "error", startErr)
+				delete(env, "STRAIT_CLEAN_START")
 			} else {
 				machineID = pooledID
 				dispatchSource = "pool"
@@ -457,9 +459,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 	// Try reusing a paused machine (machine_id preserved from pause).
 	if machineID == "" && run.MachineID != "" {
+		env["STRAIT_CLEAN_START"] = "true"
 		if startErr := e.containerRuntime.Start(ctx, run.MachineID, env); startErr != nil {
 			e.logger.Warn("paused machine start failed, creating new",
 				"machine_id", run.MachineID, "run_id", run.ID, "error", startErr)
+			delete(env, "STRAIT_CLEAN_START")
 		} else {
 			machineID = run.MachineID
 			dispatchSource = "pause_reuse"
