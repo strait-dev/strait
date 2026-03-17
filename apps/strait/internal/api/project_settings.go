@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"strait/internal/compute"
+	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -35,7 +35,7 @@ func (s *Server) handleGetProjectSettings(w http.ResponseWriter, r *http.Request
 
 	resp := ProjectSettingsResponse{
 		ProjectID: projectID,
-		PlanTier:  "free",
+		PlanTier:  string(domain.PlanFree),
 	}
 	if quota != nil {
 		resp.DefaultRegion = quota.DefaultRegion
@@ -62,8 +62,8 @@ func (s *Server) handleUpdateProjectSettings(w http.ResponseWriter, r *http.Requ
 
 	if req.DefaultRegion != nil {
 		region := *req.DefaultRegion
-		if region != "" && !compute.IsValidRegion(region) {
-			respondError(w, r, http.StatusBadRequest, "invalid region: "+region)
+		// Validate region code and plan-based gating.
+		if !s.validateRegionForPlan(w, r, projectID, region) {
 			return
 		}
 		if err := s.store.UpdateProjectDefaultRegion(r.Context(), projectID, region); err != nil {

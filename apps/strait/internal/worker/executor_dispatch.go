@@ -419,7 +419,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 
 	// 7. Resolve region: job config > project default > run metadata hint > executor default.
 	region := job.Region
-	if region == "" && quota != nil && quota.DefaultRegion != "" {
+	if region == "" && quota != nil && quota.DefaultRegion != "" && compute.IsValidRegion(quota.DefaultRegion) {
 		region = quota.DefaultRegion
 	}
 	if region == "" {

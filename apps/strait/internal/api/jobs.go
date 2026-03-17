@@ -165,63 +165,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Region validation.
-	if req.Region != "" && !compute.IsValidRegion(req.Region) {
-		respondError(w, r, http.StatusBadRequest, "invalid region: "+req.Region)
+	// Region and plan-based gating validation.
+	if !s.validateRegionForPlan(w, r, req.ProjectID, req.Region) {
 		return
 	}
-
-	// Plan-based region gating.
-	if req.Region != "" && s.config.EnforceRegionGating {
-		quota, qErr := s.store.GetProjectQuota(r.Context(), req.ProjectID)
-		if qErr != nil {
-			respondError(w, r, http.StatusInternalServerError, "failed to check plan")
-			return
-		}
-		tier := domain.PlanFree
-		if quota != nil && quota.PlanTier != "" {
-			tier = domain.PlanTier(quota.PlanTier)
-		}
-		if !domain.IsRegionAllowed(tier, req.Region) {
-			respondError(w, r, http.StatusForbidden, "region "+req.Region+" is not available on your plan")
-			return
-		}
-	}
-
-	// Preferred regions validation.
-	if len(req.PreferredRegions) > 0 {
-		for _, pr := range req.PreferredRegions {
-			if !compute.IsValidRegion(pr) {
-				respondError(w, r, http.StatusBadRequest, "invalid preferred region: "+pr)
-				return
-			}
-		}
-		if s.config.EnforceRegionGating {
-			quota, qErr := s.store.GetProjectQuota(r.Context(), req.ProjectID)
-			if qErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to check plan")
-				return
-			}
-			tier := domain.PlanFree
-			if quota != nil && quota.PlanTier != "" {
-				tier = domain.PlanTier(quota.PlanTier)
-			}
-			cfg := domain.GetPlanConfig(tier)
-			if !cfg.MultiRegion {
-				respondError(w, r, http.StatusForbidden, "multi-region is not available on your plan")
-				return
-			}
-			if len(req.PreferredRegions) > cfg.MaxRegions {
-				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many preferred regions (max %d for your plan)", cfg.MaxRegions))
-				return
-			}
-			for _, pr := range req.PreferredRegions {
-				if !domain.IsRegionAllowed(tier, pr) {
-					respondError(w, r, http.StatusForbidden, "region "+pr+" is not available on your plan")
-					return
-				}
-			}
-		}
+	if !s.validatePreferredRegionsForPlan(w, r, req.ProjectID, req.PreferredRegions) {
+		return
 	}
 
 	// Execution mode validation.
@@ -544,33 +493,14 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		job.ImageURI = *req.ImageURI
 	}
 	if req.Region != nil {
-		if *req.Region != "" && !compute.IsValidRegion(*req.Region) {
-			respondError(w, r, http.StatusBadRequest, "invalid region: "+*req.Region)
+		if !s.validateRegionForPlan(w, r, job.ProjectID, *req.Region) {
 			return
-		}
-		if *req.Region != "" && s.config.EnforceRegionGating {
-			quota, qErr := s.store.GetProjectQuota(r.Context(), job.ProjectID)
-			if qErr != nil {
-				respondError(w, r, http.StatusInternalServerError, "failed to check plan")
-				return
-			}
-			tier := domain.PlanFree
-			if quota != nil && quota.PlanTier != "" {
-				tier = domain.PlanTier(quota.PlanTier)
-			}
-			if !domain.IsRegionAllowed(tier, *req.Region) {
-				respondError(w, r, http.StatusForbidden, "region "+*req.Region+" is not available on your plan")
-				return
-			}
 		}
 		job.Region = *req.Region
 	}
 	if req.PreferredRegions != nil {
-		for _, pr := range *req.PreferredRegions {
-			if !compute.IsValidRegion(pr) {
-				respondError(w, r, http.StatusBadRequest, "invalid preferred region: "+pr)
-				return
-			}
+		if !s.validatePreferredRegionsForPlan(w, r, job.ProjectID, *req.PreferredRegions) {
+			return
 		}
 		job.PreferredRegions = *req.PreferredRegions
 	}
@@ -688,6 +618,11 @@ func (s *Server) handleCloneJob(w http.ResponseWriter, r *http.Request) {
 		Enabled:              true,
 		VersionPolicy:        source.VersionPolicy,
 		BackwardsCompatible:  source.BackwardsCompatible,
+		ExecutionMode:        source.ExecutionMode,
+		MachinePreset:        source.MachinePreset,
+		ImageURI:             source.ImageURI,
+		Region:               source.Region,
+		PreferredRegions:     source.PreferredRegions,
 		CreatedBy:            actorFromContext(r.Context()),
 		UpdatedBy:            actorFromContext(r.Context()),
 	}
@@ -835,6 +770,18 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Region validation.
+		if jobReq.Region != "" && !compute.IsValidRegion(jobReq.Region) {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid region: " + jobReq.Region})
+			continue
+		}
+		for _, pr := range jobReq.PreferredRegions {
+			if !compute.IsValidRegion(pr) {
+				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid preferred region: " + pr})
+				continue
+			}
+		}
+
 		job := &domain.Job{
 			ProjectID:           jobReq.ProjectID,
 			GroupID:             jobReq.GroupID,
@@ -858,6 +805,8 @@ func (s *Server) handleBatchCreateJobs(w http.ResponseWriter, r *http.Request) {
 			RetryStrategy:       jobReq.RetryStrategy,
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
 			EnvironmentID:       jobReq.EnvironmentID,
+			Region:              jobReq.Region,
+			PreferredRegions:    jobReq.PreferredRegions,
 			Enabled:             true,
 		}
 
