@@ -191,9 +191,12 @@ func (q *Queries) ListWorkflowVersions(ctx context.Context, workflowID string, l
 	defer span.End()
 
 	query := `
-		SELECT id, workflow_id, version, project_id, name, slug, description, enabled,
-		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-		       version_id, created_by, updated_by, created_at
+		SELECT id, workflow_id, version, project_id, name, slug,
+		       COALESCE(description, ''), enabled,
+		       timeout_secs, max_concurrent_runs, max_parallel_steps,
+		       COALESCE(cron, ''), COALESCE(cron_timezone, ''), skip_if_running,
+		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, ''),
+		       created_at
 		FROM workflow_versions
 		WHERE workflow_id = $1
 		ORDER BY version DESC
@@ -231,9 +234,12 @@ func (q *Queries) GetWorkflowVersionByVersionID(ctx context.Context, workflowID,
 	defer span.End()
 
 	query := `
-		SELECT id, workflow_id, version, project_id, name, slug, description, enabled,
-		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-		       version_id, created_by, updated_by, created_at
+		SELECT id, workflow_id, version, project_id, name, slug,
+		       COALESCE(description, ''), enabled,
+		       timeout_secs, max_concurrent_runs, max_parallel_steps,
+		       COALESCE(cron, ''), COALESCE(cron_timezone, ''), skip_if_running,
+		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, ''),
+		       created_at
 		FROM workflow_versions
 		WHERE workflow_id = $1 AND version_id = $2`
 
