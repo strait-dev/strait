@@ -3024,3 +3024,156 @@ func TestManagedDispatch_ColdCreate_NoCleanStart(t *testing.T) {
 		t.Error("cold create should NOT have STRAIT_CLEAN_START")
 	}
 }
+
+// Phase 4: Budget soft-limit warning tests.
+
+func TestManagedDispatch_BudgetWarning_CrossingThreshold(t *testing.T) {
+	t.Parallel()
+
+	var warningInserted atomic.Bool
+	store := &mockExecutorStore{
+		getProjectQuotaFn: func(_ context.Context, _ string) (*orcstore.ProjectQuota, error) {
+			return &orcstore.ProjectQuota{
+				ProjectID:                     "proj-1",
+				ComputeDailyCostLimitMicrousd: 10000, // $0.01
+			}, nil
+		},
+		sumDailyComputeCostFn: func(_ context.Context, _, _ string) (int64, error) {
+			return 7500, nil // 75% — adding estimate should cross 80%
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			if event.Type == domain.EventType("budget_warning") {
+				warningInserted.Store(true)
+				var data map[string]any
+				if err := json.Unmarshal(event.Data, &data); err != nil {
+					t.Errorf("failed to parse warning data: %v", err)
+				}
+				if _, ok := data["project_id"]; !ok {
+					t.Error("warning should contain project_id")
+				}
+				if _, ok := data["percentage"]; !ok {
+					t.Error("warning should contain percentage")
+				}
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.TimeoutSecs = 300 // estimated = 17 * 300 = 5100; 7500+5100 = 12600 > 8000 (80%)
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if !warningInserted.Load() {
+		t.Error("expected budget warning event when crossing 80% threshold")
+	}
+}
+
+func TestManagedDispatch_BudgetWarning_AlreadyAbove_NoWarning(t *testing.T) {
+	t.Parallel()
+
+	var warningInserted atomic.Bool
+	store := &mockExecutorStore{
+		getProjectQuotaFn: func(_ context.Context, _ string) (*orcstore.ProjectQuota, error) {
+			return &orcstore.ProjectQuota{
+				ProjectID:                     "proj-1",
+				ComputeDailyCostLimitMicrousd: 10000,
+			}, nil
+		},
+		sumDailyComputeCostFn: func(_ context.Context, _, _ string) (int64, error) {
+			return 9000, nil // 90% — already above threshold, no warning
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			if event.Type == domain.EventType("budget_warning") {
+				warningInserted.Store(true)
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.TimeoutSecs = 300
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if warningInserted.Load() {
+		t.Error("should not fire warning when already above threshold")
+	}
+}
+
+func TestManagedDispatch_BudgetWarning_BelowThreshold_NoWarning(t *testing.T) {
+	t.Parallel()
+
+	var warningInserted atomic.Bool
+	store := &mockExecutorStore{
+		getProjectQuotaFn: func(_ context.Context, _ string) (*orcstore.ProjectQuota, error) {
+			return &orcstore.ProjectQuota{
+				ProjectID:                     "proj-1",
+				ComputeDailyCostLimitMicrousd: 1000000, // $1 limit — very high
+			}, nil
+		},
+		sumDailyComputeCostFn: func(_ context.Context, _, _ string) (int64, error) {
+			return 100, nil // 0.01% — well below threshold
+		},
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			if event.Type == domain.EventType("budget_warning") {
+				warningInserted.Store(true)
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.TimeoutSecs = 300
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if warningInserted.Load() {
+		t.Error("should not fire warning when below threshold")
+	}
+}

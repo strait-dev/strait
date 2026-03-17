@@ -315,6 +315,13 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			e.logger.Warn("failed to sum daily compute cost", "run_id", run.ID, "error", costErr)
 		} else {
 			estimated, _ := compute.EstimateCost(string(job.MachinePreset), job.TimeoutSecs)
+
+			// Soft-limit warning at threshold percentage.
+			threshold := quota.ComputeDailyCostLimitMicrousd * int64(domain.ComputeBudgetAlertThresholdPct) / 100
+			if dailyCost+estimated > threshold && dailyCost < threshold {
+				e.emitBudgetWarning(ctx, run, job, dailyCost, estimated, quota.ComputeDailyCostLimitMicrousd)
+			}
+
 			if dailyCost+estimated > quota.ComputeDailyCostLimitMicrousd {
 				e.logger.Warn("compute budget exceeded",
 					"run_id", run.ID,
@@ -795,6 +802,28 @@ func (e *Executor) recordComputeUsage(ctx context.Context, run *domain.JobRun, j
 	}
 	if err := e.store.CreateRunComputeUsage(ctx, usage); err != nil {
 		e.logger.Warn("failed to record compute usage", "run_id", run.ID, "error", err)
+	}
+}
+
+// emitBudgetWarning inserts a run event warning that compute budget is nearing the limit.
+func (e *Executor) emitBudgetWarning(ctx context.Context, run *domain.JobRun, job *domain.Job, dailyCost, estimated, limit int64) {
+	pct := float64(dailyCost+estimated) * 100 / float64(limit)
+	data, _ := json.Marshal(map[string]any{
+		"project_id":          job.ProjectID,
+		"daily_cost_microusd": dailyCost,
+		"estimated_microusd":  estimated,
+		"limit_microusd":      limit,
+		"percentage":          pct,
+	})
+	event := &domain.RunEvent{
+		RunID:   run.ID,
+		Type:    domain.EventType("budget_warning"),
+		Level:   "warn",
+		Message: fmt.Sprintf("compute budget at %.0f%% of daily limit", pct),
+		Data:    json.RawMessage(data),
+	}
+	if err := e.store.InsertEvent(ctx, event); err != nil {
+		e.logger.Warn("failed to insert budget warning event", "run_id", run.ID, "error", err)
 	}
 }
 
