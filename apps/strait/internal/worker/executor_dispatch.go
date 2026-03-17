@@ -291,7 +291,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
 			return
 		}
-		defer e.managedSemaphore.Release(1)
+		defer e.managedSemaphore.Release(1) // immediately after Acquire to prevent leak on panic
 	}
 
 	if e.metrics != nil {
@@ -584,21 +584,65 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 
-	// Non-zero exit → capture crash logs and fail.
-	if result.Logs != "" {
-		crashEvent := &domain.RunEvent{
-			RunID:   run.ID,
-			Type:    domain.EventType("container_crash_log"),
-			Level:   "error",
-			Message: fmt.Sprintf("container exited with code %d", result.ExitCode),
-			Data:    json.RawMessage(fmt.Sprintf(`{"exit_code":%d,"logs":%q}`, result.ExitCode, result.Logs)),
+	// Non-zero exit → classify signal, capture crash logs, and fail.
+	classification := compute.ClassifyExitCode(result.ExitCode)
+
+	// Belt-and-suspenders: fetch logs if Wait() didn't populate them.
+	if result.Logs == "" && machineID != "" {
+		logCtx, logCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if logs, logErr := e.containerRuntime.GetLogs(logCtx, machineID, 100); logErr == nil && logs != "" {
+			result.Logs = logs
 		}
-		if insertErr := e.store.InsertEvent(ctx, crashEvent); insertErr != nil {
-			e.logger.Warn("failed to store crash log event", "run_id", run.ID, "error", insertErr)
+		logCancel()
+	}
+
+	// Determine crash event type.
+	eventType := domain.EventType("container_crash_log")
+	if classification.IsOOM {
+		eventType = domain.EventType("container_oom")
+	}
+
+	// Build enriched crash event data.
+	crashData := map[string]any{
+		"exit_code":   result.ExitCode,
+		"error_class": classification.ErrorClass,
+		"preset":      string(job.MachinePreset),
+	}
+	if presetInfo, pErr := compute.PresetFromName(string(job.MachinePreset)); pErr == nil {
+		crashData["memory_mb"] = presetInfo.MemoryMB
+	}
+	if result.ExitSignal != "" {
+		crashData["exit_signal"] = result.ExitSignal
+	} else if classification.Signal != "" {
+		crashData["exit_signal"] = classification.Signal
+	}
+	if result.OOMKilled || classification.IsOOM {
+		crashData["oom_killed"] = true
+	}
+	if result.Logs != "" {
+		crashData["logs"] = result.Logs
+	}
+	// Include last checkpoint time if available.
+	if run.Attempt > 1 {
+		cp, cpErr := e.store.GetLatestCheckpoint(ctx, run.ID)
+		if cpErr == nil && cp != nil {
+			crashData["last_checkpoint_at"] = cp.CreatedAt.Format(time.RFC3339)
 		}
 	}
 
-	e.handleManagedFailure(ctx, run, job, result.ExitCode)
+	crashDataJSON, _ := json.Marshal(crashData)
+	crashEvent := &domain.RunEvent{
+		RunID:   run.ID,
+		Type:    eventType,
+		Level:   "error",
+		Message: classification.HumanMessage,
+		Data:    json.RawMessage(crashDataJSON),
+	}
+	if insertErr := e.store.InsertEvent(ctx, crashEvent); insertErr != nil {
+		e.logger.Warn("failed to store crash event", "run_id", run.ID, "error", insertErr)
+	}
+
+	e.handleManagedFailure(ctx, run, job, classification)
 	e.recordManagedMetric(ctx, "failure", dispatchStart)
 }
 
@@ -643,16 +687,14 @@ func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRu
 
 // handleManagedFailure handles a non-zero exit from a managed container.
 // Retries per max_attempts policy; moves to dead_letter when exhausted.
-func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, exitCode int) {
-	errMsg := fmt.Sprintf("container exited with code %d", exitCode)
-
+func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, classification compute.ExitClassification) {
 	if run.Attempt < job.MaxAttempts {
 		retryAt := NextRetryAt(run.Attempt)
 		fields := map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
-			"error":         errMsg,
-			"error_class":   "server",
+			"error":         classification.HumanMessage,
+			"error_class":   classification.ErrorClass,
 			"started_at":    nil,
 			"finished_at":   nil,
 		}
@@ -672,8 +714,8 @@ func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun,
 	run.Status = domain.StatusDeadLetter
 	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
 		"finished_at": now,
-		"error":       errMsg,
-		"error_class": "server",
+		"error":       classification.HumanMessage,
+		"error_class": classification.ErrorClass,
 	}); err != nil {
 		e.logger.Error("failed to mark managed run dead_letter", "run_id", run.ID, "error", err)
 		return

@@ -610,11 +610,15 @@ func TestManagedDispatch_CrashLogs(t *testing.T) {
 		},
 		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
 			eventStored.Store(true)
-			if event.Type != domain.EventType("container_crash_log") {
-				t.Errorf("expected container_crash_log event, got %s", event.Type)
+			// Exit 137 (OOM) → container_oom event type.
+			if event.Type != domain.EventType("container_oom") {
+				t.Errorf("expected container_oom event for exit 137, got %s", event.Type)
 			}
 			if event.Level != "error" {
 				t.Errorf("expected error level, got %s", event.Level)
+			}
+			if event.Message != "container killed by OOM (SIGKILL)" {
+				t.Errorf("expected OOM message, got %s", event.Message)
 			}
 			return nil
 		},
@@ -2348,4 +2352,346 @@ func TestManagedDispatch_MetricsRecordColdStart(t *testing.T) {
 	e := newManagedTestExecutor(store, runtime)
 	e.managedDispatch(context.Background(), newTestRun(), newTestManagedJob())
 	// No pool, no paused machine → cold_start path → metrics recorded.
+}
+
+// Phase 1: Exit code classification tests.
+
+func TestManagedDispatch_Exit137_OOM_ErrorClass(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedErrorClass string
+	var capturedEventType domain.EventType
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if ec, ok := fields["error_class"]; ok {
+				capturedErrorClass = ec.(string)
+			}
+			return nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			capturedEventType = event.Type
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 137,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedErrorClass != "out_of_memory" {
+		t.Errorf("expected error_class out_of_memory, got %s", capturedErrorClass)
+	}
+	if capturedEventType != domain.EventType("container_oom") {
+		t.Errorf("expected container_oom event, got %s", capturedEventType)
+	}
+}
+
+func TestManagedDispatch_Exit143_GracefulShutdown(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedErrorClass string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
+			if ec, ok := fields["error_class"]; ok {
+				capturedErrorClass = ec.(string)
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 143,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedErrorClass != "graceful_shutdown" {
+		t.Errorf("expected error_class graceful_shutdown, got %s", capturedErrorClass)
+	}
+}
+
+func TestManagedDispatch_Exit139_Segfault(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedErrorClass string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
+			if ec, ok := fields["error_class"]; ok {
+				capturedErrorClass = ec.(string)
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 139,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedErrorClass != "segfault" {
+		t.Errorf("expected error_class segfault, got %s", capturedErrorClass)
+	}
+}
+
+func TestManagedDispatch_Exit1_ApplicationError(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedErrorClass string
+	var capturedEventType domain.EventType
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
+			if ec, ok := fields["error_class"]; ok {
+				capturedErrorClass = ec.(string)
+			}
+			return nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			capturedEventType = event.Type
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 1,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedErrorClass != "application_error" {
+		t.Errorf("expected error_class application_error, got %s", capturedErrorClass)
+	}
+	if capturedEventType != domain.EventType("container_crash_log") {
+		t.Errorf("expected container_crash_log event for non-OOM, got %s", capturedEventType)
+	}
+}
+
+func TestManagedDispatch_CrashEventAlwaysInserted(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var eventStored atomic.Bool
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			eventStored.Store(true)
+			// Verify crash event data contains preset and memory_mb.
+			var data map[string]any
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				t.Errorf("failed to parse crash event data: %v", err)
+			}
+			if _, ok := data["preset"]; !ok {
+				t.Error("crash event data should contain preset")
+			}
+			if _, ok := data["memory_mb"]; !ok {
+				t.Error("crash event data should contain memory_mb")
+			}
+			if _, ok := data["error_class"]; !ok {
+				t.Error("crash event data should contain error_class")
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 1,
+				StartedAt: &now, FinishedAt: &now,
+				// No logs — event should still be inserted.
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if !eventStored.Load() {
+		t.Error("crash event should always be inserted, even without logs")
+	}
+}
+
+func TestManagedDispatch_CrashEventIncludesCheckpoint(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	checkpointTime := now.Add(-5 * time.Minute)
+
+	var crashData map[string]any
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		getLatestCheckpointFn: func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+			return &domain.RunCheckpoint{
+				State:     json.RawMessage(`{"step": 2}`),
+				CreatedAt: checkpointTime,
+			}, nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			if err := json.Unmarshal(event.Data, &crashData); err != nil {
+				t.Fatalf("failed to parse event data: %v", err)
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 1,
+				StartedAt: &now, FinishedAt: &now,
+			}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 2 // Retry — checkpoint should be loaded.
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if crashData == nil {
+		t.Fatal("expected crash event data")
+	}
+	if _, ok := crashData["last_checkpoint_at"]; !ok {
+		t.Error("crash event data should contain last_checkpoint_at for retried run")
+	}
+}
+
+func TestManagedDispatch_BeltAndSuspendersLogFetch(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	var capturedLogs string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}, nil
+		},
+		insertEventFn: func(_ context.Context, event *domain.RunEvent) error {
+			var data map[string]any
+			if err := json.Unmarshal(event.Data, &data); err == nil {
+				if logs, ok := data["logs"]; ok {
+					capturedLogs = logs.(string)
+				}
+			}
+			return nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			return &compute.RunResult{
+				MachineID: "test-machine", ExitCode: 1,
+				StartedAt: &now, FinishedAt: &now,
+				Logs: "", // Empty logs from Wait.
+			}, nil
+		},
+		getLogsFn: func(_ context.Context, _ string, _ int) (string, error) {
+			return "belt-and-suspenders logs", nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	run.Attempt = 1
+	job := newTestManagedJob()
+	job.MaxAttempts = 3
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedLogs != "belt-and-suspenders logs" {
+		t.Errorf("expected belt-and-suspenders logs, got %q", capturedLogs)
+	}
 }

@@ -1149,3 +1149,207 @@ func (t *trackingReadCloser) Close() error {
 	}
 	return t.ReadCloser.Close()
 }
+
+// Phase 1 tests: Wait() HTTP validation, crash logs, getExitEvent enrichment.
+
+func TestFlyWait_404_ReturnsMachineGone(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-gone/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Wait(context.Background(), "m-gone", 60)
+	if !errors.Is(err, ErrMachineGone) {
+		t.Errorf("expected ErrMachineGone, got %v", err)
+	}
+}
+
+func TestFlyWait_500_ReturnsRetryable(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Wait(context.Background(), "m-1", 60)
+	if !IsRetryable(err) {
+		t.Errorf("expected retryable error for 500, got %v", err)
+	}
+}
+
+func TestFlyWait_408_ReturnsRetryable(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(408)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.Wait(context.Background(), "m-1", 60)
+	if !IsRetryable(err) {
+		t.Errorf("expected retryable error for 408, got %v", err)
+	}
+}
+
+func TestFlyWait_NonZeroExit_LogsPopulated(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"events": []map[string]any{
+				{"type": "exit", "exit_code": 137, "oom_killed": true},
+			},
+		})
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/logs", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("OOM killed output"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	result, err := runtime.Wait(context.Background(), "m-1", 60)
+	if err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if result.ExitCode != 137 {
+		t.Errorf("ExitCode = %d, want 137", result.ExitCode)
+	}
+	if result.Logs == "" {
+		t.Error("expected logs to be populated on non-zero exit")
+	}
+	if result.OOMKilled != true {
+		t.Error("expected OOMKilled=true")
+	}
+}
+
+func TestFlyWait_GetLogsFailure_DoesNotFailWait(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"events": []map[string]any{
+				{"type": "exit", "exit_code": 1},
+			},
+		})
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/logs", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500) // Log fetch fails.
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	result, err := runtime.Wait(context.Background(), "m-1", 60)
+	if err != nil {
+		t.Fatalf("Wait() should succeed even if log fetch fails, got %v", err)
+	}
+	if result.ExitCode != 1 {
+		t.Errorf("ExitCode = %d, want 1", result.ExitCode)
+	}
+	// Logs should be empty since GetLogs returned an error.
+	if result.Logs != "" {
+		t.Errorf("expected empty logs on GetLogs failure, got %q", result.Logs)
+	}
+}
+
+func TestFlyGetLogs_404_ReturnsError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+		_, _ = w.Write([]byte("not found"))
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.GetLogs(context.Background(), "m-gone", 100)
+	if err == nil {
+		t.Error("expected error for 404 GetLogs")
+	}
+}
+
+func TestFlyGetLogs_500_ReturnsError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte("server error"))
+	}))
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	_, err := runtime.GetLogs(context.Background(), "m-1", 100)
+	if err == nil {
+		t.Error("expected error for 500 GetLogs")
+	}
+}
+
+func TestFlyGetExitEvent_NoEventsArray(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		// No events field at all.
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "m-1", "state": "stopped"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	result, err := runtime.Wait(context.Background(), "m-1", 60)
+	if err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if result.ExitCode != -1 {
+		t.Errorf("ExitCode = %d, want -1 (no events)", result.ExitCode)
+	}
+}
+
+func TestFlyGetExitEvent_OOMKilledTrue(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/wait", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"events": []map[string]any{
+				{"type": "exit", "exit_code": 137, "oom_killed": true, "exit_signal": "SIGKILL"},
+			},
+		})
+	})
+	// Logs endpoint for the non-zero exit.
+	mux.HandleFunc("GET /v1/apps/app/machines/m-1/logs", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("oom logs"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	runtime := NewFlyRuntime("tok", "app").WithBaseURL(srv.URL)
+	result, err := runtime.Wait(context.Background(), "m-1", 60)
+	if err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if !result.OOMKilled {
+		t.Error("expected OOMKilled=true")
+	}
+	if result.ExitSignal != "SIGKILL" {
+		t.Errorf("ExitSignal = %q, want SIGKILL", result.ExitSignal)
+	}
+}

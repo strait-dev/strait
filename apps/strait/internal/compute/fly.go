@@ -94,8 +94,10 @@ type flyUpdateRequest struct {
 }
 
 type flyWaitEvent struct {
-	ExitCode int    `json:"exit_code"`
-	ExitedAt string `json:"exited_at"`
+	ExitCode   int    `json:"exit_code"`
+	ExitedAt   string `json:"exited_at"`
+	ExitSignal string `json:"exit_signal,omitempty"`
+	OOMKilled  bool   `json:"oom_killed,omitempty"`
 }
 
 // Run creates a Fly Machine, starts it, waits for exit, and returns the result.
@@ -202,14 +204,38 @@ func (f *FlyRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int
 		return result, NewRetryableError(0, "wait request failed", err)
 	}
 	defer waitResp.Body.Close()
+	_, _ = io.ReadAll(io.LimitReader(waitResp.Body, 1<<20)) // Drain body for connection reuse.
 
 	finished := time.Now()
 	result.FinishedAt = &finished
 
-	if waitResp.StatusCode == 200 {
-		status, statusErr := f.getExitEvent(ctx, machineID)
-		if statusErr == nil {
-			result.ExitCode = status.ExitCode
+	// Validate HTTP response status.
+	switch {
+	case waitResp.StatusCode == 404:
+		return result, ErrMachineGone
+	case waitResp.StatusCode == 408:
+		return result, NewRetryableError(408, "wait timed out", nil)
+	case waitResp.StatusCode >= 500:
+		return result, NewRetryableError(waitResp.StatusCode, fmt.Sprintf("wait server error: status %d", waitResp.StatusCode), nil)
+	case waitResp.StatusCode == 200:
+		// Success — fetch exit event details.
+	default:
+		return result, NewRetryableError(waitResp.StatusCode, fmt.Sprintf("wait unexpected status: %d", waitResp.StatusCode), nil)
+	}
+
+	status, statusErr := f.getExitEvent(ctx, machineID)
+	if statusErr == nil {
+		result.ExitCode = status.ExitCode
+		result.ExitSignal = status.ExitSignal
+		result.OOMKilled = status.OOMKilled
+	}
+
+	// Fetch crash logs on non-zero exit (best-effort).
+	if result.ExitCode != 0 {
+		logCtx, logCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer logCancel()
+		if logs, logErr := f.GetLogs(logCtx, machineID, 100); logErr == nil {
+			result.Logs = logs
 		}
 	}
 
@@ -232,8 +258,10 @@ func (f *FlyRuntime) getExitEvent(ctx context.Context, machineID string) (*flyWa
 
 	var data struct {
 		Events []struct {
-			Type     string `json:"type"`
-			ExitCode int    `json:"exit_code"`
+			Type       string `json:"type"`
+			ExitCode   int    `json:"exit_code"`
+			ExitSignal string `json:"exit_signal,omitempty"`
+			OOMKilled  bool   `json:"oom_killed,omitempty"`
 		} `json:"events"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -242,7 +270,11 @@ func (f *FlyRuntime) getExitEvent(ctx context.Context, machineID string) (*flyWa
 
 	for _, e := range data.Events {
 		if e.Type == "exit" {
-			return &flyWaitEvent{ExitCode: e.ExitCode}, nil
+			return &flyWaitEvent{
+				ExitCode:   e.ExitCode,
+				ExitSignal: e.ExitSignal,
+				OOMKilled:  e.OOMKilled,
+			}, nil
 		}
 	}
 	return &flyWaitEvent{ExitCode: -1}, nil
@@ -450,6 +482,11 @@ func (f *FlyRuntime) GetLogs(ctx context.Context, machineID string, lines int) (
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // Cap at 1MB.
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("get logs failed: status %d: %s", resp.StatusCode, redactBody(body))
+	}
+
 	return string(body), nil
 }
 

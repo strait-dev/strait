@@ -54,6 +54,8 @@ type RunRequest struct {
 type RunResult struct {
 	MachineID  string     // Provider-assigned container/machine ID.
 	ExitCode   int        // Process exit code (0 = success).
+	ExitSignal string     // Signal name if killed by signal (e.g. "SIGKILL").
+	OOMKilled  bool       // Whether the container was killed by the OOM killer.
 	StartedAt  *time.Time // When the container started running.
 	FinishedAt *time.Time // When the container exited.
 	Logs       string     // Last N lines of stdout/stderr (on crash).
