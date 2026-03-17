@@ -195,14 +195,14 @@ export function RunDetailSheet({
           )}
 
           {/* Logs */}
-          <CollapsibleSection title="Logs">
+          <CollapsibleSection defaultOpen title="Logs">
             <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap text-muted-foreground text-xs">
               No logs available for this run.
             </pre>
           </CollapsibleSection>
 
           {/* Payload */}
-          <CollapsibleSection title="Payload">
+          <CollapsibleSection defaultOpen title="Payload">
             <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap text-muted-foreground text-xs">
               {run.payload
                 ? JSON.stringify(run.payload, null, 2)

@@ -45,10 +45,12 @@ function DetailRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
-      <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto font-mono text-sm">{value}</span>
+    <div className="flex items-start justify-between gap-2 text-sm">
+      <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+        <HugeiconsIcon className="shrink-0" icon={icon} size={14} />
+        {label}
+      </span>
+      <span className="truncate text-right font-mono text-sm">{value}</span>
     </div>
   );
 }

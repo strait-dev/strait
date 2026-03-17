@@ -268,7 +268,7 @@ function WebhookDetailSheet({
 
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="flex flex-col overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <HugeiconsIcon
@@ -280,7 +280,7 @@ function WebhookDetailSheet({
           </SheetTitle>
         </SheetHeader>
 
-        <div className="mt-4 space-y-6">
+        <div className="mt-4 flex-1 space-y-6 overflow-y-auto px-6">
           {/* Status */}
           <div className="flex items-center gap-2">
             <StatusBadge status={webhook.active ? "completed" : "pending"} />
@@ -297,7 +297,7 @@ function WebhookDetailSheet({
                 icon={GlobeIcon}
                 size={14}
               />
-              <code className="break-all text-xs">{webhook.webhook_url}</code>
+              <code className="min-w-0 break-all text-xs">{webhook.webhook_url}</code>
             </div>
           </div>
 
@@ -321,9 +321,9 @@ function WebhookDetailSheet({
               Metadata
             </h4>
             <div className="space-y-1.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">ID</span>
-                <code className="text-xs">{webhook.id}</code>
+              <div className="flex items-center justify-between gap-2">
+                <span className="shrink-0 text-muted-foreground">ID</span>
+                <code className="truncate text-xs">{webhook.id}</code>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Created</span>
