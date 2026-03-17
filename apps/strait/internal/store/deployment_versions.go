@@ -107,10 +107,10 @@ func (q *Queries) CreateDeploymentVersion(ctx context.Context, deployment *domai
 		deployment.Runtime,
 		deployment.ArtifactURI,
 		manifest,
-		dbscan.NilIfEmptyString(deployment.Checksum),
+		deployment.Checksum,
 		string(deployment.Status),
-		dbscan.NilIfEmptyString(deployment.CreatedBy),
-		dbscan.NilIfEmptyString(deployment.UpdatedBy),
+		deployment.CreatedBy,
+		deployment.UpdatedBy,
 	).Scan(&deployment.CreatedAt, &deployment.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create deployment version: %w", err)
