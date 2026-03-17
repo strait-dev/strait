@@ -28,7 +28,7 @@ const DEFAULT_EMPTY_STATE = (
     buttonText="Create"
     description="There is no data available for display."
     href="/app/customers/add"
-    icon={<HugeiconsIcon className="size-6 text-primary" icon={UsersIcon} />}
+    icon={<HugeiconsIcon className="size-6 text-foreground" icon={UsersIcon} />}
     title="No data found"
   />
 );
@@ -99,7 +99,7 @@ export const DataTable = <TData,>({
               {rows.length ? (
                 rows.map((row, index) => (
                   <TableRow
-                    className="transition-colors duration-150 hover:bg-muted/40 data-[state=selected]:bg-primary/5"
+                    className="transition-colors duration-150 hover:bg-muted/40 data-[state=selected]:bg-muted/50"
                     data-row-index={index}
                     data-state={row.getIsSelected() && "selected"}
                     key={row.id}

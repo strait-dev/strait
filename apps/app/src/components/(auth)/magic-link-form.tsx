@@ -52,10 +52,10 @@ export const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
   if (sent) {
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <div className="rounded-lg bg-primary/10 p-3">
+        <div className="rounded-lg bg-muted p-3">
           <svg
             aria-hidden="true"
-            className="size-6 text-primary"
+            className="size-6 text-foreground"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"

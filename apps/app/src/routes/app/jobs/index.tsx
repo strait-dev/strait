@@ -201,7 +201,7 @@ function JobsPage() {
               hideButton
               icon={
                 <HugeiconsIcon
-                  className="size-6 text-primary"
+                  className="size-6 text-foreground"
                   icon={BriefcaseIcon}
                 />
               }

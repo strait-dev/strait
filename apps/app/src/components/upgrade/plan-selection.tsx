@@ -223,7 +223,7 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
   <div className="mt-4 grow space-y-2">
     {plan.includesFromPrevious ? (
       <div className="flex items-start gap-2 border-border/50 border-b pb-2">
-        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-primary">
+        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-foreground">
           <RadixCheckIcon className="size-3" />
         </div>
         <span className="font-medium text-muted-foreground/80 text-xs">
@@ -236,7 +236,7 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
       .slice(0, 5)
       .map((feature: PricingFeature) => (
         <div className="flex items-start gap-2" key={feature.name}>
-          <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-primary">
+          <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-foreground">
             <RadixCheckIcon className="size-3" />
           </div>
           <span className="text-muted-foreground/80 text-xs">
@@ -318,9 +318,9 @@ const PricingCard = ({
         "bg-card",
         "border-2",
         isSelected
-          ? "border-primary shadow-lg ring-2 ring-primary/20"
-          : "border-border hover:border-primary/30",
-        !!plan.highlight && !isSelected && "border-primary/20"
+          ? "border-foreground shadow-lg ring-2 ring-foreground/20"
+          : "border-border hover:border-foreground/30",
+        !!plan.highlight && !isSelected && "border-foreground/20"
       )}
       onClick={handleCardClick}
       onKeyDown={(e) => {
@@ -348,7 +348,7 @@ const PricingCard = ({
               className={cn(
                 "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
                 isSelected
-                  ? "border-primary bg-primary text-primary-foreground"
+                  ? "border-foreground bg-foreground text-background"
                   : "border-muted-foreground/30"
               )}
             >
