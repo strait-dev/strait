@@ -479,6 +479,28 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	if machineID == "" {
 		machineID, createErr = e.containerRuntime.Create(ctx, runReq)
 		dispatchSource = "cold_start"
+
+		// Multi-region failover: on 503, try fallback regions (only if user didn't pin a region).
+		if createErr != nil && job.Region == "" {
+			var re *compute.RuntimeError
+			if errors.As(createErr, &re) && re.StatusCode == 503 {
+				fallbacks := compute.RegionFallbackChain(region)
+				for _, fbRegion := range fallbacks {
+					e.logger.Info("attempting region failover",
+						"run_id", run.ID, "from", region, "to", fbRegion)
+					runReq.Region = fbRegion
+					machineID, createErr = e.containerRuntime.Create(ctx, runReq)
+					if createErr == nil {
+						region = fbRegion // Update region for metadata tracking.
+						break
+					}
+					var fbRE *compute.RuntimeError
+					if !errors.As(createErr, &fbRE) || fbRE.StatusCode != 503 {
+						break // Only fallback on 503.
+					}
+				}
+			}
+		}
 	}
 	if createErr != nil {
 		// Fly-specific error classification for observability.

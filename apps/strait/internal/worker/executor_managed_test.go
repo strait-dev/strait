@@ -3177,3 +3177,136 @@ func TestManagedDispatch_BudgetWarning_BelowThreshold_NoWarning(t *testing.T) {
 		t.Error("should not fire warning when below threshold")
 	}
 }
+
+// Phase 6: Multi-region failover tests.
+
+func TestManagedDispatch_503Failover_SecondRegionSucceeds(t *testing.T) {
+	t.Parallel()
+
+	var capturedRegions []string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedRegions = append(capturedRegions, req.Region)
+			if req.Region == "iad" {
+				return "", compute.NewRetryableError(503, "capacity unavailable", nil)
+			}
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = "" // Not pinned.
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if len(capturedRegions) < 2 {
+		t.Fatalf("expected at least 2 Create calls for failover, got %d", len(capturedRegions))
+	}
+	if capturedRegions[0] != "iad" {
+		t.Errorf("first region should be iad, got %s", capturedRegions[0])
+	}
+	// Second region should be from iad's fallback chain.
+	if capturedRegions[1] != "ewr" {
+		t.Errorf("second region should be ewr (iad fallback), got %s", capturedRegions[1])
+	}
+}
+
+func TestManagedDispatch_PinnedRegion_NoFailover(t *testing.T) {
+	t.Parallel()
+
+	var createCalls int
+	store := &mockExecutorStore{}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalls++
+			return "", compute.NewRetryableError(503, "capacity unavailable", nil)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = "iad" // Pinned.
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if createCalls != 1 {
+		t.Errorf("expected exactly 1 Create call for pinned region (no failover), got %d", createCalls)
+	}
+}
+
+func TestManagedDispatch_500_NoFailover(t *testing.T) {
+	t.Parallel()
+
+	var createCalls int
+	store := &mockExecutorStore{}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			createCalls++
+			return "", compute.NewRetryableError(500, "server error", nil)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = "" // Not pinned.
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if createCalls != 1 {
+		t.Errorf("expected exactly 1 Create call for 500 (no failover), got %d", createCalls)
+	}
+}
+
+func TestManagedDispatch_All503_Snoozes(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, _ compute.RunRequest) (string, error) {
+			return "", compute.NewRetryableError(503, "capacity unavailable", nil)
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime, func(e *Executor) {
+		e.defaultFlyRegion = "iad"
+	})
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.Region = ""
+
+	e.managedDispatch(context.Background(), run, job)
+
+	updates := store.statusUpdates()
+	var snoozed bool
+	for _, u := range updates {
+		if u.from == domain.StatusExecuting && u.to == domain.StatusQueued {
+			snoozed = true
+		}
+	}
+	if !snoozed {
+		t.Error("expected snooze after all regions 503")
+	}
+}

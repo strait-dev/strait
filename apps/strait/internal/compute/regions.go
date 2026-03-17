@@ -17,6 +17,69 @@ func NearestFlyRegion(hint string) string {
 	return ""
 }
 
+// RegionFallbackChain returns up to 3 geo-proximate alternative regions.
+// Returns nil for unknown regions.
+func RegionFallbackChain(primary string) []string {
+	chain, ok := regionFallbacks[primary]
+	if !ok {
+		return nil
+	}
+	return chain
+}
+
+// regionFallbacks maps each Fly region to geo-proximate alternatives.
+var regionFallbacks = map[string][]string{
+	// North America East
+	"iad": {"ewr", "ord", "atl"},
+	"ewr": {"iad", "bos", "ord"},
+	"atl": {"iad", "mia", "ord"},
+	"bos": {"ewr", "iad", "yul"},
+	"mia": {"atl", "iad", "bog"},
+	"ord": {"iad", "den", "dfw"},
+	"yul": {"ewr", "bos", "iad"},
+	"yyz": {"ewr", "ord", "bos"},
+
+	// North America West
+	"lax": {"sjc", "sea", "phx"},
+	"sjc": {"lax", "sea", "phx"},
+	"sea": {"sjc", "lax", "den"},
+	"den": {"ord", "sea", "dfw"},
+	"phx": {"lax", "den", "dfw"},
+	"dfw": {"ord", "den", "atl"},
+
+	// Europe
+	"lhr": {"cdg", "fra", "ams"},
+	"cdg": {"lhr", "fra", "ams"},
+	"fra": {"cdg", "ams", "waw"},
+	"ams": {"lhr", "cdg", "fra"},
+	"arn": {"fra", "ams", "waw"},
+	"waw": {"fra", "arn", "otp"},
+	"mad": {"cdg", "lhr", "fra"},
+	"otp": {"waw", "fra", "arn"},
+
+	// Asia
+	"nrt": {"hkg", "sin", "icn"},
+	"hkg": {"nrt", "sin", "bom"},
+	"sin": {"hkg", "nrt", "bom"},
+	"bom": {"sin", "hkg", "nrt"},
+	"icn": {"nrt", "hkg", "sin"},
+
+	// Oceania
+	"syd": {"sin", "nrt", "hkg"},
+
+	// Latin America
+	"gru": {"gig", "eze", "scl"},
+	"gig": {"gru", "eze", "bog"},
+	"eze": {"gru", "scl", "gig"},
+	"scl": {"eze", "gru", "bog"},
+	"bog": {"mia", "gru", "gdl"},
+	"gdl": {"dfw", "lax", "qro"},
+	"qro": {"gdl", "dfw", "lax"},
+
+	// Africa
+	"jnb": {"lhr", "cdg", "fra"},
+}
+
 // regionHints maps continent-level hints to a default Fly region.
 var regionHints = map[string]string{
 	"us-east": "iad",
