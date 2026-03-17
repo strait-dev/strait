@@ -412,6 +412,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
+	// Inject memory limit for in-container resource monitoring.
+	if presetInfo, pErr := compute.PresetFromName(string(job.MachinePreset)); pErr == nil {
+		env["STRAIT_MEMORY_LIMIT_MB"] = strconv.Itoa(presetInfo.MemoryMB)
+	}
+
 	// 7. Resolve region: job config > run metadata hint > executor default.
 	region := job.Region
 	if region == "" {

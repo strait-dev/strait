@@ -358,6 +358,7 @@ func (s *Server) routes() chi.Router {
 			r.Get("/state/{key}", s.handleSDKGetState)
 			r.Delete("/state/{key}", s.handleSDKDeleteState)
 			r.Post("/stream", s.handleSDKStreamChunk)
+			r.Post("/resources", s.handleSDKResources)
 		})
 	})
 

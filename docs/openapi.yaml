@@ -4518,6 +4518,38 @@ paths:
         '204':
           description: State key deleted
 
+  /sdk/v1/runs/{runID}/resources:
+    post:
+      tags:
+        - SDK
+      summary: Report in-container resource usage
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                memory_mb:
+                  type: number
+                  format: double
+                memory_percent:
+                  type: number
+                  format: double
+                cpu_percent:
+                  type: number
+                  format: double
+      responses:
+        '201':
+          description: Resource sample stored
   /sdk/v1/runs/{runID}/stream:
     post:
       tags:

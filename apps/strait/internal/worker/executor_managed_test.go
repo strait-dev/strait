@@ -3310,3 +3310,81 @@ func TestManagedDispatch_All503_Snoozes(t *testing.T) {
 		t.Error("expected snooze after all regions 503")
 	}
 }
+
+// Phase 8: STRAIT_MEMORY_LIMIT_MB injection.
+
+func TestManagedDispatch_MemoryLimitInjected(t *testing.T) {
+	t.Parallel()
+
+	var capturedEnv map[string]string
+	store := &mockExecutorStore{
+		getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+		},
+	}
+	runtime := &mockContainerRuntime{
+		createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+			capturedEnv = req.Env
+			return "test-machine", nil
+		},
+		waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+			now := time.Now()
+			return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+		},
+	}
+
+	e := newManagedTestExecutor(store, runtime)
+	run := newTestRun()
+	job := newTestManagedJob()
+	job.MachinePreset = "micro" // 256MB
+
+	e.managedDispatch(context.Background(), run, job)
+
+	if capturedEnv["STRAIT_MEMORY_LIMIT_MB"] != "256" {
+		t.Errorf("expected STRAIT_MEMORY_LIMIT_MB=256, got %q", capturedEnv["STRAIT_MEMORY_LIMIT_MB"])
+	}
+}
+
+func TestManagedDispatch_MemoryLimitPerPreset(t *testing.T) {
+	t.Parallel()
+
+	presetMemory := map[string]string{
+		"micro":     "256",
+		"small-1x":  "512",
+		"small-2x":  "1024",
+		"medium-1x": "4096",
+		"medium-2x": "8192",
+		"large-1x":  "16384",
+		"large-2x":  "32768",
+	}
+
+	for preset, expectedMB := range presetMemory {
+		var capturedEnv map[string]string
+		store := &mockExecutorStore{
+			getRunFn: func(_ context.Context, _ string) (*domain.JobRun, error) {
+				return &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}, nil
+			},
+		}
+		runtime := &mockContainerRuntime{
+			createFn: func(_ context.Context, req compute.RunRequest) (string, error) {
+				capturedEnv = req.Env
+				return "test-machine", nil
+			},
+			waitFn: func(_ context.Context, _ string, _ int) (*compute.RunResult, error) {
+				now := time.Now()
+				return &compute.RunResult{MachineID: "test-machine", ExitCode: 0, StartedAt: &now, FinishedAt: &now}, nil
+			},
+		}
+
+		e := newManagedTestExecutor(store, runtime)
+		run := newTestRun()
+		job := newTestManagedJob()
+		job.MachinePreset = domain.MachinePreset(preset)
+
+		e.managedDispatch(context.Background(), run, job)
+
+		if capturedEnv["STRAIT_MEMORY_LIMIT_MB"] != expectedMB {
+			t.Errorf("preset %s: expected STRAIT_MEMORY_LIMIT_MB=%s, got %q", preset, expectedMB, capturedEnv["STRAIT_MEMORY_LIMIT_MB"])
+		}
+	}
+}
