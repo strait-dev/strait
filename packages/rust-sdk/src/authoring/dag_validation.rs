@@ -99,7 +99,7 @@ pub fn validate_dag(steps: &[Step]) -> Result<Vec<String>, StraitError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authoring::steps::{job_step, BaseStepOptions};
+    use crate::authoring::steps::{BaseStepOptions, job_step};
 
     #[test]
     fn test_valid_linear_dag() {

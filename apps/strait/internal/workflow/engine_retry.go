@@ -177,7 +177,19 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 		}
 		var buildErr error
 		roots, buildErr = e.buildRetryStepRuns(ctx, txStore, wfRun, steps, origStepRunByRef, completedRefs, now)
-		return buildErr
+		if buildErr != nil {
+			return buildErr
+		}
+
+		// Copy run state KV from completed job runs so downstream steps retain context.
+		for ref := range completedRefs {
+			origSR := origStepRunByRef[ref]
+			if origSR.JobRunID != "" {
+				_ = txStore.CopyRunState(ctx, origSR.JobRunID, wfRun.ID)
+			}
+		}
+
+		return nil
 	}); err != nil {
 		return nil, err
 	}

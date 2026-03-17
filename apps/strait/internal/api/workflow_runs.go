@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,6 +157,23 @@ func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request)
 		slog.Warn("failed to cancel event triggers for workflow (non-fatal)", "workflow_run_id", run.ID, "error", triggerErr)
 	}
 
+	// Stop managed containers for cancelled workflow runs (non-fatal).
+	// Use detached context so client disconnect doesn't abort stops.
+	if s.containerRuntime != nil {
+		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(r.Context(), run.ID)
+		if listErr != nil {
+			slog.Warn("failed to list managed machines for workflow cancel", "workflow_run_id", run.ID, "error", listErr)
+		}
+		for _, mid := range machineIDs {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if stopErr := s.containerRuntime.Stop(stopCtx, mid); stopErr != nil {
+				slog.Warn("failed to stop managed container on workflow cancel",
+					"workflow_run_id", run.ID, "machine_id", mid, "error", stopErr)
+			}
+			stopCancel()
+		}
+	}
+
 	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get updated workflow run")
@@ -193,6 +211,27 @@ func (s *Server) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) 
 	if err := s.store.UpdateWorkflowRunStatus(r.Context(), run.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
 		respondError(w, r, http.StatusConflict, "failed to pause workflow run")
 		return
+	}
+
+	// Stop managed containers to save compute (non-fatal).
+	if s.containerRuntime != nil {
+		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(r.Context(), run.ID)
+		if listErr != nil {
+			slog.Warn("failed to list managed machines for workflow pause", "workflow_run_id", run.ID, "error", listErr)
+		}
+		for _, mid := range machineIDs {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if stopErr := s.containerRuntime.Stop(stopCtx, mid); stopErr != nil {
+				slog.Warn("failed to stop managed container on workflow pause",
+					"workflow_run_id", run.ID, "machine_id", mid, "error", stopErr)
+			}
+			stopCancel()
+		}
+	}
+
+	// Mark affected job runs so resume knows to re-dispatch them (non-fatal).
+	if _, markErr := s.store.MarkJobRunsPausedByWorkflowRun(r.Context(), run.ID); markErr != nil {
+		slog.Warn("failed to mark job runs paused", "workflow_run_id", run.ID, "error", markErr)
 	}
 
 	updatedRun, err := s.store.GetWorkflowRun(r.Context(), run.ID)

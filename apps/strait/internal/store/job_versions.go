@@ -20,8 +20,9 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 
 	query := `
 		INSERT INTO job_versions (id, job_id, version, version_id, backwards_compatible, name, slug, description, cron, payload_schema,
-			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18)
+			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs,
+			machine_preset, image_uri, region)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		RETURNING created_at`
 
 	var desc, cronStr, webhookURL, webhookSecret *string
@@ -55,6 +56,7 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 		v.ID, v.JobID, v.Version, dbscan.NilIfEmptyString(v.VersionID), v.BackwardsCompatible,
 		v.Name, v.Slug, desc, cronStr, payloadSchema,
 		tagsJSON, v.EndpointURL, dbscan.NilIfEmptyString(v.FallbackEndpointURL), v.MaxAttempts, v.TimeoutSecs, webhookURL, webhookSecret, runTTL,
+		v.MachinePreset, v.ImageURI, v.Region,
 	).Scan(&v.CreatedAt)
 }
 
@@ -154,7 +156,11 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       COALESCE(jv.result_schema, j.result_schema),
 		       j.debounce_window_secs,
 		       j.batch_window_secs,
-		       j.batch_max_size
+		       j.batch_max_size,
+		       j.execution_mode,
+		       COALESCE(NULLIF(jv.machine_preset, ''), j.machine_preset),
+		       COALESCE(NULLIF(jv.image_uri, ''), j.image_uri),
+		       COALESCE(NULLIF(jv.region, ''), j.region)
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id
 		WHERE jv.job_id = $1 AND jv.version = $2`

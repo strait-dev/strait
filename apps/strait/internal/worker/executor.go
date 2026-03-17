@@ -11,11 +11,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/telemetry"
+
+	"golang.org/x/sync/semaphore"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -35,6 +38,14 @@ type ExecutorStore interface {
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	GetRunErrorClass(ctx context.Context, runID string) (string, error)
+	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
+	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
+	InsertEvent(ctx context.Context, event *domain.RunEvent) error
+	SetRunMachineID(ctx context.Context, runID, machineID string) error
+	RecordOOMEvent(ctx context.Context, jobID, preset string) error
+	GetPresetRecommendation(ctx context.Context, jobID string) (*store.PresetRecommendation, error)
 }
 
 type executionPolicy struct {
@@ -89,6 +100,11 @@ type Executor struct {
 	maxSnoozeCount           int
 	dequeueStrategy          string
 	jwtSigningKey            string
+	containerRuntime         compute.ContainerRuntime
+	managedSemaphore         *semaphore.Weighted
+	machinePool              *compute.MachinePool
+	externalAPIURL           string
+	defaultFlyRegion         string
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -128,6 +144,12 @@ type ExecutorConfig struct {
 	MaxSnoozeCount             int
 	JWTSigningKey              string
 	DequeueStrategy            string
+	ContainerRuntime           compute.ContainerRuntime
+	ExternalAPIURL             string
+	MaxConcurrentMachines      int
+	DefaultFlyRegion           string
+	WarmPoolEnabled            bool
+	WarmPoolMaxPerJob          int
 }
 
 const (
@@ -162,6 +184,28 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		whMaxAttempts = 3
 	}
 
+	var managedSem *semaphore.Weighted
+	if cfg.ContainerRuntime != nil {
+		maxMachines := cfg.MaxConcurrentMachines
+		if maxMachines <= 0 {
+			maxMachines = 10
+		}
+		managedSem = semaphore.NewWeighted(int64(maxMachines))
+	}
+
+	var machinePool *compute.MachinePool
+	if cfg.WarmPoolEnabled {
+		machinePool = compute.NewMachinePool(cfg.WarmPoolMaxPerJob)
+		if cfg.ContainerRuntime != nil {
+			rt := cfg.ContainerRuntime
+			machinePool.SetOnEvict(func(machineID string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = rt.Destroy(ctx, machineID)
+			})
+		}
+	}
+
 	return &Executor{
 		pool:                     cfg.Pool,
 		concurrencyLimit:         cfg.ConcurrencyLimit,
@@ -189,6 +233,11 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		dequeueStrategy:          cfg.DequeueStrategy,
 		jwtSigningKey:            cfg.JWTSigningKey,
+		containerRuntime:         cfg.ContainerRuntime,
+		managedSemaphore:         managedSem,
+		machinePool:              machinePool,
+		externalAPIURL:           cfg.ExternalAPIURL,
+		defaultFlyRegion:         cfg.DefaultFlyRegion,
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}
@@ -336,6 +385,10 @@ func (e *Executor) Run(ctx context.Context) {
 	go e.heartbeat.Run(ctx)
 	go e.runEventLoop()
 
+	if e.machinePool != nil {
+		go e.runPoolPruner(ctx)
+	}
+
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
@@ -367,6 +420,28 @@ func (e *Executor) Run(ctx context.Context) {
 	}
 }
 
+func (e *Executor) runPoolPruner(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-e.stop:
+			return
+		case <-ticker.C:
+			pruned := e.machinePool.Prune(10*time.Minute, func(mid string) error {
+				dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return e.containerRuntime.Destroy(dCtx, mid)
+			})
+			if pruned > 0 {
+				e.logger.Info("pool pruner cleaned machines", "count", pruned)
+			}
+		}
+	}
+}
+
 func (e *Executor) Shutdown(ctx context.Context) error {
 	e.stopOnce.Do(func() {
 		close(e.stop)
@@ -383,6 +458,17 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	}
 
 	e.pollWG.Wait()
+
+	if e.machinePool != nil && e.containerRuntime != nil {
+		drained := e.machinePool.Prune(0, func(mid string) error {
+			dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return e.containerRuntime.Destroy(dCtx, mid)
+		})
+		if drained > 0 {
+			e.logger.Info("shutdown: drained warm pool", "count", drained)
+		}
+	}
 
 	callbackDone := make(chan struct{})
 	go func() {

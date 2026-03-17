@@ -13,184 +13,187 @@ import (
 
 // mockAPIStore implements APIStore for testing.
 type mockAPIStore struct {
-	createJobFn                         func(ctx context.Context, job *domain.Job) error
-	createJobSecretFn                   func(ctx context.Context, secret *domain.JobSecret) error
-	getJobFn                            func(ctx context.Context, id string) (*domain.Job, error)
-	getJobBySlugFn                      func(ctx context.Context, projectID, slug string) (*domain.Job, error)
-	listJobsFn                          func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
-	createJobGroupFn                    func(ctx context.Context, group *domain.JobGroup) error
-	getJobGroupFn                       func(ctx context.Context, id string) (*domain.JobGroup, error)
-	listJobGroupsFn                     func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error)
-	updateJobGroupFn                    func(ctx context.Context, group *domain.JobGroup) error
-	deleteJobFn                         func(ctx context.Context, id string) error
-	deleteJobGroupFn                    func(ctx context.Context, id string) error
-	listJobsByGroupFn                   func(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
-	pauseJobsByGroupFn                  func(ctx context.Context, groupID string) error
-	resumeJobsByGroupFn                 func(ctx context.Context, groupID string) error
-	getJobGroupStatsFn                  func(ctx context.Context, groupID string) (*store.JobGroupStats, error)
-	createEnvironmentFn                 func(ctx context.Context, env *domain.Environment) error
-	getEnvironmentFn                    func(ctx context.Context, id string) (*domain.Environment, error)
-	listEnvironmentsFn                  func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
-	updateEnvironmentFn                 func(ctx context.Context, env *domain.Environment) error
-	deleteEnvironmentFn                 func(ctx context.Context, id string) error
-	getResolvedEnvVarsFn                func(ctx context.Context, id string) (map[string]string, error)
-	listJobSecretsFn                    func(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
-	listJobsByTagFn                     func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
-	createJobDependencyFn               func(ctx context.Context, dep *domain.JobDependency) error
-	listJobDependenciesFn               func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
-	deleteJobDependencyFn               func(ctx context.Context, id string) error
-	areJobDependenciesSatisfiedFn       func(ctx context.Context, run *domain.JobRun) (bool, error)
-	updateJobFn                         func(ctx context.Context, job *domain.Job) error
-	getRunFn                            func(ctx context.Context, id string) (*domain.JobRun, error)
-	getRunByIdempotencyKeyFn            func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
-	findRecentRunByPayloadFn            func(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
-	countRunsForJobSinceFn              func(ctx context.Context, jobID string, since time.Time) (int, error)
-	createRunCheckpointFn               func(ctx context.Context, checkpoint *domain.RunCheckpoint) error
-	listRunCheckpointsFn                func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
-	createRunUsageFn                    func(ctx context.Context, usage *domain.RunUsage) error
-	listRunUsageFn                      func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
-	createRunToolCallFn                 func(ctx context.Context, call *domain.RunToolCall) error
-	listRunToolCallsFn                  func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
-	upsertRunOutputFn                   func(ctx context.Context, output *domain.RunOutput) error
-	listRunOutputsFn                    func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
-	areAllDescendantsTerminalFn         func(ctx context.Context, parentRunID string) (bool, error)
-	getProjectQuotaFn                   func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
-	countProjectQueuedRunsFn            func(ctx context.Context, projectID string) (int, error)
-	countProjectActiveRunsFn            func(ctx context.Context, projectID string) (int, error)
-	listRunsByProjectFn                 func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	listDeadLetterRunsFn                func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	bulkReplayDeadLetterRunsFn          func(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
-	updateRunStatusFn                   func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	replayDeadLetterRunFn               func(ctx context.Context, runID string) (*domain.JobRun, error)
-	updateRunMetadataFn                 func(ctx context.Context, id string, annotations map[string]string) error
-	resetRunIdempotencyKeyFn            func(ctx context.Context, runID string) error
-	listChildRunsFn                     func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	insertEventFn                       func(ctx context.Context, event *domain.RunEvent) error
-	listEventsByRunFilteredFn           func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
-	listWebhookDeliveriesFn             func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	createWebhookSubscriptionFn         func(ctx context.Context, sub *domain.WebhookSubscription) error
-	listWebhookSubscriptionsFn          func(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
-	deleteWebhookSubscriptionFn         func(ctx context.Context, id string) error
-	createAPIKeyFn                      func(ctx context.Context, key *domain.APIKey) error
-	listAPIKeysByProjectFn              func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
-	revokeAPIKeyFn                      func(ctx context.Context, id string) error
-	listJobVersionsByJobFn              func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
-	getAPIKeyByHashFn                   func(ctx context.Context, keyHash string) (*domain.APIKey, error)
-	getAPIKeyByIDFn                     func(ctx context.Context, id string) (*domain.APIKey, error)
-	markAPIKeyRotatedFn                 func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
-	touchAPIKeyLastUsedFn               func(ctx context.Context, id string) error
-	updateHeartbeatFn                   func(ctx context.Context, id string) error
-	batchUpdateHeartbeatFn              func(ctx context.Context, ids []string) error
-	queueStatsFn                        func(ctx context.Context) (*store.QueueStats, error)
-	getPerformanceAnalyticsFn           func(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
-	createWorkflowFn                    func(ctx context.Context, w *domain.Workflow) error
-	getWorkflowFn                       func(ctx context.Context, id string) (*domain.Workflow, error)
-	getWorkflowBySlugFn                 func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
-	listWorkflowsFn                     func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
-	updateWorkflowFn                    func(ctx context.Context, w *domain.Workflow) error
-	createWorkflowSnapshotFn            func(ctx context.Context, workflowID string, version int) error
-	deleteWorkflowFn                    func(ctx context.Context, id string) error
-	createWorkflowStepFn                func(ctx context.Context, step *domain.WorkflowStep) error
-	listStepsByWorkflowFn               func(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
-	listStepsByWorkflowVerFn            func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
-	deleteStepsByWorkflowFn             func(ctx context.Context, workflowID string) error
-	getWorkflowRunFn                    func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listWorkflowRunsFn                  func(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
-	listWorkflowRunsByProjFn            func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
-	listWorkflowsByTagFn                func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
-	listWorkflowRunsByTagFn             func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
-	createWorkflowRunLabelsFn           func(ctx context.Context, workflowRunID string, labels map[string]string) error
-	listWorkflowRunLabelsFn             func(ctx context.Context, workflowRunID string) (map[string]string, error)
-	listStepRunsByRunFn                 func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
-	listWorkflowStepDecisionsFn         func(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error)
-	upsertWorkflowPolicyFn              func(ctx context.Context, p *domain.WorkflowPolicy) error
-	getWorkflowPolicyByProjectFn        func(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
-	listWorkflowVersionsFn              func(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
-	getWorkflowVersionByVersionIDFn     func(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
-	createDeploymentVersionFn           func(ctx context.Context, deployment *domain.DeploymentVersion) error
-	getDeploymentVersionFn              func(ctx context.Context, deploymentID, projectID string) (*domain.DeploymentVersion, error)
-	listDeploymentVersionsFn            func(ctx context.Context, projectID, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
-	finalizeDeploymentVersionFn         func(ctx context.Context, deploymentID, projectID, updatedBy string) (*domain.DeploymentVersion, error)
-	promoteDeploymentVersionFn          func(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
-	rollbackDeploymentVersionFn         func(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
-	updateWorkflowRunStatusFn           func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
-	updateStepRunStatusFn               func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
-	getStepRunByRunAndRefFn             func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
-	getStepApprovalByStepRunFn          func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
-	updateStepApprovalFn                func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
-	deleteJobSecretFn                   func(ctx context.Context, id string) error
-	batchUpdateJobsEnabledFn            func(ctx context.Context, ids []string, enabled bool) (int64, error)
-	getJobHealthStatsFn                 func(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
-	getDebugBundleFn                    func(ctx context.Context, runID string) (*domain.DebugBundle, error)
-	updateRunDebugModeFn                func(ctx context.Context, runID string, debugMode bool) error
-	listEventsFn                        func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
-	createRunFn                         func(ctx context.Context, run *domain.JobRun) error
-	listRunLineageFn                    func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
-	sumRunCostMicrousdFn                func(ctx context.Context, runID string) (int64, error)
-	sumProjectDailyCostMicrousdFn       func(ctx context.Context, projectID string, timezone string) (int64, error)
-	getUserPermissionsFn                func(ctx context.Context, projectID, userID string) ([]string, error)
-	createProjectRoleFn                 func(ctx context.Context, role *domain.ProjectRole) error
-	getProjectRoleFn                    func(ctx context.Context, id string) (*domain.ProjectRole, error)
-	updateProjectRoleFn                 func(ctx context.Context, role *domain.ProjectRole) error
-	listProjectRolesFn                  func(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
-	deleteProjectRoleFn                 func(ctx context.Context, id string) error
-	assignMemberRoleFn                  func(ctx context.Context, m *domain.ProjectMemberRole) error
-	getMemberRoleFn                     func(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error)
-	listProjectMembersFn                func(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error)
-	removeMemberRoleFn                  func(ctx context.Context, projectID, userID string) error
-	createResourcePolicyFn              func(ctx context.Context, p *domain.ResourcePolicy) error
-	deleteResourcePolicyFn              func(ctx context.Context, id string) (string, string, error)
-	createTagPolicyFn                   func(ctx context.Context, p *domain.TagPolicy) error
-	deleteTagPolicyFn                   func(ctx context.Context, id string) (string, string, error)
-	createAuditEventFn                  func(ctx context.Context, ev *domain.AuditEvent) error
-	createEventTriggerFn                func(ctx context.Context, trigger *domain.EventTrigger) error
-	getEventTriggerByEventKeyFn         func(ctx context.Context, key string) (*domain.EventTrigger, error)
-	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	listEventTriggersByProjectFn        func(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
-	listEventTriggersByKeyPrefixFn      func(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
-	cancelEventTriggersByWorkflowRunFn  func(ctx context.Context, workflowRunID string) (int64, error)
-	receiveEventAndRequeueRunFn         func(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
-	setEventTriggerSentByFn             func(ctx context.Context, id, sentBy string) error
-	getEventTriggerStatsFn              func(ctx context.Context, projectID string) (*store.EventTriggerStats, error)
-	batchReceiveEventTriggersFn         func(ctx context.Context, ids []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
-	deleteEventTriggersFinishedBeforeFn func(ctx context.Context, before time.Time, limit int) (int64, error)
-	countEventTriggersFinishedBeforeFn  func(ctx context.Context, before time.Time) (int64, error)
-	countActiveEventTriggersByProjectFn func(ctx context.Context, projectID string) (int, error)
-	getWebhookDeliveryFn                func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
-	retryWebhookDeliveryFn              func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
-	updateWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
-	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
-	cancelJobRunsByWorkflowRunFn        func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
-	getRunsByIDsFn                      func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
-	bulkCancelRunsFn                    func(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
-	cancelChildRunsByParentIDsFn        func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
-	rescheduleRunFn                     func(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
-	createBatchOperationFn              func(ctx context.Context, op *domain.BatchOperation) error
-	finalizeBatchOperationFn            func(ctx context.Context, batchID string, createdCount int) error
-	getBatchOperationFn                 func(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
-	listBatchOperationsFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
-	bulkCancelByFilterFn                func(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error)
-	bulkCancelWorkflowRunsFn            func(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
-	createLogDrainFn                    func(ctx context.Context, drain *domain.LogDrain) error
-	getLogDrainFn                       func(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error)
-	listLogDrainsFn                     func(ctx context.Context, projectID string) ([]domain.LogDrain, error)
-	updateLogDrainFn                    func(ctx context.Context, drainID, projectID string, patch map[string]any) error
-	deleteLogDrainFn                    func(ctx context.Context, drainID, projectID string) error
-	createEventSourceFn                 func(ctx context.Context, src *domain.EventSource) error
-	getEventSourceFn                    func(ctx context.Context, sourceID, projectID string) (*domain.EventSource, error)
-	getEventSourceByNameFn              func(ctx context.Context, projectID, name string) (*domain.EventSource, error)
-	listEventSourcesFn                  func(ctx context.Context, projectID string) ([]domain.EventSource, error)
-	updateEventSourceFn                 func(ctx context.Context, sourceID, projectID string, patch map[string]any) error
-	deleteEventSourceFn                 func(ctx context.Context, sourceID, projectID string) error
-	createEventSubscriptionFn           func(ctx context.Context, sub *domain.EventSubscription) error
-	listEventSubscriptionsBySourceFn    func(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
-	deleteEventSubscriptionFn           func(ctx context.Context, subID string) error
-	upsertRunStateFn                    func(ctx context.Context, s *domain.RunState) error
-	getRunStateFn                       func(ctx context.Context, runID, key string) (*domain.RunState, error)
-	listRunStateFn                      func(ctx context.Context, runID string) ([]domain.RunState, error)
-	deleteRunStateFn                    func(ctx context.Context, runID, key string) error
-	replayWebhookDeliveryFn             func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
-	createWebhookDeliveryFn             func(ctx context.Context, d *domain.WebhookDelivery) error
+	createJobFn                          func(ctx context.Context, job *domain.Job) error
+	createJobSecretFn                    func(ctx context.Context, secret *domain.JobSecret) error
+	getJobFn                             func(ctx context.Context, id string) (*domain.Job, error)
+	getJobBySlugFn                       func(ctx context.Context, projectID, slug string) (*domain.Job, error)
+	listJobsFn                           func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	createJobGroupFn                     func(ctx context.Context, group *domain.JobGroup) error
+	getJobGroupFn                        func(ctx context.Context, id string) (*domain.JobGroup, error)
+	listJobGroupsFn                      func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobGroup, error)
+	updateJobGroupFn                     func(ctx context.Context, group *domain.JobGroup) error
+	deleteJobFn                          func(ctx context.Context, id string) error
+	deleteJobGroupFn                     func(ctx context.Context, id string) error
+	listJobsByGroupFn                    func(ctx context.Context, groupID string, limit int, cursor *time.Time) ([]domain.Job, error)
+	pauseJobsByGroupFn                   func(ctx context.Context, groupID string) error
+	resumeJobsByGroupFn                  func(ctx context.Context, groupID string) error
+	getJobGroupStatsFn                   func(ctx context.Context, groupID string) (*store.JobGroupStats, error)
+	createEnvironmentFn                  func(ctx context.Context, env *domain.Environment) error
+	getEnvironmentFn                     func(ctx context.Context, id string) (*domain.Environment, error)
+	listEnvironmentsFn                   func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
+	updateEnvironmentFn                  func(ctx context.Context, env *domain.Environment) error
+	deleteEnvironmentFn                  func(ctx context.Context, id string) error
+	getResolvedEnvVarsFn                 func(ctx context.Context, id string) (map[string]string, error)
+	listJobSecretsFn                     func(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
+	listJobsByTagFn                      func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
+	createJobDependencyFn                func(ctx context.Context, dep *domain.JobDependency) error
+	listJobDependenciesFn                func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
+	deleteJobDependencyFn                func(ctx context.Context, id string) error
+	areJobDependenciesSatisfiedFn        func(ctx context.Context, run *domain.JobRun) (bool, error)
+	updateJobFn                          func(ctx context.Context, job *domain.Job) error
+	getRunFn                             func(ctx context.Context, id string) (*domain.JobRun, error)
+	getRunByIdempotencyKeyFn             func(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
+	findRecentRunByPayloadFn             func(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
+	countRunsForJobSinceFn               func(ctx context.Context, jobID string, since time.Time) (int, error)
+	createRunCheckpointFn                func(ctx context.Context, checkpoint *domain.RunCheckpoint) error
+	listRunCheckpointsFn                 func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
+	createRunUsageFn                     func(ctx context.Context, usage *domain.RunUsage) error
+	listRunUsageFn                       func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
+	createRunToolCallFn                  func(ctx context.Context, call *domain.RunToolCall) error
+	listRunToolCallsFn                   func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
+	upsertRunOutputFn                    func(ctx context.Context, output *domain.RunOutput) error
+	listRunOutputsFn                     func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
+	areAllDescendantsTerminalFn          func(ctx context.Context, parentRunID string) (bool, error)
+	getProjectQuotaFn                    func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	countProjectQueuedRunsFn             func(ctx context.Context, projectID string) (int, error)
+	countProjectActiveRunsFn             func(ctx context.Context, projectID string) (int, error)
+	listRunsByProjectFn                  func(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	listDeadLetterRunsFn                 func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	bulkReplayDeadLetterRunsFn           func(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
+	updateRunStatusFn                    func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	replayDeadLetterRunFn                func(ctx context.Context, runID string) (*domain.JobRun, error)
+	updateRunMetadataFn                  func(ctx context.Context, id string, annotations map[string]string) error
+	resetRunIdempotencyKeyFn             func(ctx context.Context, runID string) error
+	listChildRunsFn                      func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	insertEventFn                        func(ctx context.Context, event *domain.RunEvent) error
+	listEventsByRunFilteredFn            func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+	listWebhookDeliveriesFn              func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
+	createWebhookSubscriptionFn          func(ctx context.Context, sub *domain.WebhookSubscription) error
+	listWebhookSubscriptionsFn           func(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
+	deleteWebhookSubscriptionFn          func(ctx context.Context, id string) error
+	createAPIKeyFn                       func(ctx context.Context, key *domain.APIKey) error
+	listAPIKeysByProjectFn               func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.APIKey, error)
+	revokeAPIKeyFn                       func(ctx context.Context, id string) error
+	listJobVersionsByJobFn               func(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
+	getAPIKeyByHashFn                    func(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	getAPIKeyByIDFn                      func(ctx context.Context, id string) (*domain.APIKey, error)
+	markAPIKeyRotatedFn                  func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	touchAPIKeyLastUsedFn                func(ctx context.Context, id string) error
+	updateHeartbeatFn                    func(ctx context.Context, id string) error
+	batchUpdateHeartbeatFn               func(ctx context.Context, ids []string) error
+	queueStatsFn                         func(ctx context.Context) (*store.QueueStats, error)
+	getPerformanceAnalyticsFn            func(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	createWorkflowFn                     func(ctx context.Context, w *domain.Workflow) error
+	getWorkflowFn                        func(ctx context.Context, id string) (*domain.Workflow, error)
+	getWorkflowBySlugFn                  func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
+	listWorkflowsFn                      func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
+	updateWorkflowFn                     func(ctx context.Context, w *domain.Workflow) error
+	createWorkflowSnapshotFn             func(ctx context.Context, workflowID string, version int) error
+	deleteWorkflowFn                     func(ctx context.Context, id string) error
+	createWorkflowStepFn                 func(ctx context.Context, step *domain.WorkflowStep) error
+	listStepsByWorkflowFn                func(ctx context.Context, workflowID string) ([]domain.WorkflowStep, error)
+	listStepsByWorkflowVerFn             func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	deleteStepsByWorkflowFn              func(ctx context.Context, workflowID string) error
+	getWorkflowRunFn                     func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listWorkflowRunsFn                   func(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
+	listWorkflowRunsByProjFn             func(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
+	listWorkflowsByTagFn                 func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
+	listWorkflowRunsByTagFn              func(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
+	createWorkflowRunLabelsFn            func(ctx context.Context, workflowRunID string, labels map[string]string) error
+	listWorkflowRunLabelsFn              func(ctx context.Context, workflowRunID string) (map[string]string, error)
+	listStepRunsByRunFn                  func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	listWorkflowStepDecisionsFn          func(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error)
+	upsertWorkflowPolicyFn               func(ctx context.Context, p *domain.WorkflowPolicy) error
+	getWorkflowPolicyByProjectFn         func(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
+	listWorkflowVersionsFn               func(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
+	getWorkflowVersionByVersionIDFn      func(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error)
+	createDeploymentVersionFn            func(ctx context.Context, deployment *domain.DeploymentVersion) error
+	getDeploymentVersionFn               func(ctx context.Context, deploymentID, projectID string) (*domain.DeploymentVersion, error)
+	listDeploymentVersionsFn             func(ctx context.Context, projectID, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
+	finalizeDeploymentVersionFn          func(ctx context.Context, deploymentID, projectID, updatedBy string) (*domain.DeploymentVersion, error)
+	promoteDeploymentVersionFn           func(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
+	rollbackDeploymentVersionFn          func(ctx context.Context, deploymentID, projectID, environment, updatedBy string) (*domain.DeploymentVersion, error)
+	updateWorkflowRunStatusFn            func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	updateStepRunStatusFn                func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
+	getStepRunByRunAndRefFn              func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
+	getStepApprovalByStepRunFn           func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
+	updateStepApprovalFn                 func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	deleteJobSecretFn                    func(ctx context.Context, id string) error
+	batchUpdateJobsEnabledFn             func(ctx context.Context, ids []string, enabled bool) (int64, error)
+	getJobHealthStatsFn                  func(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	getDebugBundleFn                     func(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	updateRunDebugModeFn                 func(ctx context.Context, runID string, debugMode bool) error
+	listEventsFn                         func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+	createRunFn                          func(ctx context.Context, run *domain.JobRun) error
+	listRunLineageFn                     func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	sumRunCostMicrousdFn                 func(ctx context.Context, runID string) (int64, error)
+	sumProjectDailyCostMicrousdFn        func(ctx context.Context, projectID string, timezone string) (int64, error)
+	getUserPermissionsFn                 func(ctx context.Context, projectID, userID string) ([]string, error)
+	createProjectRoleFn                  func(ctx context.Context, role *domain.ProjectRole) error
+	getProjectRoleFn                     func(ctx context.Context, id string) (*domain.ProjectRole, error)
+	updateProjectRoleFn                  func(ctx context.Context, role *domain.ProjectRole) error
+	listProjectRolesFn                   func(ctx context.Context, projectID string) ([]domain.ProjectRole, error)
+	deleteProjectRoleFn                  func(ctx context.Context, id string) error
+	assignMemberRoleFn                   func(ctx context.Context, m *domain.ProjectMemberRole) error
+	getMemberRoleFn                      func(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error)
+	listProjectMembersFn                 func(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error)
+	removeMemberRoleFn                   func(ctx context.Context, projectID, userID string) error
+	createResourcePolicyFn               func(ctx context.Context, p *domain.ResourcePolicy) error
+	deleteResourcePolicyFn               func(ctx context.Context, id string) (string, string, error)
+	createTagPolicyFn                    func(ctx context.Context, p *domain.TagPolicy) error
+	deleteTagPolicyFn                    func(ctx context.Context, id string) (string, string, error)
+	createAuditEventFn                   func(ctx context.Context, ev *domain.AuditEvent) error
+	createEventTriggerFn                 func(ctx context.Context, trigger *domain.EventTrigger) error
+	getEventTriggerByEventKeyFn          func(ctx context.Context, key string) (*domain.EventTrigger, error)
+	updateEventTriggerStatusFn           func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	listEventTriggersByProjectFn         func(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	listEventTriggersByKeyPrefixFn       func(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
+	cancelEventTriggersByWorkflowRunFn   func(ctx context.Context, workflowRunID string) (int64, error)
+	receiveEventAndRequeueRunFn          func(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
+	setEventTriggerSentByFn              func(ctx context.Context, id, sentBy string) error
+	getEventTriggerStatsFn               func(ctx context.Context, projectID string) (*store.EventTriggerStats, error)
+	batchReceiveEventTriggersFn          func(ctx context.Context, ids []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
+	deleteEventTriggersFinishedBeforeFn  func(ctx context.Context, before time.Time, limit int) (int64, error)
+	countEventTriggersFinishedBeforeFn   func(ctx context.Context, before time.Time) (int64, error)
+	countActiveEventTriggersByProjectFn  func(ctx context.Context, projectID string) (int, error)
+	getWebhookDeliveryFn                 func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	retryWebhookDeliveryFn               func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	updateWebhookDeliveryFn              func(ctx context.Context, d *domain.WebhookDelivery) error
+	cancelNonTerminalStepRunsFn          func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	cancelJobRunsByWorkflowRunFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	getRunsByIDsFn                       func(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	bulkCancelRunsFn                     func(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
+	cancelChildRunsByParentIDsFn         func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	rescheduleRunFn                      func(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+	createBatchOperationFn               func(ctx context.Context, op *domain.BatchOperation) error
+	finalizeBatchOperationFn             func(ctx context.Context, batchID string, createdCount int) error
+	getBatchOperationFn                  func(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
+	listBatchOperationsFn                func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.BatchOperation, error)
+	bulkCancelByFilterFn                 func(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error)
+	bulkCancelWorkflowRunsFn             func(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
+	createLogDrainFn                     func(ctx context.Context, drain *domain.LogDrain) error
+	getLogDrainFn                        func(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error)
+	listLogDrainsFn                      func(ctx context.Context, projectID string) ([]domain.LogDrain, error)
+	updateLogDrainFn                     func(ctx context.Context, drainID, projectID string, patch map[string]any) error
+	deleteLogDrainFn                     func(ctx context.Context, drainID, projectID string) error
+	createEventSourceFn                  func(ctx context.Context, src *domain.EventSource) error
+	getEventSourceFn                     func(ctx context.Context, sourceID, projectID string) (*domain.EventSource, error)
+	getEventSourceByNameFn               func(ctx context.Context, projectID, name string) (*domain.EventSource, error)
+	listEventSourcesFn                   func(ctx context.Context, projectID string) ([]domain.EventSource, error)
+	updateEventSourceFn                  func(ctx context.Context, sourceID, projectID string, patch map[string]any) error
+	deleteEventSourceFn                  func(ctx context.Context, sourceID, projectID string) error
+	createEventSubscriptionFn            func(ctx context.Context, sub *domain.EventSubscription) error
+	listEventSubscriptionsBySourceFn     func(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
+	deleteEventSubscriptionFn            func(ctx context.Context, subID string) error
+	upsertRunStateFn                     func(ctx context.Context, s *domain.RunState) error
+	getRunStateFn                        func(ctx context.Context, runID, key string) (*domain.RunState, error)
+	listRunStateFn                       func(ctx context.Context, runID string) ([]domain.RunState, error)
+	deleteRunStateFn                     func(ctx context.Context, runID, key string) error
+	replayWebhookDeliveryFn              func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	createWebhookDeliveryFn              func(ctx context.Context, d *domain.WebhookDelivery) error
+	listManagedMachineIDsByWorkflowRunFn func(ctx context.Context, workflowRunID string) ([]string, error)
+	markJobRunsPausedByWorkflowRunFn     func(ctx context.Context, workflowRunID string) (int64, error)
+	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -501,9 +504,9 @@ func (m *mockAPIStore) CountProjectActiveRuns(ctx context.Context, projectID str
 	return 0, nil
 }
 
-func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listRunsByProjectFn != nil {
-		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, limit, cursor)
+		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, limit, cursor)
 	}
 	return nil, nil
 }
@@ -1580,4 +1583,25 @@ func (m *mockAPIStore) DeleteRunState(ctx context.Context, runID, key string) er
 		return m.deleteRunStateFn(ctx, runID, key)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) ListManagedMachineIDsByWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error) {
+	if m.listManagedMachineIDsByWorkflowRunFn != nil {
+		return m.listManagedMachineIDsByWorkflowRunFn(ctx, workflowRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
+	if m.markJobRunsPausedByWorkflowRunFn != nil {
+		return m.markJobRunsPausedByWorkflowRunFn(ctx, workflowRunID)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
+	if m.requeuePausedJobRunsFn != nil {
+		return m.requeuePausedJobRunsFn(ctx, workflowRunID)
+	}
+	return 0, nil
 }

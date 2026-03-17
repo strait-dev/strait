@@ -28,11 +28,12 @@ func loadVolume() int {
 
 func makeRun(jobID, projectID string, payload string) *domain.JobRun {
 	return &domain.JobRun{
-		ID:        newID(),
-		JobID:     jobID,
-		ProjectID: projectID,
-		Payload:   json.RawMessage(payload),
-		Priority:  1,
+		ID:            newID(),
+		JobID:         jobID,
+		ProjectID:     projectID,
+		Payload:       json.RawMessage(payload),
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 }
 

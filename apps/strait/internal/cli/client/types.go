@@ -21,16 +21,19 @@ type CreateJobRequest struct {
 }
 
 type UpdateJobRequest struct {
-	Name        *string          `json:"name,omitempty"`
-	Slug        *string          `json:"slug,omitempty"`
-	Description *string          `json:"description,omitempty"`
-	Cron        *string          `json:"cron,omitempty"`
-	EndpointURL *string          `json:"endpoint_url,omitempty"`
-	MaxAttempts *int             `json:"max_attempts,omitempty"`
-	TimeoutSecs *int             `json:"timeout_secs,omitempty"`
-	RunTTLSecs  *int             `json:"run_ttl_secs,omitempty"`
-	Enabled     *bool            `json:"enabled,omitempty"`
-	Schema      *json.RawMessage `json:"payload_schema,omitempty"`
+	Name          *string          `json:"name,omitempty"`
+	Slug          *string          `json:"slug,omitempty"`
+	Description   *string          `json:"description,omitempty"`
+	Cron          *string          `json:"cron,omitempty"`
+	EndpointURL   *string          `json:"endpoint_url,omitempty"`
+	MaxAttempts   *int             `json:"max_attempts,omitempty"`
+	TimeoutSecs   *int             `json:"timeout_secs,omitempty"`
+	RunTTLSecs    *int             `json:"run_ttl_secs,omitempty"`
+	Enabled       *bool            `json:"enabled,omitempty"`
+	Schema        *json.RawMessage `json:"payload_schema,omitempty"`
+	ImageURI      *string          `json:"image_uri,omitempty"`
+	MachinePreset *string          `json:"machine_preset,omitempty"`
+	Region        *string          `json:"region,omitempty"`
 }
 
 type TriggerJobRequest struct {

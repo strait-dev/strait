@@ -89,7 +89,7 @@ type RunStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
@@ -133,16 +133,17 @@ type RunStore interface {
 }
 
 type ProjectQuota struct {
-	ProjectID              string
-	MaxQueuedRuns          int
-	MaxExecutingRuns       int
-	MaxJobs                int
-	Timezone               string
-	MaxCostPerRunMicrousd  int64
-	MaxDailyCostMicrousd   int64
-	MaxActiveEventTriggers int // 0 = unlimited
-	RateLimitRequests      int
-	RateLimitWindowSecs    int
+	ProjectID                     string
+	MaxQueuedRuns                 int
+	MaxExecutingRuns              int
+	MaxJobs                       int
+	Timezone                      string
+	MaxCostPerRunMicrousd         int64
+	MaxDailyCostMicrousd          int64
+	ComputeDailyCostLimitMicrousd int64
+	MaxActiveEventTriggers        int // 0 = unlimited
+	RateLimitRequests             int
+	RateLimitWindowSecs           int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -334,6 +335,7 @@ type Store interface {
 	WorkflowStepStore
 	WorkflowRunStore
 	WorkflowStepRunStore
+	WorkflowSnapshotStore
 	EventTriggerStore
 	BatchOperationStore
 	DeploymentStore

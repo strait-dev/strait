@@ -67,6 +67,26 @@ func (q *Queries) ListRunState(ctx context.Context, runID string) ([]domain.RunS
 	return items, rows.Err()
 }
 
+// CopyRunState copies all state KV pairs from one run to another.
+// Existing keys on the target run are not overwritten (ON CONFLICT DO NOTHING).
+func (q *Queries) CopyRunState(ctx context.Context, fromRunID, toRunID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CopyRunState")
+	defer span.End()
+
+	query := `
+		INSERT INTO run_state (run_id, state_key, value, updated_at)
+		SELECT $2, state_key, value, NOW()
+		FROM run_state
+		WHERE run_id = $1
+		ON CONFLICT DO NOTHING`
+
+	_, err := q.db.Exec(ctx, query, fromRunID, toRunID)
+	if err != nil {
+		return fmt.Errorf("copy run state: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) DeleteRunState(ctx context.Context, runID, key string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteRunState")
 	defer span.End()

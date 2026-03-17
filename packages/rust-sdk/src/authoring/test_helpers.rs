@@ -1,7 +1,7 @@
 use crate::authoring::run_context::*;
-use crate::authoring::run_context_client::{create_run_context, RunContextClient};
+use crate::authoring::run_context_client::{RunContextClient, create_run_context};
 use crate::errors::StraitError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -211,10 +211,9 @@ impl RunContextClient for MockClient {
         let record = self.record.clone();
         Box::pin(async move {
             let mut r = record.lock().unwrap();
-            if let (Some(key), Some(value)) = (
-                body.get("key").and_then(|k| k.as_str()),
-                body.get("value"),
-            ) {
+            if let (Some(key), Some(value)) =
+                (body.get("key").and_then(|k| k.as_str()), body.get("value"))
+            {
                 r.state_store.insert(key.to_string(), value.clone());
             }
             Ok(json!(null))

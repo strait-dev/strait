@@ -162,6 +162,9 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/dependency-status", s.handleGetRunDependencyStatus)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/idempotency-key", s.handleResetIdempotencyKey)
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/reschedule", s.handleRescheduleRun)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/pause", s.handlePauseRun)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/resume", s.handleResumeRun)
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/restart", s.handleRestartRun)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", s.handleListRunState)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
 			})
@@ -336,6 +339,7 @@ func (s *Server) routes() chi.Router {
 	r.Route("/sdk/v1", func(r chi.Router) {
 		r.Use(s.runTokenAuth)
 		r.Route("/runs/{runID}", func(r chi.Router) {
+			r.Get("/payload", s.handleSDKGetPayload)
 			r.Post("/log", s.handleSDKLog)
 			r.Post("/progress", s.handleSDKProgress)
 			r.Post("/annotate", s.handleSDKAnnotate)
@@ -354,6 +358,7 @@ func (s *Server) routes() chi.Router {
 			r.Get("/state/{key}", s.handleSDKGetState)
 			r.Delete("/state/{key}", s.handleSDKDeleteState)
 			r.Post("/stream", s.handleSDKStreamChunk)
+			r.Post("/resources", s.handleSDKResources)
 		})
 	})
 

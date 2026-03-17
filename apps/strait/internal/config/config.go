@@ -128,6 +128,29 @@ type Config struct {
 	BatchFlushInterval         time.Duration `mapstructure:"BATCH_FLUSH_INTERVAL"`
 	WebhookRequireTLS          bool          `mapstructure:"WEBHOOK_REQUIRE_TLS"`
 	DequeueStrategy            string        `mapstructure:"DEQUEUE_STRATEGY"`
+
+	// Managed execution (container runtime)
+	ComputeRuntime        string        `mapstructure:"COMPUTE_RUNTIME"`         // "none", "fly", "docker"
+	FlyAPIToken           string        `mapstructure:"FLY_API_TOKEN"`           // Fly Machines API token
+	FlyAppName            string        `mapstructure:"FLY_APP_NAME"`            // Fly app name
+	FlyRegion             string        `mapstructure:"FLY_REGION"`              // Default Fly region
+	ExternalAPIURL        string        `mapstructure:"EXTERNAL_API_URL"`        // Public API URL for SDK callbacks
+	MaxConcurrentMachines int           `mapstructure:"MAX_CONCURRENT_MACHINES"` // Max parallel containers
+	WarmPoolEnabled       bool          `mapstructure:"WARM_POOL_ENABLED"`       // Enable warm machine pool
+	WarmPoolMaxPerJob     int           `mapstructure:"WARM_POOL_MAX_PER_JOB"`   // Max warm machines per job/region
+	WarmPoolTTL           time.Duration `mapstructure:"WARM_POOL_TTL"`           // TTL for idle warm machines
+
+	// ClickHouse (optional analytics)
+	ClickHouseEnabled       bool          `mapstructure:"CLICKHOUSE_ENABLED"`
+	ClickHouseURL           string        `mapstructure:"CLICKHOUSE_URL"`
+	ClickHouseDatabase      string        `mapstructure:"CLICKHOUSE_DATABASE"`
+	ClickHouseBatchSize     int           `mapstructure:"CLICKHOUSE_BATCH_SIZE"`
+	ClickHouseFlushInterval time.Duration `mapstructure:"CLICKHOUSE_FLUSH_INTERVAL"`
+	ClickHouseExportEnabled bool          `mapstructure:"CLICKHOUSE_EXPORT_ENABLED"`
+
+	// OTel metrics push
+	OTLPMetricEndpoint string `mapstructure:"OTLP_METRIC_ENDPOINT"`
+	OTLPMetricEnabled  bool   `mapstructure:"OTLP_METRIC_ENABLED"`
 }
 
 func setDefaults() {
@@ -208,6 +231,15 @@ func setDefaults() {
 	viper.SetDefault("BATCH_FLUSH_INTERVAL", time.Second)
 	viper.SetDefault("WEBHOOK_REQUIRE_TLS", false)
 	viper.SetDefault("DEQUEUE_STRATEGY", "priority")
+	viper.SetDefault("COMPUTE_RUNTIME", "none")
+	viper.SetDefault("FLY_REGION", "iad")
+	viper.SetDefault("MAX_CONCURRENT_MACHINES", 10)
+	viper.SetDefault("CLICKHOUSE_ENABLED", false)
+	viper.SetDefault("CLICKHOUSE_DATABASE", "strait")
+	viper.SetDefault("CLICKHOUSE_BATCH_SIZE", 1000)
+	viper.SetDefault("CLICKHOUSE_FLUSH_INTERVAL", 5*time.Second)
+	viper.SetDefault("CLICKHOUSE_EXPORT_ENABLED", false)
+	viper.SetDefault("OTLP_METRIC_ENABLED", false)
 }
 
 func BindEnv() error {
@@ -241,6 +273,11 @@ func BindEnv() error {
 		"MAX_SNOOZE_COUNT",
 		"DEBOUNCE_POLLER_INTERVAL", "BATCH_FLUSH_INTERVAL", "WEBHOOK_REQUIRE_TLS",
 		"DEQUEUE_STRATEGY",
+		"COMPUTE_RUNTIME", "FLY_API_TOKEN", "FLY_APP_NAME", "FLY_REGION",
+		"EXTERNAL_API_URL", "MAX_CONCURRENT_MACHINES",
+		"CLICKHOUSE_ENABLED", "CLICKHOUSE_URL", "CLICKHOUSE_DATABASE",
+		"CLICKHOUSE_BATCH_SIZE", "CLICKHOUSE_FLUSH_INTERVAL", "CLICKHOUSE_EXPORT_ENABLED",
+		"OTLP_METRIC_ENDPOINT", "OTLP_METRIC_ENABLED",
 	}
 
 	for _, key := range keys {
@@ -326,6 +363,20 @@ func Load() (*Config, error) {
 	cfg.BatchFlushInterval = viper.GetDuration("BATCH_FLUSH_INTERVAL")
 	cfg.WebhookRequireTLS = viper.GetBool("WEBHOOK_REQUIRE_TLS")
 	cfg.DequeueStrategy = viper.GetString("DEQUEUE_STRATEGY")
+	cfg.ComputeRuntime = viper.GetString("COMPUTE_RUNTIME")
+	cfg.FlyAPIToken = viper.GetString("FLY_API_TOKEN")
+	cfg.FlyAppName = viper.GetString("FLY_APP_NAME")
+	cfg.FlyRegion = viper.GetString("FLY_REGION")
+	cfg.ExternalAPIURL = viper.GetString("EXTERNAL_API_URL")
+	cfg.MaxConcurrentMachines = viper.GetInt("MAX_CONCURRENT_MACHINES")
+	cfg.ClickHouseEnabled = viper.GetBool("CLICKHOUSE_ENABLED")
+	cfg.ClickHouseURL = viper.GetString("CLICKHOUSE_URL")
+	cfg.ClickHouseDatabase = viper.GetString("CLICKHOUSE_DATABASE")
+	cfg.ClickHouseBatchSize = viper.GetInt("CLICKHOUSE_BATCH_SIZE")
+	cfg.ClickHouseFlushInterval = viper.GetDuration("CLICKHOUSE_FLUSH_INTERVAL")
+	cfg.ClickHouseExportEnabled = viper.GetBool("CLICKHOUSE_EXPORT_ENABLED")
+	cfg.OTLPMetricEndpoint = viper.GetString("OTLP_METRIC_ENDPOINT")
+	cfg.OTLPMetricEnabled = viper.GetBool("OTLP_METRIC_ENABLED")
 
 	if !viper.IsSet("CDC_BATCH_SIZE") && viper.IsSet("SEQUIN_BATCH_SIZE") {
 		cfg.CDCBatchSize = viper.GetInt("SEQUIN_BATCH_SIZE")
@@ -383,6 +434,24 @@ func Load() (*Config, error) {
 		if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return nil, &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
 		}
+	}
+
+	switch cfg.ComputeRuntime {
+	case "none", "fly", "docker", "":
+		// valid
+	default:
+		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, fly, or docker"}
+	}
+	if cfg.ComputeRuntime == "fly" {
+		if cfg.FlyAPIToken == "" {
+			return nil, &domain.ConfigError{Field: "FLY_API_TOKEN", Message: "is required when COMPUTE_RUNTIME=fly"}
+		}
+		if cfg.FlyAppName == "" {
+			return nil, &domain.ConfigError{Field: "FLY_APP_NAME", Message: "is required when COMPUTE_RUNTIME=fly"}
+		}
+	}
+	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
+		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}
 
 	slog.Info("config loaded",

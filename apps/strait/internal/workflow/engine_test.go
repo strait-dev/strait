@@ -141,6 +141,14 @@ func (m *mockEngineStore) GetWorkflowRunsByParent(ctx context.Context, parentWor
 	return nil, nil
 }
 
+func (m *mockEngineStore) GetOrCreateWorkflowSnapshot(_ context.Context, _ *domain.Workflow, _ []domain.WorkflowStep) (*domain.WorkflowSnapshot, error) {
+	return &domain.WorkflowSnapshot{ID: "snap-test"}, nil
+}
+
+func (m *mockEngineStore) CopyRunState(_ context.Context, _, _ string) error {
+	return nil
+}
+
 type mockEngineQueue struct {
 	enqueueFn func(ctx context.Context, run *domain.JobRun) error
 }
@@ -446,6 +454,86 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 	})
 
+}
+
+func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
+	t.Parallel()
+
+	var capturedRun *domain.WorkflowRun
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, VersionID: "vid-1"}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{ID: "s1", JobID: "job-1", StepRef: "a"},
+			}, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			capturedRun = run
+			run.ID = "wr-1"
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+			sr.ID = "sr-" + sr.StepRef
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error { run.ID = "jr-1"; return nil }}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+	wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if wfRun.WorkflowSnapshotID != "snap-test" {
+		t.Errorf("WorkflowSnapshotID = %q, want snap-test", wfRun.WorkflowSnapshotID)
+	}
+	if capturedRun != nil && capturedRun.WorkflowSnapshotID != "snap-test" {
+		t.Errorf("captured run WorkflowSnapshotID = %q, want snap-test", capturedRun.WorkflowSnapshotID)
+	}
+}
+
+func TestTriggerWorkflow_SnapshotFailureIsFatal(t *testing.T) {
+	t.Parallel()
+
+	snapshotCalled := false
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "s1", JobID: "j1", StepRef: "a"}}, nil
+		},
+	}
+	// Override the mock snapshot to return an error.
+	origGetOrCreate := ms.GetOrCreateWorkflowSnapshot
+	_ = origGetOrCreate
+
+	engine := NewWorkflowEngine(&snapshotFailStore{mockEngineStore: ms}, &mockEngineQueue{}, slog.Default())
+	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err == nil {
+		t.Fatal("expected error when snapshot creation fails")
+	}
+	if !strings.Contains(err.Error(), "create workflow snapshot") {
+		t.Errorf("error = %q, want it to contain 'create workflow snapshot'", err.Error())
+	}
+	_ = snapshotCalled
+}
+
+// snapshotFailStore wraps mockEngineStore but fails GetOrCreateWorkflowSnapshot.
+type snapshotFailStore struct {
+	*mockEngineStore
+}
+
+func (s *snapshotFailStore) GetOrCreateWorkflowSnapshot(_ context.Context, _ *domain.Workflow, _ []domain.WorkflowStep) (*domain.WorkflowSnapshot, error) {
+	return nil, fmt.Errorf("database connection failed")
 }
 
 func TestTriggerWorkflow_NestingDepthExceeded(t *testing.T) {
@@ -951,6 +1039,14 @@ func (m *mockCallbackStore) AreJobDependenciesSatisfied(ctx context.Context, run
 		return m.areJobDependenciesSatisfiedFn(ctx, run)
 	}
 	return true, nil
+}
+
+func (m *mockCallbackStore) GetWorkflowSnapshot(_ context.Context, _ string) (*domain.WorkflowSnapshot, error) {
+	return nil, nil // Fallback to live table by default in tests.
+}
+
+func (m *mockCallbackStore) RequeuePausedJobRuns(_ context.Context, _ string) (int64, error) {
+	return 0, nil
 }
 
 func (m *mockCallbackStore) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {

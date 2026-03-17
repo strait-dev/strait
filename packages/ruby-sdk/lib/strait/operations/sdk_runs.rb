@@ -106,6 +106,18 @@ module Strait
         _request(:delete, "/sdk/v1/runs/{runID}/state/{key}", path_params: { "runID" => run_id, "key" => key })
       end
 
+      # Get run payload.
+      # GET /sdk/v1/runs/{runID}/payload
+      def get_payload(run_id)
+        _request(:get, "/sdk/v1/runs/{runID}/payload", path_params: { "runID" => run_id })
+      end
+
+      # Report in-container resource usage.
+      # POST /sdk/v1/runs/{runID}/resources
+      def resources_run(run_id, body)
+        _request(:post, "/sdk/v1/runs/{runID}/resources", path_params: { "runID" => run_id }, body: body)
+      end
+
       # Push LLM stream chunk for a run.
       # POST /sdk/v1/runs/{runID}/stream
       def stream_run(run_id, body)

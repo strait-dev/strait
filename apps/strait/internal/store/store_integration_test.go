@@ -917,7 +917,7 @@ func TestListRunsByProject(t *testing.T) {
 	}
 
 	status := domain.StatusQueued
-	filtered, err := q.ListRunsByProject(ctx, projectID, &status, nil, nil, nil, nil, nil, 10, nil)
+	filtered, err := q.ListRunsByProject(ctx, projectID, &status, nil, nil, nil, nil, nil, nil, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() filtered error = %v", err)
 	}
@@ -930,7 +930,7 @@ func TestListRunsByProject(t *testing.T) {
 		}
 	}
 
-	firstPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, 2, nil)
+	firstPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, nil, 2, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() first page error = %v", err)
 	}
@@ -940,7 +940,7 @@ func TestListRunsByProject(t *testing.T) {
 	assertTimesDesc(t, extractRunCreatedAt(firstPage))
 
 	cursor := firstPage[len(firstPage)-1].CreatedAt
-	secondPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, 2, &cursor)
+	secondPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, nil, 2, &cursor)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() second page error = %v", err)
 	}
@@ -980,7 +980,7 @@ func TestListRunsByProject_MetadataFilter(t *testing.T) {
 
 	key := "env"
 	value := "prod"
-	filtered, err := q.ListRunsByProject(ctx, projectID, nil, &key, &value, nil, nil, nil, 20, nil)
+	filtered, err := q.ListRunsByProject(ctx, projectID, nil, &key, &value, nil, nil, nil, nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() metadata key/value error = %v", err)
 	}
@@ -991,7 +991,7 @@ func TestListRunsByProject_MetadataFilter(t *testing.T) {
 		t.Fatalf("ListRunsByProject() metadata key/value id = %s, want %s", filtered[0].ID, runProd.ID)
 	}
 
-	keyOnly, err := q.ListRunsByProject(ctx, projectID, nil, &key, nil, nil, nil, nil, 20, nil)
+	keyOnly, err := q.ListRunsByProject(ctx, projectID, nil, &key, nil, nil, nil, nil, nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() metadata key error = %v", err)
 	}
@@ -3769,14 +3769,15 @@ func baseJob(id, projectID string) *domain.Job {
 
 func baseRun(job *domain.Job, id string) *domain.JobRun {
 	return &domain.JobRun{
-		ID:          id,
-		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
-		Status:      domain.StatusQueued,
-		Attempt:     1,
-		Payload:     []byte(`{"hello":"world"}`),
-		TriggeredBy: domain.TriggerManual,
-		Priority:    0,
+		ID:            id,
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		Payload:       []byte(`{"hello":"world"}`),
+		TriggeredBy:   domain.TriggerManual,
+		Priority:      0,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 }
 
@@ -7779,26 +7780,28 @@ func TestListRunsByTag(t *testing.T) {
 	}
 
 	run := &domain.JobRun{
-		JobID:       job.ID,
-		ProjectID:   projectID,
-		Tags:        map[string]string{"team": "infra"},
-		Status:      domain.StatusQueued,
-		Attempt:     1,
-		TriggeredBy: domain.TriggerManual,
-		JobVersion:  job.Version,
+		JobID:         job.ID,
+		ProjectID:     projectID,
+		Tags:          map[string]string{"team": "infra"},
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		TriggeredBy:   domain.TriggerManual,
+		JobVersion:    job.Version,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 	if err := pq.Enqueue(ctx, run); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	run2 := &domain.JobRun{
-		JobID:       job.ID,
-		ProjectID:   projectID,
-		Tags:        map[string]string{"team": "platform"},
-		Status:      domain.StatusQueued,
-		Attempt:     1,
-		TriggeredBy: domain.TriggerManual,
-		JobVersion:  job.Version,
+		JobID:         job.ID,
+		ProjectID:     projectID,
+		Tags:          map[string]string{"team": "platform"},
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		TriggeredBy:   domain.TriggerManual,
+		JobVersion:    job.Version,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 	if err := pq.Enqueue(ctx, run2); err != nil {
 		t.Fatalf("enqueue run2: %v", err)

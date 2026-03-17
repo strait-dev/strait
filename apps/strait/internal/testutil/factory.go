@@ -123,14 +123,15 @@ type RunOpts struct {
 
 func BuildRun(job *domain.Job, opts *RunOpts) *domain.JobRun {
 	run := &domain.JobRun{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
-		Status:      "",
-		Attempt:     1,
-		Payload:     json.RawMessage(`{"test":true}`),
-		TriggeredBy: "manual",
-		Priority:    0,
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Status:        "",
+		Attempt:       1,
+		Payload:       json.RawMessage(`{"test":true}`),
+		TriggeredBy:   "manual",
+		Priority:      0,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 
 	if opts == nil {

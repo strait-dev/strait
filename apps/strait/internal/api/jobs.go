@@ -24,7 +24,7 @@ type CreateJobRequest struct {
 	Cron                 string            `json:"cron,omitempty"`
 	PayloadSchema        json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
-	EndpointURL          string            `json:"endpoint_url" validate:"required,url"`
+	EndpointURL          string            `json:"endpoint_url" validate:"omitempty,url"`
 	FallbackEndpointURL  string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
 	MaxAttempts          int               `json:"max_attempts" validate:"omitempty,min=1"`
 	TimeoutSecs          int               `json:"timeout_secs" validate:"omitempty,min=1"`
@@ -46,6 +46,10 @@ type CreateJobRequest struct {
 	DebounceWindowSecs   int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs      int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize         int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
+	ExecutionMode        string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
+	MachinePreset        string            `json:"machine_preset,omitempty"`
+	ImageURI             string            `json:"image_uri,omitempty"`
+	Region               string            `json:"region,omitempty"`
 }
 
 type UpdateJobRequest struct {
@@ -80,6 +84,10 @@ type UpdateJobRequest struct {
 	DebounceWindowSecs   *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs      *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize         *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
+	ExecutionMode        *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
+	MachinePreset        *string            `json:"machine_preset,omitempty"`
+	ImageURI             *string            `json:"image_uri,omitempty"`
+	Region               *string            `json:"region,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -100,14 +108,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
 
-	if err := validateURL(req.EndpointURL); err != nil {
-		respondError(w, r, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
-		return
+	if req.EndpointURL != "" {
+		if err := validateURL(req.EndpointURL); err != nil {
+			respondError(w, r, http.StatusBadRequest, "invalid endpoint_url: "+err.Error())
+			return
+		}
 	}
 	if req.FallbackEndpointURL != "" {
 		if err := validateURL(req.FallbackEndpointURL); err != nil {
@@ -156,6 +162,36 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Execution mode validation.
+	execMode := domain.ExecutionMode(req.ExecutionMode)
+	if execMode == "" {
+		execMode = domain.ExecutionModeHTTP
+	}
+	switch execMode {
+	case domain.ExecutionModeManaged:
+		if s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none" {
+			respondError(w, r, http.StatusBadRequest, "managed execution is not available: COMPUTE_RUNTIME not configured")
+			return
+		}
+		if req.ImageURI == "" {
+			respondError(w, r, http.StatusBadRequest, "image_uri is required for managed execution")
+			return
+		}
+		preset := domain.MachinePreset(req.MachinePreset)
+		if req.MachinePreset != "" && !preset.IsValid() {
+			respondError(w, r, http.StatusBadRequest, "invalid machine_preset")
+			return
+		}
+		if req.MachinePreset == "" {
+			req.MachinePreset = string(domain.PresetMicro)
+		}
+	case domain.ExecutionModeHTTP:
+		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
+			respondError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	job := &domain.Job{
 		ProjectID:            req.ProjectID,
 		GroupID:              req.GroupID,
@@ -186,6 +222,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		DebounceWindowSecs:   req.DebounceWindowSecs,
 		BatchWindowSecs:      req.BatchWindowSecs,
 		BatchMaxSize:         req.BatchMaxSize,
+		ExecutionMode:        execMode,
+		MachinePreset:        domain.MachinePreset(req.MachinePreset),
+		ImageURI:             req.ImageURI,
+		Region:               req.Region,
 		Enabled:              true,
 		VersionPolicy:        domain.VersionPolicyPin,
 		CreatedBy:            actorFromContext(r.Context()),
@@ -420,6 +460,33 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SkipIfRunning != nil {
 		job.SkipIfRunning = *req.SkipIfRunning
+	}
+	if req.ExecutionMode != nil {
+		mode := domain.ExecutionMode(*req.ExecutionMode)
+		if mode == domain.ExecutionModeManaged && (s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none") {
+			respondError(w, r, http.StatusBadRequest, "managed execution is not available: COMPUTE_RUNTIME not configured")
+			return
+		}
+		job.ExecutionMode = mode
+	}
+	if req.MachinePreset != nil {
+		preset := domain.MachinePreset(*req.MachinePreset)
+		if *req.MachinePreset != "" && !preset.IsValid() {
+			respondError(w, r, http.StatusBadRequest, "invalid machine_preset")
+			return
+		}
+		job.MachinePreset = preset
+	}
+	if req.ImageURI != nil {
+		job.ImageURI = *req.ImageURI
+	}
+	if req.Region != nil {
+		job.Region = *req.Region
+	}
+	// Cross-field validation for managed mode.
+	if job.ExecutionMode == domain.ExecutionModeManaged && job.ImageURI == "" {
+		respondError(w, r, http.StatusBadRequest, "image_uri is required for managed execution")
+		return
 	}
 
 	if job.FallbackEndpointURL != "" {

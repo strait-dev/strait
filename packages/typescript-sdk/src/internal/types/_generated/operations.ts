@@ -19,7 +19,9 @@ export type OperationPathParamsById = {
   "postSdkV1RunsByRunIDHeartbeat": { "runID": string };
   "postSdkV1RunsByRunIDLog": { "runID": string };
   "postSdkV1RunsByRunIDOutput": { "runID": string };
+  "getSdkV1RunsByRunIDPayload": { "runID": string };
   "postSdkV1RunsByRunIDProgress": { "runID": string };
+  "postSdkV1RunsByRunIDResources": { "runID": string };
   "postSdkV1RunsByRunIDSpawn": { "runID": string };
   "getSdkV1RunsByRunIDState": { "runID": string };
   "postSdkV1RunsByRunIDState": { "runID": string };
@@ -121,8 +123,11 @@ export type OperationPathParamsById = {
   "deleteV1RunsByRunIDIdempotencyKey": { "runID": string };
   "getV1RunsByRunIDLineage": { "runID": string };
   "getV1RunsByRunIDOutputs": { "runID": string };
+  "postV1RunsByRunIDPause": { "runID": string };
   "postV1RunsByRunIDReplay": { "runID": string };
   "postV1RunsByRunIDReschedule": { "runID": string };
+  "postV1RunsByRunIDRestart": { "runID": string };
+  "postV1RunsByRunIDResume": { "runID": string };
   "getV1RunsByRunIDState": { "runID": string };
   "getV1RunsByRunIDStream": { "runID": string };
   "getV1RunsByRunIDStreamChunks": { "runID": string };
@@ -203,7 +208,9 @@ export type OperationQueryParamsById = {
   "postSdkV1RunsByRunIDHeartbeat": undefined;
   "postSdkV1RunsByRunIDLog": undefined;
   "postSdkV1RunsByRunIDOutput": undefined;
+  "getSdkV1RunsByRunIDPayload": undefined;
   "postSdkV1RunsByRunIDProgress": undefined;
+  "postSdkV1RunsByRunIDResources": undefined;
   "postSdkV1RunsByRunIDSpawn": undefined;
   "getSdkV1RunsByRunIDState": undefined;
   "postSdkV1RunsByRunIDState": undefined;
@@ -305,8 +312,11 @@ export type OperationQueryParamsById = {
   "deleteV1RunsByRunIDIdempotencyKey": undefined;
   "getV1RunsByRunIDLineage": undefined;
   "getV1RunsByRunIDOutputs": undefined;
+  "postV1RunsByRunIDPause": undefined;
   "postV1RunsByRunIDReplay": undefined;
   "postV1RunsByRunIDReschedule": undefined;
+  "postV1RunsByRunIDRestart": undefined;
+  "postV1RunsByRunIDResume": undefined;
   "getV1RunsByRunIDState": undefined;
   "getV1RunsByRunIDStream": undefined;
   "getV1RunsByRunIDStreamChunks": undefined;
@@ -387,7 +397,9 @@ export type OperationHeaderParamsById = {
   "postSdkV1RunsByRunIDHeartbeat": undefined;
   "postSdkV1RunsByRunIDLog": undefined;
   "postSdkV1RunsByRunIDOutput": undefined;
+  "getSdkV1RunsByRunIDPayload": undefined;
   "postSdkV1RunsByRunIDProgress": undefined;
+  "postSdkV1RunsByRunIDResources": undefined;
   "postSdkV1RunsByRunIDSpawn": undefined;
   "getSdkV1RunsByRunIDState": undefined;
   "postSdkV1RunsByRunIDState": undefined;
@@ -489,8 +501,11 @@ export type OperationHeaderParamsById = {
   "deleteV1RunsByRunIDIdempotencyKey": undefined;
   "getV1RunsByRunIDLineage": undefined;
   "getV1RunsByRunIDOutputs": undefined;
+  "postV1RunsByRunIDPause": undefined;
   "postV1RunsByRunIDReplay": undefined;
   "postV1RunsByRunIDReschedule": undefined;
+  "postV1RunsByRunIDRestart": undefined;
+  "postV1RunsByRunIDResume": undefined;
   "getV1RunsByRunIDState": undefined;
   "getV1RunsByRunIDStream": undefined;
   "getV1RunsByRunIDStreamChunks": undefined;
@@ -593,7 +608,9 @@ export const generatedOperationMetadataById = {
   "postSdkV1RunsByRunIDHeartbeat": { functionName: "heartbeatRun", domainName: "sdk", domainMethodName: "heartbeatRun", pathParamNames: ["runID"], summary: "Send heartbeat" },
   "postSdkV1RunsByRunIDLog": { functionName: "logRun", domainName: "sdk", domainMethodName: "logRun", pathParamNames: ["runID"], summary: "Log an event" },
   "postSdkV1RunsByRunIDOutput": { functionName: "outputRun", domainName: "sdk", domainMethodName: "outputRun", pathParamNames: ["runID"], summary: "Upsert structured output" },
+  "getSdkV1RunsByRunIDPayload": { functionName: "getPayload", domainName: "sdk", domainMethodName: "getPayload", pathParamNames: ["runID"], summary: "Get run payload" },
   "postSdkV1RunsByRunIDProgress": { functionName: "progressRun", domainName: "sdk", domainMethodName: "progressRun", pathParamNames: ["runID"], summary: "Report progress" },
+  "postSdkV1RunsByRunIDResources": { functionName: "resourcesRun", domainName: "sdk", domainMethodName: "resourcesRun", pathParamNames: ["runID"], summary: "Report in-container resource usage" },
   "postSdkV1RunsByRunIDSpawn": { functionName: "spawnRun", domainName: "sdk", domainMethodName: "spawnRun", pathParamNames: ["runID"], summary: "Spawn a child job run" },
   "getSdkV1RunsByRunIDState": { functionName: "getStateByRunID", domainName: "sdk", domainMethodName: "getStateByRunId", pathParamNames: ["runID"], summary: "List all run state keys" },
   "postSdkV1RunsByRunIDState": { functionName: "stateRun", domainName: "sdk", domainMethodName: "stateRun", pathParamNames: ["runID"], summary: "Set run state key" },
@@ -695,8 +712,11 @@ export const generatedOperationMetadataById = {
   "deleteV1RunsByRunIDIdempotencyKey": { functionName: "deleteIdempotencyKey", domainName: "runs", domainMethodName: "deleteIdempotencyKey", pathParamNames: ["runID"], summary: "Reset idempotency key for a run" },
   "getV1RunsByRunIDLineage": { functionName: "getLineage", domainName: "runs", domainMethodName: "getLineage", pathParamNames: ["runID"], summary: "List run continuation lineage" },
   "getV1RunsByRunIDOutputs": { functionName: "listOutputs", domainName: "runs", domainMethodName: "listOutputs", pathParamNames: ["runID"], summary: "List run structured outputs" },
+  "postV1RunsByRunIDPause": { functionName: "pauseRun", domainName: "runs", domainMethodName: "pause", pathParamNames: ["runID"], summary: "Pause a managed run" },
   "postV1RunsByRunIDReplay": { functionName: "replayRun", domainName: "runs", domainMethodName: "replay", pathParamNames: ["runID"], summary: "Replay a failed run" },
   "postV1RunsByRunIDReschedule": { functionName: "rescheduleRun", domainName: "runs", domainMethodName: "reschedule", pathParamNames: ["runID"], summary: "Reschedule a run" },
+  "postV1RunsByRunIDRestart": { functionName: "restartRun", domainName: "runs", domainMethodName: "restart", pathParamNames: ["runID"], summary: "Restart a managed run with optional preset override" },
+  "postV1RunsByRunIDResume": { functionName: "resumeRun", domainName: "runs", domainMethodName: "resume", pathParamNames: ["runID"], summary: "Resume a paused run" },
   "getV1RunsByRunIDState": { functionName: "getState", domainName: "runs", domainMethodName: "getState", pathParamNames: ["runID"], summary: "List run state (management API)" },
   "getV1RunsByRunIDStream": { functionName: "getStreamByRunID", domainName: "runs", domainMethodName: "getStreamByRunId", pathParamNames: ["runID"], summary: "SSE event stream" },
   "getV1RunsByRunIDStreamChunks": { functionName: "listChunks", domainName: "runs", domainMethodName: "listChunks", pathParamNames: ["runID"], summary: "SSE stream of LLM chunks" },

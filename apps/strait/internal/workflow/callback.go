@@ -55,6 +55,8 @@ type CallbackStore interface {
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
+	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
+	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 // NewStepCallback creates a new step callback handler for workflow progression.
@@ -87,15 +89,44 @@ func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wf
 	if wfRun == nil {
 		return nil, fmt.Errorf("workflow run not found: %s", workflowRunID)
 	}
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+
+	steps, err := s.loadStepDefinitions(ctx, wfRun)
 	if err != nil {
-		return nil, fmt.Errorf("list steps by workflow version: %w", err)
+		return nil, err
 	}
+
 	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
 	for _, st := range steps {
 		stepByRef[st.StepRef] = st
 	}
 	return &wfCtx{run: wfRun, steps: steps, stepByRef: stepByRef}, nil
+}
+
+// loadStepDefinitions reads step definitions from the snapshot when available,
+// falling back to the live workflow_version_steps table for pre-snapshot runs.
+func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.WorkflowRun) ([]domain.WorkflowStep, error) {
+	if wfRun.WorkflowSnapshotID != "" {
+		snapshot, err := s.store.GetWorkflowSnapshot(ctx, wfRun.WorkflowSnapshotID)
+		if err != nil {
+			s.logger.Warn("failed to load snapshot, falling back to live table",
+				"workflow_run_id", wfRun.ID, "snapshot_id", wfRun.WorkflowSnapshotID, "error", err)
+		} else if snapshot != nil {
+			def, parseErr := storepkg.ParseSnapshotDefinition(snapshot.Definition)
+			if parseErr != nil {
+				s.logger.Warn("failed to parse snapshot, falling back to live table",
+					"workflow_run_id", wfRun.ID, "snapshot_id", wfRun.WorkflowSnapshotID, "error", parseErr)
+			} else {
+				return def.Steps, nil
+			}
+		}
+	}
+
+	// Fallback: read from live workflow_version_steps table.
+	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	if err != nil {
+		return nil, fmt.Errorf("list steps by workflow version: %w", err)
+	}
+	return steps, nil
 }
 
 func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {

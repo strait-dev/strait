@@ -1,4 +1,4 @@
-use super::wait::{wait_for_run, WaitForRunOptions};
+use super::wait::{WaitForRunOptions, wait_for_run};
 use crate::errors::StraitError;
 use std::future::Future;
 

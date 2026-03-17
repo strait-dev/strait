@@ -92,7 +92,7 @@ func TestListRunsByProject_TriggeredByFilter(t *testing.T) {
 	}
 
 	triggeredBy := domain.TriggerManual
-	runs, err := q.ListRunsByProject(ctx, job.ProjectID, nil, nil, nil, &triggeredBy, nil, nil, 20, nil)
+	runs, err := q.ListRunsByProject(ctx, job.ProjectID, nil, nil, nil, &triggeredBy, nil, nil, nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() error = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestListRunsByProject_PayloadContainsFilter(t *testing.T) {
 		t.Fatalf("CreateRun(run2) error = %v", err)
 	}
 
-	runs, err := q.ListRunsByProject(ctx, job.ProjectID, nil, nil, nil, nil, nil, json.RawMessage(`{"hello":"world"}`), 20, nil)
+	runs, err := q.ListRunsByProject(ctx, job.ProjectID, nil, nil, nil, nil, nil, json.RawMessage(`{"hello":"world"}`), nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() error = %v", err)
 	}

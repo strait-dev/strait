@@ -41,6 +41,8 @@
               "concepts/adaptive-concurrency",
               "concepts/audit-logging",
               "concepts/webhook-subscriptions",
+              "concepts/managed-execution",
+              "concepts/clickhouse-analytics",
               "concepts/log-drains",
               "concepts/event-sources",
               "concepts/batch-operations"

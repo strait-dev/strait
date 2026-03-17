@@ -107,15 +107,22 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
-			tags, job_version_id, created_by, concurrency_key, batch_id
+			tags, job_version_id, created_by, concurrency_key, batch_id,
+			execution_mode, machine_id
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
-			$24::jsonb, $25, $26, $27, $28
+			$24::jsonb, $25, $26, $27, $28,
+			$29, $30
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
+
+	execMode := run.ExecutionMode
+	if execMode == "" {
+		execMode = domain.ExecutionModeHTTP
+	}
 
 	err := q.db.QueryRow(
 		ctx,
@@ -148,6 +155,8 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.CreatedBy),
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
 		dbscan.NilIfEmptyString(run.BatchID),
+		string(execMode),
+		dbscan.NilIfEmptyString(run.MachineID),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
@@ -170,6 +179,7 @@ var copyFromColumns = []string{
 	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
+	"execution_mode", "machine_id",
 }
 
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
@@ -244,6 +254,8 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			dbscan.NilIfEmptyString(run.CreatedBy),
 			dbscan.NilIfEmptyString(run.ConcurrencyKey),
 			dbscan.NilIfEmptyString(run.BatchID),
+			string(run.ExecutionMode),
+			dbscan.NilIfEmptyString(run.MachineID),
 		}
 	}
 
@@ -306,7 +318,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		)
 		RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key`, domain.StatusDequeued, domain.StatusQueued, q.dequeueOrderByClause())
+		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id`, domain.StatusDequeued, domain.StatusQueued, q.dequeueOrderByClause())
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query))
 	if err != nil {
@@ -365,11 +377,11 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			WHERE id IN (SELECT id FROM claimed)
 			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
 			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		)
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		FROM updated
 		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, domain.StatusDequeued)
 
@@ -450,11 +462,11 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 			WHERE id IN (SELECT id FROM claimed)
 			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
 			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		)
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		FROM updated
 		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, orderBy, domain.StatusDequeued)
 
@@ -527,11 +539,11 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			WHERE id IN (SELECT id FROM claimed)
 			RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error,
 			          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+			          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		)
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
 		FROM updated
 		ORDER BY created_at ASC`, domain.StatusQueued, orderBy, domain.StatusDequeued)
 

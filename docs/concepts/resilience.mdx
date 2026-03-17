@@ -116,3 +116,34 @@ The stale reaper (`apps/strait/internal/scheduler/reaper.go`) detects runs that 
 - The reaper uses PostgreSQL advisory locks (`pg_try_advisory_lock`) to ensure single-leader execution across multiple instances
 
 This acts as a safety net for worker crashes, network partitions, and other failure scenarios where a run is claimed but never completed.
+
+## OOM Recovery
+
+When a managed container is killed by the OOM killer (exit code `137`), Strait automatically recovers by upgrading the machine preset and retrying:
+
+1. The exit code is classified as an OOM kill.
+2. The executor selects the next preset in the upgrade chain (`micro` -> `small-1x` -> ... -> `large-2x`).
+3. The recommendation is stored in `job_preset_recommendations` with a 24-hour decay, so future runs for the same job start at the upgraded preset.
+4. If the job is already at `large-2x`, the run is moved to `dead_letter`.
+
+This prevents OOM loops from consuming retry budget on an undersized preset.
+
+## Region Failover
+
+When a Fly region returns `503` (capacity exhaustion) during machine provisioning, the executor fails over to alternate regions before giving up. The primary region is always tried first; fallback regions are attempted in order. The run is only snoozed if all configured regions are unavailable.
+
+## Orphaned Machine Cleanup
+
+The reaper (`apps/strait/internal/scheduler/reaper.go`) includes orphaned machine detection for managed execution:
+
+- Machines in `started` or `running` state with no associated active run are flagged as orphaned.
+- Orphaned machines are destroyed via the Fly API to prevent resource leakage and cost accumulation.
+- This covers edge cases such as executor crashes mid-dispatch, network partitions during result recording, and machines that outlive their run due to race conditions.
+
+## Budget Protection
+
+Project compute budgets are enforced with a two-phase reservation model:
+
+- **Atomic reservation**: Before provisioning a machine, estimated cost is reserved against the daily budget. Concurrent dispatches cannot over-commit because reservations are atomic.
+- **Soft-limit warning**: At 80% of the daily budget, a structured log and metric alert are emitted to give operators advance notice.
+- **Commit on completion**: After the run finishes, the reservation is replaced with actual cost. Unused budget from over-estimates is released immediately.

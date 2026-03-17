@@ -110,6 +110,7 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 		StatusExpired,
 		StatusDeadLetter,
 		StatusReplayStaged,
+		StatusPaused,
 	}
 
 	for _, status := range allStatuses {

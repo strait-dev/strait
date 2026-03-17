@@ -1,17 +1,55 @@
 # Lefthook git hooks configuration.
-# Mirrors the CI lint pipeline (.github/workflows/lint.yml).
+# Mirrors the CI lint pipelines for Go backend and all SDKs.
+# All hooks run on every commit to catch cross-cutting issues early.
 
 pre-commit:
   parallel: true
   commands:
+    # --- Go backend ---
+    go_vet:
+      run: cd apps/strait && go vet ./...
+      fail_text: "Go vet failed — run 'go vet ./...' in apps/strait"
     lint:
       run: cd apps/strait && golangci-lint run --timeout=5m ./...
-      glob: "*.go"
       fail_text: "golangci-lint failed — fix lint errors before committing"
+    govulncheck:
+      run: cd apps/strait && govulncheck ./...
+      fail_text: "govulncheck found vulnerabilities — run 'govulncheck ./...' in apps/strait"
     openapi_parity:
       run: cd apps/strait && go run ./scripts/check-openapi-parity
-      glob: "{apps/strait/internal/api/routes.go,apps/strait/internal/api/openapi.yaml,docs/openapi.yaml,apps/strait/scripts/check-openapi-parity/main.go}"
       fail_text: "OpenAPI parity check failed — sync routes.go with both OpenAPI specs before committing"
+
+    # --- TypeScript SDK ---
+    ts_sdk_lint:
+      run: cd packages/typescript-sdk && bun run lint
+      fail_text: "TypeScript SDK lint failed — run 'bun run lint' in packages/typescript-sdk"
+    ts_sdk_typecheck:
+      run: cd packages/typescript-sdk && bun run typecheck
+      fail_text: "TypeScript SDK typecheck failed — run 'bun run typecheck' in packages/typescript-sdk"
+    ts_sdk_contracts:
+      run: cd packages/typescript-sdk && bun test test/openapi-coverage.test.ts
+      fail_text: "TypeScript SDK contract test failed — run 'bun run generate:contracts' in packages/typescript-sdk"
+
+    # --- Rust SDK ---
+    rust_sdk_fmt:
+      run: cd packages/rust-sdk && cargo fmt -- --check
+      fail_text: "Rust SDK format check failed — run 'cargo fmt' in packages/rust-sdk"
+    rust_sdk_clippy:
+      run: cd packages/rust-sdk && cargo clippy -- -D warnings
+      fail_text: "Rust SDK clippy failed — run 'cargo clippy --fix' in packages/rust-sdk"
+
+    # --- Go SDK ---
+    go_sdk_vet:
+      run: cd packages/go-sdk && go vet ./...
+      fail_text: "Go SDK vet failed — run 'go vet ./...' in packages/go-sdk"
+
+    # --- Python SDK ---
+    python_sdk_lint:
+      run: cd packages/python-sdk && ruff check strait/ tests/
+      fail_text: "Python SDK lint failed — run 'ruff check strait/ tests/' in packages/python-sdk"
+    python_sdk_typecheck:
+      run: cd packages/python-sdk && mypy strait/
+      fail_text: "Python SDK typecheck failed — run 'mypy strait/' in packages/python-sdk"
 
 commit-msg:
   commands:

@@ -1,6 +1,6 @@
 use crate::errors::StraitError;
 use std::future::Future;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JitterStrategy {
@@ -75,8 +75,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
     fn test_retry_options_defaults() {

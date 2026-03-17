@@ -103,6 +103,12 @@ type AdvisoryLocker interface {
 // reaperAdvisoryLockID is the pg_advisory_lock key for single-leader reaper.
 const reaperAdvisoryLockID int64 = 0x5374726169745265 // "StraitRe" as int64
 
+// MachineDestroyer can stop and destroy container machines (used for orphan cleanup).
+type MachineDestroyer interface {
+	Stop(ctx context.Context, machineID string) error
+	Destroy(ctx context.Context, machineID string) error
+}
+
 type Reaper struct {
 	store                 ReaperStore
 	interval              time.Duration
@@ -116,6 +122,7 @@ type Reaper struct {
 	longRetention         time.Duration
 	retentionEnabled      bool
 	workflowCallback      WorkflowCallback
+	machineDestroyer      MachineDestroyer
 	metrics               *telemetry.Metrics
 	logger                *slog.Logger
 	stalledAction         string
@@ -223,6 +230,12 @@ func (r *Reaper) WithStalledAction(action string) *Reaper {
 // WithAdvisoryLocker enables distributed single-leader reaping using pg_try_advisory_lock.
 func (r *Reaper) WithAdvisoryLocker(locker AdvisoryLocker) *Reaper {
 	r.advisoryLocker = locker
+	return r
+}
+
+// WithMachineDestroyer sets the container runtime for orphaned machine cleanup.
+func (r *Reaper) WithMachineDestroyer(d MachineDestroyer) *Reaper {
+	r.machineDestroyer = d
 	return r
 }
 
@@ -659,6 +672,23 @@ func (r *Reaper) reapStale(ctx context.Context) {
 			continue
 		}
 		run.Status = domain.StatusCrashed
+
+		// Clean up orphaned machines for managed runs.
+		if r.machineDestroyer != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
+			cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			if stopErr := r.machineDestroyer.Stop(cleanCtx, run.MachineID); stopErr != nil {
+				r.logger.Warn("failed to stop orphaned machine, attempting destroy",
+					"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
+			}
+			if destroyErr := r.machineDestroyer.Destroy(cleanCtx, run.MachineID); destroyErr != nil {
+				r.logger.Warn("failed to destroy orphaned machine",
+					"run_id", run.ID, "machine_id", run.MachineID, "error", destroyErr)
+			} else {
+				r.logger.Info("destroyed orphaned machine", "run_id", run.ID, "machine_id", run.MachineID)
+			}
+			cleanCancel()
+		}
+
 		r.notifyWorkflowCallback(ctx, &run)
 
 		slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)

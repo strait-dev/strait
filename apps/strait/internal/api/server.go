@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
@@ -102,7 +103,7 @@ type RunStore interface {
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -216,7 +217,10 @@ type WorkflowStore interface {
 	GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	ListManagedMachineIDsByWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error)
 	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
+	MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
+	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 // DeploymentStore handles deployment version lifecycle operations.
@@ -358,6 +362,7 @@ type Server struct {
 	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
 	rateLimiter        *ratelimit.RedisRateLimiter
 	encryptor          Encryptor
+	containerRuntime   compute.ContainerRuntime
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).
@@ -380,9 +385,10 @@ type ServerDeps struct {
 	Metrics          *telemetry.Metrics
 	TxPool           store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer      ActorSyncer
-	PoolStatter      PoolStatter   // Optional: enables DB pool backpressure middleware.
-	RedisClient      *redis.Client // Optional: enables per-project/key rate limiting.
-	Encryptor        Encryptor     // Optional: enables event source signature encryption.
+	PoolStatter      PoolStatter              // Optional: enables DB pool backpressure middleware.
+	RedisClient      *redis.Client            // Optional: enables per-project/key rate limiting.
+	Encryptor        Encryptor                // Optional: enables event source signature encryption.
+	ContainerRuntime compute.ContainerRuntime // Optional: enables managed container stop on cancel.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -425,6 +431,7 @@ func NewServer(deps ServerDeps) *Server {
 		bgPool:             pond.NewPool(4),
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
+		containerRuntime:   deps.ContainerRuntime,
 	}
 
 	if deps.TxPool != nil {

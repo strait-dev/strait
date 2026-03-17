@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/cdc"
+	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/health"
 	"strait/internal/pubsub"
@@ -292,6 +293,14 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		}))
 	}
 
+	var apiContainerRuntime compute.ContainerRuntime
+	switch cfg.ComputeRuntime {
+	case "fly":
+		apiContainerRuntime = compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
+	case "docker":
+		apiContainerRuntime = compute.NewDockerRuntime()
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:           cfg,
 		Store:            queries,
@@ -306,6 +315,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		TxPool:           txPool,
 		RedisClient:      rdb,
 		Encryptor:        encryptor,
+		ContainerRuntime: apiContainerRuntime,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -370,6 +380,18 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		partitionWeights = cfg.WorkerPartitionWeights
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
 	}
+	var containerRuntime compute.ContainerRuntime
+	switch cfg.ComputeRuntime {
+	case "fly":
+		containerRuntime = compute.NewFlyRuntime(cfg.FlyAPIToken, cfg.FlyAppName)
+		slog.Info("container runtime enabled", "runtime", "fly", "app", cfg.FlyAppName, "region", cfg.FlyRegion)
+	case "docker":
+		containerRuntime = compute.NewDockerRuntime()
+		slog.Info("container runtime enabled", "runtime", "docker")
+	default:
+		// No container runtime ("none" or empty).
+	}
+
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                    p,
 		Queue:                   q,
@@ -390,6 +412,10 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 		JWTSigningKey:           cfg.JWTSigningKey,
 		DequeueStrategy:         cfg.DequeueStrategy,
+		ContainerRuntime:        containerRuntime,
+		ExternalAPIURL:          cfg.ExternalAPIURL,
+		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
+		DefaultFlyRegion:        cfg.FlyRegion,
 	})
 
 	exec.Use(worker.TracingMiddleware())
@@ -484,7 +510,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
-		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine, scheduler.WithSchedulerMetrics(metrics))
+		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter(queries)
+		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
+			scheduler.WithSchedulerMetrics(metrics),
+			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
+		)
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}

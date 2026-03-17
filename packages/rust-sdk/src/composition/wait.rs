@@ -1,6 +1,6 @@
 use crate::errors::StraitError;
 use std::future::Future;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 
 #[derive(Debug, Clone)]
 pub struct WaitForRunOptions {

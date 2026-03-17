@@ -389,6 +389,14 @@ func (s *Server) handleTriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	run.ConcurrencyKey = req.ConcurrencyKey
 
+	// Capture Fly-Region header for geo-routing of managed dispatch.
+	if flyRegion := r.Header.Get("Fly-Region"); flyRegion != "" {
+		if run.Metadata == nil {
+			run.Metadata = make(map[string]string)
+		}
+		run.Metadata["_region_hint"] = flyRegion
+	}
+
 	// Capture W3C trace context from incoming request headers.
 	if tp := r.Header.Get("Traceparent"); tp != "" {
 		if run.Metadata == nil {

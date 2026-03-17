@@ -25,7 +25,13 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		return fmt.Errorf("increment step deps: %w", err)
 	}
 
-	if wc.run.Status == domain.WfStatusPaused {
+	// Re-read workflow run status after acquiring the lock to prevent a race
+	// where pause commits between our initial cache load and lock acquisition.
+	freshRun, freshErr := s.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
+	if freshErr != nil {
+		return fmt.Errorf("re-read workflow run status: %w", freshErr)
+	}
+	if freshRun.Status == domain.WfStatusPaused || freshRun.Status.IsTerminal() {
 		return nil
 	}
 
@@ -265,9 +271,9 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 
 	if parentStepRun == nil {
 		// Backward-compatible fallback for runs created before parent_step_run_id existed.
-		parentSteps, listErr := s.store.ListStepsByWorkflowVersion(ctx, parentRun.WorkflowID, parentRun.WorkflowVersion)
+		parentSteps, listErr := s.loadStepDefinitions(ctx, parentRun)
 		if listErr != nil {
-			return fmt.Errorf("list parent workflow steps: %w", listErr)
+			return fmt.Errorf("load parent step definitions: %w", listErr)
 		}
 
 		var matchingStepRef string
@@ -506,9 +512,19 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 
 	wfRun.Status = domain.WfStatusRunning
 
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	// Re-enqueue job runs that were paused (containers stopped).
+	requeueCount, requeueErr := s.store.RequeuePausedJobRuns(ctx, workflowRunID)
+	if requeueErr != nil {
+		return fmt.Errorf("requeue paused job runs: %w", requeueErr)
+	}
+	if requeueCount > 0 {
+		s.logger.Info("requeued paused job runs on resume",
+			"workflow_run_id", workflowRunID, "count", requeueCount)
+	}
+
+	steps, err := s.loadStepDefinitions(ctx, wfRun)
 	if err != nil {
-		return fmt.Errorf("list workflow steps: %w", err)
+		return fmt.Errorf("load step definitions: %w", err)
 	}
 
 	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, workflowRunID)

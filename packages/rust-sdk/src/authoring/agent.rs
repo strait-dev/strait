@@ -1,4 +1,4 @@
-use crate::authoring::job::{define_job, JobDefinition, JobOptions};
+use crate::authoring::job::{JobDefinition, JobOptions, define_job};
 use crate::authoring::run_context::RunContext;
 use std::sync::{Arc, Mutex};
 

@@ -109,6 +109,18 @@ func (s *SDKRunsService) DeleteState(ctx context.Context, runID string, key stri
 	return result, err
 }
 
+func (s *SDKRunsService) GetPayload(ctx context.Context, runID string) (map[string]any, error) {
+	var result map[string]any
+	err := s.r.DoRequest(ctx, "GET", PathParams("/sdk/v1/runs/{runID}/payload", map[string]string{"runID": runID}), nil, nil, nil, &result)
+	return result, err
+}
+
+func (s *SDKRunsService) ResourcesRun(ctx context.Context, runID string, body any) (map[string]any, error) {
+	var result map[string]any
+	err := s.r.DoRequest(ctx, "POST", PathParams("/sdk/v1/runs/{runID}/resources", map[string]string{"runID": runID}), nil, nil, body, &result)
+	return result, err
+}
+
 func (s *SDKRunsService) StreamRun(ctx context.Context, runID string, body any) (map[string]any, error) {
 	var result map[string]any
 	err := s.r.DoRequest(ctx, "POST", PathParams("/sdk/v1/runs/{runID}/stream", map[string]string{"runID": runID}), nil, nil, body, &result)

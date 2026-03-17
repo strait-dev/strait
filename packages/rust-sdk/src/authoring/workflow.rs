@@ -1,6 +1,6 @@
 use super::dag_validation::validate_dag;
 use super::steps::Step;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowOptions {
@@ -117,7 +117,7 @@ pub fn define_workflow(opts: WorkflowOptions) -> WorkflowDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authoring::steps::{job_step, BaseStepOptions};
+    use crate::authoring::steps::{BaseStepOptions, job_step};
 
     #[test]
     fn test_define_workflow_kind() {

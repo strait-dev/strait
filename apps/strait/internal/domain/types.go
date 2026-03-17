@@ -22,6 +22,7 @@ const (
 	StatusExpired      RunStatus = "expired"
 	StatusDeadLetter   RunStatus = "dead_letter"
 	StatusReplayStaged RunStatus = "replay_staged"
+	StatusPaused       RunStatus = "paused"
 )
 
 const (
@@ -34,13 +35,18 @@ const (
 )
 
 const (
-	WebhookEventRunCompleted      = "run.completed"
-	WebhookEventRunFailed         = "run.failed"
-	WebhookEventRunTimedOut       = "run.timed_out"
-	WebhookEventRunCanceled       = "run.canceled"
-	WebhookEventWorkflowCompleted = "workflow.completed"
-	WebhookEventWorkflowFailed    = "workflow.failed"
+	WebhookEventRunCompleted         = "run.completed"
+	WebhookEventRunFailed            = "run.failed"
+	WebhookEventRunTimedOut          = "run.timed_out"
+	WebhookEventRunCanceled          = "run.canceled"
+	WebhookEventWorkflowCompleted    = "workflow.completed"
+	WebhookEventWorkflowFailed       = "workflow.failed"
+	WebhookEventComputeBudgetWarning = "compute_budget_warning"
 )
+
+// ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
+// that triggers a warning alert.
+const ComputeBudgetAlertThresholdPct = 80
 
 type EventType string
 
@@ -181,6 +187,10 @@ type Job struct {
 	DebounceWindowSecs       int               `json:"debounce_window_secs,omitempty"`
 	BatchWindowSecs          int               `json:"batch_window_secs,omitempty"`
 	BatchMaxSize             int               `json:"batch_max_size,omitempty"`
+	ExecutionMode            ExecutionMode     `json:"execution_mode,omitempty"`
+	MachinePreset            MachinePreset     `json:"machine_preset,omitempty"`
+	ImageURI                 string            `json:"image_uri,omitempty"`
+	Region                   string            `json:"region,omitempty"`
 	CreatedBy                string            `json:"created_by,omitempty"`
 	UpdatedBy                string            `json:"updated_by,omitempty"`
 	CreatedAt                time.Time         `json:"created_at"`
@@ -303,6 +313,8 @@ type JobRun struct {
 	CreatedBy             string            `json:"created_by,omitempty"`
 	BatchID               string            `json:"batch_id,omitempty"`
 	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
+	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
+	MachineID             string            `json:"machine_id,omitempty"`
 	CreatedAt             time.Time         `json:"created_at"`
 }
 
@@ -410,6 +422,21 @@ type RunOutput struct {
 	Schema    json.RawMessage `json:"schema,omitempty"`
 	Value     json.RawMessage `json:"value"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+// RunComputeUsage tracks container wall-clock time and cost for managed runs.
+type RunComputeUsage struct {
+	ID            string     `json:"id"`
+	RunID         string     `json:"run_id"`
+	ProjectID     string     `json:"project_id"`
+	JobID         string     `json:"job_id"`
+	MachinePreset string     `json:"machine_preset"`
+	MachineID     string     `json:"machine_id"`
+	DurationSecs  float64    `json:"duration_secs"`
+	CostMicrousd  int64      `json:"cost_microusd"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 // ExecutionTrace captures timing breakdown for a job run execution.
@@ -520,6 +547,9 @@ type JobVersion struct {
 	WebhookURL          string            `json:"webhook_url,omitempty"`
 	WebhookSecret       string            `json:"webhook_secret,omitempty"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
+	MachinePreset       string            `json:"machine_preset,omitempty"`
+	ImageURI            string            `json:"image_uri,omitempty"`
+	Region              string            `json:"region,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
 
@@ -604,7 +634,7 @@ func (s RunStatus) IsValid() bool {
 	switch s {
 	case StatusDelayed, StatusQueued, StatusDequeued, StatusExecuting, StatusWaiting,
 		StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed,
-		StatusCanceled, StatusExpired, StatusDeadLetter, StatusReplayStaged:
+		StatusCanceled, StatusExpired, StatusDeadLetter, StatusReplayStaged, StatusPaused:
 		return true
 	default:
 		return false
@@ -756,6 +786,47 @@ func (p VersionPolicy) IsValid() bool {
 	}
 }
 
+// ExecutionMode determines how a job run is dispatched.
+type ExecutionMode string
+
+const (
+	ExecutionModeHTTP    ExecutionMode = "http"
+	ExecutionModeManaged ExecutionMode = "managed"
+)
+
+// IsValid returns true if the execution mode is a known value.
+func (m ExecutionMode) IsValid() bool {
+	switch m {
+	case ExecutionModeHTTP, ExecutionModeManaged:
+		return true
+	default:
+		return false
+	}
+}
+
+// MachinePreset defines a compute resource tier for managed execution.
+type MachinePreset string
+
+const (
+	PresetMicro    MachinePreset = "micro"
+	PresetSmall1x  MachinePreset = "small-1x"
+	PresetSmall2x  MachinePreset = "small-2x"
+	PresetMedium1x MachinePreset = "medium-1x"
+	PresetMedium2x MachinePreset = "medium-2x"
+	PresetLarge1x  MachinePreset = "large-1x"
+	PresetLarge2x  MachinePreset = "large-2x"
+)
+
+// IsValid returns true if the machine preset is a known value.
+func (p MachinePreset) IsValid() bool {
+	switch p {
+	case PresetMicro, PresetSmall1x, PresetSmall2x, PresetMedium1x, PresetMedium2x, PresetLarge1x, PresetLarge2x:
+		return true
+	default:
+		return false
+	}
+}
+
 type RetryBackoffPolicy string
 
 const (
@@ -825,6 +896,39 @@ type WorkflowStep struct {
 	CreatedAt             time.Time          `json:"created_at"`
 }
 
+// WorkflowSnapshot captures an immutable point-in-time workflow definition
+// (metadata + all step fields) as JSONB. Used so in-flight runs are immune
+// to live workflow_steps table changes.
+type WorkflowSnapshot struct {
+	ID         string          `json:"id"`
+	WorkflowID string          `json:"workflow_id"`
+	VersionID  string          `json:"version_id,omitempty"`
+	Version    int             `json:"version"`
+	Definition json.RawMessage `json:"definition"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// WorkflowSnapshotDefinition is the serialized content of a WorkflowSnapshot.Definition.
+type WorkflowSnapshotDefinition struct {
+	Workflow WorkflowSnapshotMeta `json:"workflow"`
+	Steps    []WorkflowStep       `json:"steps"`
+}
+
+// WorkflowSnapshotMeta holds the workflow-level fields captured in the snapshot.
+type WorkflowSnapshotMeta struct {
+	ID                string            `json:"id"`
+	ProjectID         string            `json:"project_id"`
+	Name              string            `json:"name"`
+	Slug              string            `json:"slug"`
+	Description       string            `json:"description,omitempty"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	Version           int               `json:"version"`
+	VersionID         string            `json:"version_id,omitempty"`
+	TimeoutSecs       int               `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns int               `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps  int               `json:"max_parallel_steps,omitempty"`
+}
+
 // WorkflowRun represents an execution instance of a workflow.
 type WorkflowRun struct {
 	ID                  string            `json:"id"`
@@ -844,6 +948,7 @@ type WorkflowRun struct {
 	ParentWorkflowRunID string            `json:"parent_workflow_run_id,omitempty"`
 	ParentStepRunID     string            `json:"parent_step_run_id,omitempty"`
 	WorkflowVersionID   string            `json:"workflow_version_id,omitempty"`
+	WorkflowSnapshotID  string            `json:"workflow_snapshot_id,omitempty"`
 	CreatedBy           string            `json:"created_by,omitempty"`
 	TraceContext        map[string]string `json:"trace_context,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`

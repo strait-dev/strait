@@ -20,10 +20,7 @@ impl EventDefinition {
 }
 
 /// Create a new event definition.
-pub fn define_event(
-    key: impl Into<String>,
-    validate: Option<EventValidator>,
-) -> EventDefinition {
+pub fn define_event(key: impl Into<String>, validate: Option<EventValidator>) -> EventDefinition {
     EventDefinition {
         key: key.into(),
         validate,

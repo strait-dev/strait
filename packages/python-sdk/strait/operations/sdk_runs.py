@@ -96,6 +96,16 @@ class SDKRunsService(BaseService):
             path_params={"runID": run_id, "key": key},
         )
 
+    def get_payload(self, run_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET", "/sdk/v1/runs/{runID}/payload", path_params={"runID": run_id},
+        )
+
+    def resources_run(self, run_id: str, body: Any) -> dict[str, Any]:
+        return self._request(
+            "POST", "/sdk/v1/runs/{runID}/resources", path_params={"runID": run_id}, body=body,
+        )
+
     def stream_run(self, run_id: str, body: Any) -> dict[str, Any]:
         return self._request(
             "POST", "/sdk/v1/runs/{runID}/stream", path_params={"runID": run_id}, body=body,
@@ -189,6 +199,16 @@ class AsyncSDKRunsService(AsyncBaseService):
         return await self._request(
             "DELETE", "/sdk/v1/runs/{runID}/state/{key}",
             path_params={"runID": run_id, "key": key},
+        )
+
+    async def get_payload(self, run_id: str) -> dict[str, Any]:
+        return await self._request(
+            "GET", "/sdk/v1/runs/{runID}/payload", path_params={"runID": run_id},
+        )
+
+    async def resources_run(self, run_id: str, body: Any) -> dict[str, Any]:
+        return await self._request(
+            "POST", "/sdk/v1/runs/{runID}/resources", path_params={"runID": run_id}, body=body,
         )
 
     async def stream_run(self, run_id: str, body: Any) -> dict[str, Any]:
