@@ -668,10 +668,19 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 		return fmt.Errorf("workflow cannot have more than %d steps", maxWorkflowSteps)
 	}
 
+	// Build set of known step_refs and check for duplicates.
+	knownRefs := make(map[string]bool, len(steps))
 	for _, step := range steps {
 		if step.StepRef == "" {
 			return errors.New("each step requires step_ref")
 		}
+		if knownRefs[step.StepRef] {
+			return fmt.Errorf("duplicate step_ref: %s", step.StepRef)
+		}
+		knownRefs[step.StepRef] = true
+	}
+
+	for _, step := range steps {
 		if step.StepType == "" {
 			step.StepType = domain.WorkflowStepTypeJob
 		}
@@ -719,9 +728,6 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 		if step.ResourceClass != "" && step.ResourceClass != "small" && step.ResourceClass != "medium" && step.ResourceClass != "large" {
 			return errors.New("resource_class must be one of small, medium, large")
 		}
-		if len(step.DependsOn) == 0 {
-			continue
-		}
 		for _, dep := range step.DependsOn {
 			if dep == "" {
 				return errors.New("depends_on cannot contain empty values")
@@ -729,7 +735,44 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 			if dep == step.StepRef {
 				return errors.New("step cannot depend on itself")
 			}
+			if !knownRefs[dep] {
+				return fmt.Errorf("step %q depends on unknown step %q", step.StepRef, dep)
+			}
 		}
+	}
+
+	// Detect cycles via topological sort (Kahn's algorithm).
+	inDegree := make(map[string]int, len(steps))
+	adj := make(map[string][]string, len(steps))
+	for _, step := range steps {
+		if _, ok := inDegree[step.StepRef]; !ok {
+			inDegree[step.StepRef] = 0
+		}
+		for _, dep := range step.DependsOn {
+			adj[dep] = append(adj[dep], step.StepRef)
+			inDegree[step.StepRef]++
+		}
+	}
+	queue := make([]string, 0, len(steps))
+	for ref, deg := range inDegree {
+		if deg == 0 {
+			queue = append(queue, ref)
+		}
+	}
+	visited := 0
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		visited++
+		for _, next := range adj[node] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+	if visited != len(steps) {
+		return errors.New("workflow has circular dependencies")
 	}
 
 	return nil
