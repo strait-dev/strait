@@ -469,7 +469,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 
 	query := `
 		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
-		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd, default_region
+		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd, default_region, plan_tier
 		FROM project_quotas
 		WHERE project_id = $1`
 
@@ -484,6 +484,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	var rateLimitWindowSecs *int
 	var computeDailyCostLimit *int64
 	var defaultRegion *string
+	var planTier *string
 	err := q.db.QueryRow(ctx, query, projectID).Scan(
 		&quota.ProjectID,
 		&maxQueued,
@@ -496,6 +497,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		&rateLimitWindowSecs,
 		&computeDailyCostLimit,
 		&defaultRegion,
+		&planTier,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -533,6 +535,9 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	}
 	if defaultRegion != nil {
 		quota.DefaultRegion = *defaultRegion
+	}
+	if planTier != nil {
+		quota.PlanTier = *planTier
 	}
 
 	return quota, nil

@@ -169,6 +169,23 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Plan-based region gating.
+	if req.Region != "" && s.config.EnforceRegionGating {
+		quota, qErr := s.store.GetProjectQuota(r.Context(), req.ProjectID)
+		if qErr != nil {
+			respondError(w, r, http.StatusInternalServerError, "failed to check plan")
+			return
+		}
+		tier := domain.PlanFree
+		if quota != nil && quota.PlanTier != "" {
+			tier = domain.PlanTier(quota.PlanTier)
+		}
+		if !domain.IsRegionAllowed(tier, req.Region) {
+			respondError(w, r, http.StatusForbidden, "region "+req.Region+" is not available on your plan")
+			return
+		}
+	}
+
 	// Execution mode validation.
 	execMode := domain.ExecutionMode(req.ExecutionMode)
 	if execMode == "" {
@@ -491,6 +508,21 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		if *req.Region != "" && !compute.IsValidRegion(*req.Region) {
 			respondError(w, r, http.StatusBadRequest, "invalid region: "+*req.Region)
 			return
+		}
+		if *req.Region != "" && s.config.EnforceRegionGating {
+			quota, qErr := s.store.GetProjectQuota(r.Context(), job.ProjectID)
+			if qErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to check plan")
+				return
+			}
+			tier := domain.PlanFree
+			if quota != nil && quota.PlanTier != "" {
+				tier = domain.PlanTier(quota.PlanTier)
+			}
+			if !domain.IsRegionAllowed(tier, *req.Region) {
+				respondError(w, r, http.StatusForbidden, "region "+*req.Region+" is not available on your plan")
+				return
+			}
 		}
 		job.Region = *req.Region
 	}
