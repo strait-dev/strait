@@ -127,6 +127,8 @@ export type Job = {
   version_id: string;
   version_policy: VersionPolicy;
   backwards_compatible: boolean;
+  region: string;
+  preferred_regions: string[];
   created_by: string;
   updated_by: string;
   created_at: string; // ISO 8601
@@ -425,4 +427,24 @@ export type ListParams = {
   page?: number;
   per_page?: number;
   sort?: "asc" | "desc";
+};
+
+/** Plan tier for region gating. Matches Go domain.PlanTier. */
+export type PlanTier = "free" | "starter" | "professional" | "enterprise";
+
+/** Region metadata from GET /v1/regions. */
+export type Region = {
+  code: string;
+  label: string;
+  city: string;
+  country: string;
+  continent: string;
+  availability: Record<PlanTier, boolean>;
+};
+
+/** Project settings from GET /v1/projects/:id/settings. */
+export type ProjectSettings = {
+  project_id: string;
+  default_region: string;
+  plan_tier: PlanTier;
 };
