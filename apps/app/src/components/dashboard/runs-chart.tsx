@@ -4,6 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -13,32 +14,44 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { fetchAnalytics } from "@/lib/api";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
-
-const MOCK_DATA = [
-  { time: "00:00", completed: 42, failed: 3, executing: 8 },
-  { time: "04:00", completed: 28, failed: 1, executing: 5 },
-  { time: "08:00", completed: 65, failed: 5, executing: 12 },
-  { time: "12:00", completed: 89, failed: 7, executing: 18 },
-  { time: "16:00", completed: 74, failed: 4, executing: 14 },
-  { time: "20:00", completed: 56, failed: 2, executing: 10 },
-  { time: "24:00", completed: 48, failed: 3, executing: 7 },
-];
 
 const LABEL_MAP = {
   completed: { label: "Completed", color: CHART_COLORS.success },
   failed: { label: "Failed", color: CHART_COLORS.error },
-  executing: { label: "Executing", color: CHART_COLORS.active },
+  timed_out: { label: "Timed Out", color: CHART_COLORS.warning },
+  canceled: { label: "Canceled", color: CHART_COLORS.neutral },
 };
 
 const LEGEND_ITEMS = [
   { label: "Completed", color: CHART_COLORS.success },
   { label: "Failed", color: CHART_COLORS.error },
-  { label: "Executing", color: CHART_COLORS.active },
+  { label: "Timed Out", color: CHART_COLORS.warning },
+  { label: "Canceled", color: CHART_COLORS.neutral },
 ];
 
 export function RunsChart() {
+  const { data: analytics } = useQuery({
+    queryKey: ["analytics", { periodHours: 24 }],
+    queryFn: () => fetchAnalytics({ data: { periodHours: 24 } }),
+    staleTime: 60_000,
+  });
+
+  const throughput = analytics?.throughput;
+  const chartData = throughput
+    ? [
+        {
+          period: "Last 24h",
+          completed: throughput.completed,
+          failed: throughput.failed,
+          timed_out: throughput.timed_out,
+          canceled: throughput.canceled,
+        },
+      ]
+    : [];
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -66,11 +79,11 @@ export function RunsChart() {
             minWidth={1}
             width="100%"
           >
-            <BarChart data={MOCK_DATA}>
+            <BarChart data={chartData}>
               <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
               <XAxis
                 className="text-muted-foreground"
-                dataKey="time"
+                dataKey="period"
                 tick={{ fontSize: 14 }}
               />
               <YAxis
@@ -94,8 +107,14 @@ export function RunsChart() {
                 stackId="runs"
               />
               <Bar
-                dataKey="executing"
-                fill={CHART_COLORS.active}
+                dataKey="timed_out"
+                fill={CHART_COLORS.warning}
+                radius={[0, 0, 0, 0]}
+                stackId="runs"
+              />
+              <Bar
+                dataKey="canceled"
+                fill={CHART_COLORS.neutral}
                 radius={[2, 2, 0, 0]}
                 stackId="runs"
               />

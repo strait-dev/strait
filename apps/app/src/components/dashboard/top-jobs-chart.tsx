@@ -4,6 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -13,22 +14,28 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { fetchAnalytics } from "@/lib/api";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
-
-const MOCK_DATA = [
-  { job: "payment-sync", runs: 412 },
-  { job: "email-digest", runs: 356 },
-  { job: "inventory-check", runs: 298 },
-  { job: "report-gen", runs: 245 },
-  { job: "data-export", runs: 189 },
-];
 
 const LABEL_MAP = {
   runs: { label: "Executions", color: CHART_COLORS.active },
 };
 
 export function TopJobsChart() {
+  const { data: analytics } = useQuery({
+    queryKey: ["analytics", { periodHours: 24 }],
+    queryFn: () => fetchAnalytics({ data: { periodHours: 24 } }),
+    staleTime: 60_000,
+  });
+
+  const chartData = (analytics?.slowest_jobs ?? [])
+    .map((j) => ({
+      job: j.job_slug || j.job_id.slice(0, 12),
+      runs: j.total_runs,
+    }))
+    .slice(0, 5);
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -44,7 +51,7 @@ export function TopJobsChart() {
             minWidth={1}
             width="100%"
           >
-            <BarChart data={MOCK_DATA} layout="vertical">
+            <BarChart data={chartData} layout="vertical">
               <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
               <XAxis
                 className="text-muted-foreground"

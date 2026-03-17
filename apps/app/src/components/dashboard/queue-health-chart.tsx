@@ -4,6 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -13,33 +14,44 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { fetchAnalytics, fetchStats } from "@/lib/api";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
 
-const MOCK_DATA = [
-  { time: "00:00", depth: 8 },
-  { time: "04:00", depth: 4 },
-  { time: "08:00", depth: 15 },
-  { time: "12:00", depth: 28 },
-  { time: "16:00", depth: 22 },
-  { time: "20:00", depth: 12 },
-  { time: "24:00", depth: 6 },
-];
-
 const LABEL_MAP = {
-  depth: {
-    label: "Queue depth",
+  count: {
+    label: "Count",
     color: CHART_COLORS.warning,
     format: (v: number) => `${v.toLocaleString()} items`,
   },
 };
 
 export function QueueHealthChart() {
+  const { data: stats } = useQuery({
+    queryKey: ["stats"],
+    queryFn: () => fetchStats(),
+    staleTime: 60_000,
+  });
+  const { data: analytics } = useQuery({
+    queryKey: ["analytics", { periodHours: 24 }],
+    queryFn: () => fetchAnalytics({ data: { periodHours: 24 } }),
+    staleTime: 60_000,
+  });
+
+  const health = analytics?.health_summary;
+  const chartData = [
+    { metric: "Queued", count: stats?.queued ?? 0 },
+    { metric: "Executing", count: stats?.executing ?? 0 },
+    { metric: "Delayed", count: stats?.delayed ?? 0 },
+    { metric: "Active Jobs", count: health?.active_jobs ?? 0 },
+    { metric: "Total Jobs", count: health?.total_jobs ?? 0 },
+  ];
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="font-medium text-sm">
-          Queue Depth Over Time
+          Queue Health
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -50,12 +62,12 @@ export function QueueHealthChart() {
             minWidth={1}
             width="100%"
           >
-            <BarChart data={MOCK_DATA}>
+            <BarChart data={chartData}>
               <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
               <XAxis
                 className="text-muted-foreground"
-                dataKey="time"
-                tick={{ fontSize: 14 }}
+                dataKey="metric"
+                tick={{ fontSize: 12 }}
               />
               <YAxis
                 className="text-muted-foreground"
@@ -66,7 +78,7 @@ export function QueueHealthChart() {
                 cursor={{ fill: "var(--muted)" }}
               />
               <Bar
-                dataKey="depth"
+                dataKey="count"
                 fill={CHART_COLORS.warning}
                 radius={[4, 4, 0, 0]}
               />

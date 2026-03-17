@@ -13,7 +13,7 @@ import { StatusDistributionChart } from "@/components/dashboard/status-distribut
 import { ThroughputChart } from "@/components/dashboard/throughput-chart";
 import { TopJobsChart } from "@/components/dashboard/top-jobs-chart";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
-import { fetchStats } from "@/lib/api";
+import { fetchAnalytics, fetchStats } from "@/lib/api";
 import {
   ActivityIcon,
   AlertIcon,
@@ -28,10 +28,17 @@ const statsQueryOptions = {
   staleTime: 60_000,
 };
 
+const analyticsQueryOptions = {
+  queryKey: ["analytics", { periodHours: 24 }],
+  queryFn: () => fetchAnalytics({ data: { periodHours: 24 } }),
+  staleTime: 60_000,
+};
+
 export const Route = createFileRoute("/app/dashboard")({
   loader: async ({ context }) => {
     await Promise.allSettled([
       context.queryClient.ensureQueryData(statsQueryOptions),
+      context.queryClient.ensureQueryData(analyticsQueryOptions),
       context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
     ]);
   },
@@ -40,11 +47,22 @@ export const Route = createFileRoute("/app/dashboard")({
 
 function RouteComponent() {
   const { data: stats } = useQuery(statsQueryOptions);
+  const { data: analytics } = useQuery(analyticsQueryOptions);
 
-  const totalRuns = Number(stats?.total_runs ?? 0);
-  const successRate = Number(stats?.success_rate ?? 0);
-  const failedRuns = Number(stats?.failed_runs ?? 0);
-  const queuedRuns = Number(stats?.queued_runs ?? 0);
+  const queued = stats?.queued ?? 0;
+  const executing = stats?.executing ?? 0;
+  const delayed = stats?.delayed ?? 0;
+  const totalActive = queued + executing + delayed;
+
+  const throughput = analytics?.throughput;
+  const health = analytics?.health_summary;
+  const totalRuns = throughput
+    ? throughput.completed + throughput.failed + throughput.timed_out + throughput.canceled
+    : 0;
+  const successRate = health?.success_rate
+    ? (health.success_rate * 100)
+    : 0;
+  const failedRuns = throughput?.failed ?? 0;
 
   return (
     <Shell>
@@ -54,7 +72,7 @@ function RouteComponent() {
           chartColor={CHART_COLORS.active}
           chartData={[]}
           icon={ActivityIcon}
-          title="Total Runs"
+          title="Total Runs (24h)"
           value={totalRuns.toLocaleString()}
         />
         <MetricsCard
@@ -76,7 +94,7 @@ function RouteComponent() {
           chartData={[]}
           icon={ClockIcon}
           title="Queued"
-          value={queuedRuns.toLocaleString()}
+          value={totalActive.toLocaleString()}
         />
       </div>
 
