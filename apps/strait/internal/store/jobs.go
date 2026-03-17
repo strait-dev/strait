@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -112,6 +113,10 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.PreferredRegions,
 	).Scan(&job.CreatedAt, &job.UpdatedAt, &job.Version)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("job with slug %q already exists: %w", job.Slug, ErrJobSlugConflict)
+		}
 		return fmt.Errorf("create job: %w", err)
 	}
 

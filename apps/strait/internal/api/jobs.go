@@ -249,6 +249,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateJob(r.Context(), job); err != nil {
+		if errors.Is(err, store.ErrJobSlugConflict) {
+			respondError(w, r, http.StatusConflict, err.Error())
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to create job")
 		return
 	}
