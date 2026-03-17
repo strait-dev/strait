@@ -179,7 +179,9 @@ func openMigratorFromEnv() (*migrate.Migrate, error) {
 		return nil, fmt.Errorf("open sql connection: %w", err)
 	}
 
-	driver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{})
+	driver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{
+		MigrationsTable: "strait_schema_migrations",
+	})
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("create migration driver: %w", err)
