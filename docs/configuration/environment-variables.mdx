@@ -6,8 +6,12 @@ description: "Complete reference of environment variables used to configure Stra
 This page documents all environment variables available for configuring Strait.
 
 <Note>
-  Required fields: `DATABASE_URL`, `INTERNAL_SECRET`, and `JWT_SIGNING_KEY`.
+  Required fields: `DATABASE_URL`, `INTERNAL_SECRET`, `JWT_SIGNING_KEY`, `ENCRYPTION_KEY`, and `SECRET_ENCRYPTION_KEY`.
 </Note>
+
+<Tip>
+  All environment variables are managed via [Doppler](https://doppler.com) (project: `strait`, configs: `dev` / `stg` / `prd`). Use `doppler run -- <cmd>` to inject secrets locally, or see the [Deployment Guide](/guides/deployment) for production setup.
+</Tip>
 
 ## Core Configuration
 
@@ -21,7 +25,10 @@ This page documents all environment variables available for configuring Strait.
 | `JWT_SIGNING_KEY` | String | (Required) | Key used to sign JWT run tokens. Must be at least 32 characters. |
 | `LOG_LEVEL` | String | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. |
 | `SECRET_ENCRYPTION_KEY` | String | - | Key used to encrypt job secrets. Required when using secret injection. |
+| `ENCRYPTION_KEY` | String | - | Key used for data encryption at rest. Should be unique per environment. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | String | - | OpenTelemetry collector endpoint. |
+| `UPSTASH_REDIS_REST_URL` | String | - | Upstash Redis REST API URL. |
+| `UPSTASH_REDIS_REST_TOKEN` | String | - | Upstash Redis REST API token. |
 
 ## Worker Configuration
 

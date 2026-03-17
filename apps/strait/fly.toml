@@ -1,5 +1,5 @@
 app = "strait"
-primary_region = "ams"
+primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"

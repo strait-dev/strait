@@ -31,7 +31,8 @@
     "update-all": "bunx npm-check-updates -ui -ws",
     "release": "changeset version && bash scripts/sync-sdk-versions.sh",
     "deploy": "cd apps/strait && make deploy",
-    "deploy:staging": "cd apps/strait && make deploy-staging"
+    "deploy:staging": "cd apps/strait && make deploy-staging",
+    "deploy:sequin": "cd deploy/sequin && fly deploy -a strait-sequin"
   },
   "overrides": {
     "better-auth": "1.4.18",
