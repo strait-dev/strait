@@ -190,5 +190,13 @@ func parseKey(key string) ([]byte, error) {
 		return decoded, nil
 	}
 
+	// Try base64 decoding (standard or URL-safe, with or without padding).
+	if decoded, err := base64.StdEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+
 	return nil, errInvalidKeyLength
 }
