@@ -292,11 +292,12 @@ The following environment variables configure the managed execution subsystem:
 | `COMPUTE_RUNTIME` | Compute backend: `none`, `fly`, or `docker`. | `none` |
 | `FLY_API_TOKEN` | API token for authenticating with the Fly Machines API. | -- |
 | `FLY_APP_NAME` | Fly application name where machines are provisioned. | -- |
-| `FLY_REGION` | Default region for new machines. | -- |
+| `FLY_REGION` | Default region for new machines. | `iad` |
 | `EXTERNAL_API_URL` | Public API URL passed to containers for SDK callbacks. | -- |
 | `MAX_CONCURRENT_MACHINES` | Maximum machines running simultaneously (semaphore size). | `10` |
 | `WARM_POOL_ENABLED` | Enable the warm machine pool. | `true` |
 | `WARM_POOL_MAX_PER_JOB` | Maximum pooled machines per `image:region` key. | `3` |
+| `WARM_POOL_TTL` | TTL for idle warm machines before they are destroyed. | `5m` |
 
 ## Observability
 
