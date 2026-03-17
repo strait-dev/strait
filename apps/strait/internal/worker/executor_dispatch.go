@@ -432,6 +432,21 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			preset = override
 		}
 	}
+	// Auto-upgrade from historical OOM data (only if no explicit override).
+	if _, hasOverride := run.Metadata["_preset_override"]; !hasOverride {
+		rec, recErr := e.store.GetPresetRecommendation(ctx, job.ID)
+		if recErr == nil && rec != nil {
+			recIdx := compute.PresetIndex(rec.RecommendedPreset)
+			curIdx := compute.PresetIndex(preset)
+			if recIdx > curIdx {
+				e.logger.Info("auto-upgrading preset from OOM history",
+					"run_id", run.ID, "job_id", job.ID,
+					"from", preset, "to", rec.RecommendedPreset,
+					"oom_count", rec.OOMCount)
+				preset = rec.RecommendedPreset
+			}
+		}
+	}
 	runReq := compute.RunRequest{
 		ImageURI:      job.ImageURI,
 		MachinePreset: preset,
@@ -724,6 +739,13 @@ func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun,
 	currentPreset := string(job.MachinePreset)
 	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
 		currentPreset = override
+	}
+
+	// Record OOM event for historical learning.
+	if classification.IsOOM {
+		if err := e.store.RecordOOMEvent(ctx, job.ID, currentPreset); err != nil {
+			e.logger.Warn("failed to record OOM event", "job_id", job.ID, "error", err)
+		}
 	}
 
 	// OOM at max preset → dead_letter immediately.

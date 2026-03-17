@@ -44,6 +44,8 @@ type ExecutorStore interface {
 	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	SetRunMachineID(ctx context.Context, runID, machineID string) error
+	RecordOOMEvent(ctx context.Context, jobID, preset string) error
+	GetPresetRecommendation(ctx context.Context, jobID string) (*store.PresetRecommendation, error)
 }
 
 type executionPolicy struct {

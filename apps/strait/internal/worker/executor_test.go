@@ -227,6 +227,14 @@ func (m *mockExecutorStore) SetRunMachineID(_ context.Context, _, _ string) erro
 	return nil
 }
 
+func (m *mockExecutorStore) RecordOOMEvent(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *mockExecutorStore) GetPresetRecommendation(_ context.Context, _ string) (*orcstore.PresetRecommendation, error) {
+	return nil, nil
+}
+
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
