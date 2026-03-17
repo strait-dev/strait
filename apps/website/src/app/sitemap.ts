@@ -1,5 +1,8 @@
 import { basehub } from "basehub";
 import type { MetadataRoute } from "next";
+import { getAllComparisonSlugs } from "./(landing)/compare/data.ts";
+import { getAllFeatureSlugs } from "./(landing)/features/data.ts";
+import { getAllUseCaseSlugs } from "./(landing)/use-cases/data.ts";
 
 /**
  * Dynamic sitemap generator for SEO optimization.
@@ -107,5 +110,50 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error("Failed to fetch blog posts for sitemap:", error);
   }
 
-  return [...staticPages, ...blogPages, ...authorPages];
+  // Feature pages
+  const featurePages: MetadataRoute.Sitemap = getAllFeatureSlugs().map(
+    (slug) => ({
+      url: `${baseUrl}/features/${slug}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly" as const,
+      priority: 0.8,
+    })
+  );
+
+  // Features index
+  featurePages.unshift({
+    url: `${baseUrl}/features`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.85,
+  });
+
+  // Comparison pages
+  const comparisonPages: MetadataRoute.Sitemap = getAllComparisonSlugs().map(
+    (slug) => ({
+      url: `${baseUrl}/compare/${slug}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })
+  );
+
+  // Use case pages
+  const useCasePages: MetadataRoute.Sitemap = getAllUseCaseSlugs().map(
+    (slug) => ({
+      url: `${baseUrl}/use-cases/${slug}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly" as const,
+      priority: 0.75,
+    })
+  );
+
+  return [
+    ...staticPages,
+    ...featurePages,
+    ...comparisonPages,
+    ...useCasePages,
+    ...blogPages,
+    ...authorPages,
+  ];
 }
