@@ -29,7 +29,9 @@
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck",
     "sdk:run-all": "bun run --filter @strait/ts run-all && make -C packages/go-sdk run-all && make -C packages/python-sdk run-all",
     "update-all": "bunx npm-check-updates -ui -ws",
-    "release": "changeset version && bash scripts/sync-sdk-versions.sh"
+    "release": "changeset version && bash scripts/sync-sdk-versions.sh",
+    "deploy": "cd apps/strait && make deploy",
+    "deploy:staging": "cd apps/strait && make deploy-staging"
   },
   "overrides": {
     "better-auth": "1.4.18",
