@@ -1,9 +1,10 @@
 # Lefthook git hooks configuration.
-# Mirrors the CI lint pipeline (.github/workflows/lint.yml).
+# Mirrors the CI lint pipelines for Go backend and all SDKs.
 
 pre-commit:
   parallel: true
   commands:
+    # --- Go backend ---
     lint:
       run: cd apps/strait && golangci-lint run --timeout=5m ./...
       glob: "*.go"
@@ -12,6 +13,42 @@ pre-commit:
       run: cd apps/strait && go run ./scripts/check-openapi-parity
       glob: "{apps/strait/internal/api/routes.go,apps/strait/internal/api/openapi.yaml,docs/openapi.yaml,apps/strait/scripts/check-openapi-parity/main.go}"
       fail_text: "OpenAPI parity check failed — sync routes.go with both OpenAPI specs before committing"
+
+    # --- TypeScript SDK ---
+    ts_sdk_lint:
+      run: cd packages/typescript-sdk && bun run lint
+      glob: "packages/typescript-sdk/**/*.{ts,tsx}"
+      fail_text: "TypeScript SDK lint failed — run 'bun run lint' in packages/typescript-sdk"
+    ts_sdk_typecheck:
+      run: cd packages/typescript-sdk && bun run typecheck
+      glob: "packages/typescript-sdk/**/*.{ts,tsx}"
+      fail_text: "TypeScript SDK typecheck failed — run 'bun run typecheck' in packages/typescript-sdk"
+    ts_sdk_contracts:
+      run: cd packages/typescript-sdk && bun test test/openapi-coverage.test.ts
+      glob: "{packages/typescript-sdk/src/internal/contracts/**/*.ts,docs/openapi.yaml}"
+      fail_text: "TypeScript SDK contract test failed — run 'bun run generate:contracts' in packages/typescript-sdk"
+
+    # --- Rust SDK ---
+    rust_sdk_fmt:
+      run: cd packages/rust-sdk && cargo fmt -- --check
+      glob: "packages/rust-sdk/**/*.rs"
+      fail_text: "Rust SDK format check failed — run 'cargo fmt' in packages/rust-sdk"
+    rust_sdk_clippy:
+      run: cd packages/rust-sdk && cargo clippy -- -D warnings
+      glob: "packages/rust-sdk/**/*.rs"
+      fail_text: "Rust SDK clippy failed — run 'cargo clippy --fix' in packages/rust-sdk"
+
+    # --- Go SDK ---
+    go_sdk_vet:
+      run: cd packages/go-sdk && go vet ./...
+      glob: "packages/go-sdk/**/*.go"
+      fail_text: "Go SDK vet failed — run 'go vet ./...' in packages/go-sdk"
+
+    # --- Python SDK ---
+    python_sdk_lint:
+      run: cd packages/python-sdk && ruff check strait/ tests/
+      glob: "packages/python-sdk/**/*.py"
+      fail_text: "Python SDK lint failed — run 'ruff check strait/ tests/' in packages/python-sdk"
 
 commit-msg:
   commands:
