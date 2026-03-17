@@ -22,6 +22,7 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import EntityNotFound from "@/components/common/entity-not-found";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import type {
   ExecutionTrace,
@@ -68,9 +69,7 @@ function RunDetailPage() {
   if (!run) {
     return (
       <Shell>
-        <div className="flex items-center justify-center py-20">
-          <p className="text-muted-foreground">Run not found.</p>
-        </div>
+        <EntityNotFound backTo="/app/runs" entity="Run" />
       </Shell>
     );
   }

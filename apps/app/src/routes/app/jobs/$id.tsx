@@ -33,6 +33,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import EntityNotFound from "@/components/common/entity-not-found";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { ChartTooltip } from "@/components/dashboard/chart-tooltip";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
@@ -171,9 +172,7 @@ function JobDetailPage() {
   if (!job) {
     return (
       <Shell>
-        <div className="flex items-center justify-center py-20">
-          <p className="text-muted-foreground">Job not found.</p>
-        </div>
+        <EntityNotFound backTo="/app/jobs" entity="Job" />
       </Shell>
     );
   }

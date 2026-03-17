@@ -18,6 +18,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
+import EntityNotFound from "@/components/common/entity-not-found";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
@@ -67,9 +68,7 @@ function ScheduleDetailPage() {
   if (!job) {
     return (
       <Shell>
-        <div className="flex items-center justify-center py-20">
-          <p className="text-muted-foreground">Schedule not found.</p>
-        </div>
+        <EntityNotFound backTo="/app/schedules" entity="Schedule" />
       </Shell>
     );
   }

@@ -25,6 +25,7 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
+import EntityNotFound from "@/components/common/entity-not-found";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { WorkflowDAGFlow } from "@/components/dashboard/workflow-dag-flow";
@@ -130,9 +131,7 @@ function WorkflowDetailPage() {
   if (!workflow) {
     return (
       <Shell>
-        <div className="flex items-center justify-center py-20">
-          <p className="text-muted-foreground">Workflow not found.</p>
-        </div>
+        <EntityNotFound backTo="/app/workflows" entity="Workflow" />
       </Shell>
     );
   }
