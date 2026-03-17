@@ -3769,14 +3769,15 @@ func baseJob(id, projectID string) *domain.Job {
 
 func baseRun(job *domain.Job, id string) *domain.JobRun {
 	return &domain.JobRun{
-		ID:          id,
-		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
-		Status:      domain.StatusQueued,
-		Attempt:     1,
-		Payload:     []byte(`{"hello":"world"}`),
-		TriggeredBy: domain.TriggerManual,
-		Priority:    0,
+		ID:            id,
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		Payload:       []byte(`{"hello":"world"}`),
+		TriggeredBy:   domain.TriggerManual,
+		Priority:      0,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 }
 
@@ -7779,26 +7780,28 @@ func TestListRunsByTag(t *testing.T) {
 	}
 
 	run := &domain.JobRun{
-		JobID:       job.ID,
-		ProjectID:   projectID,
-		Tags:        map[string]string{"team": "infra"},
-		Status:      domain.StatusQueued,
-		Attempt:     1,
-		TriggeredBy: domain.TriggerManual,
-		JobVersion:  job.Version,
+		JobID:         job.ID,
+		ProjectID:     projectID,
+		Tags:          map[string]string{"team": "infra"},
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		TriggeredBy:   domain.TriggerManual,
+		JobVersion:    job.Version,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 	if err := pq.Enqueue(ctx, run); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	run2 := &domain.JobRun{
-		JobID:       job.ID,
-		ProjectID:   projectID,
-		Tags:        map[string]string{"team": "platform"},
-		Status:      domain.StatusQueued,
-		Attempt:     1,
-		TriggeredBy: domain.TriggerManual,
-		JobVersion:  job.Version,
+		JobID:         job.ID,
+		ProjectID:     projectID,
+		Tags:          map[string]string{"team": "platform"},
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		TriggeredBy:   domain.TriggerManual,
+		JobVersion:    job.Version,
+		ExecutionMode: domain.ExecutionModeHTTP,
 	}
 	if err := pq.Enqueue(ctx, run2); err != nil {
 		t.Fatalf("enqueue run2: %v", err)
