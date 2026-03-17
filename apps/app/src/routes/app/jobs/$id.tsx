@@ -17,17 +17,16 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  type ColumnDef,
   getCoreRowModel,
+  getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { formatDistanceToNow } from "date-fns";
 import { useMemo, useState } from "react";
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -36,38 +35,48 @@ import {
 } from "recharts";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { ChartTooltip } from "@/components/dashboard/chart-tooltip";
+import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { StatusBadge } from "@/components/dashboard/status-badge";
+import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { Job } from "@/hooks/api/types";
+import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
+import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { jobQueryOptions } from "@/hooks/api/use-jobs";
+import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
   ClockIcon,
+  EyeIcon,
   GlobeIcon,
   PauseActionIcon,
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
+  XCircleIcon,
 } from "@/lib/icons";
+import { CHART_COLORS } from "@/lib/status-colors";
 
 export const Route = createFileRoute("/app/jobs/$id")({
   loader: async ({ context, params }) => {
-    await context.queryClient.ensureQueryData(jobQueryOptions(params.id));
+    await Promise.all([
+      context.queryClient.ensureQueryData(jobQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(runsQueryOptions()),
+    ]);
   },
   component: JobDetailPage,
 });
 
-// --- Mock data for the run history chart (last 7 days) ---
+// --- Mock chart data (last 7 days) ---
 
 const CHART_DATA = (() => {
-  const days: { date: string; success: number; failed: number }[] = [];
+  const days: { date: string; completed: number; failed: number }[] = [];
   const now = new Date();
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     days.push({
       date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      success: Math.floor(Math.random() * 40) + 60,
+      completed: Math.floor(Math.random() * 40) + 60,
       failed: Math.floor(Math.random() * 6),
     });
   }
@@ -75,152 +84,60 @@ const CHART_DATA = (() => {
 })();
 
 const CHART_LABEL_MAP = {
-  success: { label: "Success", color: "var(--color-chart-1)" },
-  failed: { label: "Failed", color: "var(--color-chart-4)" },
+  completed: { label: "Completed", color: CHART_COLORS.success },
+  failed: { label: "Failed", color: CHART_COLORS.error },
 };
 
 const CHART_LEGEND = [
-  { label: "Success", color: "var(--color-chart-1)" },
-  { label: "Failed", color: "var(--color-chart-4)" },
+  { label: "Completed", color: CHART_COLORS.success },
+  { label: "Failed", color: CHART_COLORS.error },
 ];
 
-// --- Mock data for recent runs table ---
-
-type JobRun = {
-  id: string;
-  status: "completed" | "failed" | "executing" | "queued";
-  triggered_by: string;
-  duration_ms: number;
-  created_at: string;
-};
-
-const MOCK_RUNS: JobRun[] = [
-  {
-    id: "run_a1b2c3d4",
-    status: "completed",
-    triggered_by: "cron",
-    duration_ms: 3200,
-    created_at: new Date(Date.now() - 120_000).toISOString(),
-  },
-  {
-    id: "run_e5f6g7h8",
-    status: "completed",
-    triggered_by: "cron",
-    duration_ms: 4100,
-    created_at: new Date(Date.now() - 3_600_000).toISOString(),
-  },
-  {
-    id: "run_i9j0k1l2",
-    status: "failed",
-    triggered_by: "manual",
-    duration_ms: 1800,
-    created_at: new Date(Date.now() - 7_200_000).toISOString(),
-  },
-  {
-    id: "run_m3n4o5p6",
-    status: "completed",
-    triggered_by: "api",
-    duration_ms: 5400,
-    created_at: new Date(Date.now() - 14_400_000).toISOString(),
-  },
-  {
-    id: "run_q7r8s9t0",
-    status: "completed",
-    triggered_by: "cron",
-    duration_ms: 2900,
-    created_at: new Date(Date.now() - 28_800_000).toISOString(),
-  },
-  {
-    id: "run_u1v2w3x4",
-    status: "failed",
-    triggered_by: "cron",
-    duration_ms: 950,
-    created_at: new Date(Date.now() - 43_200_000).toISOString(),
-  },
-  {
-    id: "run_y5z6a7b8",
-    status: "completed",
-    triggered_by: "manual",
-    duration_ms: 6200,
-    created_at: new Date(Date.now() - 57_600_000).toISOString(),
-  },
-  {
-    id: "run_c9d0e1f2",
-    status: "completed",
-    triggered_by: "cron",
-    duration_ms: 3800,
-    created_at: new Date(Date.now() - 72_000_000).toISOString(),
-  },
-];
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-const jobRunColumns: ColumnDef<JobRun>[] = [
-  {
-    accessorKey: "id",
-    header: "Run ID",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.id}</span>
-    ),
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    cell: ({ row }) => <StatusBadge status={row.original.status} />,
-  },
-  {
-    accessorKey: "triggered_by",
-    header: "Triggered By",
-    cell: ({ row }) => (
-      <Badge className="capitalize" variant="outline">
-        {row.original.triggered_by}
-      </Badge>
-    ),
-  },
-  {
-    accessorKey: "duration_ms",
-    header: "Duration",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">
-        {formatDuration(row.original.duration_ms)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "created_at",
-    header: "Started",
-    cell: ({ row }) =>
-      formatDistanceToNow(new Date(row.original.created_at), {
-        addSuffix: true,
-      }),
-  },
-];
-
-// --- Page component ---
+// --- Page ---
 
 function JobDetailPage() {
   const { id } = Route.useParams();
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | null;
   };
-  const [activeTab, setActiveTab] = useState("overview");
+  const { data: runsData } = useSuspenseQuery(runsQueryOptions()) as {
+    data: PaginatedResponse<JobRun>;
+  };
 
-  const runsTable = useReactTable({
-    data: MOCK_RUNS,
-    columns: jobRunColumns,
+  const [activeTab, setActiveTab] = useState("overview");
+  const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+
+  // Filter runs for this job
+  const jobRuns = useMemo(
+    () => (runsData?.data ?? []).filter((r) => r.job_id === job?.id),
+    [runsData, job?.id]
+  );
+
+  const table = useReactTable({
+    data: jobRuns,
+    columns: runColumns,
     getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    state: { rowSelection },
+    getRowId: (row) => row.id,
   });
 
-  // Derive stats from mock chart data
+  const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
+
+  function handleRowClick(run: JobRun) {
+    setSelectedRun(run);
+    setSheetOpen(true);
+  }
+
+  // Derive stats
   const stats = useMemo(() => {
-    const totalSuccess = CHART_DATA.reduce((s, d) => s + d.success, 0);
+    const totalSuccess = CHART_DATA.reduce((s, d) => s + d.completed, 0);
     const totalFailed = CHART_DATA.reduce((s, d) => s + d.failed, 0);
     const totalRuns = totalSuccess + totalFailed;
     const successRate =
@@ -296,7 +213,7 @@ function JobDetailPage() {
             <StatCard label="Failed Runs" value={stats.failedRuns} />
           </div>
 
-          {/* Run History Chart */}
+          {/* Run History Bar Chart */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="font-medium text-sm">
@@ -325,45 +242,7 @@ function JobDetailPage() {
                   minWidth={1}
                   width="100%"
                 >
-                  <AreaChart data={CHART_DATA}>
-                    <defs>
-                      <linearGradient
-                        id="fillSuccess"
-                        x1="0"
-                        x2="0"
-                        y1="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="var(--color-chart-1)"
-                          stopOpacity={0.3}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor="var(--color-chart-1)"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                      <linearGradient
-                        id="fillFailed"
-                        x1="0"
-                        x2="0"
-                        y1="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="var(--color-chart-4)"
-                          stopOpacity={0.3}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor="var(--color-chart-4)"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
+                  <BarChart data={CHART_DATA}>
                     <CartesianGrid
                       className="stroke-border"
                       strokeDasharray="3 3"
@@ -379,28 +258,21 @@ function JobDetailPage() {
                     />
                     <Tooltip
                       content={<ChartTooltip labelMap={CHART_LABEL_MAP} />}
-                      cursor={{
-                        stroke: "var(--muted-foreground)",
-                        strokeDasharray: "3 3",
-                      }}
+                      cursor={{ fill: "var(--muted)" }}
                     />
-                    <Area
-                      dataKey="success"
-                      fill="url(#fillSuccess)"
-                      fillOpacity={1}
-                      stroke="var(--color-chart-1)"
-                      strokeWidth={2}
-                      type="monotone"
+                    <Bar
+                      dataKey="completed"
+                      fill={CHART_COLORS.success}
+                      radius={[2, 2, 0, 0]}
+                      stackId="runs"
                     />
-                    <Area
+                    <Bar
                       dataKey="failed"
-                      fill="url(#fillFailed)"
-                      fillOpacity={1}
-                      stroke="var(--color-chart-4)"
-                      strokeWidth={2}
-                      type="monotone"
+                      fill={CHART_COLORS.error}
+                      radius={[2, 2, 0, 0]}
+                      stackId="runs"
                     />
-                  </AreaChart>
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
@@ -460,21 +332,90 @@ function JobDetailPage() {
         </TabsContent>
 
         <TabsContent className="mt-6" value="runs">
-          <DataTable
-            emptyState={
-              <TableEmptyState
-                description="No runs found for this job."
-                hideButton
-                icon={
-                  <HugeiconsIcon
-                    className="size-6 text-primary"
-                    icon={ActivityIcon}
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
+          <div
+            className="[&_tbody_tr]:cursor-pointer"
+            onClick={(e) => {
+              const target = e.target as HTMLElement;
+              if (target.closest("a, button")) {
+                return;
+              }
+              const row = target.closest("tr[data-row-index]");
+              if (!row) {
+                return;
+              }
+              const idx = Number(row.getAttribute("data-row-index"));
+              const run = table.getRowModel().rows[idx]?.original;
+              if (run) {
+                handleRowClick(run);
+              }
+            }}
+          >
+            <DataTable
+              emptyState={
+                <TableEmptyState
+                  description="No runs found for this job."
+                  hideButton
+                  icon={
+                    <HugeiconsIcon
+                      className="size-6 text-primary"
+                      icon={ActivityIcon}
+                    />
+                  }
+                  title="No runs found"
+                />
+              }
+              floatingBar={
+                selectedIds.length > 0 ? (
+                  <DataTableFloatingBar
+                    actions={[
+                      ...(selectedIds.length === 1
+                        ? [
+                            {
+                              label: "View",
+                              icon: EyeIcon,
+                              onClick: () => {
+                                const run = table
+                                  .getRowModel()
+                                  .rows.find(
+                                    (r) => r.id === selectedIds[0]
+                                  )?.original;
+                                if (run) {
+                                  handleRowClick(run);
+                                }
+                              },
+                            },
+                          ]
+                        : []),
+                      {
+                        label: "Retry",
+                        icon: RefreshIcon,
+                        onClick: () => {
+                          // TODO
+                        },
+                      },
+                      {
+                        label: "Cancel",
+                        icon: XCircleIcon,
+                        onClick: () => {
+                          // TODO
+                        },
+                        variant: "destructive" as const,
+                      },
+                    ]}
+                    onClearSelection={() => setRowSelection({})}
+                    selectedCount={selectedIds.length}
                   />
-                }
-                title="No runs found"
-              />
-            }
-            table={runsTable}
+                ) : null
+              }
+              table={table}
+            />
+          </div>
+
+          <RunDetailSheet
+            onOpenChange={setSheetOpen}
+            open={sheetOpen}
+            run={selectedRun}
           />
         </TabsContent>
 
@@ -518,8 +459,8 @@ function ConfigRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center justify-between text-sm">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between gap-2 text-sm">
+      <div className="flex shrink-0 items-center gap-2">
         <HugeiconsIcon
           className="text-muted-foreground"
           icon={icon}
@@ -527,7 +468,7 @@ function ConfigRow({
         />
         <span className="text-muted-foreground">{label}</span>
       </div>
-      <span className="font-mono text-xs">{value}</span>
+      <span className="truncate font-mono text-xs">{value}</span>
     </div>
   );
 }
