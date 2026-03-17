@@ -1,5 +1,5 @@
+import dynamic from "next/dynamic";
 import { Suspense } from "react";
-
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getHowToSchema,
@@ -8,21 +8,27 @@ import {
   getWebSiteSchema,
   JsonLd,
 } from "@/lib/structured-data.tsx";
-import AudienceSection from "./components/audience/audience-section.tsx";
-import WhyStrait from "./components/benefits/why-polyglot.tsx";
-import CTA from "./components/common/cta/cta.tsx";
-import InterviewShowcase from "./components/common/feature-section/interview-showcase.tsx";
-import StylesShowcase from "./components/common/feature-section/styles-showcase.tsx";
-import WritingToolkitShowcase from "./components/common/feature-section/writing-toolkit-showcase.tsx";
 import Hero from "./components/common/hero/hero.tsx";
-import InteractiveDemo from "./components/common/hero/interactive-demo.tsx";
 import ProblemSection from "./components/common/hero/problem-section.tsx";
-import ProductShowcase from "./components/common/hero/product-showcase.tsx";
-
-import ComparisonSection from "./components/comparison/comparison-section.tsx";
 import HowItWorks from "./components/how-it-works/how-it-works.tsx";
 import PricingTeaser from "./components/pricing/pricing-teaser.tsx";
-import TestimonialsSection from "./components/testimonials/testimonials-section.tsx";
+
+const PipelineDemo = dynamic(
+  () => import("@/components/landing/pipeline-demo.tsx")
+);
+const FeatureBentoGrid = dynamic(
+  () => import("@/components/landing/feature-bento-grid.tsx")
+);
+const WhyStrait = dynamic(
+  () => import("./components/benefits/why-polyglot.tsx")
+);
+const CredibilitySection = dynamic(
+  () => import("@/components/landing/credibility-section.tsx")
+);
+const ComparisonSection = dynamic(
+  () => import("./components/comparison/comparison-section.tsx")
+);
+const CTA = dynamic(() => import("./components/common/cta/cta.tsx"));
 
 export const metadata = generatePageMetadata({
   path: "/",
@@ -48,7 +54,7 @@ const HOW_TO_STEPS = [
   {
     title: "Trigger and execute",
     description:
-      "Trigger runs through API or CLI. Workers claim runs from PostgreSQL using SKIP LOCKED and execute safely in parallel.",
+      "Trigger runs through API or CLI. Workers claim runs from PostgreSQL and execute safely in parallel.",
   },
   {
     title: "Observe and control",
@@ -70,7 +76,7 @@ const LandingPage = () => {
       <JsonLd data={softwareAppSchema} />
       {howToSchema ? <JsonLd data={howToSchema} /> : null}
       <Hero />
-      <InteractiveDemo />
+      <PipelineDemo />
       <ProblemSection />
 
       <Suspense
@@ -94,54 +100,10 @@ const LandingPage = () => {
         <HowItWorks />
       </Suspense>
 
-      <ProductShowcase />
+      <FeatureBentoGrid />
       <WhyStrait />
-
-      <InterviewShowcase />
-      <StylesShowcase />
-      <WritingToolkitShowcase />
+      <CredibilitySection />
       <ComparisonSection />
-
-      <Suspense
-        fallback={
-          <div className="mx-auto w-full max-w-[1600px] px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
-            <div className="space-y-4">
-              <div className="mx-auto h-4 w-28 animate-pulse rounded bg-muted/20" />
-              <div className="mx-auto h-8 w-72 animate-pulse rounded bg-muted/20" />
-              <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    className="h-56 animate-pulse rounded-xl bg-muted/20"
-                    key={`audience-skeleton-${String(i)}`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        }
-      >
-        <AudienceSection />
-      </Suspense>
-      <Suspense
-        fallback={
-          <div className="mx-auto w-full max-w-[1600px] px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
-            <div className="space-y-4">
-              <div className="mx-auto h-4 w-28 animate-pulse rounded bg-muted/20" />
-              <div className="mx-auto h-8 w-64 animate-pulse rounded bg-muted/20" />
-              <div className="mt-8 grid gap-6 sm:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div
-                    className="h-40 animate-pulse rounded-xl bg-muted/20"
-                    key={`testimonial-skeleton-${String(i)}`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        }
-      >
-        <TestimonialsSection />
-      </Suspense>
       <PricingTeaser />
       <CTA />
     </>

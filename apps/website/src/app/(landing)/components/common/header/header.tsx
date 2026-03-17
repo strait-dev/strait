@@ -7,8 +7,9 @@ import { memo } from "react";
 import Shell from "@/components/layout/shell.tsx";
 import { siteConfig } from "@/config/site.ts";
 import { dashboardHref } from "@/lib/urls.ts";
+import HeaderDropdown from "./header-dropdown.tsx";
 import MobileNav from "./header-mobile-nav.tsx";
-import { NAV_LINKS } from "./nav-links.ts";
+import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 
 const Logo = memo(() => (
   <Link className="flex items-center space-x-2" href="/">
@@ -33,16 +34,22 @@ const Header = () => {
             <Logo />
 
             <div className="hidden items-center gap-6 md:flex">
-              {NAV_LINKS.map((link) => (
-                <Button
-                  key={link.label}
-                  render={<Link href={link.href} />}
-                  size="default"
-                  variant="ghost"
-                >
-                  {link.label}
-                </Button>
-              ))}
+              {NAV_ITEMS.map((item) => {
+                if (isNavGroup(item)) {
+                  return <HeaderDropdown group={item} key={item.label} />;
+                }
+
+                return (
+                  <Button
+                    key={item.label}
+                    render={<Link href={item.href} />}
+                    size="default"
+                    variant="ghost"
+                  >
+                    {item.label}
+                  </Button>
+                );
+              })}
             </div>
 
             <div className="hidden items-center gap-3 md:flex">
