@@ -51,6 +51,7 @@ type CreateJobRequest struct {
 	MachinePreset        string            `json:"machine_preset,omitempty"`
 	ImageURI             string            `json:"image_uri,omitempty"`
 	Region               string            `json:"region,omitempty"`
+	PreferredRegions     []string          `json:"preferred_regions,omitempty"`
 }
 
 type UpdateJobRequest struct {
@@ -89,6 +90,7 @@ type UpdateJobRequest struct {
 	MachinePreset        *string            `json:"machine_preset,omitempty"`
 	ImageURI             *string            `json:"image_uri,omitempty"`
 	Region               *string            `json:"region,omitempty"`
+	PreferredRegions     *[]string          `json:"preferred_regions,omitempty"`
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +188,42 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Preferred regions validation.
+	if len(req.PreferredRegions) > 0 {
+		for _, pr := range req.PreferredRegions {
+			if !compute.IsValidRegion(pr) {
+				respondError(w, r, http.StatusBadRequest, "invalid preferred region: "+pr)
+				return
+			}
+		}
+		if s.config.EnforceRegionGating {
+			quota, qErr := s.store.GetProjectQuota(r.Context(), req.ProjectID)
+			if qErr != nil {
+				respondError(w, r, http.StatusInternalServerError, "failed to check plan")
+				return
+			}
+			tier := domain.PlanFree
+			if quota != nil && quota.PlanTier != "" {
+				tier = domain.PlanTier(quota.PlanTier)
+			}
+			cfg := domain.GetPlanConfig(tier)
+			if !cfg.MultiRegion {
+				respondError(w, r, http.StatusForbidden, "multi-region is not available on your plan")
+				return
+			}
+			if len(req.PreferredRegions) > cfg.MaxRegions {
+				respondError(w, r, http.StatusBadRequest, fmt.Sprintf("too many preferred regions (max %d for your plan)", cfg.MaxRegions))
+				return
+			}
+			for _, pr := range req.PreferredRegions {
+				if !domain.IsRegionAllowed(tier, pr) {
+					respondError(w, r, http.StatusForbidden, "region "+pr+" is not available on your plan")
+					return
+				}
+			}
+		}
+	}
+
 	// Execution mode validation.
 	execMode := domain.ExecutionMode(req.ExecutionMode)
 	if execMode == "" {
@@ -250,6 +288,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		MachinePreset:        domain.MachinePreset(req.MachinePreset),
 		ImageURI:             req.ImageURI,
 		Region:               req.Region,
+		PreferredRegions:     req.PreferredRegions,
 		Enabled:              true,
 		VersionPolicy:        domain.VersionPolicyPin,
 		CreatedBy:            actorFromContext(r.Context()),
@@ -525,6 +564,15 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		job.Region = *req.Region
+	}
+	if req.PreferredRegions != nil {
+		for _, pr := range *req.PreferredRegions {
+			if !compute.IsValidRegion(pr) {
+				respondError(w, r, http.StatusBadRequest, "invalid preferred region: "+pr)
+				return
+			}
+		}
+		job.PreferredRegions = *req.PreferredRegions
 	}
 	// Cross-field validation for managed mode.
 	if job.ExecutionMode == domain.ExecutionModeManaged && job.ImageURI == "" {

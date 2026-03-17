@@ -390,6 +390,153 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 	})
 }
 
+func TestHandleCreateJob_PreferredRegions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid_preferred_regions", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			createJobFn: func(_ context.Context, job *domain.Job) error {
+				job.ID = "job-123"
+				if len(job.PreferredRegions) != 2 {
+					t.Errorf("expected 2 preferred regions, got %d", len(job.PreferredRegions))
+				}
+				if job.PreferredRegions[0] != "iad" || job.PreferredRegions[1] != "lhr" {
+					t.Errorf("expected [iad, lhr], got %v", job.PreferredRegions)
+				}
+				return nil
+			},
+		}
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+		body := `{
+			"project_id": "proj-1",
+			"name": "Multi Region Job",
+			"slug": "multi-region-job",
+			"endpoint_url": "https://example.com/callback",
+			"preferred_regions": ["iad", "lhr"]
+		}`
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("invalid_preferred_region", func(t *testing.T) {
+		t.Parallel()
+		srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+
+		body := `{
+			"project_id": "proj-1",
+			"name": "Bad Region Job",
+			"slug": "bad-region-job",
+			"endpoint_url": "https://example.com/callback",
+			"preferred_regions": ["iad", "invalid"]
+		}`
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("multi_region_gated_on_free_plan", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+				return &store.ProjectQuota{
+					ProjectID: projectID,
+					PlanTier:  "free",
+				}, nil
+			},
+		}
+		cfg := &config.Config{
+			InternalSecret:      "test-secret",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       "01234567890123456789012345678901",
+			EnforceRegionGating: true,
+		}
+		srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+		t.Cleanup(srv.Close)
+
+		body := `{
+			"project_id": "proj-1",
+			"name": "Multi Region Job",
+			"slug": "multi-region-job",
+			"endpoint_url": "https://example.com/callback",
+			"preferred_regions": ["iad", "lhr"]
+		}`
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestHandleUpdateJob_PreferredRegions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("update_preferred_regions", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+				return &domain.Job{
+					ID:          id,
+					ProjectID:   "proj-1",
+					Name:        "Test",
+					Slug:        "test",
+					EndpointURL: "https://example.com/callback",
+				}, nil
+			},
+			updateJobFn: func(_ context.Context, job *domain.Job) error {
+				if len(job.PreferredRegions) != 3 {
+					t.Errorf("expected 3 preferred regions, got %d", len(job.PreferredRegions))
+				}
+				return nil
+			},
+		}
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123/", `{"preferred_regions":["iad","lhr","nrt"]}`))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("invalid_preferred_region_on_update", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockAPIStore{
+			getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+				return &domain.Job{
+					ID:          id,
+					ProjectID:   "proj-1",
+					Name:        "Test",
+					Slug:        "test",
+					EndpointURL: "https://example.com/callback",
+				}, nil
+			},
+		}
+		srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123/", `{"preferred_regions":["iad","invalid"]}`))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
 func TestHandleUpdateJob_InvalidRegion(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{

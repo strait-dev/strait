@@ -191,6 +191,7 @@ type Job struct {
 	MachinePreset            MachinePreset     `json:"machine_preset,omitempty"`
 	ImageURI                 string            `json:"image_uri,omitempty"`
 	Region                   string            `json:"region,omitempty"`
+	PreferredRegions         []string          `json:"preferred_regions,omitempty"`
 	CreatedBy                string            `json:"created_by,omitempty"`
 	UpdatedBy                string            `json:"updated_by,omitempty"`
 	CreatedAt                time.Time         `json:"created_at"`
