@@ -24,12 +24,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import EntityNotFound from "@/components/common/entity-not-found";
 import { StatusBadge } from "@/components/dashboard/status-badge";
-import type {
-  ExecutionTrace,
-  JobRun,
-  RunEvent,
-  RunStatus,
-} from "@/hooks/api/types";
+import type { ExecutionTrace, JobRun, RunStatus } from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
@@ -61,9 +56,8 @@ function RunDetailPage() {
   const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
     data: JobRun | null;
   };
-  const { data: events } = useSuspenseQuery(runEventsQueryOptions(id)) as {
-    data: RunEvent[];
-  };
+  const { data: eventsData } = useSuspenseQuery(runEventsQueryOptions(id));
+  const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");
 
   if (!run) {

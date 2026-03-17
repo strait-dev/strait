@@ -65,9 +65,9 @@ export const Route = createFileRoute("/app/dlq/")({
 function DlqPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { data } = useSuspenseQuery(
-    dlqQueryOptions({ query: search.query, page: search.page })
-  ) as { data: PaginatedResponse<JobRun> };
+  const { data } = useSuspenseQuery(dlqQueryOptions()) as {
+    data: PaginatedResponse<JobRun>;
+  };
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
@@ -127,7 +127,7 @@ function DlqPage() {
     });
   }
 
-  const totalCount = data?.total_count ?? 0;
+  const totalCount = data?.data?.length ?? 0;
 
   return (
     <Shell>

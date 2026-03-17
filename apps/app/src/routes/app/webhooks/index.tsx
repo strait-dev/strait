@@ -63,9 +63,7 @@ export const Route = createFileRoute("/app/webhooks/")({
 function WebhooksPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { data } = useSuspenseQuery(
-    webhooksQueryOptions({ query: search.query, page: search.page })
-  );
+  const { data } = useSuspenseQuery(webhooksQueryOptions());
 
   const selectedStatuses = search.status ?? [];
 

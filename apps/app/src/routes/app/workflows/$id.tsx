@@ -100,7 +100,8 @@ function WorkflowDetailPage() {
   const { id } = Route.useParams();
   const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id));
   const { data: apiSteps } = useSuspenseQuery(workflowStepsQueryOptions(id));
-  const { data: runs } = useSuspenseQuery(workflowRunsQueryOptions(id));
+  const { data: runsData } = useSuspenseQuery(workflowRunsQueryOptions(id));
+  const runs = runsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("overview");
 
   // Map API steps to the shape WorkflowDAGFlow expects

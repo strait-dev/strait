@@ -2,6 +2,9 @@
 // Field names use snake_case to match Go JSON tags exactly — no mapping layer needed.
 // All timestamps are ISO 8601 strings; nullable Go *time.Time maps to string | null.
 
+/** JSON-safe value type for fields that can hold arbitrary JSON. */
+type JsonValue = Record<string, never> | string | number | boolean | null;
+
 /** Matches Go domain.RunStatus constants. */
 export type RunStatus =
   | "delayed"
@@ -101,7 +104,7 @@ export type Job = {
   slug: string;
   description: string;
   cron: string;
-  payload_schema: unknown;
+  payload_schema: JsonValue;
   tags: Record<string, string>;
   endpoint_url: string;
   fallback_endpoint_url: string;
@@ -143,8 +146,8 @@ export type JobRun = {
   tags: Record<string, string>;
   status: RunStatus;
   attempt: number;
-  payload: unknown;
-  result: unknown;
+  payload: JsonValue;
+  result: JsonValue;
   metadata: Record<string, string>;
   error: string;
   triggered_by: TriggerType;
@@ -230,9 +233,9 @@ export type WorkflowStep = {
   job_id: string;
   step_ref: string;
   depends_on: string[];
-  condition: unknown;
+  condition: JsonValue;
   on_failure: FailurePolicy;
-  payload: unknown;
+  payload: JsonValue;
   step_type: WorkflowStepType;
   approval_timeout_secs: number;
   approval_approvers: string[];
@@ -264,7 +267,7 @@ export type WorkflowRun = {
   triggered_by: TriggerType;
   workflow_version: number;
   max_parallel_steps: number;
-  payload: unknown;
+  payload: JsonValue;
   error: string;
   started_at: string | null;
   finished_at: string | null;
@@ -288,7 +291,7 @@ export type WorkflowStepRun = {
   status: StepRunStatus;
   deps_completed: number;
   deps_required: number;
-  output: unknown;
+  output: JsonValue;
   error: string;
   started_at: string | null;
   finished_at: string | null;
@@ -332,7 +335,7 @@ export type RunEvent = {
   type: EventType;
   level: string;
   message: string;
-  data: unknown;
+  data: JsonValue;
   created_at: string;
 };
 
@@ -371,7 +374,7 @@ export type AuditEvent = {
   action: string;
   resource_type: string;
   resource_id: string;
-  details: unknown;
+  details: JsonValue;
   created_at: string;
 };
 
@@ -398,8 +401,8 @@ export type EventTrigger = {
   workflow_step_run_id: string;
   job_run_id: string;
   status: string;
-  request_payload: unknown;
-  response_payload: unknown;
+  request_payload: JsonValue;
+  response_payload: JsonValue;
   timeout_secs: number;
   requested_at: string;
   received_at: string | null;
@@ -414,19 +417,17 @@ export type EventTrigger = {
 /** Union of RunStatus and WorkflowRunStatus, used by StatusBadge. */
 export type DisplayStatus = RunStatus | WorkflowRunStatus;
 
-/** Paginated response wrapper matching the API envelope. */
+/** Cursor-based paginated response matching the Go API envelope. */
 export type PaginatedResponse<T> = {
   data: T[];
-  page_count: number;
-  total_count: number;
+  next_cursor?: string;
+  has_more: boolean;
 };
 
-/** Common search/filter params for list endpoints. */
+/** Common search/filter params for list endpoints (cursor-based). */
 export type ListParams = {
-  query?: string;
-  page?: number;
-  per_page?: number;
-  sort?: "asc" | "desc";
+  limit?: number;
+  cursor?: string;
 };
 
 /** Plan tier for region gating. Matches Go domain.PlanTier. */

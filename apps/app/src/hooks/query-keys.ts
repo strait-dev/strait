@@ -1,13 +1,17 @@
 import { createQueryKeyStore } from "@lukemorales/query-key-factory";
 import type { ListParams } from "@/hooks/api/types";
 
-type ListJobsSearch = ListParams & { status?: string };
-type ListRunsSearch = ListParams & { status?: string; job_id?: string };
-type ListSchedulesSearch = ListParams;
-type ListWorkflowsSearch = ListParams;
+type ListJobsSearch = ListParams & { status?: string; search?: string };
+type ListRunsSearch = ListParams & {
+  status?: string;
+  job_id?: string;
+  search?: string;
+};
+type ListSchedulesSearch = ListParams & { status?: string };
+type ListWorkflowsSearch = ListParams & { search?: string };
 type ListWebhooksSearch = ListParams;
-type ListEventsSearch = ListParams & { type?: string };
-type ListDlqSearch = ListParams;
+type ListEventsSearch = ListParams & { type?: string; search?: string };
+type ListDlqSearch = ListParams & { search?: string };
 
 /**
  * Centralized query key store for the entire application.
