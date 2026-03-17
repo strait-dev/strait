@@ -67,7 +67,7 @@ const UserDropdownMenu = ({ user }: Props) => {
             clearSentryUser();
             navigate({ to: "/login" });
           },
-          onError: (ctx) => {
+          onError: (ctx: { error: Error & { message?: string } }) => {
             captureException(ctx.error);
             toast.error("Error signing out. Please try again.");
           },

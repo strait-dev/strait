@@ -125,7 +125,7 @@ function RouteComponent() {
               },
             });
           },
-          onError: (ctx) => {
+          onError: (ctx: { error: Error & { message?: string } }) => {
             captureException(ctx.error);
             setAcceptingError(
               ctx.error.message ||
@@ -157,7 +157,7 @@ function RouteComponent() {
             toast.success("Invitation rejected");
             navigate({ to: "/login" });
           },
-          onError: (ctx) => {
+          onError: (ctx: { error: Error & { message?: string } }) => {
             captureException(ctx.error);
             toast.error("Error rejecting invitation");
           },
@@ -183,7 +183,7 @@ function RouteComponent() {
           onSuccess: () => {
             setIsGooglePending(false);
           },
-          onError: (ctx) => {
+          onError: (ctx: { error: Error & { message?: string } }) => {
             setIsGooglePending(false);
             captureSentryAuthError(ctx.error, {
               operation: "google-oauth",
@@ -346,7 +346,7 @@ function RouteComponent() {
                       onSuccess: () => {
                         navigate({ to: "/login" });
                       },
-                      onError: (ctx) => {
+                      onError: (ctx: { error: Error & { message?: string } }) => {
                         captureException(ctx.error);
                         toast.error("Error signing out. Please try again.");
                       },

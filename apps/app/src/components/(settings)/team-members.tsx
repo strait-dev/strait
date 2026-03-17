@@ -29,11 +29,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import ChangeRoleDropdown from "@/components/(settings)/change-role-dropdown";
 import InviteMemberDialog from "@/components/(settings)/invite-member-dialog";
+import type { InvitationData } from "@/hooks/auth/use-invitation";
 import {
   invitationsQueryOptions,
   useCancelInvitation,
   useCreateInvitation,
 } from "@/hooks/auth/use-invitation";
+import type { MemberData } from "@/hooks/auth/use-member";
 import {
   membersQueryOptions,
   useLeaveOrganization,
@@ -99,7 +101,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
   );
 
   const pendingInvitations = (invitations ?? []).filter(
-    (inv) => inv.status === "pending"
+    (inv: InvitationData) => inv.status === "pending"
   );
 
   const handleCancelInvitation = async (invitationId: string) => {
@@ -213,7 +215,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {members.map((member) => {
+                    {members.map((member: MemberData) => {
                       const isCurrentUser = member.userId === currentUserId;
                       return (
                         <tr
@@ -445,7 +447,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {pendingInvitations.map((invitation) => {
+                    {pendingInvitations.map((invitation: InvitationData) => {
                       const isCancelling =
                         cancelInvitation.isPending &&
                         !!cancelInvitation.variables &&

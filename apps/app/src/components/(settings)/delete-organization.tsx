@@ -24,6 +24,7 @@ import { Input } from "@strait/ui/components/input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
   useDeleteOrganizationWithToken,
   useOrganizations,
@@ -109,7 +110,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
       }
 
       const otherOrgs = (orgsData?.page ?? []).filter(
-        (org) => org.id !== organizationId
+        (org: OrganizationData) => org.id !== organizationId
       );
       const nextOrgId = otherOrgs[0]?.id ?? "";
 

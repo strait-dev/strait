@@ -10,7 +10,7 @@ import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
 
-type InvitationData = {
+export type InvitationData = {
   id: string;
   email: string;
   role: string;
@@ -74,7 +74,7 @@ const listInvitationsServerFn = createServerFn({ method: "GET" })
       headers,
     });
 
-    return (invitations ?? []).map((invitation) => mapInvitation(invitation));
+    return (invitations ?? []).map((invitation: Parameters<typeof mapInvitation>[0]) => mapInvitation(invitation));
   });
 
 const getInvitationServerFn = createServerFn({ method: "GET" })
