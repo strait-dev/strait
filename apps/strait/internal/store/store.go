@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	ErrJobSlugConflict             = errors.New("job slug conflict")
 	ErrJobNotFound                 = errors.New("job not found")
 	ErrJobGroupNotFound            = errors.New("job group not found")
 	ErrWebhookSubscriptionNotFound = errors.New("webhook subscription not found")

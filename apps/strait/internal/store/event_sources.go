@@ -111,7 +111,7 @@ func (q *Queries) ListEventSources(ctx context.Context, projectID string) ([]dom
 	}
 	defer rows.Close()
 
-	var sources []domain.EventSource
+	sources := make([]domain.EventSource, 0)
 	for rows.Next() {
 		src, scanErr := scanEventSource(rows)
 		if scanErr != nil {
@@ -198,7 +198,7 @@ func (q *Queries) ListEventSubscriptionsBySource(ctx context.Context, sourceID s
 	}
 	defer rows.Close()
 
-	var subs []domain.EventSubscription
+	subs := make([]domain.EventSubscription, 0)
 	for rows.Next() {
 		var sub domain.EventSubscription
 		if err := rows.Scan(&sub.ID, &sub.SourceID, &sub.TargetType, &sub.TargetID,
