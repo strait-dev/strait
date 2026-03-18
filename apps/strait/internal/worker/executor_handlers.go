@@ -74,6 +74,11 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	})
 	e.notifyWorkflowCallback(ctx, run)
 
+	// Trigger on_complete workflow if configured.
+	if e.onCompleteTrigger != nil {
+		e.onCompleteTrigger.MaybeTrigger(ctx, run, job, result)
+	}
+
 	// Latency anomaly detection: compare duration to job's P95.
 	if run.StartedAt != nil {
 		duration := now.Sub(*run.StartedAt)

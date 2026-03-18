@@ -90,6 +90,7 @@ type Executor struct {
 	circuitThreshold         int
 	circuitOpenFor           time.Duration
 	healthScorer             *HealthScorer
+	onCompleteTrigger        *OnCompleteTrigger
 	logger                   *slog.Logger
 	webhookMaxRetry          int
 	middlewares              []ExecutionMiddleware
@@ -153,6 +154,8 @@ type ExecutorConfig struct {
 	DefaultFlyRegion           string
 	WarmPoolEnabled            bool
 	WarmPoolMaxPerJob          int
+	WorkflowLookup             WorkflowLookup
+	WorkflowTriggerer          WorkflowTriggerer
 }
 
 const (
@@ -242,6 +245,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
 		healthScorer:             NewHealthScorer(cfg.Store),
+		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}
