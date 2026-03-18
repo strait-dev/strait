@@ -13,6 +13,9 @@ import (
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func (s *Server) handleSDKComplete(w http.ResponseWriter, r *http.Request) {
@@ -204,9 +207,11 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	parentRunID := chi.URLParam(r, "runID")
 
 	var req struct {
-		JobSlug   string          `json:"job_slug" validate:"required"`
-		ProjectID string          `json:"project_id" validate:"required"`
-		Payload   json.RawMessage `json:"payload,omitempty"`
+		JobSlug          string          `json:"job_slug" validate:"required"`
+		ProjectID        string          `json:"project_id" validate:"required"`
+		Payload          json.RawMessage `json:"payload,omitempty"`
+		AwaitCompletion  bool            `json:"await_completion,omitempty"`
+		AwaitTimeoutSecs int             `json:"await_timeout_secs,omitempty"`
 	}
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -240,9 +245,12 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusNotFound, "parent run not found")
 		return
 	}
-	if parentRun.Status == domain.StatusExecuting {
+	// Only transition parent to waiting if await_completion is requested.
+	if req.AwaitCompletion && parentRun.Status == domain.StatusExecuting {
 		if err := s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {
 			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "failed to transition parent to waiting")
+			return
 		}
 	}
 
@@ -266,7 +274,60 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusCreated, run)
+	// When await_completion is set, create an event trigger for timeout management.
+	if req.AwaitCompletion {
+		eventKey := fmt.Sprintf("spawn-await:%s", run.ID)
+		timeoutSecs := req.AwaitTimeoutSecs
+		if timeoutSecs <= 0 {
+			timeoutSecs = domain.DefaultEventTimeoutSecs
+		}
+
+		now := time.Now()
+		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
+
+		trigger := &domain.EventTrigger{
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			EventKey:    eventKey,
+			ProjectID:   parentRun.ProjectID,
+			SourceType:  domain.EventSourceJobRun,
+			JobRunID:    parentRun.ID,
+			Status:      domain.EventTriggerStatusWaiting,
+			TimeoutSecs: timeoutSecs,
+			RequestedAt: now,
+			ExpiresAt:   expiresAt,
+			TriggerType: "event",
+		}
+
+		if err := s.store.CreateEventTrigger(r.Context(), trigger); err != nil {
+			slog.Warn("failed to create await event trigger",
+				"parent_run_id", parentRun.ID,
+				"child_run_id", run.ID,
+				"event_key", eventKey,
+				"error", err,
+			)
+		} else if s.metrics != nil {
+			attrs := metric.WithAttributes(
+				attribute.String("source_type", trigger.SourceType),
+				attribute.String("project_id", trigger.ProjectID),
+			)
+			s.metrics.EventTriggersCreated.Add(r.Context(), 1, attrs)
+		}
+	}
+
+	resp := map[string]any{
+		"id":            run.ID,
+		"job_id":        run.JobID,
+		"project_id":    run.ProjectID,
+		"status":        run.Status,
+		"parent_run_id": run.ParentRunID,
+		"triggered_by":  run.TriggeredBy,
+	}
+	if req.AwaitCompletion {
+		resp["await_completion"] = true
+		resp["await_event_key"] = fmt.Sprintf("spawn-await:%s", run.ID)
+	}
+
+	respondJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) handleSDKContinue(w http.ResponseWriter, r *http.Request) {
