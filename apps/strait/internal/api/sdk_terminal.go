@@ -212,6 +212,7 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		Payload          json.RawMessage `json:"payload,omitempty"`
 		AwaitCompletion  bool            `json:"await_completion,omitempty"`
 		AwaitTimeoutSecs int             `json:"await_timeout_secs,omitempty"`
+		TargetAPIKey     string          `json:"target_api_key,omitempty"`
 	}
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
@@ -219,16 +220,6 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
-	job, err := s.store.GetJobBySlug(r.Context(), req.ProjectID, req.JobSlug)
-	if err != nil || job == nil {
-		respondError(w, r, http.StatusNotFound, "job not found")
-		return
-	}
-	if err := validateRunCreationJobID(job.ID); err != nil {
-		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -245,6 +236,47 @@ func (s *Server) handleSDKSpawn(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusNotFound, "parent run not found")
 		return
 	}
+
+	// Cross-project spawn: validate target API key when project differs.
+	isCrossProject := req.ProjectID != parentRun.ProjectID
+	if isCrossProject {
+		if req.TargetAPIKey == "" {
+			respondError(w, r, http.StatusBadRequest, "target_api_key is required for cross-project spawn")
+			return
+		}
+		keyHash := hashAPIKey(req.TargetAPIKey)
+		apiKey, keyErr := s.store.GetAPIKeyByHash(r.Context(), keyHash)
+		if keyErr != nil {
+			respondError(w, r, http.StatusUnauthorized, "invalid target api key")
+			return
+		}
+		if apiKey.RevokedAt != nil {
+			respondError(w, r, http.StatusUnauthorized, "target api key has been revoked")
+			return
+		}
+		now := time.Now()
+		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
+			respondError(w, r, http.StatusUnauthorized, "target api key has expired")
+			return
+		}
+		if apiKey.ProjectID != req.ProjectID {
+			respondError(w, r, http.StatusForbidden, "target api key does not belong to the specified project")
+			return
+		}
+	}
+
+	job, err := s.store.GetJobBySlug(r.Context(), req.ProjectID, req.JobSlug)
+	if err != nil || job == nil {
+		respondError(w, r, http.StatusNotFound, "job not found")
+		return
+	}
+	if err := validateRunCreationJobID(job.ID); err != nil {
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	_ = isCrossProject // Used for audit logging in future
+
 	// Only transition parent to waiting if await_completion is requested.
 	if req.AwaitCompletion && parentRun.Status == domain.StatusExecuting {
 		if err := s.store.UpdateRunStatus(r.Context(), parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {

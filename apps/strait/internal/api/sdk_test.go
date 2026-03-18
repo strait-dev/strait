@@ -707,7 +707,7 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 	var enqueueCalled atomic.Bool
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
 		getJobBySlugFn: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
 			getJobCalled.Store(true)
@@ -790,7 +790,7 @@ func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
 		},
 		getJobBySlugFn: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID}, nil
