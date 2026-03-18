@@ -38,7 +38,6 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
-import type { AuthUser } from "@/routes/__root";
 import {
   EyeIcon,
   FilterIcon,
@@ -47,6 +46,7 @@ import {
   TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
 
 const STATUS_OPTIONS = ["Active", "Inactive"] as const;
 
@@ -59,7 +59,8 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/webhooks/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(webhooksQueryOptions());
@@ -75,9 +76,17 @@ function WebhooksPage() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <WebhooksPageContent />;
+}
+
+function WebhooksPageContent() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data } = useSuspenseQuery(webhooksQueryOptions());
@@ -218,7 +227,8 @@ function WebhooksPage() {
         <DataTable
           emptyState={
             <div className="py-12 text-center text-muted-foreground">
-              No webhooks yet. Create a webhook to receive notifications about run events.
+              No webhooks yet. Create a webhook to receive notifications about
+              run events.
             </div>
           }
           floatingBar={

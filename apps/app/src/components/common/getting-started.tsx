@@ -74,10 +74,7 @@ strait.job("hello-world", async (payload) => {
                 }`}
               >
                 {step.done ? (
-                  <HugeiconsIcon
-                    className="size-4"
-                    icon={CheckCircleIcon}
-                  />
+                  <HugeiconsIcon className="size-4" icon={CheckCircleIcon} />
                 ) : (
                   <span className="font-medium text-sm">{i + 1}</span>
                 )}

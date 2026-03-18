@@ -57,7 +57,8 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/events/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(eventsQueryOptions());
@@ -73,9 +74,17 @@ function EventsPage() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <EventsPageContent />;
+}
+
+function EventsPageContent() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data } = useSuspenseQuery(eventsQueryOptions());

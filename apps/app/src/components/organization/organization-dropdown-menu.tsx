@@ -20,7 +20,10 @@ import { toast } from "@strait/ui/components/toast/index";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { projectsQueryOptions, useSetActiveProject } from "@/hooks/api/use-projects";
+import {
+  projectsQueryOptions,
+  useSetActiveProject,
+} from "@/hooks/api/use-projects";
 import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
   useOrganization,
@@ -28,9 +31,9 @@ import {
   useSetDefaultOrganization,
 } from "@/hooks/auth/use-organization";
 import {
+  BuildingIcon,
   PlusIcon,
   SettingsOutlineIcon,
-  BuildingIcon,
   UnfoldMoreIcon,
 } from "@/lib/icons";
 import type { AuthUser, Session } from "@/routes/__root";
@@ -106,7 +109,13 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
         // Error toast is already handled by toast.promise
       }
     },
-    [activeOrganization, setActiveOrganization, setActiveProject, queryClient, router]
+    [
+      activeOrganization,
+      setActiveOrganization,
+      setActiveProject,
+      queryClient,
+      router,
+    ]
   );
 
   // Handle case where user has no organizations (needs onboarding)

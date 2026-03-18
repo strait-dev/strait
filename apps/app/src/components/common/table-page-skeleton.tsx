@@ -21,7 +21,10 @@ export function TablePageSkeleton() {
           </div>
         </div>
         {Array.from({ length: 8 }).map((_, i) => (
-          <div className="flex gap-8 border-b px-4 py-3 last:border-b-0" key={i}>
+          <div
+            className="flex gap-8 border-b px-4 py-3 last:border-b-0"
+            key={i}
+          >
             {Array.from({ length: 5 }).map((_, j) => (
               <Skeleton className="h-4 w-24" key={j} />
             ))}

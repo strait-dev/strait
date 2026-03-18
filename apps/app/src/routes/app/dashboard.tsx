@@ -18,7 +18,6 @@ import {
   statsQueryOptions as statsQueryOptionsFn,
 } from "@/hooks/api/use-dashboard";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
-import type { AuthUser } from "@/routes/__root";
 import {
   ActivityIcon,
   AlertIcon,
@@ -26,13 +25,15 @@ import {
   ClockIcon,
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
+import type { AuthUser } from "@/routes/__root";
 
 const statsQueryOptions = statsQueryOptionsFn();
 const analyticsQueryOptions = analyticsQueryOptionsFn(24);
 
 export const Route = createFileRoute("/app/dashboard")({
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await Promise.allSettled([
@@ -50,9 +51,17 @@ function RouteComponent() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <DashboardContent />;
+}
+
+function DashboardContent() {
   const { data: stats } = useQuery(statsQueryOptions);
   const { data: analytics } = useQuery(analyticsQueryOptions);
 

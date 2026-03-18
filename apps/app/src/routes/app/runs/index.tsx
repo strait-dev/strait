@@ -33,7 +33,6 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
-import type { AuthUser } from "@/routes/__root";
 import {
   ActivityIcon,
   CalendarIcon,
@@ -43,6 +42,7 @@ import {
   SearchIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
 
 const searchSchema = z.object({
   query: z.string().optional(),
@@ -65,7 +65,8 @@ const STATUS_OPTIONS: RunStatus[] = [
 export const Route = createFileRoute("/app/runs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(runsQueryOptions());
@@ -81,9 +82,17 @@ function RunsPage() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <RunsPageContent />;
+}
+
+function RunsPageContent() {
   const { data } = useSuspenseQuery(runsQueryOptions()) as {
     data: PaginatedResponse<JobRun>;
   };

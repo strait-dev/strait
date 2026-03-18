@@ -32,7 +32,6 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
-import type { AuthUser } from "@/routes/__root";
 import {
   BriefcaseIcon,
   EyeIcon,
@@ -41,6 +40,7 @@ import {
   PlayActionIcon,
   SearchIcon,
 } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -54,7 +54,8 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/jobs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(jobsQueryOptions());
@@ -70,9 +71,17 @@ function JobsPage() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <JobsPageContent />;
+}
+
+function JobsPageContent() {
   const { data } = useSuspenseQuery(jobsQueryOptions()) as {
     data: PaginatedResponse<Job>;
   };

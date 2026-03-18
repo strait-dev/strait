@@ -12,12 +12,11 @@ import { toast } from "@strait/ui/components/toast/index";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { projectsQueryOptions, useSetActiveProject } from "@/hooks/api/use-projects";
 import {
-  BriefcaseIcon,
-  ChevronDownIcon,
-  PlusIcon,
-} from "@/lib/icons";
+  projectsQueryOptions,
+  useSetActiveProject,
+} from "@/hooks/api/use-projects";
+import { BriefcaseIcon, ChevronDownIcon, PlusIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import CreateProjectDialog from "./create-project-dialog";
 
@@ -44,8 +43,12 @@ const ProjectSwitcher = ({ user }: Props) => {
 
   const handleSwitch = useCallback(
     async (projectId: string) => {
-      if (projectId === activeProjectId) return;
-      if (setActiveProject.isPending) return;
+      if (projectId === activeProjectId) {
+        return;
+      }
+      if (setActiveProject.isPending) {
+        return;
+      }
 
       const switchPromise = setActiveProject.mutateAsync({ projectId });
 
@@ -83,7 +86,9 @@ const ProjectSwitcher = ({ user }: Props) => {
             icon={PlusIcon}
             size={18}
           />
-          <span className="text-muted-foreground text-sm">Create a project</span>
+          <span className="text-muted-foreground text-sm">
+            Create a project
+          </span>
         </SidebarMenuButton>
         <CreateProjectDialog
           onOpenChange={setCreateOpen}
@@ -97,9 +102,7 @@ const ProjectSwitcher = ({ user }: Props) => {
   return (
     <>
       <DropdownMenu onOpenChange={setDropdownOpen} open={dropdownOpen}>
-        <DropdownMenuTrigger
-          render={<SidebarMenuButton className="w-full" />}
-        >
+        <DropdownMenuTrigger render={<SidebarMenuButton className="w-full" />}>
           <HugeiconsIcon
             className="text-muted-foreground/65"
             icon={BriefcaseIcon}

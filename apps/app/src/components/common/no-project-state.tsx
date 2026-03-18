@@ -37,10 +37,7 @@ export const NoProjectState = ({ user }: Props) => {
           </p>
           {organizationId ? (
             <>
-              <Button
-                className="w-full"
-                onClick={() => setCreateOpen(true)}
-              >
+              <Button className="w-full" onClick={() => setCreateOpen(true)}>
                 <HugeiconsIcon className="size-4" icon={PlusIcon} />
                 Create project
               </Button>

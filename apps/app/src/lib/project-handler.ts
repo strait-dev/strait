@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
+import type { Project } from "@/hooks/api/types";
 import { auth, authPool } from "@/lib/auth.server";
 import { authMiddleware } from "@/middlewares/auth";
-import type { Project } from "@/hooks/api/types";
 
 /**
  * Ensures the project table exists in the auth database.
@@ -11,7 +11,9 @@ import type { Project } from "@/hooks/api/types";
  */
 let tableEnsured = false;
 async function ensureProjectTable() {
-  if (tableEnsured) return;
+  if (tableEnsured) {
+    return;
+  }
   await authPool.query(`
     CREATE TABLE IF NOT EXISTS project (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -53,7 +55,13 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
       `INSERT INTO project (organization_id, name, slug, description, created_by)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text`,
-      [data.organizationId, data.name, slug, data.description ?? "", context.user.id]
+      [
+        data.organizationId,
+        data.name,
+        slug,
+        data.description ?? "",
+        context.user.id,
+      ]
     );
 
     return result.rows[0];
@@ -108,7 +116,7 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
     await ensureProjectTable();
 
     const result = await authPool.query(
-      `DELETE FROM project WHERE id = $1 AND created_by = $2 RETURNING id`,
+      "DELETE FROM project WHERE id = $1 AND created_by = $2 RETURNING id",
       [data.id, context.user.id]
     );
 

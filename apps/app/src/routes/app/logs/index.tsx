@@ -33,7 +33,6 @@ import { createActionsColumn } from "@/components/tables/shared-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { EventTrigger } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
-import type { AuthUser } from "@/routes/__root";
 import {
   EyeIcon,
   FileTextIcon,
@@ -41,6 +40,7 @@ import {
   LinkSquareIcon,
   SearchIcon,
 } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
 
 // --- Status styling ---
 
@@ -165,7 +165,8 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/logs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(eventsQueryOptions());
@@ -181,9 +182,17 @@ function LogsPage() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <LogsPageContent />;
+}
+
+function LogsPageContent() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data } = useSuspenseQuery(eventsQueryOptions());

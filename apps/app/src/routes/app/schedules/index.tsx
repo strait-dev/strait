@@ -31,7 +31,6 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
-import type { AuthUser } from "@/routes/__root";
 import {
   EyeIcon,
   FilterIcon,
@@ -39,6 +38,7 @@ import {
   PlayActionIcon,
   SearchIcon,
 } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -52,7 +52,8 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/schedules/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(schedulesQueryOptions());
@@ -68,9 +69,17 @@ function SchedulesPage() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <SchedulesPageContent />;
+}
+
+function SchedulesPageContent() {
   const { data } = useSuspenseQuery(schedulesQueryOptions()) as {
     data: PaginatedResponse<Job>;
   };
@@ -205,7 +214,12 @@ function SchedulesPage() {
         }}
       >
         <DataTable
-          emptyState={<div className="flex h-[300px] items-center justify-center text-muted-foreground">No schedules yet. Add a cron expression to a job to create a schedule.</div>}
+          emptyState={
+            <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+              No schedules yet. Add a cron expression to a job to create a
+              schedule.
+            </div>
+          }
           floatingBar={
             <DataTableFloatingBar
               actions={[

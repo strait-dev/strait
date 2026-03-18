@@ -369,9 +369,7 @@ function OnboardingFlow() {
                 onClick={() => skipOnboarding.mutate()}
                 type="button"
               >
-                {skipOnboarding.isPending
-                  ? "Skipping..."
-                  : "Skip for now"}
+                {skipOnboarding.isPending ? "Skipping..." : "Skip for now"}
               </button>
             ) : null}
           </div>

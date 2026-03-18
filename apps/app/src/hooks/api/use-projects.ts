@@ -3,7 +3,6 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { Project } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import {

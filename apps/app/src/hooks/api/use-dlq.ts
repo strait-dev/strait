@@ -6,10 +6,10 @@ import {
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import type { JobRun, ListParams, PaginatedResponse } from "@/hooks/api/types";
+import { cancelRunFn } from "@/hooks/api/use-runs";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { authMiddleware } from "@/middlewares/auth";
-import { cancelRunFn } from "@/hooks/api/use-runs";
 
 // ---------------------------------------------------------------------------
 // Server functions

@@ -51,8 +51,12 @@ export const Route = createFileRoute("/app/")({
     // Only prefetch data queries if user has a project
     if (hasProject) {
       await Promise.all([
-        context.queryClient.ensureQueryData(statsQueryOptions()).catch(() => null),
-        context.queryClient.ensureQueryData(analyticsQueryOptions(24)).catch(() => null),
+        context.queryClient
+          .ensureQueryData(statsQueryOptions())
+          .catch(() => null),
+        context.queryClient
+          .ensureQueryData(analyticsQueryOptions(24))
+          .catch(() => null),
       ]);
     }
 
@@ -121,7 +125,10 @@ function OverviewMetrics() {
   const throughput = analytics?.throughput;
 
   const totalRuns = throughput
-    ? throughput.completed + throughput.failed + throughput.timed_out + throughput.canceled
+    ? throughput.completed +
+      throughput.failed +
+      throughput.timed_out +
+      throughput.canceled
     : 0;
   const successRate = health?.success_rate ?? 0;
   const failedRuns = throughput?.failed ?? 0;

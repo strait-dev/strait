@@ -36,7 +36,6 @@ import {
   useBulkDiscardDlq,
   useBulkRetryDlq,
 } from "@/hooks/api/use-dlq";
-import type { AuthUser } from "@/routes/__root";
 import {
   AlertIcon,
   FilterIcon,
@@ -44,6 +43,7 @@ import {
   SearchIcon,
   TrashIcon,
 } from "@/lib/icons";
+import type { AuthUser } from "@/routes/__root";
 
 const ERROR_TYPE_OPTIONS = [
   "timeout",
@@ -61,7 +61,8 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/dlq/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const session = (context as unknown as { session: { user: AuthUser } })
+      .session;
     const hasProject = !!session?.user?.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(dlqQueryOptions());
@@ -77,9 +78,17 @@ function DlqPage() {
   const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
   const { session } = Route.useRouteContext() as any;
   if (!hasProject) {
-    return <Shell><NoProjectState user={session.user} /></Shell>;
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
   }
 
+  return <DlqPageContent />;
+}
+
+function DlqPageContent() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data } = useSuspenseQuery(dlqQueryOptions()) as {

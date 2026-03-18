@@ -18,7 +18,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { z } from "zod/v4";
-import { useCreateProject, useSetActiveProject } from "@/hooks/api/use-projects";
+import {
+  useCreateProject,
+  useSetActiveProject,
+} from "@/hooks/api/use-projects";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon, PlusIcon } from "@/lib/icons";
 
@@ -50,7 +53,7 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
   const form = useForm({
     defaultValues,
     validators: { onChange: createProjectSchema },
-    onSubmit: async ({ value }) => {
+    onSubmit: ({ value }) => {
       const parsed = createProjectSchema.parse(value);
 
       toast.promise(
@@ -149,9 +152,7 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
               {({ canSubmit, isSubmitting }) => (
                 <Button
                   disabled={
-                    !canSubmit ||
-                    isSubmitting ||
-                    createProject.isPending
+                    !canSubmit || isSubmitting || createProject.isPending
                   }
                   type="submit"
                 >

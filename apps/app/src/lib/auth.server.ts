@@ -26,7 +26,9 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { Pool } from "pg";
 import { resend } from "@/lib/resend.server";
 
-export const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL });
+export const authPool = new Pool({
+  connectionString: process.env.AUTH_DATABASE_URL,
+});
 
 const polarClient = process.env.POLAR_ACCESS_TOKEN
   ? new Polar({
@@ -188,10 +190,9 @@ export const auth = betterAuth({
         before: async (session) => {
           const result = await authPool.query<{
             defaultOrganizationId: string | null;
-          }>(
-            `SELECT "defaultOrganizationId" FROM "user" WHERE id = $1`,
-            [session.userId]
-          );
+          }>(`SELECT "defaultOrganizationId" FROM "user" WHERE id = $1`, [
+            session.userId,
+          ]);
           const defaultOrgId = result.rows[0]?.defaultOrganizationId;
           if (typeof defaultOrgId === "string" && defaultOrgId) {
             return {
