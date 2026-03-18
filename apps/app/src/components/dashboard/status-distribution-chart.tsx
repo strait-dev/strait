@@ -4,7 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAnalytics } from "@/hooks/api/use-dashboard";
+import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
 
@@ -22,11 +22,7 @@ const LABEL_MAP = {
 };
 
 export function StatusDistributionChart() {
-  const { data: analytics } = useQuery({
-    queryKey: ["analytics", { periodHours: 24 }],
-    queryFn: () => fetchAnalytics({ data: { periodHours: 24 } }),
-    staleTime: 60_000,
-  });
+  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
 
   const throughput = analytics?.throughput;
   const chartData = throughput

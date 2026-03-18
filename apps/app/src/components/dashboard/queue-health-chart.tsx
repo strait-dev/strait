@@ -4,7 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -14,7 +14,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAnalytics, fetchStats } from "@/hooks/api/use-dashboard";
+import {
+  analyticsQueryOptions,
+  statsQueryOptions,
+} from "@/hooks/api/use-dashboard";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
 
@@ -27,16 +30,8 @@ const LABEL_MAP = {
 };
 
 export function QueueHealthChart() {
-  const { data: stats } = useQuery({
-    queryKey: ["stats"],
-    queryFn: () => fetchStats(),
-    staleTime: 60_000,
-  });
-  const { data: analytics } = useQuery({
-    queryKey: ["analytics", { periodHours: 24 }],
-    queryFn: () => fetchAnalytics({ data: { periodHours: 24 } }),
-    staleTime: 60_000,
-  });
+  const { data: stats } = useSuspenseQuery(statsQueryOptions());
+  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
 
   const health = analytics?.health_summary;
   const chartData = [
