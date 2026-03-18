@@ -46,6 +46,15 @@ type ExecutorStore interface {
 	SetRunMachineID(ctx context.Context, runID, machineID string) error
 	RecordOOMEvent(ctx context.Context, jobID, preset string) error
 	GetPresetRecommendation(ctx context.Context, jobID string) (*store.PresetRecommendation, error)
+	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
+	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
+	AtomicRecordHealthResult(
+		ctx context.Context,
+		endpointURL string,
+		successVal, timeoutVal, latencyVal, alpha float64,
+		weightSuccess, weightTimeout, weightLatency float64,
+		lastLatencyMs float64,
+	) (*domain.EndpointHealthScore, error)
 }
 
 type executionPolicy struct {
@@ -87,6 +96,8 @@ type Executor struct {
 	jobActiveRunsMu          sync.Mutex
 	circuitThreshold         int
 	circuitOpenFor           time.Duration
+	healthScorer             *HealthScorer
+	onCompleteTrigger        *OnCompleteTrigger
 	logger                   *slog.Logger
 	webhookMaxRetry          int
 	middlewares              []ExecutionMiddleware
@@ -150,6 +161,8 @@ type ExecutorConfig struct {
 	DefaultFlyRegion           string
 	WarmPoolEnabled            bool
 	WarmPoolMaxPerJob          int
+	WorkflowLookup             WorkflowLookup
+	WorkflowTriggerer          WorkflowTriggerer
 }
 
 const (
@@ -238,6 +251,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		machinePool:              machinePool,
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
+		healthScorer:             NewHealthScorer(cfg.Store),
+		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}

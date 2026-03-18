@@ -51,6 +51,22 @@ func (r *RedisPublisher) Publish(ctx context.Context, channel string, data []byt
 	return r.client.Publish(ctx, channel, data).Err()
 }
 
+func (r *RedisPublisher) PublishBatch(ctx context.Context, messages []PubSubMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	if len(messages) == 1 {
+		return r.Publish(ctx, messages[0].Channel, messages[0].Data)
+	}
+
+	pipe := r.client.Pipeline()
+	for _, msg := range messages {
+		pipe.Publish(ctx, msg.Channel, msg.Data)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 func (r *RedisPublisher) Subscribe(ctx context.Context, channel string) (*Subscription, error) {
 	sub := r.client.Subscribe(ctx, channel)
 	if _, err := sub.Receive(ctx); err != nil {

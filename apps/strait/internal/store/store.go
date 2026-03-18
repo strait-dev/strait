@@ -75,6 +75,7 @@ type EnvironmentStore interface {
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id string) error
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	CreateStandardEnvironments(ctx context.Context, projectID string) error
 }
 
 type JobSecretStore interface {
@@ -120,6 +121,8 @@ type RunStore interface {
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
+	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
+	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -161,6 +164,7 @@ type JobHealthStats struct {
 	SuccessRate     float64 `json:"success_rate"`
 	AvgDurationSecs float64 `json:"avg_duration_secs"`
 	P95DurationSecs float64 `json:"p95_duration_secs"`
+	P99DurationSecs float64 `json:"p99_duration_secs"`
 	HealthScore     float64 `json:"health_score"`
 }
 

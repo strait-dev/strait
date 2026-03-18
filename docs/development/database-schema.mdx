@@ -49,6 +49,9 @@ Strait uses PostgreSQL 18 as its primary data store. All primary keys are UUIDv7
 | `run_outputs` | Structured outputs with optional schema validation |
 | `environments` | Named execution environments with JSONB variable storage |
 | `endpoint_circuit_state` | Circuit breaker state per endpoint URL (state, failures, opened_at, last_failure_at) |
+| `endpoint_health_scores` | EWMA-based health scoring per endpoint (score, success_rate, timeout_rate, latency) |
+| `job_slos` | Service level objectives per job (metric, target, window) |
+| `job_slo_evaluations` | Point-in-time SLO evaluation results (current_value, budget_remaining) |
 | `pricing_catalog` | Static pricing table for AI model cost calculation |
 | `job_secrets` | Encrypted secrets scoped to job and environment |
 | `job_groups` | Logical grouping of jobs (full CRUD with name, description, project scope) |
@@ -180,6 +183,44 @@ failures        INT NOT NULL DEFAULT 0
 opened_at       TIMESTAMPTZ
 last_failure_at TIMESTAMPTZ
 updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+### endpoint_health_scores
+
+The endpoint health scoring table (migration 000120) tracks continuous health metrics per endpoint using EWMA:
+
+```sql
+endpoint_url        TEXT PRIMARY KEY
+health_score        DOUBLE PRECISION NOT NULL DEFAULT 100.0
+success_rate        DOUBLE PRECISION NOT NULL DEFAULT 1.0
+timeout_rate        DOUBLE PRECISION NOT NULL DEFAULT 0.0
+latency_score       DOUBLE PRECISION NOT NULL DEFAULT 1.0
+total_requests      BIGINT NOT NULL DEFAULT 0
+last_latency_ms     DOUBLE PRECISION NOT NULL DEFAULT 0.0
+updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+### job_slos and job_slo_evaluations
+
+SLO definitions and evaluation history (migration 000122):
+
+```sql
+-- job_slos
+id              TEXT PRIMARY KEY
+job_id          TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE
+project_id      TEXT NOT NULL
+metric          TEXT NOT NULL  -- success_rate, p95_latency_secs, p99_latency_secs
+target          DOUBLE PRECISION NOT NULL
+window_hours    INT NOT NULL   -- 24, 168, 720
+UNIQUE(job_id, metric, window_hours)
+
+-- job_slo_evaluations
+id              TEXT PRIMARY KEY
+slo_id          TEXT NOT NULL REFERENCES job_slos(id) ON DELETE CASCADE
+current_value   DOUBLE PRECISION NOT NULL
+budget_remaining DOUBLE PRECISION NOT NULL
+evaluated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 ```
 
 ### job_runs Key Indexes

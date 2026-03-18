@@ -57,6 +57,21 @@ func (r *ResilientPublisher) Publish(ctx context.Context, channel string, data [
 	return nil
 }
 
+func (r *ResilientPublisher) PublishBatch(ctx context.Context, messages []PubSubMessage) error {
+	if r.publisher == nil {
+		r.handleFailure("publish_batch", "", ErrRedisUnavailable)
+		return nil
+	}
+
+	if err := r.publisher.PublishBatch(ctx, messages); err != nil {
+		r.handleFailure("publish_batch", "", err)
+		return nil
+	}
+
+	r.handleSuccess("publish_batch", "")
+	return nil
+}
+
 func (r *ResilientPublisher) Subscribe(ctx context.Context, channel string) (*Subscription, error) {
 	if r.publisher == nil {
 		r.handleFailure("subscribe", channel, ErrRedisUnavailable)

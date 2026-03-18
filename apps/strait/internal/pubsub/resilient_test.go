@@ -36,6 +36,15 @@ func (m *mockPublisher) Close() error {
 	return m.closeFunc()
 }
 
+func (m *mockPublisher) PublishBatch(ctx context.Context, messages []PubSubMessage) error {
+	for _, msg := range messages {
+		if err := m.Publish(ctx, msg.Channel, msg.Data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *mockPublisher) Ping(ctx context.Context) error {
 	if m.pingFunc == nil {
 		return nil
@@ -62,6 +71,15 @@ func (m *mockPublisherNoPing) Subscribe(ctx context.Context, channel string) (*S
 		return NewSubscription(ch, func() {}), nil
 	}
 	return m.subscribeFunc(ctx, channel)
+}
+
+func (m *mockPublisherNoPing) PublishBatch(ctx context.Context, messages []PubSubMessage) error {
+	for _, msg := range messages {
+		if err := m.Publish(ctx, msg.Channel, msg.Data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *mockPublisherNoPing) Close() error {

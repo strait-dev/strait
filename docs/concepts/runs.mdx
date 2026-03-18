@@ -20,7 +20,7 @@ The `JobRun` struct (defined in `apps/strait/internal/domain/types.go`) contains
 | `result` | `json` | The output data returned by the job endpoint. |
 | `metadata` | `map[string]string` | Key-value annotations for the run. |
 | `error` | `string` | Error message if the run failed or timed out. |
-| `triggered_by` | `string` | Trigger source: `manual`, `cron`, `spawn`, `workflow`, `retry`. |
+| `triggered_by` | `string` | Trigger source: `manual`, `cron`, `spawn`, `workflow`, `retry`, `debounce`, `job_completion`. |
 | `scheduled_at` | `time.Time` | When the run is scheduled to be queued. |
 | `started_at` | `time.Time` | When the run transitioned to `executing`. |
 | `finished_at` | `time.Time` | When the run reached a terminal state. |

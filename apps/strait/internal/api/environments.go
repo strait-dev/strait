@@ -159,6 +159,10 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 			respondError(w, r, http.StatusNotFound, "environment not found")
 			return
 		}
+		if errors.Is(err, store.ErrStandardEnvironment) {
+			respondError(w, r, http.StatusForbidden, "cannot delete standard environment")
+			return
+		}
 		respondError(w, r, http.StatusInternalServerError, "failed to delete environment")
 		return
 	}

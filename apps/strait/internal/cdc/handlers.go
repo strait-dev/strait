@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 
+	"strait/internal/pubsub"
+
 	"go.opentelemetry.io/otel"
 )
 
 type EventPublisher interface {
 	Publish(ctx context.Context, channel string, data []byte) error
+	PublishBatch(ctx context.Context, messages []pubsub.PubSubMessage) error
 }
 
 type ChangeEvent struct {
@@ -70,6 +73,23 @@ func (h *JobRunHandler) Handle(ctx context.Context, msg Message) error {
 	}, fmt.Sprintf("cdc:project:%s:job_runs", record.ProjectID))
 }
 
+func (h *JobRunHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
+	var record struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(msg.Record, &record); err != nil {
+		return nil, fmt.Errorf("decode job_run record: %w", err)
+	}
+	return collectChangeEvent(ChangeEvent{
+		Table:     h.Table(),
+		Action:    msg.Action,
+		Record:    msg.Record,
+		Changes:   msg.Changes,
+		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
+	}, fmt.Sprintf("cdc:project:%s:job_runs", record.ProjectID))
+}
+
 type WorkflowRunHandler struct {
 	publisher EventPublisher
 	logger    *slog.Logger
@@ -109,6 +129,23 @@ func (h *WorkflowRunHandler) Handle(ctx context.Context, msg Message) error {
 	)
 
 	return publishChangeEvent(ctx, h.publisher, h.logger, ChangeEvent{
+		Table:     h.Table(),
+		Action:    msg.Action,
+		Record:    msg.Record,
+		Changes:   msg.Changes,
+		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
+	}, fmt.Sprintf("cdc:project:%s:workflow_runs", record.ProjectID))
+}
+
+func (h *WorkflowRunHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
+	var record struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(msg.Record, &record); err != nil {
+		return nil, fmt.Errorf("decode workflow_run record: %w", err)
+	}
+	return collectChangeEvent(ChangeEvent{
 		Table:     h.Table(),
 		Action:    msg.Action,
 		Record:    msg.Record,
@@ -166,6 +203,23 @@ func (h *WorkflowStepRunHandler) Handle(ctx context.Context, msg Message) error 
 	}, fmt.Sprintf("cdc:workflow_run:%s:steps", record.WorkflowRunID))
 }
 
+func (h *WorkflowStepRunHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
+	var record struct {
+		WorkflowRunID string `json:"workflow_run_id"`
+	}
+	if err := json.Unmarshal(msg.Record, &record); err != nil {
+		return nil, fmt.Errorf("decode workflow_step_run record: %w", err)
+	}
+	return collectChangeEvent(ChangeEvent{
+		Table:     h.Table(),
+		Action:    msg.Action,
+		Record:    msg.Record,
+		Changes:   msg.Changes,
+		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
+	}, fmt.Sprintf("cdc:workflow_run:%s:steps", record.WorkflowRunID))
+}
+
 type EventTriggerHandler struct {
 	publisher EventPublisher
 	logger    *slog.Logger
@@ -212,6 +266,39 @@ func (h *EventTriggerHandler) Handle(ctx context.Context, msg Message) error {
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
 	}, fmt.Sprintf("cdc:project:%s:event_triggers", record.ProjectID))
+}
+
+func (h *EventTriggerHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
+	var record struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(msg.Record, &record); err != nil {
+		return nil, fmt.Errorf("decode event_trigger record: %w", err)
+	}
+	return collectChangeEvent(ChangeEvent{
+		Table:     h.Table(),
+		Action:    msg.Action,
+		Record:    msg.Record,
+		Changes:   msg.Changes,
+		Timestamp: msg.Metadata.CommitTimestamp,
+		Source:    "cdc",
+	}, fmt.Sprintf("cdc:project:%s:event_triggers", record.ProjectID))
+}
+
+// CollectableHandler extends Handler with the ability to collect messages
+// for batch publishing instead of publishing inline.
+type CollectableHandler interface {
+	Handler
+	Collect(ctx context.Context, msg Message) (*pubsub.PubSubMessage, error)
+}
+
+// collectChangeEvent builds a PubSubMessage from a ChangeEvent without publishing.
+func collectChangeEvent(event ChangeEvent, channel string) (*pubsub.PubSubMessage, error) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return nil, fmt.Errorf("marshal change event: %w", err)
+	}
+	return &pubsub.PubSubMessage{Channel: channel, Data: data}, nil
 }
 
 func publishChangeEvent(ctx context.Context, publisher EventPublisher, logger *slog.Logger, event ChangeEvent, channel string) error {

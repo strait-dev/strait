@@ -26,12 +26,13 @@ const (
 )
 
 const (
-	TriggerManual   = "manual"
-	TriggerCron     = "cron"
-	TriggerSpawn    = "spawn"
-	TriggerWorkflow = "workflow"
-	TriggerRetry    = "retry"
-	TriggerDebounce = "debounce"
+	TriggerManual        = "manual"
+	TriggerCron          = "cron"
+	TriggerSpawn         = "spawn"
+	TriggerWorkflow      = "workflow"
+	TriggerRetry         = "retry"
+	TriggerDebounce      = "debounce"
+	TriggerJobCompletion = "job_completion"
 )
 
 const (
@@ -42,6 +43,7 @@ const (
 	WebhookEventWorkflowCompleted    = "workflow.completed"
 	WebhookEventWorkflowFailed       = "workflow.failed"
 	WebhookEventComputeBudgetWarning = "compute_budget_warning"
+	WebhookEventSLOBudgetWarning     = "slo.budget_warning"
 )
 
 // ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
@@ -146,56 +148,58 @@ type AuditEvent struct {
 }
 
 type Job struct {
-	ID                       string            `json:"id"`
-	ProjectID                string            `json:"project_id"`
-	GroupID                  string            `json:"group_id,omitempty"`
-	Name                     string            `json:"name"`
-	Slug                     string            `json:"slug"`
-	Description              string            `json:"description,omitempty"`
-	Cron                     string            `json:"cron,omitempty"`
-	PayloadSchema            json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                     map[string]string `json:"tags,omitempty"`
-	EndpointURL              string            `json:"endpoint_url"`
-	FallbackEndpointURL      string            `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts              int               `json:"max_attempts"`
-	TimeoutSecs              int               `json:"timeout_secs"`
-	MaxConcurrency           int               `json:"max_concurrency,omitempty"`
-	MaxConcurrencyPerKey     int               `json:"max_concurrency_per_key,omitempty"`
-	ExecutionWindowCron      string            `json:"execution_window_cron,omitempty"`
-	Timezone                 string            `json:"timezone,omitempty"`
-	RateLimitMax             int               `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs      int               `json:"rate_limit_window_secs,omitempty"`
-	RateLimitKeys            []RateLimitKey    `json:"rate_limit_keys,omitempty"`
-	DedupWindowSecs          int               `json:"dedup_window_secs,omitempty"`
-	Enabled                  bool              `json:"enabled"`
-	WebhookURL               string            `json:"webhook_url,omitempty"`
-	WebhookSecret            string            `json:"webhook_secret,omitempty"`
-	RunTTLSecs               int               `json:"run_ttl_secs,omitempty"`
-	RetryStrategy            string            `json:"retry_strategy,omitempty"`
-	RetryDelaysSecs          []int             `json:"retry_delays_secs,omitempty"`
-	RetryPriorityBoost       int               `json:"retry_priority_boost,omitempty"`
-	DLQAlertThreshold        *int              `json:"dlq_alert_threshold,omitempty"`
-	QueueDepthAlertThreshold *int              `json:"queue_depth_alert_threshold,omitempty"`
-	EnvironmentID            string            `json:"environment_id,omitempty"`
-	DefaultRunMetadata       map[string]string `json:"default_run_metadata,omitempty"`
-	Version                  int               `json:"version"`
-	VersionID                string            `json:"version_id,omitempty"`
-	VersionPolicy            VersionPolicy     `json:"version_policy,omitempty"`
-	BackwardsCompatible      bool              `json:"backwards_compatible,omitempty"`
-	SkipIfRunning            bool              `json:"skip_if_running,omitempty"`
-	ResultSchema             json.RawMessage   `json:"result_schema,omitempty"`
-	DebounceWindowSecs       int               `json:"debounce_window_secs,omitempty"`
-	BatchWindowSecs          int               `json:"batch_window_secs,omitempty"`
-	BatchMaxSize             int               `json:"batch_max_size,omitempty"`
-	ExecutionMode            ExecutionMode     `json:"execution_mode,omitempty"`
-	MachinePreset            MachinePreset     `json:"machine_preset,omitempty"`
-	ImageURI                 string            `json:"image_uri,omitempty"`
-	Region                   string            `json:"region,omitempty"`
-	PreferredRegions         []string          `json:"preferred_regions,omitempty"`
-	CreatedBy                string            `json:"created_by,omitempty"`
-	UpdatedBy                string            `json:"updated_by,omitempty"`
-	CreatedAt                time.Time         `json:"created_at"`
-	UpdatedAt                time.Time         `json:"updated_at"`
+	ID                        string            `json:"id"`
+	ProjectID                 string            `json:"project_id"`
+	GroupID                   string            `json:"group_id,omitempty"`
+	Name                      string            `json:"name"`
+	Slug                      string            `json:"slug"`
+	Description               string            `json:"description,omitempty"`
+	Cron                      string            `json:"cron,omitempty"`
+	PayloadSchema             json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                      map[string]string `json:"tags,omitempty"`
+	EndpointURL               string            `json:"endpoint_url"`
+	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts               int               `json:"max_attempts"`
+	TimeoutSecs               int               `json:"timeout_secs"`
+	MaxConcurrency            int               `json:"max_concurrency,omitempty"`
+	MaxConcurrencyPerKey      int               `json:"max_concurrency_per_key,omitempty"`
+	ExecutionWindowCron       string            `json:"execution_window_cron,omitempty"`
+	Timezone                  string            `json:"timezone,omitempty"`
+	RateLimitMax              int               `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs       int               `json:"rate_limit_window_secs,omitempty"`
+	RateLimitKeys             []RateLimitKey    `json:"rate_limit_keys,omitempty"`
+	DedupWindowSecs           int               `json:"dedup_window_secs,omitempty"`
+	Enabled                   bool              `json:"enabled"`
+	WebhookURL                string            `json:"webhook_url,omitempty"`
+	WebhookSecret             string            `json:"webhook_secret,omitempty"`
+	RunTTLSecs                int               `json:"run_ttl_secs,omitempty"`
+	RetryStrategy             string            `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs           []int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost        int               `json:"retry_priority_boost,omitempty"`
+	DLQAlertThreshold         *int              `json:"dlq_alert_threshold,omitempty"`
+	QueueDepthAlertThreshold  *int              `json:"queue_depth_alert_threshold,omitempty"`
+	EnvironmentID             string            `json:"environment_id,omitempty"`
+	DefaultRunMetadata        map[string]string `json:"default_run_metadata,omitempty"`
+	Version                   int               `json:"version"`
+	VersionID                 string            `json:"version_id,omitempty"`
+	VersionPolicy             VersionPolicy     `json:"version_policy,omitempty"`
+	BackwardsCompatible       bool              `json:"backwards_compatible,omitempty"`
+	SkipIfRunning             bool              `json:"skip_if_running,omitempty"`
+	ResultSchema              json.RawMessage   `json:"result_schema,omitempty"`
+	DebounceWindowSecs        int               `json:"debounce_window_secs,omitempty"`
+	BatchWindowSecs           int               `json:"batch_window_secs,omitempty"`
+	BatchMaxSize              int               `json:"batch_max_size,omitempty"`
+	ExecutionMode             ExecutionMode     `json:"execution_mode,omitempty"`
+	MachinePreset             MachinePreset     `json:"machine_preset,omitempty"`
+	ImageURI                  string            `json:"image_uri,omitempty"`
+	Region                    string            `json:"region,omitempty"`
+	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
+	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
+	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	CreatedBy                 string            `json:"created_by,omitempty"`
+	UpdatedBy                 string            `json:"updated_by,omitempty"`
+	CreatedAt                 time.Time         `json:"created_at"`
+	UpdatedAt                 time.Time         `json:"updated_at"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.
@@ -248,14 +252,25 @@ type JobGroup struct {
 }
 
 type Environment struct {
-	ID        string            `json:"id"`
-	ProjectID string            `json:"project_id"`
-	Name      string            `json:"name"`
-	Slug      string            `json:"slug"`
-	ParentID  string            `json:"parent_id,omitempty"`
-	Variables map[string]string `json:"variables,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID         string            `json:"id"`
+	ProjectID  string            `json:"project_id"`
+	Name       string            `json:"name"`
+	Slug       string            `json:"slug"`
+	ParentID   string            `json:"parent_id,omitempty"`
+	IsStandard bool              `json:"is_standard"`
+	Variables  map[string]string `json:"variables,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
+}
+
+// StandardEnvironmentSlugs defines the three standard environments created for every project.
+var StandardEnvironmentSlugs = []string{"development", "staging", "production"}
+
+// StandardEnvironmentNames maps slugs to display names.
+var StandardEnvironmentNames = map[string]string{
+	"development": "Development",
+	"staging":     "Staging",
+	"production":  "Production",
 }
 
 type JobDependency struct {
@@ -477,6 +492,35 @@ type EndpointCircuitState struct {
 	HalfOpenUntil       *time.Time   `json:"half_open_until,omitempty"`
 	UpdatedAt           time.Time    `json:"updated_at"`
 	CreatedAt           time.Time    `json:"created_at"`
+}
+
+// EndpointHealthScore tracks continuous health scoring for an endpoint.
+// Score ranges from 0-100 where:
+//   - Score > 60: healthy (full concurrency)
+//   - Score 30-60: degraded (throttled concurrency)
+//   - Score < 30: unhealthy (blocked, equivalent to circuit open)
+type EndpointHealthScore struct {
+	EndpointURL   string    `json:"endpoint_url"`
+	HealthScore   float64   `json:"health_score"`
+	SuccessRate   float64   `json:"success_rate"`
+	TimeoutRate   float64   `json:"timeout_rate"`
+	LatencyScore  float64   `json:"latency_score"`
+	TotalRequests int64     `json:"total_requests"`
+	LastLatencyMs float64   `json:"last_latency_ms"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// HealthLevel returns the health classification for the endpoint.
+func (h *EndpointHealthScore) HealthLevel() string {
+	switch {
+	case h.HealthScore < 30:
+		return "unhealthy"
+	case h.HealthScore <= 60:
+		return "degraded"
+	default:
+		return "healthy"
+	}
 }
 
 type WebhookDelivery struct {
@@ -755,6 +799,41 @@ const (
 
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
 const DefaultEventTimeoutSecs = 3600
+
+// SLO metric types.
+const (
+	SLOMetricSuccessRate    = "success_rate"
+	SLOMetricP95LatencySecs = "p95_latency_secs"
+	SLOMetricP99LatencySecs = "p99_latency_secs"
+)
+
+// JobSLO defines a service level objective for a job.
+type JobSLO struct {
+	ID          string    `json:"id"`
+	JobID       string    `json:"job_id"`
+	ProjectID   string    `json:"project_id"`
+	Metric      string    `json:"metric"`
+	Target      float64   `json:"target"`
+	WindowHours int       `json:"window_hours"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// JobSLOEvaluation records a point-in-time evaluation of an SLO.
+type JobSLOEvaluation struct {
+	ID              string    `json:"id"`
+	SLOID           string    `json:"slo_id"`
+	CurrentValue    float64   `json:"current_value"`
+	BudgetRemaining float64   `json:"budget_remaining"`
+	EvaluatedAt     time.Time `json:"evaluated_at"`
+}
+
+// JobSLOStatus combines an SLO with its latest evaluation.
+type JobSLOStatus struct {
+	JobSLO
+	CurrentValue    *float64   `json:"current_value,omitempty"`
+	BudgetRemaining *float64   `json:"budget_remaining,omitempty"`
+	EvaluatedAt     *time.Time `json:"evaluated_at,omitempty"`
+}
 
 const (
 	WebhookStatusPending   = "pending"

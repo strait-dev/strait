@@ -243,6 +243,29 @@ func (m *mockExecutorStore) GetPresetRecommendation(ctx context.Context, jobID s
 	return nil, nil
 }
 
+func (m *mockExecutorStore) GetEndpointHealthScore(_ context.Context, _ string) (*domain.EndpointHealthScore, error) {
+	return nil, nil
+}
+
+func (m *mockExecutorStore) UpsertEndpointHealthScore(_ context.Context, _ *domain.EndpointHealthScore) error {
+	return nil
+}
+
+func (m *mockExecutorStore) AtomicRecordHealthResult(
+	_ context.Context,
+	endpointURL string,
+	_, _, _, _ float64,
+	_, _, _ float64,
+	_ float64,
+) (*domain.EndpointHealthScore, error) {
+	return &domain.EndpointHealthScore{
+		EndpointURL:  endpointURL,
+		HealthScore:  100.0,
+		SuccessRate:  1.0,
+		LatencyScore: 1.0,
+	}, nil
+}
+
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

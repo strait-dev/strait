@@ -9,21 +9,24 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/pubsub"
+
 	"go.opentelemetry.io/otel"
 )
 
 // Consumer polls the Sequin Stream and dispatches messages to registered handlers.
 type Consumer struct {
-	client   *Client
-	config   ConsumerConfig
-	handlers map[string]Handler
-	logger   *slog.Logger
-	stop     chan struct{}
-	done     chan struct{}
-	stopOnce sync.Once
-	pollWG   sync.WaitGroup
-	polling  atomic.Int64
-	started  atomic.Bool
+	client    *Client
+	config    ConsumerConfig
+	handlers  map[string]Handler
+	publisher EventPublisher
+	logger    *slog.Logger
+	stop      chan struct{}
+	done      chan struct{}
+	stopOnce  sync.Once
+	pollWG    sync.WaitGroup
+	polling   atomic.Int64
+	started   atomic.Bool
 }
 
 // NewConsumer creates a new CDC consumer.
@@ -46,6 +49,11 @@ func NewConsumer(client *Client, cfg ConsumerConfig, logger *slog.Logger) *Consu
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 	}
+}
+
+// SetPublisher sets the publisher for batch publishing CDC events.
+func (c *Consumer) SetPublisher(pub EventPublisher) {
+	c.publisher = pub
 }
 
 // RegisterHandler adds a handler for a specific table.
@@ -136,6 +144,8 @@ func (c *Consumer) poll(ctx context.Context) error {
 
 	ackIDs := make([]string, 0, len(messages))
 	nackIDs := make([]string, 0, len(messages))
+	batchAckIDs := make([]string, 0, len(messages))
+	batch := make([]pubsub.PubSubMessage, 0, len(messages))
 
 	for _, msg := range messages {
 		handler, ok := c.handlers[msg.Metadata.TableName]
@@ -145,6 +155,27 @@ func (c *Consumer) poll(ctx context.Context) error {
 				"ack_id", msg.AckID,
 			)
 			ackIDs = append(ackIDs, msg.AckID)
+			continue
+		}
+
+		// Try batch collection first, fall back to inline Handle.
+		if ch, ok := handler.(CollectableHandler); ok && c.publisher != nil {
+			pubMsg, err := ch.Collect(ctx, msg)
+			if err != nil {
+				c.logger.Error("handler collect failed",
+					"table", msg.Metadata.TableName,
+					"action", msg.Action,
+					"ack_id", msg.AckID,
+					"error", err,
+				)
+				nackIDs = append(nackIDs, msg.AckID)
+				continue
+			}
+			if pubMsg != nil {
+				batch = append(batch, *pubMsg)
+			}
+			// Track separately; only ACK after successful publish.
+			batchAckIDs = append(batchAckIDs, msg.AckID)
 			continue
 		}
 
@@ -160,6 +191,19 @@ func (c *Consumer) poll(ctx context.Context) error {
 		}
 
 		ackIDs = append(ackIDs, msg.AckID)
+	}
+
+	// Flush batch in a single Redis pipeline. On failure, NACK the messages
+	// so they are retried instead of being silently lost.
+	if len(batch) > 0 && c.publisher != nil {
+		if err := c.publisher.PublishBatch(ctx, batch); err != nil {
+			c.logger.Error("batch publish failed, nacking messages", "count", len(batch), "error", err)
+			nackIDs = append(nackIDs, batchAckIDs...)
+		} else {
+			ackIDs = append(ackIDs, batchAckIDs...)
+		}
+	} else {
+		ackIDs = append(ackIDs, batchAckIDs...)
 	}
 
 	if len(ackIDs) > 0 {

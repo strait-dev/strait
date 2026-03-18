@@ -46,6 +46,8 @@ The `Job` struct (defined in `apps/strait/internal/domain/types.go`) contains th
 | `backwards_compatible` | `bool` | Whether the current version is backwards compatible with the previous version. |
 | `created_by` | `string` | Actor ID who created the job (user ID or `apikey:<id>`). |
 | `updated_by` | `string` | Actor ID who last updated the job. |
+| `on_complete_trigger_workflow` | `string` | Optional workflow slug to auto-trigger when a run completes successfully. |
+| `on_complete_payload_mapping` | `json` | Optional JSON mapping to extract fields from the run result as the triggered workflow's payload. Uses dot-notation paths (e.g., `{"user_id": "result.user.id"}`). |
 | `created_at` | `time.Time` | Timestamp when the job was created. |
 | `updated_at` | `time.Time` | Timestamp of the last update. |
 

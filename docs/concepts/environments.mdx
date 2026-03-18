@@ -16,7 +16,18 @@ The `Environment` struct (defined in `apps/strait/internal/domain/types.go`) inc
 | `name` | `string` | Human-readable name (e.g., "Production"). |
 | `slug` | `string` | URL-friendly identifier (e.g., "prod"). |
 | `parent_id` | `string` | Optional ID of a parent environment for variable inheritance. |
-| `variables` | `map[string]string` | Key-value pairs for environment-specific configuration. |
+| `is_standard` | `bool` | Whether this is a standard environment (development, staging, production). Standard environments cannot be deleted or renamed. |
+| `variables` | `map[string]string` | Key-value pairs for environment-specific configuration. Encrypted at rest when `SECRET_ENCRYPTION_KEY` is set. |
+
+## Standard Environments
+
+Every project is created with three standard environments:
+
+- **Development** (`development`)
+- **Staging** (`staging`)
+- **Production** (`production`)
+
+Standard environments cannot be deleted or renamed. Custom environments can be created as children of standard environments for more granular configuration.
 
 ## Variable Inheritance
 
