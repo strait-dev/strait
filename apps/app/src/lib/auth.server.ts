@@ -158,12 +158,12 @@ export const auth = betterAuth({
                     slug: "starter-yearly",
                   },
                   {
-                    productId: process.env.POLAR_PROFESSIONAL_MONTHLY_ID ?? "",
-                    slug: "professional-monthly",
+                    productId: process.env.POLAR_PRO_MONTHLY_ID ?? "",
+                    slug: "pro-monthly",
                   },
                   {
-                    productId: process.env.POLAR_PROFESSIONAL_YEARLY_ID ?? "",
-                    slug: "professional-yearly",
+                    productId: process.env.POLAR_PRO_YEARLY_ID ?? "",
+                    slug: "pro-yearly",
                   },
                 ],
                 successUrl: "/app?checkout_success=true",

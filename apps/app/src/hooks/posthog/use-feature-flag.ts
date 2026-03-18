@@ -1,7 +1,7 @@
 import { usePostHog } from "@/components/providers/posthog-provider";
 import type { FeatureFlagKey } from "./flags";
 
-type PlanKey = "starter" | "growth" | "professional" | "enterprise" | "trial";
+type PlanKey = "free" | "starter" | "pro" | "enterprise" | "trial";
 type LimitPayload = Record<PlanKey, number>;
 
 /**
@@ -23,7 +23,7 @@ export const useFeatureFlag = (flagKey: FeatureFlagKey): boolean => {
 /**
  * Get numeric limit from a feature flag payload.
  * Payload should be a JSON object mapping plan names to limits.
- * Example: { "starter": 1, "growth": 2, "professional": 3, "enterprise": 5, "trial": 5 }
+ * Example: { "free": 1, "starter": 2, "pro": 3, "enterprise": 5, "trial": 5 }
  *
  * @param flagKey - Type-safe feature flag key from FEATURE_FLAGS
  * @param plan - The user's current plan

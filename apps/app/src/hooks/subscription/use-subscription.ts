@@ -61,8 +61,8 @@ const CANCELED_STATUSES = new Set(["canceled", "cancelled"]);
 const PRODUCT_PLAN_MAP: Record<string, string> = {
   [process.env.POLAR_STARTER_MONTHLY_ID ?? ""]: "starter",
   [process.env.POLAR_STARTER_YEARLY_ID ?? ""]: "starter",
-  [process.env.POLAR_PROFESSIONAL_MONTHLY_ID ?? ""]: "professional",
-  [process.env.POLAR_PROFESSIONAL_YEARLY_ID ?? ""]: "professional",
+  [process.env.POLAR_PRO_MONTHLY_ID ?? ""]: "pro",
+  [process.env.POLAR_PRO_YEARLY_ID ?? ""]: "pro",
 };
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>

@@ -2,11 +2,10 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckIcon as RadixCheckIcon } from "@radix-ui/react-icons";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
-import { CardCheckboxItem } from "@strait/ui/components/card-checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
 import { cn } from "@strait/ui/utils/index";
 import { formatCurrency } from "@strait/utils/money";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { CheckIcon, StarIcon } from "@/lib/icons";
 import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
@@ -14,7 +13,7 @@ import { PERCENTAGE_MULTIPLIER } from "@/utils/constants";
 const MONTHS_IN_A_YEAR = 12;
 const CENTS_TO_DOLLARS = 100;
 
-type PlanType = "starter" | "growth" | "professional" | "enterprise";
+type PlanType = "free" | "starter" | "pro" | "enterprise";
 
 type PricingFeature = {
   name: string;
@@ -35,88 +34,106 @@ type PricingPlan = {
   differentialFeatures?: PricingFeature[];
   includesFromPrevious?: string;
   highlight?: boolean;
+  badge?: string;
+  badgeVariant?: "success-light" | "info-light" | "default";
+  isCustomPricing?: boolean;
 };
 
-type UpgradeMode = "new_user" | "trial_ended" | "checkout_recovery";
-type PlanSlug = "starter" | "growth" | "professional" | "enterprise";
+type UpgradeMode = "new_user" | "upgrade" | "checkout_recovery";
+type PlanSlug = "free" | "starter" | "pro" | "enterprise";
 
 type BillingInterval = "monthly" | "yearly";
 
 const PRICING_PLANS: PricingPlan[] = [
   {
-    name: "Starter",
-    slug: "starter",
-    description: "Core tools for small teams starting their operations.",
+    name: "Free",
+    slug: "free",
+    description: "For side projects and evaluation. All features included.",
+    badge: "No credit card required",
+    badgeVariant: "success-light",
     prices: {
-      monthly: 2900,
-      yearly: 27_840,
-      monthlyInYearly: 2320,
+      monthly: 0,
+      yearly: 0,
     },
     features: [
-      { name: "Product catalog", included: true },
-      { name: "Basic inventory tracking", included: true },
-      { name: "Sales and invoices", included: true },
+      { name: "All core features", included: true },
+      { name: "5,000 runs/day", included: true },
+      { name: "100 managed runs/mo (micro, 10s)", included: true },
       { name: "1 organization", included: true },
-      { name: "Email support", included: true },
+      { name: "2 projects", included: true },
+      { name: "3 members", included: true },
+      { name: "1-day retention", included: true },
+      { name: "Community support", included: true },
     ],
   },
   {
-    name: "Growth",
-    slug: "growth",
-    description: "Automation and insights for scaling operations.",
+    name: "Starter",
+    slug: "starter",
+    description: "For growing teams with production workloads.",
     prices: {
-      monthly: 5900,
-      yearly: 56_640,
-      monthlyInYearly: 4720,
+      monthly: 1999,
+      yearly: 19_999,
+      monthlyInYearly: 1667,
     },
-    includesFromPrevious: "Everything in Starter",
-    differentialFeatures: [
-      { name: "Advanced reports", included: true },
-      { name: "Purchase workflows", included: true },
-      { name: "Multi-location inventory", included: true },
-      { name: "Workflow automations", included: true },
-      { name: "Priority support", included: true },
+    features: [
+      { name: "All core features", included: true },
+      { name: "25,000 runs/day", included: true },
+      { name: "$19.99/mo compute credit", included: true },
+      { name: "25 concurrent runs", included: true },
+      { name: "2 organizations", included: true },
+      { name: "5 projects per org", included: true },
+      { name: "10 members per org", included: true },
+      { name: "7-day retention", included: true },
+      { name: "6 regions", included: true },
+      { name: "Basic RBAC", included: true },
+      { name: "Email support (48h)", included: true },
     ],
-    features: [],
     highlight: true,
   },
   {
-    name: "Professional",
-    slug: "professional",
-    description: "Control, governance, and deeper visibility for bigger teams.",
+    name: "Pro",
+    slug: "pro",
+    description: "For production workloads at scale.",
     prices: {
-      monthly: 9900,
-      yearly: 95_040,
-      monthlyInYearly: 7920,
+      monthly: 4999,
+      yearly: 49_999,
+      monthlyInYearly: 4167,
     },
-    includesFromPrevious: "Everything in Growth",
-    differentialFeatures: [
-      { name: "Role-based permissions", included: true },
-      { name: "Approval flows", included: true },
-      { name: "Audit trail", included: true },
-      { name: "Custom exports", included: true },
-      { name: "API access", included: true },
+    features: [
+      { name: "All core features", included: true },
+      { name: "100,000 runs/day", included: true },
+      { name: "$49.99/mo compute credit", included: true },
+      { name: "100 concurrent runs", included: true },
+      { name: "5 organizations", included: true },
+      { name: "15 projects per org", included: true },
+      { name: "25 members per org", included: true },
+      { name: "30-day retention", included: true },
+      { name: "All regions", included: true },
+      { name: "Full RBAC", included: true },
+      { name: "Audit logs", included: true },
+      { name: "AI Assistant BYOK", included: true },
+      { name: "Priority support (24h)", included: true },
     ],
-    features: [],
   },
   {
     name: "Enterprise",
     slug: "enterprise",
-    description: "Enterprise security and tailored support for complex orgs.",
+    description: "Custom everything for large organizations.",
+    isCustomPricing: true,
     prices: {
-      monthly: 14_900,
-      yearly: 143_040,
-      monthlyInYearly: 11_920,
+      monthly: 0,
+      yearly: 0,
     },
-    includesFromPrevious: "Everything in Professional",
-    differentialFeatures: [
-      { name: "SSO and SCIM", included: true },
-      { name: "Dedicated onboarding", included: true },
-      { name: "SLA-backed support", included: true },
+    features: [
+      { name: "Unlimited everything", included: true },
+      { name: "Custom compute credits", included: true },
+      { name: "SSO/SAML", included: true },
+      { name: "99.9% SLA", included: true },
+      { name: "90-day retention", included: true },
+      { name: "Dedicated support + Slack", included: true },
       { name: "Custom integrations", included: true },
-      { name: "Dedicated success manager", included: true },
+      { name: "Static IPs", included: true },
     ],
-    features: [],
   },
 ];
 
@@ -133,7 +150,7 @@ type PlanSelectionProps = {
 
 const BILLING_INTERVALS = [
   { label: "Monthly", value: "monthly" as const },
-  { label: "Yearly", value: "yearly" as const, helper: "Save 20%" },
+  { label: "Yearly", value: "yearly" as const, helper: "Save ~17%" },
 ];
 
 const MESSAGING: Record<
@@ -143,19 +160,18 @@ const MESSAGING: Record<
   new_user: {
     title: "Choose your plan",
     description:
-      "Start your 14-day free trial with full access to all features.",
-    buttonText: "Start free trial",
+      "All features included on every plan. Start free, upgrade when you need more.",
+    buttonText: "Get started",
   },
   checkout_recovery: {
     title: "Complete your setup",
-    description:
-      "Start your 14-day free trial with full access to all features.",
-    buttonText: "Start free trial",
-  },
-  trial_ended: {
-    title: "Your trial has ended",
-    description: "Choose a plan to continue using Strait.",
+    description: "Pick up where you left off.",
     buttonText: "Subscribe now",
+  },
+  upgrade: {
+    title: "Upgrade your plan",
+    description: "Get more runs, more projects, and more team members.",
+    buttonText: "Upgrade now",
   },
 };
 
@@ -168,7 +184,6 @@ const PricingCardBadges = ({
   plan: PricingPlan;
   isCurrentPlan?: boolean;
 }) => {
-  // Determine which left badge to show (Current plan takes priority over Most Popular)
   const renderLeftBadge = () => {
     if (isCurrentPlan) {
       return (
@@ -178,6 +193,16 @@ const PricingCardBadges = ({
         >
           <HugeiconsIcon className="size-3" icon={CheckIcon} />
           <span className="font-normal text-xs">Current plan</span>
+        </Badge>
+      );
+    }
+    if (plan.badge) {
+      return (
+        <Badge
+          className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
+          variant={plan.badgeVariant ?? "info-light"}
+        >
+          <span className="font-normal text-xs">{plan.badge}</span>
         </Badge>
       );
     }
@@ -197,7 +222,9 @@ const PricingCardBadges = ({
 
   return (
     <>
-      {billingInterval === "yearly" ? (
+      {billingInterval === "yearly" &&
+      plan.prices.monthly > 0 &&
+      plan.prices.yearly > 0 ? (
         <Badge
           className="absolute -top-2 right-2 flex items-center gap-1 shadow-sm"
           variant="success-light"
@@ -233,7 +260,7 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
     ) : null}
 
     {(plan.differentialFeatures || plan.features)
-      .slice(0, 5)
+      .slice(0, 8)
       .map((feature: PricingFeature) => (
         <div className="flex items-start gap-2" key={feature.name}>
           <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-foreground">
@@ -244,9 +271,9 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
           </span>
         </div>
       ))}
-    {(plan.differentialFeatures || plan.features).length > 5 && (
+    {(plan.differentialFeatures || plan.features).length > 8 && (
       <div className="pt-1 text-center text-muted-foreground/60 text-xs">
-        +{(plan.differentialFeatures || plan.features).length - 5} more features
+        +{(plan.differentialFeatures || plan.features).length - 8} more features
       </div>
     )}
   </div>
@@ -272,41 +299,38 @@ const PricingCard = ({
   currentPlanSlug?: PlanSlug;
 }) => {
   const isCurrentPlan = currentPlanSlug === plan.slug;
+  const isFreePlan = plan.slug === "free";
+  const isEnterprise = plan.slug === "enterprise";
 
-  // Determine button text based on current plan status
   const getCardButtonText = () => {
-    if (isCurrentPlan) {
-      // User's current/trial plan - encourage them to subscribe
-      return isSelected ? buttonText : "Subscribe to this plan";
-    }
-    if (currentPlanSlug) {
-      // User has a plan but this is a different one
-      return "Upgrade plan";
-    }
+    if (isFreePlan) { return "Get Started Free"; }
+    if (isEnterprise) { return "Contact Sales"; }
+    if (isCurrentPlan) { return "Current Plan"; }
     return isSelected ? buttonText : "Choose this plan";
   };
 
-  // Determine button variant - selected plan gets primary, others get outline
   const getButtonVariant = () => {
-    if (isSelected) {
-      return "default";
-    }
-    return "outline";
+    if (isCurrentPlan) { return "outline" as const; }
+    if (isSelected) { return "default" as const; }
+    return "outline" as const;
   };
+
   const currentPrice =
     billingInterval === "monthly"
       ? plan.prices.monthly
       : plan.prices.monthlyInYearly ||
-        Math.floor(plan.prices.yearly / MONTHS_IN_A_YEAR);
+        (plan.prices.yearly > 0
+          ? Math.floor(plan.prices.yearly / MONTHS_IN_A_YEAR)
+          : 0);
 
   const handleCardClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      if (!isLoading) {
+      if (!(isLoading || isCurrentPlan)) {
         onSelect(plan.slug);
       }
     },
-    [isLoading, onSelect, plan.slug]
+    [isLoading, isCurrentPlan, onSelect, plan.slug]
   );
 
   return (
@@ -324,7 +348,11 @@ const PricingCard = ({
       )}
       onClick={handleCardClick}
       onKeyDown={(e) => {
-        if ((e.key === "Enter" || e.key === " ") && !isLoading) {
+        if (
+          (e.key === "Enter" || e.key === " ") &&
+          !isLoading &&
+          !isCurrentPlan
+        ) {
           e.preventDefault();
           onSelect(plan.slug);
         }
@@ -344,36 +372,49 @@ const PricingCard = ({
             <h3 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
               {plan.name}
             </h3>
-            <div
-              className={cn(
-                "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
-                isSelected
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-muted-foreground/30"
-              )}
-            >
-              {isSelected ? <RadixCheckIcon className="h-2.5 w-2.5" /> : null}
-            </div>
+            {(isFreePlan || isEnterprise ) ? null : (
+              <div
+                className={cn(
+                  "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
+                  isSelected
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-muted-foreground/30"
+                )}
+              >
+                {isSelected ? (
+                  <RadixCheckIcon className="h-2.5 w-2.5" />
+                ) : null}
+              </div>
+            )}
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="font-normal text-2xl text-foreground tracking-tighter">
-              <span className="tabular-nums">
-                {formatCurrency(currentPrice / CENTS_TO_DOLLARS)}
+            {plan.isCustomPricing ? (
+              <span className="font-normal text-2xl text-foreground tracking-tighter">
+                Custom
               </span>
-            </span>
-            <span className="text-muted-foreground text-xs">/month</span>
+            ) : (
+              <>
+                <span className="font-normal text-2xl text-foreground tracking-tighter">
+                  <span className="tabular-nums">
+                    {formatCurrency(currentPrice / CENTS_TO_DOLLARS)}
+                  </span>
+                </span>
+                <span className="text-muted-foreground text-xs">/month</span>
+              </>
+            )}
           </div>
-          {billingInterval === "yearly" && (
-            <div className="-mt-1 text-muted-foreground/80 text-xs">
-              <span className="tabular-nums">
-                {formatCurrency(plan.prices.yearly / CENTS_TO_DOLLARS)} billed
-                annually
-              </span>
-            </div>
-          )}
+          {billingInterval === "yearly" &&
+            plan.prices.yearly > 0 &&
+            !plan.isCustomPricing && (
+              <div className="-mt-1 text-muted-foreground/80 text-xs">
+                <span className="tabular-nums">
+                  {formatCurrency(plan.prices.yearly / CENTS_TO_DOLLARS)} billed
+                  annually
+                </span>
+              </div>
+            )}
           <p className="border-border border-b pb-3 text-muted-foreground text-xs">
-            {plan.description ||
-              `Perfect for ${plan.name.toLowerCase()} businesses`}
+            {plan.description}
           </p>
         </div>
 
@@ -381,9 +422,17 @@ const PricingCard = ({
 
         <Button
           className="mt-4 w-full"
-          disabled={isLoading}
+          disabled={isLoading || isCurrentPlan}
           onClick={(e) => {
             e.stopPropagation();
+            if (isEnterprise) {
+              window.open("mailto:sales@strait.dev", "_blank");
+              return;
+            }
+            if (isFreePlan) {
+              window.location.assign("/app");
+              return;
+            }
             if (isSelected) {
               onStartCheckout?.();
             } else {
@@ -414,8 +463,6 @@ export const PlanSelection = ({
 }: PlanSelectionProps) => {
   const { trackSubscription } = useAnalytics();
 
-  const [trialReminderOptIn, setTrialReminderOptIn] = useState(true);
-
   const messaging = MESSAGING[mode];
 
   const handleBillingIntervalChange = useCallback(
@@ -425,9 +472,6 @@ export const PlanSelection = ({
     },
     [onBillingIntervalChange, trackSubscription]
   );
-
-  // Check if user already has a subscription
-  const hasExistingSubscription = !!currentPlanSlug;
 
   const handlePlanSelect = useCallback(
     (planSlug: PlanType) => {
@@ -487,22 +531,17 @@ export const PlanSelection = ({
         ))}
       </div>
 
-      {/* Trial Reminder Opt-in - only show for trial modes and when user doesn't have subscription */}
-      {mode !== "trial_ended" && !hasExistingSubscription && (
-        <div className="mx-auto max-w-xl">
-          <CardCheckboxItem
-            checked={trialReminderOptIn}
-            description="We'll send you a friendly reminder a few days before your trial ends, so you have time to decide."
-            id="trial-reminder"
-            label="Email me a reminder before my trial ends"
-            onCheckedChange={(checked) =>
-              setTrialReminderOptIn(checked === true)
-            }
-          />
-        </div>
-      )}
+      {/* No surprise bills callout */}
+      <div className="mx-auto max-w-xl rounded-custom border border-border bg-muted/30 p-4 text-center">
+        <p className="font-medium text-foreground text-sm">No surprise bills</p>
+        <p className="mt-1 text-muted-foreground text-xs">
+          Set a spending limit on any paid plan. When you reach it, runs stop —
+          you are never charged more than you expect. Free plan users are always
+          hard-capped.
+        </p>
+      </div>
     </div>
   );
 };
 
-export type { BillingInterval, PlanType, UpgradeMode };
+export type { BillingInterval, PlanType, UpgradeMode, PlanSlug };
