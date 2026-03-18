@@ -1,0 +1,139 @@
+---
+title: "Troubleshooting"
+description: "Common issues and solutions when working with Strait."
+---
+
+# Troubleshooting
+
+Solutions to frequently encountered issues across Strait setup, jobs, workflows, and SDKs.
+
+## Setup Issues
+
+### Docker Compose fails with "port already in use"
+
+Another service is using port 8080, 5432, or 6379. Find the conflicting process:
+
+```bash
+# macOS / Linux
+lsof -i :8080
+
+# Windows
+netstat -ano | findstr :8080
+```
+
+Stop the conflicting service or change the port mapping in `docker-compose.yml`.
+
+### "DATABASE_URL is required" error on startup
+
+Strait validates required environment variables before starting. Ensure all required variables are set:
+
+```bash
+export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
+export REDIS_URL=redis://localhost:6379
+export INTERNAL_SECRET=your-secret-here-minimum-32-characters
+```
+
+See [Environment Variables](/docs/guides/environment-variables) for the full list.
+
+### Migrations fail with "relation already exists"
+
+This happens when migrations are partially applied. Connect to the database and check the migration state:
+
+```bash
+psql $DATABASE_URL -c "SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 5;"
+```
+
+If a migration is stuck in a dirty state, fix the underlying issue and re-run the application.
+
+## Job Issues
+
+### Job is stuck in "queued" state
+
+Common causes:
+1. **No worker running** -- Start a worker with `strait server --mode worker` or `--mode all`
+2. **Concurrency limit reached** -- Check `max_concurrency` on the job definition
+3. **Execution window** -- The job may have a `execution_window_cron` that restricts when it can run
+4. **Rate limiting** -- Per-key rate limits may be throttling execution
+
+Check the queue depth:
+```bash
+strait stats queue-depth
+```
+
+### Endpoint returns 4xx/5xx but run shows "completed"
+
+Strait considers any 2xx response as success. If your endpoint returns an error status, ensure it returns a non-2xx HTTP code. Strait will then mark the run as failed and apply the retry strategy.
+
+### Runs are timing out
+
+Increase the `timeout_secs` on the job definition or use SDK heartbeats to extend the timeout:
+
+```typescript
+const sdk = createSDKClient({ runToken: process.env.STRAIT_RUN_TOKEN });
+// Send heartbeats every 30 seconds for long-running jobs
+const interval = setInterval(() => sdk.heartbeat(), 30000);
+```
+
+### Dead letter queue keeps growing
+
+Runs in the DLQ have exhausted all retries. Common fixes:
+1. **Check the endpoint** -- Is it returning errors consistently?
+2. **Increase retry count** -- Adjust `max_retries` on the job
+3. **Fix the root cause** -- Review run logs with `strait runs logs <run_id>`
+4. **Replay from DLQ** -- `strait runs replay <run_id>` to retry a specific run
+
+## Workflow Issues
+
+### "Cycle detected in DAG" error
+
+Your workflow has a circular dependency. Use the explain endpoint to visualize the graph:
+
+```bash
+curl http://localhost:8080/v1/workflows/{id}/explain
+```
+
+Remove the circular dependency by restructuring step dependencies.
+
+### Fan-in step never completes
+
+All parent steps must complete before a fan-in step starts. Check if any parent step is stuck, failed, or waiting for an event trigger. Use:
+
+```bash
+strait workflow-runs status <workflow_run_id>
+```
+
+### Approval step not receiving events
+
+Verify the event key matches and the event hasn't expired:
+```bash
+strait events list --workflow-run <id>
+```
+
+## SDK Issues
+
+### "Invalid run token" error
+
+The run token is a JWT issued when a job is triggered. Common causes:
+1. **Token expired** -- Tokens expire after the job's timeout period
+2. **Wrong token** -- Ensure you're using the token from `STRAIT_RUN_TOKEN` env var
+3. **Token for different run** -- Each run gets a unique token
+
+### SDK can't connect to Strait
+
+Check your `strait.json` configuration:
+```bash
+cat strait.json
+```
+
+Ensure `base_url` points to your Strait instance and `STRAIT_API_KEY` is set.
+
+## Performance Issues
+
+### High queue latency
+
+1. **Scale workers** -- Add more worker instances with `--mode worker`
+2. **Increase batch size** -- Adjust `WORKER_DEQUEUE_BATCH_SIZE`
+3. **Check database** -- Run `EXPLAIN ANALYZE` on slow queries
+4. **Review concurrency** -- Adjust adaptive concurrency settings
+
+See [Performance Tuning](/docs/guides/performance-tuning) for detailed optimization guidance.

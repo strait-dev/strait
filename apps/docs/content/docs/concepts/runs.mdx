@@ -1,0 +1,140 @@
+---
+title: "Runs"
+description: "The execution lifecycle of a job."
+---
+
+A `JobRun` represents a single execution instance of a [Job](/docs/concepts/jobs). It tracks the state, payload, result, and timing of the execution.
+
+## JobRun Model
+
+The `JobRun` struct (defined in `apps/strait/internal/domain/types.go`) contains the following fields:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique identifier (UUIDv7). |
+| `job_id` | `string` | Reference to the parent Job. |
+| `project_id` | `string` | The project this run belongs to. |
+| `status` | `RunStatus` | Current state in the FSM (e.g., `queued`, `executing`). |
+| `attempt` | `int` | Current retry attempt number (starts at 1). |
+| `payload` | `json` | The input data provided when the run was triggered. |
+| `result` | `json` | The output data returned by the job endpoint. |
+| `metadata` | `map[string]string` | Key-value annotations for the run. |
+| `error` | `string` | Error message if the run failed or timed out. |
+| `triggered_by` | `string` | Trigger source: `manual`, `cron`, `spawn`, `workflow`, `retry`, `debounce`, `job_completion`. |
+| `scheduled_at` | `time.Time` | When the run is scheduled to be queued. |
+| `started_at` | `time.Time` | When the run transitioned to `executing`. |
+| `finished_at` | `time.Time` | When the run reached a terminal state. |
+| `heartbeat_at` | `time.Time` | Last recorded heartbeat from the executor. |
+| `next_retry_at` | `time.Time` | When the next retry attempt is scheduled. |
+| `expires_at` | `time.Time` | When the run will expire if not completed. |
+| `parent_run_id` | `string` | Reference to the parent run if spawned. |
+| `priority` | `int` | Scheduling priority (higher numbers are dequeued first). |
+| `idempotency_key` | `string` | Key used to prevent duplicate executions. |
+| `job_version` | `int` | The version of the job configuration used for this run. |
+| `job_version_id` | `string` | The specific version ID of the job configuration used. |
+| `batch_id` | `string` | Reference to the batch operation that created this run (if bulk triggered). |
+| `concurrency_key` | `string` | Key used for per-key concurrency limiting. Runs with the same key on the same job are limited by `max_concurrency_per_key`. |
+| `created_by` | `string` | Actor ID who created the run (user ID or `apikey:<id>`). |
+| `tags` | `map[string]string` | Key-value pairs for filtering and metadata on the run. |
+| `workflow_step_run_id` | `string` | Reference to the workflow step run if part of a workflow. |
+| `max_attempts_override` | `int` | Optional override for the job's `max_attempts`. |
+| `timeout_secs_override` | `int` | Optional override for the job's `timeout_secs`. |
+| `retry_backoff` | `string` | Optional override for the retry strategy. |
+| `retry_initial_delay_secs`| `int` | Optional override for initial retry delay. |
+| `retry_max_delay_secs` | `int` | Optional override for maximum retry delay. |
+| `execution_trace` | `json` | Detailed timing breakdown (TTFB, connect time, etc.). |
+| `debug_mode` | `bool` | Whether debug logging and bundle assembly are enabled. |
+| `continuation_of` | `string` | ID of the run this run is a continuation of. |
+| `lineage_depth` | `int` | Depth in the continuation chain. |
+| `created_at` | `time.Time` | When the run record was created. |
+
+## Finite State Machine (FSM)
+
+The lifecycle of a run is strictly managed by a 13-state FSM.
+
+### FSM Diagram
+
+```text
+                    ┌─────────┐
+                    │ delayed │
+                    └────┬────┘
+                         │ scheduled_at <= NOW
+                         v
+   ┌────────────────┬─────────┬────────────────────┐
+   │                │ queued  │                     │
+   │                └────┬────┘                     │
+   │                     │ dequeue                  │
+   │                     v                          │
+   │              ┌──────────┐                      │
+   │              │ dequeued │──────────┐            │
+   │              └────┬─────┘          │            │
+   │                   │ start          │ system     │
+   │                   v                │ failure    │
+   │    retry    ┌───────────┐          │            │
+   │  ┌─────────>│ executing │          │            │
+   │  │          └─────┬─────┘          │            │
+   │  │  ┌─────────┬───┴───┬─────────┐ │            │
+   │  │  │         │       │         │ │            │
+   │  │  v         v       v         v v            │
+   │  │ completed failed timed_out system_failed    │
+   │  │                │                             │
+   │  │                v (max attempts reached       │
+    │  │          ┌─────────────┐                     │
+   │  │          │ dead_letter │                     │
+   │  │          └─────────────┘                     │
+   │  │                                              │
+   │  └── (attempt < max_attempts) ──────────────────┘
+   │                                                 │
+   │  canceled <── (any non-terminal) ──────────────┘
+   │  expired  <── (delayed, queued with expires_at) ┘
+```
+
+### Valid Transitions
+
+| From Status | Valid To Statuses |
+| :--- | :--- |
+| `delayed` | `queued`, `canceled`, `expired` |
+| `queued` | `dequeued`, `canceled`, `expired` |
+| `dequeued` | `executing`, `queued`, `canceled`, `system_failed` |
+| `executing` | `completed`, `failed`, `timed_out`, `crashed`, `canceled`, `waiting`, `queued`, `system_failed`, `dead_letter` |
+| `waiting` | `executing`, `completed`, `failed`, `canceled`, `timed_out` |
+| `dead_letter` | `queued` (via replay) |
+
+### Status Descriptions
+
+- **delayed**: Run is created but scheduled for a future time.
+- **queued**: Ready to be picked up by a worker.
+- **dequeued**: Claimed by a worker but not yet started.
+- **executing**: HTTP request has been dispatched to the job endpoint.
+- **waiting**: Paused, typically waiting for a child run or external signal.
+- **completed**: Finished successfully (2xx response).
+- **failed**: Finished with an error (non-2xx response) and no retries left.
+- **timed_out**: Execution exceeded the configured `timeout_secs`.
+- **crashed**: Worker process terminated unexpectedly while executing.
+- **system_failed**: Internal strait error (e.g., database failure).
+- **canceled**: Manually terminated by a user or system.
+- **expired**: Run exceeded its `run_ttl_secs` before starting.
+- **dead_letter**: Permanently failed run moved to the DLQ for manual inspection.
+
+## Terminal vs Non-Terminal States
+
+A run is considered **terminal** when it reaches a state where no further automatic transitions occur (except for manual DLQ replay).
+
+<Callout type="info">
+Terminal states: `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, `expired`.
+</Callout>
+
+## Execution Trace
+
+The `execution_trace` field captures granular timing:
+- `queue_wait_ms`: Time spent in `queued` state.
+- `dequeue_ms`: Time taken to claim the run.
+- `connect_ms`: TCP/TLS connection time to the endpoint.
+- `ttfb_ms`: Time to first byte of the response.
+- `transfer_ms`: Time to download the response body.
+- `total_ms`: Total wall-clock time for the execution.
+
+## Debug Mode and Lineage
+
+- **Debug Mode**: Enables detailed event logging and allows assembly of a "Debug Bundle" for troubleshooting.
+- **Continuation Lineage**: Tracks the relationship between runs when one run triggers another as a continuation, maintaining a `lineage_depth` and `continuation_of` reference.

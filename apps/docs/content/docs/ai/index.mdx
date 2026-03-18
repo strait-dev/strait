@@ -1,0 +1,171 @@
+---
+title: "AI Agents"
+description: "Orchestrate AI agent workflows with cost controls, checkpoints, and durable execution."
+---
+
+# AI Agents
+
+Strait treats AI agent workloads as a first-class use case. The platform provides specialized features for orchestrating long-running, expensive, and unpredictable AI tasks.
+
+## Why Strait for AI?
+
+AI agent workloads have unique requirements that traditional job queues don't handle well:
+
+- **Unpredictable duration** -- LLM calls can take seconds or minutes depending on input complexity
+- **Cost explosion risk** -- A runaway agent can burn through API credits quickly
+- **Multi-step pipelines** -- Agents often chain multiple LLM calls, tool uses, and human approvals
+- **Observability gaps** -- Debugging failed agent runs requires logs, costs, and execution traces in one place
+
+Strait solves these with cost budgets, SDK endpoints, workflow DAGs, and debug bundles.
+
+## Cost Budgets
+
+Track token usage with micro-USD precision and enforce spending limits before execution begins.
+
+```bash
+# Set a per-run budget of $0.50 and daily project limit of $100
+curl -X POST http://localhost:8080/v1/jobs \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
+  -d '{
+    "name": "ai-summarizer",
+    "endpoint_url": "https://your-app.com/api/agents/summarize",
+    "max_cost_per_run_usd": 0.50,
+    "daily_cost_limit_usd": 100.00
+  }'
+```
+
+The SDK reports cost during execution:
+
+```typescript
+import { createSDKClient } from "@strait/ts/sdk";
+
+const sdk = createSDKClient({ runToken: process.env.STRAIT_RUN_TOKEN });
+
+// Report token usage after each LLM call
+await sdk.reportUsage({
+  model: "gpt-4o",
+  input_tokens: 1500,
+  output_tokens: 800,
+  cost_usd: 0.0245,
+});
+```
+
+See [Cost Budgets](/docs/concepts/cost-budgets) for the full configuration reference.
+
+## SDK Endpoints
+
+The SDK provides specialized endpoints for AI agent code running inside Strait:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `sdk.log()` | Structured logging visible in the dashboard |
+| `sdk.heartbeat()` | Keep-alive signal to prevent timeout |
+| `sdk.checkpoint()` | Save intermediate state for resumption |
+| `sdk.progress()` | Report progress percentage |
+| `sdk.reportUsage()` | Track token/cost usage |
+| `sdk.continue()` | Request continuation for long-running work |
+| `sdk.spawnChild()` | Create sub-tasks dynamically |
+
+### Example: AI Agent with Checkpoints
+
+```typescript
+import { createSDKClient } from "@strait/ts/sdk";
+
+const sdk = createSDKClient({ runToken: process.env.STRAIT_RUN_TOKEN });
+
+// Restore from checkpoint if resuming
+const state = await sdk.getCheckpoint();
+let processedCount = state?.processedCount ?? 0;
+
+for (const item of items.slice(processedCount)) {
+  await processWithLLM(item);
+  processedCount++;
+
+  // Checkpoint every 10 items
+  if (processedCount % 10 === 0) {
+    await sdk.checkpoint({ processedCount });
+    await sdk.progress(processedCount / items.length);
+    await sdk.heartbeat();
+  }
+}
+
+await sdk.log({ level: "info", message: `Processed ${processedCount} items` });
+```
+
+## Workflow Patterns for AI
+
+### Chain of Thought Pipeline
+
+Use a workflow DAG to chain multiple AI steps with conditions:
+
+```json
+{
+  "name": "research-pipeline",
+  "steps": [
+    { "name": "gather", "job": "ai-web-search" },
+    { "name": "analyze", "job": "ai-analyzer", "depends_on": ["gather"] },
+    {
+      "name": "review",
+      "job": "human-review",
+      "depends_on": ["analyze"],
+      "type": "approval"
+    },
+    {
+      "name": "publish",
+      "job": "ai-writer",
+      "depends_on": ["review"],
+      "condition": { "review": "approved" }
+    }
+  ]
+}
+```
+
+### Fan-Out for Parallel Processing
+
+Split work across multiple agents and aggregate results:
+
+```json
+{
+  "steps": [
+    { "name": "split", "job": "task-splitter" },
+    { "name": "worker-1", "job": "ai-processor", "depends_on": ["split"] },
+    { "name": "worker-2", "job": "ai-processor", "depends_on": ["split"] },
+    { "name": "worker-3", "job": "ai-processor", "depends_on": ["split"] },
+    { "name": "aggregate", "job": "result-merger", "depends_on": ["worker-1", "worker-2", "worker-3"] }
+  ]
+}
+```
+
+### Human-in-the-Loop
+
+Use event triggers to pause for human approval without holding resources:
+
+```typescript
+// Inside the agent code
+const sdk = createSDKClient({ runToken: process.env.STRAIT_RUN_TOKEN });
+
+// Request human approval -- this pauses the workflow step
+await sdk.requestApproval({
+  message: "Agent wants to send 500 emails. Approve?",
+  timeout_secs: 86400, // Wait up to 24 hours
+});
+```
+
+## Debug Bundles
+
+When an agent run fails, debug bundles aggregate everything you need to investigate:
+
+- Full execution logs from `sdk.log()`
+- Cost breakdown by model and step
+- Checkpoint history
+- Input/output payloads
+- Timing and retry history
+
+See [Debug Bundles](/docs/guides/debug-bundles) for how to retrieve and analyze them.
+
+## Getting Started
+
+1. **Set up a job** with cost budgets -- [Cost Budgets](/docs/concepts/cost-budgets)
+2. **Integrate the SDK** into your agent code -- [SDK Integration](/docs/guides/sdk-integration)
+3. **Build a workflow** for multi-step pipelines -- [Workflows](/docs/concepts/workflows)
+4. **Monitor execution** with logs and metrics -- [Monitoring](/docs/operations/monitoring-and-alerts)

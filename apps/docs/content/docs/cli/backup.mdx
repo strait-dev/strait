@@ -1,0 +1,120 @@
+---
+title: "Backup & Database"
+description: "Commands for database backups, migrations, and maintenance."
+---
+
+## backup create
+
+Create a database backup using `pg_dump`.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --output, -o | string | | Output file path |
+| --database-url | string | | Database connection URL |
+| --format | string | plain | Backup format (plain, custom, directory, tar) |
+| --verbose, -V | bool | false | Enable verbose output |
+
+```bash
+strait backup create --output backup.sql --format custom
+```
+
+## backup restore
+
+Restore a database from a backup file. The format is automatically detected.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --input, -i | string | | Input backup file (Required) |
+| --database-url | string | | Database connection URL |
+| --clean | bool | false | Clean (drop) database objects before restoring |
+| --verbose, -V | bool | false | Enable verbose output |
+| --yes | bool | false | Skip confirmation prompt |
+
+```bash
+strait backup restore --input backup.sql --clean --yes
+```
+
+## migrate up
+
+Apply pending database migrations.
+
+```bash
+strait migrate up
+```
+
+<Callout type="info">
+You can provide an optional argument to specify the number of migrations to apply (e.g., `strait migrate up 2`).
+</Callout>
+
+## migrate down
+
+Rollback database migrations.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --yes | bool | false | Skip confirmation prompt |
+
+```bash
+strait migrate down --yes
+```
+
+## migrate status
+
+Show the current migration version and status.
+
+```bash
+strait migrate status
+```
+
+## migrate create
+
+Create a new pair of up/down SQL migration files.
+
+```bash
+strait migrate create <name>
+```
+
+<Callout type="info">
+This command creates files in the format `apps/strait/migrations/<version>_<name>.up.sql` and `apps/strait/migrations/<version>_<name>.down.sql`.
+</Callout>
+
+## db shell
+
+Open an interactive `psql` shell.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --query | string | | Execute a single query and exit |
+
+```bash
+strait db shell --query "SELECT * FROM runs LIMIT 10;"
+```
+
+## db stats
+
+Show database table sizes and connection statistics.
+
+```bash
+strait db stats
+```
+
+## cleanup
+
+Remove old runs that are in a terminal state.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --project | string | | Filter by project |
+| --runs-older-than | duration | | Age threshold for removal (Required) |
+| --status | string | | Filter by specific terminal status |
+| --dry-run | bool | false | Show what would be deleted without performing the action |
+| --yes | bool | false | Skip confirmation prompt |
+| --limit | int | 100 | Maximum number of runs to delete |
+
+<Callout type="info">
+Terminal statuses include: `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, and `expired`.
+</Callout>
+
+```bash
+strait cleanup --runs-older-than 30d --status completed --yes
+```

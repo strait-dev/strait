@@ -1,0 +1,238 @@
+---
+title: "Ruby SDK"
+description: "Official Ruby SDK for Strait with idiomatic DSL, typed errors, and full API coverage."
+---
+
+The Ruby SDK (`strait`) provides a clean, idiomatic Ruby interface with full API coverage across 5 modules.
+
+## Installation
+
+```bash
+gem install strait
+```
+
+Or add to your Gemfile:
+
+```ruby
+gem "strait"
+```
+
+## Client Creation
+
+### From `strait.json` (recommended)
+
+```ruby
+require "strait"
+
+client = Strait::Client.from_file
+```
+
+See [Configuration](/docs/sdks/configuration) for `strait.json` schema and options.
+
+You can specify a custom directory or explicit path:
+
+```ruby
+# Custom directory
+client = Strait::Client.from_file(dir: "/path/to/project")
+
+# Explicit path
+client = Strait::Client.from_file(path: "/path/to/config.json")
+```
+
+### From environment variables
+
+```ruby
+# Reads STRAIT_BASE_URL, STRAIT_API_KEY, STRAIT_AUTH_TYPE, STRAIT_TIMEOUT_MS
+client = Strait::Client.from_env
+```
+
+### Inline with options
+
+```ruby
+client = Strait::Client.new(
+  base_url: "https://api.strait.dev",
+  api_key: "sk_live_...",
+  timeout_ms: 5000
+)
+```
+
+### Client options
+
+| Option | Description |
+|---|---|
+| `base_url:` | API base URL (trailing slashes stripped) |
+| `bearer_token:` | Bearer token auth |
+| `api_key:` | API key auth |
+| `run_token:` | Run token auth |
+| `auth:` | Set auth mode directly |
+| `default_headers:` | Headers sent with every request |
+| `timeout_ms:` | Timeout in milliseconds (default: 30000) |
+| `http_client:` | Custom HTTP client (any object responding to `#call`) |
+| `middleware:` | Request/response/error hooks |
+
+## Calling Operations
+
+Operations are organized into service modules under `Strait::Operations`:
+
+```ruby
+require "strait"
+
+client = Strait::Client.from_file
+jobs = Strait::Operations::Jobs.new(client)
+
+# List jobs
+list = jobs.list(project_id: "proj_1")
+
+# Create a job
+created = jobs.create(
+  name: "Sync Inventory",
+  slug: "sync-inventory",
+  project_id: "proj_1",
+  endpoint_url: "https://worker.example.com/run"
+)
+
+# Trigger a job
+run = jobs.trigger("job_abc", payload: { sku: "ABC-123" })
+```
+
+### Available services
+
+`Jobs`, `Runs`, `Workflows`, `WorkflowRuns`, `Deployments`, `Environments`, `Secrets`, `APIKeys`, `Webhooks`, `EventTriggers`, `EventSources`, `BatchOperations`, `Stats`, `Analytics`, `LogDrains`, `SDKRuns`, `RBAC`, `JobGroups`, `Health`
+
+## Authoring DSL
+
+### Defining jobs
+
+```ruby
+require "strait/authoring"
+
+job = Strait::Authoring.define_job(
+  name: "Sync Inventory",
+  slug: "sync-inventory",
+  endpoint_url: "https://worker.dev/jobs/sync",
+  project_id: "proj_1"
+) do |payload, ctx|
+  sync_inventory(payload[:sku])
+end
+
+job.register(client)
+job.trigger(client, payload: { sku: "ABC-123" })
+```
+
+### Defining workflows
+
+```ruby
+wf = Strait::Authoring.define_workflow(
+  name: "Order Pipeline",
+  slug: "order-pipeline",
+  project_id: "proj_1",
+  steps: [
+    Strait::Authoring.job("validate", "job_validate"),
+    Strait::Authoring.job("charge", "job_charge", depends_on: ["validate"]),
+    Strait::Authoring.approval("review", depends_on: ["charge"]),
+  ]
+)
+# DAG is validated at definition time
+```
+
+## Composition Helpers
+
+```ruby
+require "strait/composition"
+
+# Retry with backoff
+result = Strait::Composition.with_retry(attempts: 5, delay_ms: 100) do
+  call_api
+end
+
+# Paginate
+Strait::Composition.paginate(method(:list_fn)).each do |item|
+  # process item
+end
+
+# Wait for run
+run = Strait::Composition.wait_for_run(
+  method(:get_run), method(:get_status), "run_123"
+)
+```
+
+## FSM State Machines
+
+```ruby
+require "strait/fsm"
+
+Strait::FSM.can_transition_run?(:executing, :complete)  # true
+Strait::FSM.terminal_run_status?(:completed)             # true
+```
+
+## Middleware
+
+```ruby
+client = Strait::Client.new(
+  base_url: "https://api.strait.dev",
+  api_key: "sk_live_...",
+  middleware: Strait::Middleware.new(
+    on_request: ->(ctx) { puts "#{ctx.method} #{ctx.url}" },
+    on_response: ->(ctx) { puts "#{ctx.status} #{ctx.duration_ms}ms" },
+    on_error: ->(ctx) { puts "error: #{ctx.error}" }
+  )
+)
+```
+
+## Custom HTTP Client
+
+Any object responding to `#call(request)` can replace the default `Net::HTTP` client:
+
+```ruby
+custom_client = ->(request) {
+  # Custom HTTP logic
+  Faraday.send(request.method, request.url, request.body, request.headers)
+}
+
+client = Strait::Client.new(
+  base_url: "https://api.strait.dev",
+  api_key: "sk_live_...",
+  http_client: custom_client
+)
+```
+
+## Error Handling
+
+All errors inherit from `Strait::Error`. Use `rescue` to match:
+
+```ruby
+begin
+  result = jobs.get("nonexistent")
+rescue Strait::NotFoundError => e
+  puts "Not found: #{e.message}"
+rescue Strait::RateLimitedError => e
+  puts "Rate limited: #{e.message}"
+rescue Strait::UnauthorizedError => e
+  puts "Auth error: #{e.message}"
+rescue Strait::Error => e
+  puts "Error: #{e.message}"
+end
+```
+
+| Error type | HTTP Status | Description |
+|---|---|---|
+| `Strait::TransportError` | — | Network failure |
+| `Strait::DecodeError` | — | JSON decode failure |
+| `Strait::ValidationError` | — | Config/input validation |
+| `Strait::UnauthorizedError` | 401, 403 | Auth failure |
+| `Strait::NotFoundError` | 404 | Resource not found |
+| `Strait::ConflictError` | 409 | Duplicate/conflict |
+| `Strait::RateLimitedError` | 429 | Rate limit exceeded |
+| `Strait::ApiError` | other | Generic HTTP error |
+| `Strait::TimeoutError` | — | Polling timeout |
+| `Strait::DagValidationError` | — | Invalid workflow DAG |
+
+## Modules
+
+| Module | Require | Description |
+|---|---|---|
+| `Strait` | `strait` | Client, config, errors, HTTP, middleware |
+| `Strait::Authoring` | `strait/authoring` | define_job, define_workflow, steps, DAG validation |
+| `Strait::Composition` | `strait/composition` | Result, retry, wait, paginate, deployments |
+| `Strait::FSM` | `strait/fsm` | Run, workflow, step state machines |
+| `Strait::Operations` | `strait/operations` | Domain services for all API endpoints |

@@ -1,0 +1,22 @@
+{
+  "title": "API Reference",
+  "pages": [
+    "index",
+    "health",
+    "jobs",
+    "jobgroups",
+    "environments",
+    "runs",
+    "workflows",
+    "workflowruns",
+    "apikeys",
+    "stats",
+    "analytics",
+    "secrets",
+    "eventtriggers",
+    "sdk",
+    "batchoperations",
+    "logdrains",
+    "eventsources"
+  ]
+}

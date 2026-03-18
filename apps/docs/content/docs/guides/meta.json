@@ -1,0 +1,27 @@
+{
+  "title": "Guides",
+  "pages": [
+    "authentication",
+    "oidc",
+    "rbac",
+    "audit-events",
+    "api-key-rotation",
+    "security",
+    "deployment",
+    "performance-tuning",
+    "job-dependencies",
+    "debug-bundles",
+    "job-groups",
+    "idempotency",
+    "sdk-integration",
+    "workflow-approvals",
+    "dag-operations-playbook",
+    "event-triggers",
+    "environment-variables",
+    "database",
+    "tutorials",
+    "troubleshooting",
+    "migrating-from-bullmq",
+    "migrating-from-temporal"
+  ]
+}

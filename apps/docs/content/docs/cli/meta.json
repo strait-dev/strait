@@ -1,0 +1,20 @@
+{
+  "title": "CLI",
+  "pages": [
+    "index",
+    "init",
+    "jobs",
+    "runs",
+    "workflows",
+    "workflow-runs",
+    "trigger",
+    "events",
+    "api-keys",
+    "secrets",
+    "stats",
+    "backup",
+    "server",
+    "dev",
+    "utilities"
+  ]
+}
