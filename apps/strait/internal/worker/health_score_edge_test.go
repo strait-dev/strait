@@ -29,6 +29,22 @@ func (f *failingHealthScoreStore) UpsertEndpointHealthScore(_ context.Context, _
 	return f.upsertErr
 }
 
+func (f *failingHealthScoreStore) AtomicRecordHealthResult(
+	_ context.Context,
+	_ string,
+	_, _, _, _ float64,
+	_, _, _ float64,
+	_ float64,
+) (*domain.EndpointHealthScore, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	if f.upsertErr != nil {
+		return nil, f.upsertErr
+	}
+	return &domain.EndpointHealthScore{}, nil
+}
+
 func TestHealthScorer_RecordResult_GetError(t *testing.T) {
 	t.Parallel()
 	store := &failingHealthScoreStore{getErr: errors.New("db connection lost")}

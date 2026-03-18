@@ -48,6 +48,13 @@ type ExecutorStore interface {
 	GetPresetRecommendation(ctx context.Context, jobID string) (*store.PresetRecommendation, error)
 	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
 	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
+	AtomicRecordHealthResult(
+		ctx context.Context,
+		endpointURL string,
+		successVal, timeoutVal, latencyVal, alpha float64,
+		weightSuccess, weightTimeout, weightLatency float64,
+		lastLatencyMs float64,
+	) (*domain.EndpointHealthScore, error)
 }
 
 type executionPolicy struct {

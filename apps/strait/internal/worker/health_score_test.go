@@ -38,6 +38,53 @@ func (m *mockHealthScoreStore) UpsertEndpointHealthScore(_ context.Context, scor
 	return nil
 }
 
+func (m *mockHealthScoreStore) AtomicRecordHealthResult(
+	_ context.Context,
+	endpointURL string,
+	successVal, timeoutVal, latencyVal, alpha float64,
+	wSuccess, wTimeout, wLatency float64,
+	lastLatencyMs float64,
+) (*domain.EndpointHealthScore, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing := m.scores[endpointURL]
+	prevSuccess := 1.0
+	prevTimeout := 0.0
+	prevLatency := 1.0
+	var totalReqs int64
+	if existing != nil {
+		prevSuccess = existing.SuccessRate
+		prevTimeout = existing.TimeoutRate
+		prevLatency = existing.LatencyScore
+		totalReqs = existing.TotalRequests
+	}
+
+	newSuccess := alpha*successVal + (1-alpha)*prevSuccess
+	newTimeout := alpha*timeoutVal + (1-alpha)*prevTimeout
+	newLatency := alpha*latencyVal + (1-alpha)*prevLatency
+	composite := (wSuccess*newSuccess + wTimeout*(1-newTimeout) + wLatency*newLatency) * 100.0
+	if composite < 0 {
+		composite = 0
+	}
+	if composite > 100 {
+		composite = 100
+	}
+
+	score := &domain.EndpointHealthScore{
+		EndpointURL:   endpointURL,
+		HealthScore:   composite,
+		SuccessRate:   newSuccess,
+		TimeoutRate:   newTimeout,
+		LatencyScore:  newLatency,
+		TotalRequests: totalReqs + 1,
+		LastLatencyMs: lastLatencyMs,
+	}
+	cp := *score
+	m.scores[endpointURL] = &cp
+	return score, nil
+}
+
 func TestEWMA(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

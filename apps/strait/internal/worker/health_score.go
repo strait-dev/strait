@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"time"
 
 	"strait/internal/domain"
 )
@@ -30,6 +29,13 @@ const (
 type HealthScoreStore interface {
 	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
 	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
+	AtomicRecordHealthResult(
+		ctx context.Context,
+		endpointURL string,
+		successVal, timeoutVal, latencyVal, alpha float64,
+		weightSuccess, weightTimeout, weightLatency float64,
+		lastLatencyMs float64,
+	) (*domain.EndpointHealthScore, error)
 }
 
 // DispatchResult captures the outcome of a dispatch for health score calculation.
@@ -52,16 +58,39 @@ func NewHealthScorer(store HealthScoreStore) *HealthScorer {
 }
 
 // RecordResult updates the health score for an endpoint based on a dispatch result.
+// It pre-computes the raw signal values in Go and delegates the EWMA computation
+// to an atomic SQL statement that prevents lost updates under concurrent writes.
 func (hs *HealthScorer) RecordResult(ctx context.Context, result DispatchResult) (*domain.EndpointHealthScore, error) {
-	existing, err := hs.store.GetEndpointHealthScore(ctx, result.EndpointURL)
-	if err != nil {
-		return nil, fmt.Errorf("get endpoint health score: %w", err)
+	successVal := 0.0
+	if result.Success {
+		successVal = 1.0
 	}
 
-	score := hs.calculateScore(existing, result)
+	timeoutVal := 0.0
+	if !result.Success {
+		timeoutVal = 1.0
+	}
 
-	if err := hs.store.UpsertEndpointHealthScore(ctx, score); err != nil {
-		return nil, fmt.Errorf("upsert endpoint health score: %w", err)
+	var latencyVal float64
+	if !result.Success {
+		latencyVal = 0.0
+	} else if result.JobTimeoutMs > 0 {
+		latencyVal = 1.0 - math.Min(1.0, result.LatencyMs/result.JobTimeoutMs)
+	} else {
+		// No timeout configured: preserve existing latency score by using 1.0
+		// (the default initial value). The EWMA will keep it stable.
+		latencyVal = 1.0
+	}
+
+	score, err := hs.store.AtomicRecordHealthResult(
+		ctx,
+		result.EndpointURL,
+		successVal, timeoutVal, latencyVal, ewmaAlpha,
+		weightSuccessRate, weightTimeoutRate, weightLatency,
+		result.LatencyMs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("record health result: %w", err)
 	}
 
 	return score, nil
@@ -115,70 +144,6 @@ func ThrottledConcurrency(score *domain.EndpointHealthScore, maxConcurrency int)
 	factor := degradedConcurrencyFactor + ratio*(1.0-degradedConcurrencyFactor)
 	throttled := int(math.Ceil(float64(maxConcurrency) * factor))
 	return max(throttled, 1)
-}
-
-// calculateScore computes the new health score from the existing score and
-// a new dispatch result using EWMA.
-func (hs *HealthScorer) calculateScore(existing *domain.EndpointHealthScore, result DispatchResult) *domain.EndpointHealthScore {
-	now := time.Now().UTC()
-
-	if existing == nil {
-		existing = &domain.EndpointHealthScore{
-			EndpointURL:  result.EndpointURL,
-			HealthScore:  100.0,
-			SuccessRate:  1.0,
-			TimeoutRate:  0.0,
-			LatencyScore: 1.0,
-			CreatedAt:    now,
-		}
-	}
-
-	// Compute new success rate via EWMA.
-	successVal := 0.0
-	if result.Success {
-		successVal = 1.0
-	}
-	newSuccessRate := ewma(existing.SuccessRate, successVal, ewmaAlpha)
-
-	// Compute new timeout rate via EWMA. Any failure (not just timeouts)
-	// contributes to the timeout rate since a hard failure is strictly
-	// worse than a timeout.
-	timeoutVal := 0.0
-	if !result.Success {
-		timeoutVal = 1.0
-	}
-	newTimeoutRate := ewma(existing.TimeoutRate, timeoutVal, ewmaAlpha)
-
-	// Compute latency score. Failed requests use worst-case latency (0.0).
-	var newLatencyScore float64
-	if !result.Success {
-		newLatencyScore = ewma(existing.LatencyScore, 0.0, ewmaAlpha)
-	} else if result.JobTimeoutMs > 0 {
-		rawLatency := 1.0 - math.Min(1.0, result.LatencyMs/result.JobTimeoutMs)
-		newLatencyScore = ewma(existing.LatencyScore, rawLatency, ewmaAlpha)
-	} else {
-		newLatencyScore = existing.LatencyScore
-	}
-
-	// Composite health score (0-100).
-	compositeScore := (weightSuccessRate*newSuccessRate +
-		weightTimeoutRate*(1.0-newTimeoutRate) +
-		weightLatency*newLatencyScore) * 100.0
-
-	// Clamp to [0, 100].
-	compositeScore = math.Max(0, math.Min(100, compositeScore))
-
-	return &domain.EndpointHealthScore{
-		EndpointURL:   result.EndpointURL,
-		HealthScore:   compositeScore,
-		SuccessRate:   newSuccessRate,
-		TimeoutRate:   newTimeoutRate,
-		LatencyScore:  newLatencyScore,
-		TotalRequests: existing.TotalRequests + 1,
-		LastLatencyMs: result.LatencyMs,
-		UpdatedAt:     now,
-		CreatedAt:     existing.CreatedAt,
-	}
 }
 
 // ewma computes an Exponentially Weighted Moving Average.
