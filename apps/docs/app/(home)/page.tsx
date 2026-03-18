@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TerminalDemo } from "@/app/components/terminal-demo";
 
 const sections = [
   {
@@ -109,6 +110,7 @@ export default function HomePage() {
             API Reference
           </Link>
         </div>
+        <TerminalDemo />
       </section>
 
       <section className="mx-auto w-full max-w-6xl px-6 py-16">
