@@ -2,6 +2,10 @@ name: Lint
 
 on:
   push:
+    paths:
+      - "apps/strait/**"
+      - ".github/workflows/lint.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
