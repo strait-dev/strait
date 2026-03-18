@@ -17,9 +17,25 @@ type Props = {
   email: string;
 };
 
+const RESEND_COOLDOWN_SECONDS = 30;
+
 const SetPassword = ({ email }: Props) => {
   const [isLoading, setIsLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  const startCooldown = () => {
+    setCooldown(RESEND_COOLDOWN_SECONDS);
+    const interval = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
   const handleRequestPasswordSetup = async () => {
     setIsLoading(true);
@@ -36,6 +52,7 @@ const SetPassword = ({ email }: Props) => {
       }
 
       setSent(true);
+      startCooldown();
     } catch (error) {
       captureException(error);
       toast.error("Something went wrong. Please try again.");
@@ -54,6 +71,23 @@ const SetPassword = ({ email }: Props) => {
             your email to set your password.
           </CardDescription>
         </CardHeader>
+        <CardContent>
+          <Button
+            disabled={isLoading || cooldown > 0}
+            onClick={handleRequestPasswordSetup}
+            variant="outline"
+          >
+            {isLoading ? (
+              <HugeiconsIcon
+                className="size-4 animate-spin"
+                icon={LoadingIcon}
+              />
+            ) : null}
+            {cooldown > 0
+              ? `Resend in ${cooldown}s`
+              : "Resend password setup email"}
+          </Button>
+        </CardContent>
       </Card>
     );
   }
