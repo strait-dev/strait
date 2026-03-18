@@ -449,3 +449,45 @@ export type ProjectSettings = {
   default_region: string;
   plan_tier: PlanTier;
 };
+
+/** Queue stats from GET /v1/stats. */
+export type QueueStatsResponse = {
+  queued: number;
+  executing: number;
+  delayed: number;
+};
+
+/** Individual job performance metrics from analytics. */
+export type JobPerformance = {
+  job_id: string;
+  job_slug: string;
+  avg_duration_secs: number;
+  p95_duration_secs: number;
+  total_runs: number;
+  failed_runs: number;
+};
+
+/** Run throughput broken down by status. */
+export type ThroughputStats = {
+  completed: number;
+  failed: number;
+  timed_out: number;
+  canceled: number;
+  period_hours: number;
+};
+
+/** Overall health summary from analytics. */
+export type HealthSummary = {
+  total_jobs: number;
+  active_jobs: number;
+  success_rate: number;
+  avg_duration_secs: number;
+  queue_depth: number;
+};
+
+/** Performance analytics from GET /v1/analytics/performance. */
+export type PerformanceAnalytics = {
+  slowest_jobs: JobPerformance[];
+  throughput: ThroughputStats;
+  health_summary: HealthSummary;
+};
