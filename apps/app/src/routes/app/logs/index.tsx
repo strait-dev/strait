@@ -10,7 +10,7 @@ import {
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { cn } from "@strait/ui/utils/index";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -40,7 +40,7 @@ import {
   LinkSquareIcon,
   SearchIcon,
 } from "@/lib/icons";
-import type { AuthUser } from "@/routes/__root";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 // --- Status styling ---
 
@@ -165,13 +165,12 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/logs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } })
-      .session;
-    const hasProject = !!session?.user?.activeProjectId;
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(eventsQueryOptions());
     }
-    return { hasProject };
+    return { hasProject, session };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -179,35 +178,25 @@ export const Route = createFileRoute("/app/logs/")({
 });
 
 function LogsPage() {
-  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
-  const { session } = Route.useRouteContext() as any;
-  if (!hasProject) {
-    return (
-      <Shell>
-        <NoProjectState user={session.user} />
-      </Shell>
-    );
-  }
-
-  return <LogsPageContent />;
-}
-
-function LogsPageContent() {
+  const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { data } = useSuspenseQuery(eventsQueryOptions());
+  const { data } = useQuery({
+    ...eventsQueryOptions(),
+    enabled: hasProject,
+  });
 
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
   const selectedStatuses = (search.statuses ?? []) as string[];
 
   const allLogs = useMemo(() => {
-    let items = data?.data ?? [];
+    let items = hasProject ? (data?.data ?? []) : [];
     if (selectedStatuses.length > 0) {
       items = items.filter((e) => selectedStatuses.includes(e.status));
     }
     return items;
-  }, [data?.data, selectedStatuses]);
+  }, [data?.data, selectedStatuses, hasProject]);
 
   const table = useReactTable({
     data: allLogs,
@@ -244,6 +233,19 @@ function LogsPageContent() {
   function handleRowClick(event: EventTrigger) {
     setExpandedLogId((prev) => (prev === event.id ? null : event.id));
   }
+
+  const emptyState = hasProject ? (
+    <TableEmptyState
+      description="No log entries yet. Logs will appear as your jobs execute."
+      hideButton
+      icon={
+        <HugeiconsIcon className="size-6 text-primary" icon={FileTextIcon} />
+      }
+      title="No events found"
+    />
+  ) : (
+    <NoProjectState user={session.user} />
+  );
 
   return (
     <Shell>
@@ -320,22 +322,7 @@ function LogsPageContent() {
           }
         }}
       >
-        <DataTable
-          emptyState={
-            <TableEmptyState
-              description="No log entries yet. Logs will appear as your jobs execute."
-              hideButton
-              icon={
-                <HugeiconsIcon
-                  className="size-6 text-primary"
-                  icon={FileTextIcon}
-                />
-              }
-              title="No events found"
-            />
-          }
-          table={table}
-        />
+        <DataTable emptyState={emptyState} table={table} />
       </div>
 
       {/* Expanded detail */}

@@ -33,7 +33,11 @@ import {
 } from "@/hooks/subscription/use-subscription";
 import { ensureSession } from "@/lib/auth-handler";
 import { setSentryUser } from "@/lib/sentry";
-import type { AuthUser, Session } from "@/routes/__root";
+import type { AuthUser, RouterContext, Session } from "@/routes/__root";
+
+export type AppRouteContext = RouterContext & {
+  session: NonNullable<Session>;
+};
 
 const appSearchSchema = z.object({
   trial_started: z.coerce.boolean().optional(),
@@ -73,8 +77,7 @@ export const Route = createFileRoute("/app")({
     return { session };
   },
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: NonNullable<Session> })
-      .session;
+    const { session } = context as AppRouteContext;
     if (!session) {
       throw new Error("Session unexpectedly null in loader");
     }
@@ -85,17 +88,21 @@ export const Route = createFileRoute("/app")({
 
     const activeProjectId = session.user.activeProjectId;
 
+    let hasOrganization = !!defaultOrgId;
+
     await Promise.all([
       context.queryClient.ensureQueryData(organizationsQueryOptions()),
       defaultOrgId
-        ? context.queryClient.ensureQueryData(
-            organizationQueryOptions(defaultOrgId)
-          )
+        ? context.queryClient
+            .ensureQueryData(organizationQueryOptions(defaultOrgId))
+            .catch(() => {
+              hasOrganization = false;
+            })
         : Promise.resolve(),
       defaultOrgId
-        ? context.queryClient.ensureQueryData(
-            projectsQueryOptions(defaultOrgId)
-          )
+        ? context.queryClient
+            .ensureQueryData(projectsQueryOptions(defaultOrgId))
+            .catch(() => null)
         : Promise.resolve(),
       context.queryClient.ensureQueryData(subscriptionQueryOptions()),
       context.queryClient.ensureQueryData(subscriptionStateQueryOptions()),
@@ -103,25 +110,17 @@ export const Route = createFileRoute("/app")({
 
     return {
       session,
-      hasOrganization: !!defaultOrgId,
-      hasProject: !!activeProjectId,
+      hasOrganization,
+      hasProject: hasOrganization && !!activeProjectId,
     };
   },
   errorComponent: ErrorComponent,
   component: RouteComponent,
 });
 
-type SearchParams = z.infer<typeof appSearchSchema>;
-type LoaderData = {
-  session: NonNullable<Session>;
-  hasOrganization: boolean;
-  hasProject: boolean;
-};
-
 function RouteComponent() {
-  const loaderData = Route.useLoaderData() as LoaderData;
-  const { session } = loaderData;
-  const search = Route.useSearch() as SearchParams;
+  const { session } = Route.useLoaderData();
+  const search = Route.useSearch();
   const navigate = useNavigate();
   const posthog = usePostHog();
   const showTrialModal = Boolean(search.trial_started);
@@ -166,7 +165,7 @@ function RouteComponent() {
     if (!open) {
       navigate({
         to: "/app",
-        search: {} as SearchParams,
+        search: {},
         replace: true,
       });
     }

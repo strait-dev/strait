@@ -9,7 +9,7 @@ import {
 } from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -24,21 +24,23 @@ import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
 import { NoProjectState } from "@/components/common/no-project-state";
+import TableEmptyState from "@/components/common/table-empty-state";
 import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { ScheduleDetailSheet } from "@/components/dashboard/schedule-detail-sheet";
 import { scheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
-import type { Job, PaginatedResponse } from "@/hooks/api/types";
+import type { Job } from "@/hooks/api/types";
 import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
 import {
+  CalendarIcon,
   EyeIcon,
   FilterIcon,
   PauseActionIcon,
   PlayActionIcon,
   SearchIcon,
 } from "@/lib/icons";
-import type { AuthUser } from "@/routes/__root";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -52,13 +54,12 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/schedules/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } })
-      .session;
-    const hasProject = !!session?.user?.activeProjectId;
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(schedulesQueryOptions());
     }
-    return { hasProject };
+    return { hasProject, session };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -66,32 +67,21 @@ export const Route = createFileRoute("/app/schedules/")({
 });
 
 function SchedulesPage() {
-  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
-  const { session } = Route.useRouteContext() as any;
-  if (!hasProject) {
-    return (
-      <Shell>
-        <NoProjectState user={session.user} />
-      </Shell>
-    );
-  }
-
-  return <SchedulesPageContent />;
-}
-
-function SchedulesPageContent() {
-  const { data } = useSuspenseQuery(schedulesQueryOptions()) as {
-    data: PaginatedResponse<Job>;
-  };
+  const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [selectedSchedule, setSelectedSchedule] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const { data } = useQuery({
+    ...schedulesQueryOptions(),
+    enabled: hasProject,
+  });
+
   const selectedStatuses = search.status ?? [];
 
   const filteredData = useMemo(() => {
-    const jobs = data?.data ?? [];
+    const jobs = hasProject ? (data?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return jobs;
     }
@@ -104,9 +94,10 @@ function SchedulesPageContent() {
       }
       return false;
     });
-  }, [data?.data, selectedStatuses]);
+  }, [data?.data, selectedStatuses, hasProject]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+
   const table = useReactTable({
     data: filteredData,
     columns: scheduleColumns,
@@ -144,6 +135,19 @@ function SchedulesPageContent() {
       }),
     });
   }
+
+  const emptyState = hasProject ? (
+    <TableEmptyState
+      description="No schedules yet. Add a cron expression to a job to create a schedule."
+      hideButton
+      icon={
+        <HugeiconsIcon className="size-6 text-foreground" icon={CalendarIcon} />
+      }
+      title="No schedules found"
+    />
+  ) : (
+    <NoProjectState user={session.user} />
+  );
 
   return (
     <Shell>
@@ -214,12 +218,7 @@ function SchedulesPageContent() {
         }}
       >
         <DataTable
-          emptyState={
-            <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-              No schedules yet. Add a cron expression to a job to create a
-              schedule.
-            </div>
-          }
+          emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar
               actions={[

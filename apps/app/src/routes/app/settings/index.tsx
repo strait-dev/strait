@@ -12,14 +12,11 @@ import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary
 import NotFound from "@/components/common/not-found";
 
 import { UserIcon } from "@/lib/icons";
-import type { Session } from "@/routes/__root";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
   loader: ({ context }) => {
-    const session = context.session as unknown as Session;
-    if (!session) {
-      throw new Error("Session unexpectedly null");
-    }
+    const { session } = context as AppRouteContext;
     return {
       session,
     };

@@ -14,7 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
-import { Sheet, SheetTrigger } from "@strait/ui/components/sheet";
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,8 +36,8 @@ import {
   UnfoldMoreIcon,
 } from "@/lib/icons";
 import type { AuthUser, Session } from "@/routes/__root";
+import CreateOrganizationDialog from "./create-organization-dialog";
 import { CreateOrganizationLimitGate } from "./create-organization-limit-gate";
-import CreateOrganizationSheet from "./create-organization-sheet";
 
 type Props = {
   user: AuthUser;
@@ -48,9 +47,8 @@ type Props = {
 const OrganizationDropdownMenu = ({ user, session }: Props) => {
   const navigate = useNavigate();
 
-  const [createOrganizationSheetOpen, setCreateOrganizationSheetOpen] =
-    useState<boolean>(false);
-  const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   // Use suspense query with organizationsQueryOptions for organizations list
   const { data: organizations } = useOrganizations({
@@ -124,12 +122,11 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
     (!organizations?.page || organizations.page.length === 0)
   ) {
     return (
-      <Sheet
-        onOpenChange={setCreateOrganizationSheetOpen}
-        open={createOrganizationSheetOpen}
-      >
-        <SheetTrigger
-          render={<SidebarMenuButton className="w-full" size="lg" />}
+      <>
+        <SidebarMenuButton
+          className="w-full"
+          onClick={() => setCreateDialogOpen(true)}
+          size="lg"
         >
           <Avatar className="size-10">
             <AvatarFallback>
@@ -145,12 +142,14 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
             </span>
           </div>
           <HugeiconsIcon className="ml-auto size-4" icon={UnfoldMoreIcon} />
-        </SheetTrigger>
-        <CreateOrganizationSheet
-          onClose={() => setCreateOrganizationSheetOpen(false)}
+        </SidebarMenuButton>
+        <CreateOrganizationDialog
+          onClose={() => setCreateDialogOpen(false)}
+          onOpenChange={setCreateDialogOpen}
+          open={createDialogOpen}
           user={user}
         />
-      </Sheet>
+      </>
     );
   }
 
@@ -161,12 +160,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
   }
 
   return (
-    <Sheet
-      onOpenChange={() =>
-        setCreateOrganizationSheetOpen(!createOrganizationSheetOpen)
-      }
-      open={createOrganizationSheetOpen}
-    >
+    <>
       <DropdownMenu onOpenChange={setDropdownOpen} open={dropdownOpen}>
         <DropdownMenuTrigger
           render={<SidebarMenuButton className="w-full" size="lg" />}
@@ -253,28 +247,27 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
               navigate({ to: "/app/upgrade" });
             }}
           >
-            <SheetTrigger
-              render={
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setCreateOrganizationSheetOpen(true);
-                  }}
-                />
-              }
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setDropdownOpen(false);
+                setCreateDialogOpen(true);
+              }}
             >
               <HugeiconsIcon className="size-4" icon={PlusIcon} />
               Create new organization
-            </SheetTrigger>
+            </DropdownMenuItem>
           </CreateOrganizationLimitGate>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <CreateOrganizationSheet
-        onClose={() => setCreateOrganizationSheetOpen(false)}
+      <CreateOrganizationDialog
+        onClose={() => setCreateDialogOpen(false)}
+        onOpenChange={setCreateDialogOpen}
+        open={createDialogOpen}
         user={user}
       />
-    </Sheet>
+    </>
   );
 };
 

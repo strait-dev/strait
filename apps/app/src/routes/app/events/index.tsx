@@ -2,7 +2,7 @@ import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { Shell } from "@strait/ui/components/shell";
 import { cn } from "@strait/ui/utils/index";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
@@ -13,7 +13,7 @@ import { NoProjectState } from "@/components/common/no-project-state";
 import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import type { EventTrigger } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
-import type { AuthUser } from "@/routes/__root";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const STATUS_STYLES: Record<
   string,
@@ -57,13 +57,12 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/events/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } })
-      .session;
-    const hasProject = !!session?.user?.activeProjectId;
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(eventsQueryOptions());
     }
-    return { hasProject };
+    return { hasProject, session };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -71,8 +70,16 @@ export const Route = createFileRoute("/app/events/")({
 });
 
 function EventsPage() {
-  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
-  const { session } = Route.useRouteContext() as any;
+  const { hasProject, session } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const { data } = useQuery({
+    ...eventsQueryOptions(),
+    enabled: hasProject,
+  });
+
+  const events = hasProject ? (data?.data ?? []) : [];
+
   if (!hasProject) {
     return (
       <Shell>
@@ -80,16 +87,6 @@ function EventsPage() {
       </Shell>
     );
   }
-
-  return <EventsPageContent />;
-}
-
-function EventsPageContent() {
-  const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-  const { data } = useSuspenseQuery(eventsQueryOptions());
-
-  const events = data?.data ?? [];
 
   return (
     <Shell>

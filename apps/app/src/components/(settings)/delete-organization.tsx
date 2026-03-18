@@ -22,7 +22,8 @@ import {
 import { Field, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import { toast } from "@strait/ui/components/toast/index";
-import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
@@ -47,6 +48,8 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
   const [verificationCode, setVerificationCode] = useState("");
 
   const navigate = useNavigate();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const requestDeletion = useRequestOrganizationDeletion();
   const verifyDeletion = useVerifyOrganizationDeletion();
   const deleteMutation = useDeleteOrganizationWithToken();
@@ -120,6 +123,8 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
         nextOrganizationId: nextOrgId,
       });
 
+      await queryClient.invalidateQueries();
+      router.invalidate();
       toast.success("Organization deleted successfully.");
       handleClose();
       navigate({ to: "/app" });

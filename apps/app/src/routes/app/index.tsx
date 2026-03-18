@@ -27,7 +27,7 @@ import {
   ZapIcon,
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import type { AuthUser, Session } from "@/routes/__root";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const subscriptionSearchSchema = z.object({
   subscription: z.string().optional(),
@@ -39,12 +39,9 @@ const subscriptionSearchSchema = z.object({
 export const Route = createFileRoute("/app/")({
   validateSearch: zodValidator(subscriptionSearchSchema),
   loader: async ({ context }) => {
-    const session = context.session as unknown as Session;
-    if (!session) {
-      throw new Error("Session unexpectedly null");
-    }
+    const { session } = context as AppRouteContext;
 
-    const hasProject = !!(session.user as AuthUser).activeProjectId;
+    const hasProject = !!session.user.activeProjectId;
 
     await context.queryClient.ensureQueryData(subscriptionQueryOptions());
 
@@ -68,10 +65,7 @@ export const Route = createFileRoute("/app/")({
 function RouteComponent() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { session, hasProject } = Route.useLoaderData() as {
-    session: NonNullable<Session>;
-    hasProject: boolean;
-  };
+  const { session, hasProject } = Route.useLoaderData();
 
   const handleUrlCleanup = useCallback(() => {
     navigate({

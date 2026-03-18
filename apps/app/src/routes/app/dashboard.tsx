@@ -25,16 +25,15 @@ import {
   ClockIcon,
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import type { AuthUser } from "@/routes/__root";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const statsQueryOptions = statsQueryOptionsFn();
 const analyticsQueryOptions = analyticsQueryOptionsFn(24);
 
 export const Route = createFileRoute("/app/dashboard")({
   loader: async ({ context }) => {
-    const session = (context as unknown as { session: { user: AuthUser } })
-      .session;
-    const hasProject = !!session?.user?.activeProjectId;
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
       await Promise.allSettled([
         context.queryClient.ensureQueryData(statsQueryOptions),
@@ -42,14 +41,13 @@ export const Route = createFileRoute("/app/dashboard")({
         context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
       ]);
     }
-    return { hasProject };
+    return { hasProject, session };
   },
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
-  const { session } = Route.useRouteContext() as any;
+  const { hasProject, session } = Route.useLoaderData();
   if (!hasProject) {
     return (
       <Shell>

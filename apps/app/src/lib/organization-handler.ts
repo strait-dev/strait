@@ -8,7 +8,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { nanoid } from "nanoid";
 import z from "zod/v4";
 import { auth } from "@/lib/auth.server";
-import { kv } from "@/lib/kv.server";
+import { kvGet, kvSet } from "@/lib/kv.server";
 import { resend } from "@/lib/resend.server";
 import type {
   ResendOrganizationDeletionCodeResponseSchema,
@@ -157,7 +157,31 @@ export const requestOrganizationDeletionServerFn = createServerFn({
     RequestOrganizationDeletionSchema.parse(data)
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ context, data }) => {
+    const { organizationId } = data;
+
+    const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
+    const lastRequestTime = await kvGet(cooldownKey);
+    const now = Date.now();
+
+    const COOLDOWN_TIME = 60_000;
+    const THOUSAND = 1000;
+
+    if (
+      lastRequestTime &&
+      now - Number.parseInt(lastRequestTime as string, 10) < COOLDOWN_TIME
+    ) {
+      const remainingTime = Math.ceil(
+        (Number.parseInt(lastRequestTime as string, 10) + COOLDOWN_TIME - now) /
+          THOUSAND
+      );
+
+      return {
+        success: true,
+        cooldownRemaining: remainingTime,
+      };
+    }
+
     if (data.checkCooldownOnly) {
       return {
         success: true,
@@ -166,18 +190,38 @@ export const requestOrganizationDeletionServerFn = createServerFn({
     }
 
     const organization = await getFullOrganizationAuth({
-      data: { organizationId: data.organizationId },
+      data: { organizationId },
     });
 
     if (!organization) {
       throw new Error("Organization not found");
     }
 
+    const key = `org-deletion:${organizationId}:${context.user.id}`;
+
+    const SIX_DIGIT_CODE_LENGTH = 6;
+    const FIVE_MINUTES_S = 300;
+    const COOLDOWN_TIME_S = 60;
+
+    const verificationCode = nanoid(SIX_DIGIT_CODE_LENGTH);
+
+    await kvSet(key, verificationCode, { ex: FIVE_MINUTES_S });
+    await kvSet(cooldownKey, now.toString(), { ex: COOLDOWN_TIME_S });
+
+    await resend.emails.send({
+      from: "Strait <noreply@strait.dev>",
+      to: context.user.email,
+      subject: `Verification code for organization deletion of ${organization.name}`,
+      react: OrganizationVerificationCode({
+        name: context.user.name,
+        organizationName: organization.name,
+        verificationCode,
+      }),
+    });
+
     return {
       success: true,
-      message:
-        "Verification system temporarily disabled - proceed with deletion",
-      cooldownRemaining: 0,
+      cooldownRemaining: COOLDOWN_TIME,
     };
   });
 
@@ -194,7 +238,7 @@ export const verifyOrganizationDeletionServerFn = createServerFn({
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const key = `org-deletion:${data.organizationId}:${context.user.id}`;
-    const storedCode = await kv?.get(key);
+    const storedCode = await kvGet(key);
 
     const storedCodeStr = storedCode ? storedCode.toString() : null;
     const inputCodeStr = data.verificationCode;
@@ -211,7 +255,7 @@ export const verifyOrganizationDeletionServerFn = createServerFn({
     const verificationToken = `${context.user.id}-${Date.now()}-${nanoid(ONE_TIME_TOKEN_LENGTH)}`;
 
     const tokenKey = `org-deletion-token:${data.organizationId}:${context.user.id}`;
-    await kv?.set(tokenKey, verificationToken, { ex: FIVE_MINUTES_S });
+    await kvSet(tokenKey, verificationToken, { ex: FIVE_MINUTES_S });
 
     return {
       success: true,
@@ -234,7 +278,7 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
     const { organizationId, verificationToken, nextOrganizationId } = data;
 
     const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
-    const storedToken = await kv?.get(tokenKey);
+    const storedToken = await kvGet(tokenKey);
 
     if (!storedToken || storedToken !== verificationToken) {
       return {
@@ -242,14 +286,6 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
         message: "Verification token invalid or expired",
       };
     }
-
-    const codeKey = `org-deletion:${organizationId}:${context.user.id}`;
-    const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
-    await Promise.all([
-      kv?.del(tokenKey),
-      kv?.del(codeKey),
-      kv?.del(cooldownKey),
-    ]);
 
     const organization = await getFullOrganizationAuth({
       data: { organizationId },
@@ -267,10 +303,21 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
       ?.defaultOrganizationId as string | undefined;
     const isDefaultOrganization = defaultOrgId === organizationId;
 
-    if (isDefaultOrganization && nextOrganizationId) {
-      await setActiveOrganizationAuth({
-        data: { organizationId: nextOrganizationId },
-      });
+    if (isDefaultOrganization) {
+      if (nextOrganizationId) {
+        await setActiveOrganizationAuth({
+          data: { organizationId: nextOrganizationId },
+        });
+      }
+
+      try {
+        await auth.api.updateUser({
+          body: { activeProjectId: null },
+          headers,
+        });
+      } catch {
+        // Best-effort cleanup — projects are cascade-deleted with the org
+      }
     }
 
     // Delete the organization via Better Auth
@@ -311,7 +358,7 @@ export const purgeOrganizationWithTokenServerFn = createServerFn({
     const { organizationId, verificationToken } = data;
 
     const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
-    const storedToken = await kv?.get(tokenKey);
+    const storedToken = await kvGet(tokenKey);
 
     if (!storedToken || storedToken !== verificationToken) {
       return {
@@ -319,14 +366,6 @@ export const purgeOrganizationWithTokenServerFn = createServerFn({
         message: "Verification token invalid or expired",
       };
     }
-
-    const codeKey = `org-deletion:${organizationId}:${context.user.id}`;
-    const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
-    await Promise.all([
-      kv?.del(tokenKey),
-      kv?.del(codeKey),
-      kv?.del(cooldownKey),
-    ]);
 
     const organization = await getFullOrganizationAuth({
       data: { organizationId },
@@ -391,7 +430,7 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
     const { organizationId } = data;
 
     const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
-    const lastRequestTime = await kv?.get(cooldownKey);
+    const lastRequestTime = await kvGet(cooldownKey);
     const now = Date.now();
 
     const COOLDOWN_TIME = 60_000;
@@ -422,7 +461,6 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
     }
 
     const key = `org-deletion:${organizationId}:${context.user.id}`;
-    await kv?.del(key);
 
     const SIX_DIGIT_CODE_LENGTH = 6;
     const FIVE_MINUTES_S = 300;
@@ -430,8 +468,8 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
 
     const verificationCode = nanoid(SIX_DIGIT_CODE_LENGTH);
 
-    await kv?.set(key, verificationCode, { ex: FIVE_MINUTES_S });
-    await kv?.set(cooldownKey, now.toString(), { ex: COOLDOWN_TIME_S });
+    await kvSet(key, verificationCode, { ex: FIVE_MINUTES_S });
+    await kvSet(cooldownKey, now.toString(), { ex: COOLDOWN_TIME_S });
 
     await resend.emails.send({
       from: "Strait <hello@usestrait.com>",
@@ -466,7 +504,7 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
     const { organizationId, verificationToken } = data;
 
     const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
-    const storedToken = await kv?.get(tokenKey);
+    const storedToken = await kvGet(tokenKey);
 
     if (!storedToken || storedToken !== verificationToken) {
       return {
@@ -474,14 +512,6 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
         message: "Verification token invalid or expired",
       };
     }
-
-    const codeKey = `org-deletion:${organizationId}:${context.user.id}`;
-    const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
-    await Promise.all([
-      kv?.del(tokenKey),
-      kv?.del(codeKey),
-      kv?.del(cooldownKey),
-    ]);
 
     const organization = await getFullOrganizationAuth({
       data: { organizationId },

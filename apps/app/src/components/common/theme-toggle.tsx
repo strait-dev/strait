@@ -1,10 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 import { MoonIcon, SunIcon } from "@/lib/icons";
 
 export const ThemeToggle = () => {
   const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark");
@@ -17,7 +23,7 @@ export const ThemeToggle = () => {
       size="icon"
       variant="outline"
     >
-      {theme === "dark" ? (
+      {mounted && theme === "dark" ? (
         <HugeiconsIcon
           aria-hidden="true"
           className="size-4 transition-all"
