@@ -10,13 +10,19 @@ const Layout = ({ children }: Props) => {
     <HomeLayout
       nav={{
         title: "Strait Docs",
+        url: "/",
       }}
       links={[
         { text: "Documentation", url: "/docs/getting-started" },
         { text: "API Reference", url: "/docs/api-reference" },
         { text: "SDKs", url: "/docs/sdks" },
-        { text: "CLI", url: "/docs/cli" },
+        {
+          text: "GitHub",
+          url: "https://github.com/leonardomso/strait",
+          external: true,
+        },
       ]}
+      githubUrl="https://github.com/leonardomso/strait"
     >
       {children}
     </HomeLayout>

@@ -6,10 +6,24 @@ type Props = {
   children: ReactNode;
 };
 
+const GITHUB_REPO = "https://github.com/leonardomso/strait";
+
 const Layout = ({ children }: Props) => {
   return (
     <DocsLayout
       tree={source.pageTree}
+      nav={{
+        title: "Strait Docs",
+        url: "/",
+      }}
+      links={[
+        {
+          text: "GitHub",
+          url: GITHUB_REPO,
+          external: true,
+        },
+      ]}
+      githubUrl={GITHUB_REPO}
       sidebar={{
         tabs: [
           {
