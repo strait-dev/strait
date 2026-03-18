@@ -1,4 +1,13 @@
 import Link from "next/link";
+import { Button } from "@strait/ui/components/button";
+import { Badge } from "@strait/ui/components/badge";
+import {
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
+import { Separator } from "@strait/ui/components/separator";
 import { TerminalDemo } from "@/app/components/terminal-demo";
 
 const sections = [
@@ -84,9 +93,9 @@ export default function HomePage() {
     <main className="flex flex-1 flex-col">
       <section className="relative flex flex-col items-center justify-center px-6 py-24 text-center">
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-primary/5 to-transparent" />
-        <p className="mb-4 font-medium text-muted-foreground text-sm uppercase tracking-widest">
+        <Badge variant="secondary" className="mb-4 uppercase tracking-widest">
           Documentation
-        </p>
+        </Badge>
         <h1 className="max-w-3xl font-bold text-4xl tracking-tight sm:text-5xl lg:text-6xl">
           Build reliable background jobs with{" "}
           <span className="text-primary">Strait</span>
@@ -97,21 +106,21 @@ export default function HomePage() {
           and multi-language SDKs.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/docs/getting-started"
-            className="inline-flex h-11 items-center rounded-lg bg-primary px-6 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90"
-          >
+          <Button size="xl" render={<Link href="/docs/getting-started" />}>
             Get Started
-          </Link>
-          <Link
-            href="/docs/api-reference"
-            className="inline-flex h-11 items-center rounded-lg border border-border bg-background px-6 font-medium text-foreground text-sm transition-colors hover:bg-accent"
+          </Button>
+          <Button
+            variant="outline"
+            size="xl"
+            render={<Link href="/docs/api-reference" />}
           >
             API Reference
-          </Link>
+          </Button>
         </div>
         <TerminalDemo />
       </section>
+
+      <Separator />
 
       <section className="mx-auto w-full max-w-6xl px-6 py-16">
         <h2 className="mb-2 text-center font-bold text-2xl tracking-tight">
@@ -122,18 +131,20 @@ export default function HomePage() {
         </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
-            <div
+            <Card
               key={feature.title}
-              className="rounded-lg border border-border bg-card p-6 transition-colors hover:bg-accent/50"
+              className="transition-colors hover:bg-accent/50"
             >
-              <h3 className="mb-2 font-semibold">{feature.title}</h3>
-              <p className="text-muted-foreground text-sm">
-                {feature.description}
-              </p>
-            </div>
+              <CardHeader>
+                <CardTitle>{feature.title}</CardTitle>
+                <CardDescription>{feature.description}</CardDescription>
+              </CardHeader>
+            </Card>
           ))}
         </div>
       </section>
+
+      <Separator />
 
       <section className="mx-auto w-full max-w-6xl px-6 py-16">
         <h2 className="mb-2 text-center font-bold text-2xl tracking-tight">
@@ -144,34 +155,31 @@ export default function HomePage() {
         </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {sections.map((section) => (
-            <Link
-              key={section.title}
-              href={section.href}
-              className="group rounded-lg border border-border bg-card p-6 transition-colors hover:border-primary/50 hover:bg-accent/50"
-            >
-              <h3 className="mb-2 font-semibold group-hover:text-primary">
-                {section.title}
-              </h3>
-              <p className="mb-4 text-muted-foreground text-sm">
-                {section.description}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {section.items.map((item) => (
-                  <span
-                    key={item}
-                    className="rounded-md bg-muted px-2 py-0.5 text-muted-foreground text-xs"
-                  >
-                    {item}
-                  </span>
-                ))}
-              </div>
+            <Link key={section.title} href={section.href} className="group">
+              <Card className="h-full transition-colors hover:border-primary/50 hover:bg-accent/50">
+                <CardHeader>
+                  <CardTitle className="group-hover:text-primary">
+                    {section.title}
+                  </CardTitle>
+                  <CardDescription>{section.description}</CardDescription>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {section.items.map((item) => (
+                      <Badge key={item} variant="secondary">
+                        {item}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardHeader>
+              </Card>
             </Link>
           ))}
         </div>
       </section>
 
+      <Separator />
+
       <section className="mx-auto w-full max-w-6xl px-6 py-16 text-center">
-        <div className="rounded-lg border border-border bg-card p-12">
+        <Card className="p-12">
           <h2 className="mb-4 font-bold text-2xl tracking-tight">
             Ready to get started?
           </h2>
@@ -179,13 +187,13 @@ export default function HomePage() {
             Follow the quickstart guide to run your first job in under 10
             minutes.
           </p>
-          <Link
-            href="/docs/getting-started/quickstart"
-            className="inline-flex h-11 items-center rounded-lg bg-primary px-8 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90"
+          <Button
+            size="xl"
+            render={<Link href="/docs/getting-started/quickstart" />}
           >
             Quick Start Guide
-          </Link>
-        </div>
+          </Button>
+        </Card>
       </section>
     </main>
   );

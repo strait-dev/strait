@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@strait/ui/components/button";
+import { Separator } from "@strait/ui/components/separator";
 
 type Rating = "up" | "down" | null;
 
@@ -15,39 +17,37 @@ export function Feedback() {
 
   if (submitted) {
     return (
-      <div className="mt-8 flex items-center gap-2 border-border border-t pt-6 text-muted-foreground text-sm">
-        Thanks for your feedback!
+      <div className="mt-8">
+        <Separator />
+        <p className="pt-6 text-muted-foreground text-sm">
+          Thanks for your feedback!
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="mt-8 flex items-center gap-3 border-border border-t pt-6">
-      <span className="text-muted-foreground text-sm">
-        Was this page helpful?
-      </span>
-      <button
-        type="button"
-        onClick={() => handleRating("up")}
-        className={`rounded-md border px-3 py-1 text-sm transition-colors ${
-          rating === "up"
-            ? "border-primary bg-primary/10 text-primary"
-            : "border-border hover:bg-accent"
-        }`}
-      >
-        Yes
-      </button>
-      <button
-        type="button"
-        onClick={() => handleRating("down")}
-        className={`rounded-md border px-3 py-1 text-sm transition-colors ${
-          rating === "down"
-            ? "border-destructive bg-destructive/10 text-destructive"
-            : "border-border hover:bg-accent"
-        }`}
-      >
-        No
-      </button>
+    <div className="mt-8">
+      <Separator />
+      <div className="flex items-center gap-3 pt-6">
+        <span className="text-muted-foreground text-sm">
+          Was this page helpful?
+        </span>
+        <Button
+          variant={rating === "up" ? "default" : "outline"}
+          size="sm"
+          onClick={() => handleRating("up")}
+        >
+          Yes
+        </Button>
+        <Button
+          variant={rating === "down" ? "destructive" : "outline"}
+          size="sm"
+          onClick={() => handleRating("down")}
+        >
+          No
+        </Button>
+      </div>
     </div>
   );
 }
