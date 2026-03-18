@@ -83,6 +83,11 @@ type mockAPIStore struct {
 	batchUpdateHeartbeatFn               func(ctx context.Context, ids []string) error
 	queueStatsFn                         func(ctx context.Context) (*store.QueueStats, error)
 	getPerformanceAnalyticsFn            func(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	getCostAnalyticsFn                   func(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
+	getCostTrendsFn                      func(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
+	getTopCostsFn                        func(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
+	getComputeCostAnalyticsFn            func(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
+	aggregateCostStatsHourlyFn           func(ctx context.Context, hour time.Time) error
 	createWorkflowFn                     func(ctx context.Context, w *domain.Workflow) error
 	getWorkflowFn                        func(ctx context.Context, id string) (*domain.Workflow, error)
 	getWorkflowBySlugFn                  func(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
@@ -729,6 +734,41 @@ func (m *mockAPIStore) GetPerformanceAnalytics(ctx context.Context, projectID st
 		return m.getPerformanceAnalyticsFn(ctx, projectID, periodHours)
 	}
 	return &store.PerformanceAnalytics{}, nil
+}
+
+func (m *mockAPIStore) GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error) {
+	if m.getCostAnalyticsFn != nil {
+		return m.getCostAnalyticsFn(ctx, projectID, from, to)
+	}
+	return &store.CostAnalytics{}, nil
+}
+
+func (m *mockAPIStore) GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error) {
+	if m.getCostTrendsFn != nil {
+		return m.getCostTrendsFn(ctx, projectID, from, to)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error) {
+	if m.getTopCostsFn != nil {
+		return m.getTopCostsFn(ctx, projectID, from, to, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error) {
+	if m.getComputeCostAnalyticsFn != nil {
+		return m.getComputeCostAnalyticsFn(ctx, projectID, from, to)
+	}
+	return &store.ComputeCostAnalytics{}, nil
+}
+
+func (m *mockAPIStore) AggregateCostStatsHourly(ctx context.Context, hour time.Time) error {
+	if m.aggregateCostStatsHourlyFn != nil {
+		return m.aggregateCostStatsHourlyFn(ctx, hour)
+	}
+	return nil
 }
 
 func (m *mockAPIStore) CreateWorkflow(ctx context.Context, w *domain.Workflow) error {

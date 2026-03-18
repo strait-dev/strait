@@ -144,6 +144,11 @@ type RunStore interface {
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
+	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
+	GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
+	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
+	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
+	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
 	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
 	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)

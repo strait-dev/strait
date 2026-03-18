@@ -3173,6 +3173,136 @@ paths:
               schema:
                 $ref: '#/components/schemas/PerformanceAnalytics'
 
+  /v1/analytics/costs:
+    get:
+      tags:
+        - Analytics
+      summary: Cost analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Start of time range (RFC3339)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: End of time range (RFC3339)
+      responses:
+        '200':
+          description: Cost analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostAnalytics'
+
+  /v1/analytics/costs/trends:
+    get:
+      tags:
+        - Analytics
+      summary: Cost trends over time
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Start of time range (RFC3339)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: End of time range (RFC3339)
+      responses:
+        '200':
+          description: Cost trend data points
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CostTrendPoint'
+
+  /v1/analytics/costs/top:
+    get:
+      tags:
+        - Analytics
+      summary: Top cost items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Start of time range (RFC3339)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: End of time range (RFC3339)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Maximum number of items to return (1-100)
+      responses:
+        '200':
+          description: Top cost items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TopCostItem'
+
+  /v1/analytics/compute:
+    get:
+      tags:
+        - Analytics
+      summary: Compute cost analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Start of time range (RFC3339)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: End of time range (RFC3339)
+      responses:
+        '200':
+          description: Compute cost analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComputeCostAnalytics'
+
   /v1/webhook-deliveries:
     get:
       tags:
@@ -6578,6 +6708,103 @@ components:
               type: number
             queue_depth:
               type: integer
+
+    CostAnalytics:
+      type: object
+      properties:
+        total_ai_cost_microusd:
+          type: integer
+          format: int64
+        total_compute_cost_microusd:
+          type: integer
+          format: int64
+        total_tokens:
+          type: integer
+          format: int64
+        run_count:
+          type: integer
+        by_model:
+          type: array
+          items:
+            type: object
+            properties:
+              model:
+                type: string
+              cost_microusd:
+                type: integer
+                format: int64
+              total_tokens:
+                type: integer
+                format: int64
+              usage_count:
+                type: integer
+        by_job:
+          type: array
+          items:
+            type: object
+            properties:
+              job_id:
+                type: string
+              job_slug:
+                type: string
+              cost_microusd:
+                type: integer
+                format: int64
+              run_count:
+                type: integer
+
+    CostTrendPoint:
+      type: object
+      properties:
+        period:
+          type: string
+        ai_cost_microusd:
+          type: integer
+          format: int64
+        compute_cost_microusd:
+          type: integer
+          format: int64
+        total_tokens:
+          type: integer
+          format: int64
+        run_count:
+          type: integer
+
+    TopCostItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        item_type:
+          type: string
+        cost_microusd:
+          type: integer
+          format: int64
+        run_count:
+          type: integer
+
+    ComputeCostAnalytics:
+      type: object
+      properties:
+        total_cost_microusd:
+          type: integer
+          format: int64
+        by_preset:
+          type: array
+          items:
+            type: object
+            properties:
+              preset:
+                type: string
+              cost_microusd:
+                type: integer
+                format: int64
+              run_count:
+                type: integer
+              duration_secs:
+                type: number
 
     ErrorResponse:
       type: object
