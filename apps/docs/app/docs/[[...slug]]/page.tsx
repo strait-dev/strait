@@ -38,8 +38,24 @@ export async function generateMetadata({ params }: Props) {
     notFound();
   }
 
+  const ogParams = new URLSearchParams({
+    title: page.data.title,
+    ...(page.data.description ? { description: page.data.description } : {}),
+  });
+
   return {
     title: page.data.title,
     description: page.data.description,
+    openGraph: {
+      title: page.data.title,
+      description: page.data.description,
+      images: [`/api/og?${ogParams.toString()}`],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: page.data.title,
+      description: page.data.description,
+      images: [`/api/og?${ogParams.toString()}`],
+    },
   };
 }
