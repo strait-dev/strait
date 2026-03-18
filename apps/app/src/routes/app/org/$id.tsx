@@ -20,19 +20,15 @@ import NotFound from "@/components/common/not-found";
 
 import { organizationQueryOptions } from "@/hooks/auth/use-organization";
 import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
-import type { Session } from "@/routes/__root";
-
-type LoaderData = {
-  session: NonNullable<Session>;
-};
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/org/$id")({
-  loader: ({ context }) => {
-    const session = context.session as unknown as Session;
-    if (!session) {
-      throw new Error("Session unexpectedly null");
-    }
-    return { session } as LoaderData;
+  loader: async ({ context, params }) => {
+    const { session } = context as AppRouteContext;
+    await context.queryClient.ensureQueryData(
+      organizationQueryOptions(params.id)
+    );
+    return { session };
   },
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
@@ -40,7 +36,7 @@ export const Route = createFileRoute("/app/org/$id")({
 });
 
 function RouteComponent() {
-  const { session } = Route.useLoaderData() as LoaderData;
+  const { session } = Route.useLoaderData();
   const params = Route.useParams();
   const organizationId = params.id;
   const { data: organization } = useQuery(

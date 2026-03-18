@@ -26,7 +26,7 @@ import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import { StatusBadge } from "@/components/dashboard/status-badge";
-import type { ExecutionTrace, JobRun, RunStatus } from "@/hooks/api/types";
+import type { ExecutionTrace, RunStatus } from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
@@ -57,9 +57,7 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
 
 function RunDetailPage() {
   const { id } = Route.useParams();
-  const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
-    data: JobRun | null;
-  };
+  const { data: run } = useSuspenseQuery(runQueryOptions(id));
   const { data: eventsData } = useSuspenseQuery(runEventsQueryOptions(id));
   const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");

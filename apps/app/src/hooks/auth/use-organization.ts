@@ -3,11 +3,13 @@ import {
   queryOptions,
   useMutation,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import type z from "zod/v4";
-import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { queryKeys } from "@/hooks/query-keys";
+import { DEFAULT_GC_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
 import {
   deleteLastOrganizationWithTokenServerFn,
@@ -209,7 +211,7 @@ export const organizationsQueryOptions = () =>
   queryOptions({
     queryKey: ["organizations"],
     queryFn: () => listOrganizationsServerFn(),
-    staleTime: DEFAULT_STALE_TIME,
+    staleTime: 10 * 60 * 1000,
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
   });
@@ -222,7 +224,7 @@ export const organizationQueryOptions = (organizationId: string) =>
   queryOptions({
     queryKey: ["organizations", organizationId],
     queryFn: () => getOrganizationServerFn({ data: { organizationId } }),
-    staleTime: DEFAULT_STALE_TIME,
+    staleTime: 10 * 60 * 1000,
     gcTime: DEFAULT_GC_TIME,
   });
 
@@ -267,10 +269,16 @@ export const useOrganization = (params: { id: string }) => {
  */
 /** Creates a new organization. */
 export const useCreateOrganization = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["organizations", "create"],
     mutationFn: (data: { name: string; slug?: string | null }) =>
       createOrganizationServerFn({ data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizations._def,
+      });
+    },
   });
 };
 
@@ -279,10 +287,16 @@ export const useCreateOrganization = () => {
  * Uses Convex mutation.
  */
 export const useUpdateOrganization = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["organizations", "update"],
     mutationFn: (params: UpdateOrganizationParams) =>
       updateOrganizationServerFn({ data: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizations._def,
+      });
+    },
   });
 };
 
@@ -291,6 +305,7 @@ export const useUpdateOrganization = () => {
  * Uses Better Auth server function (requires server-side session management).
  */
 export const useSetDefaultOrganization = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["organizations", "setDefault"],
     mutationFn: (data: { organizationId?: string; id?: string }) => {
@@ -299,6 +314,14 @@ export const useSetDefaultOrganization = () => {
         throw new Error("organizationId or id is required");
       }
       return setActiveOrganizationAuth({ data: { organizationId } });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizations._def,
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.projects._def,
+      });
     },
   });
 };

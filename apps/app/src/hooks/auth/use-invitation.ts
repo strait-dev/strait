@@ -227,6 +227,7 @@ export const useCancelInvitation = () => {
 
 /** Updates (cancels) an invitation. */
 export const useUpdateInvitation = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["invitations", "cancel"],
     mutationFn: (data: { invitationId: string } | string) =>
@@ -236,11 +237,15 @@ export const useUpdateInvitation = () => {
             ? { invitationId: data }
             : { invitationId: data.invitationId },
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.invitations._def });
+    },
   });
 };
 
 /** Deletes (cancels) invitations. */
 export const useDeleteInvitations = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["invitations", "cancel"],
     mutationFn: (data: { invitationId: string } | string) =>
@@ -250,6 +255,9 @@ export const useDeleteInvitations = () => {
             ? { invitationId: data }
             : { invitationId: data.invitationId },
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.invitations._def });
+    },
   });
 };
 

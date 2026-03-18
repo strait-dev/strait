@@ -181,8 +181,9 @@ export const useRevokeOtherSessions = () => {
 };
 
 /** Revokes all sessions including the current one (sign out everywhere). */
-export const useRevokeAllSessions = () =>
-  useMutation({
+export const useRevokeAllSessions = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
     mutationFn: async () => {
       const result = await authClient.revokeSessions();
       if (result.error) {
@@ -192,4 +193,10 @@ export const useRevokeAllSessions = () =>
       }
       return result.data;
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.auth.sessions.queryKey,
+      });
+    },
   });
+};
