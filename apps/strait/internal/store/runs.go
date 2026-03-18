@@ -231,7 +231,11 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 			COALESCE(
 				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
 				0
-			) AS p95_duration_secs
+			) AS p95_duration_secs,
+			COALESCE(
+				PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
+				0
+			) AS p99_duration_secs
 		FROM job_runs
 		WHERE job_id = $1
 			AND created_at >= $2
@@ -248,6 +252,7 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 		&stats.ExpiredRuns,
 		&stats.AvgDurationSecs,
 		&stats.P95DurationSecs,
+		&stats.P99DurationSecs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get job health stats: %w", err)
