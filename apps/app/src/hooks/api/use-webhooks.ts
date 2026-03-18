@@ -4,16 +4,80 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { ListParams, WebhookSubscription } from "@/hooks/api/types";
+import { createServerFn } from "@tanstack/react-start";
+import type {
+  ListParams,
+  PaginatedResponse,
+  WebhookDelivery,
+  WebhookSubscription,
+} from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import {
-  createWebhookFn,
-  deleteWebhookFn,
-  fetchWebhookDeliveries,
-  fetchWebhookSubscriptions,
-  testWebhookFn,
-} from "@/lib/api";
+import { authMiddleware } from "@/middlewares/auth";
+
+// ---------------------------------------------------------------------------
+// Server functions
+// ---------------------------------------------------------------------------
+
+export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
+  .inputValidator((data: ListParams) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<PaginatedResponse<WebhookSubscription>>(
+      "/v1/webhooks/subscriptions",
+      { params: { limit: data.limit, cursor: data.cursor } }
+    );
+  });
+
+export const fetchWebhookDeliveries = createServerFn({ method: "GET" })
+  .inputValidator((data: ListParams) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<PaginatedResponse<WebhookDelivery>>(
+      "/v1/webhooks/deliveries",
+      { params: { limit: data.limit, cursor: data.cursor } }
+    );
+  });
+
+export const createWebhookFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: { webhook_url: string; event_types: string[] }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<WebhookSubscription>("/v1/webhooks/subscriptions", {
+      method: "POST",
+      body: data,
+    });
+  });
+
+export const deleteWebhookFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<void>(`/v1/webhooks/subscriptions/${data.id}`, {
+      method: "DELETE",
+    });
+  });
+
+export const testWebhookFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { webhook_url: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<WebhookDelivery>("/v1/webhooks/test", {
+      method: "POST",
+      body: data,
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// Query options
+// ---------------------------------------------------------------------------
 
 export const webhooksQueryOptions = (search?: ListParams) =>
   queryOptions({
@@ -46,6 +110,10 @@ export const webhookDeliveriesQueryOptions = (webhookId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
+
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
 
 export const useCreateWebhook = () => {
   const queryClient = useQueryClient();

@@ -12,8 +12,11 @@ import { RunsChart } from "@/components/dashboard/runs-chart";
 import { StatusDistributionChart } from "@/components/dashboard/status-distribution-chart";
 import { ThroughputChart } from "@/components/dashboard/throughput-chart";
 import { TopJobsChart } from "@/components/dashboard/top-jobs-chart";
+import {
+  analyticsQueryOptions as analyticsQueryOptionsFn,
+  statsQueryOptions as statsQueryOptionsFn,
+} from "@/hooks/api/use-dashboard";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
-import { fetchAnalytics, fetchStats } from "@/lib/api";
 import {
   ActivityIcon,
   AlertIcon,
@@ -22,17 +25,8 @@ import {
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 
-const statsQueryOptions = {
-  queryKey: ["stats"],
-  queryFn: () => fetchStats(),
-  staleTime: 60_000,
-};
-
-const analyticsQueryOptions = {
-  queryKey: ["analytics", { periodHours: 24 }],
-  queryFn: () => fetchAnalytics({ data: { periodHours: 24 } }),
-  staleTime: 60_000,
-};
+const statsQueryOptions = statsQueryOptionsFn();
+const analyticsQueryOptions = analyticsQueryOptionsFn(24);
 
 export const Route = createFileRoute("/app/dashboard")({
   loader: async ({ context }) => {

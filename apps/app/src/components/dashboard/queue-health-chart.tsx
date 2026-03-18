@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAnalytics, fetchStats } from "@/lib/api";
+import { fetchAnalytics, fetchStats } from "@/hooks/api/use-dashboard";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
 

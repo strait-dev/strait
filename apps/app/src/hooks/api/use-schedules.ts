@@ -7,7 +7,7 @@ import {
 import type { ListParams } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { fetchJobs, triggerJobFn, updateJobFn } from "@/lib/api";
+import { fetchJobs, triggerJobFn, updateJobFn } from "@/hooks/api/use-jobs";
 
 /**
  * Schedules are cron-enabled jobs. We reuse the jobs endpoint and

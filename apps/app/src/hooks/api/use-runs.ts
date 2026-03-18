@@ -4,16 +4,87 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { ListParams } from "@/hooks/api/types";
+import { createServerFn } from "@tanstack/react-start";
+import type {
+  JobRun,
+  ListParams,
+  PaginatedResponse,
+  RunEvent,
+} from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import {
-  cancelRunFn,
-  fetchRun,
-  fetchRunEvents,
-  fetchRuns,
-  replayRunFn,
-} from "@/lib/api";
+import { authMiddleware } from "@/middlewares/auth";
+
+// ---------------------------------------------------------------------------
+// Server functions
+// ---------------------------------------------------------------------------
+
+export const fetchRuns = createServerFn({ method: "GET" })
+  .inputValidator(
+    (
+      data: ListParams & {
+        status?: string;
+        job_id?: string;
+        search?: string;
+      }
+    ) => data
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<PaginatedResponse<JobRun>>("/v1/runs", {
+      params: {
+        limit: data.limit,
+        cursor: data.cursor,
+        status: data.status,
+        job_id: data.job_id,
+        search: data.search,
+      },
+    });
+  });
+
+export const fetchRun = createServerFn({ method: "GET" })
+  .inputValidator((data: { id: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<JobRun>(`/v1/runs/${data.id}`);
+  });
+
+export const fetchRunEvents = createServerFn({ method: "GET" })
+  .inputValidator(
+    (data: { runId: string; limit?: number; cursor?: string }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<PaginatedResponse<RunEvent>>(
+      `/v1/runs/${data.runId}/events`,
+      { params: { limit: data.limit, cursor: data.cursor } }
+    );
+  });
+
+export const replayRunFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { runId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<{ id: string }>(`/v1/runs/${data.runId}/replay`, {
+      method: "POST",
+    });
+  });
+
+export const cancelRunFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { runId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<void>(`/v1/runs/${data.runId}`, { method: "DELETE" });
+  });
+
+// ---------------------------------------------------------------------------
+// Query options
+// ---------------------------------------------------------------------------
 
 type RunsSearchParams = ListParams & {
   status?: string;
@@ -45,6 +116,10 @@ export const runEventsQueryOptions = (runId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
+
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
 
 export const useRetryRun = () => {
   const queryClient = useQueryClient();
