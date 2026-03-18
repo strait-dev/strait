@@ -365,6 +365,7 @@ type Server struct {
 	rateLimiter        *ratelimit.RedisRateLimiter
 	encryptor          Encryptor
 	containerRuntime   compute.ContainerRuntime
+	polarWebhook       http.Handler
 }
 
 // Encryptor encrypts and decrypts byte slices (used for event source signature secrets).

@@ -69,6 +69,11 @@ func (s *Server) routes() chi.Router {
 		r.Handle("/metrics", s.metricsHandler)
 	}
 
+	// Polar billing webhook (HMAC-verified, no API key auth).
+	if s.polarWebhook != nil {
+		r.Post("/api/webhooks/polar", s.polarWebhook.ServeHTTP)
+	}
+
 	// SSE stream route with query-param token auth for browser EventSource clients.
 	// Placed before the main /v1 group so sseTokenAuth runs before apiKeyOrSecretAuth.
 	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
