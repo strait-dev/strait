@@ -16,14 +16,14 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@react-email/components": "1.0.9",
+    "@react-email/components": "1.0.10",
     "react": "^19.2.4"
   },
   "devDependencies": {
-    "@react-email/preview-server": "5.2.9",
+    "@react-email/preview-server": "5.2.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@typescript/native-preview": "^7.0.0-dev.20260317.1",
-    "react-email": "5.2.9"
+    "react-email": "5.2.10"
   }
 }

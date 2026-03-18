@@ -50,9 +50,7 @@ export function QueueHealthChart() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="font-medium text-sm">
-          Queue Health
-        </CardTitle>
+        <CardTitle className="font-medium text-sm">Queue Health</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">

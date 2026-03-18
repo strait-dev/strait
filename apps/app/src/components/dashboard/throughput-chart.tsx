@@ -46,9 +46,7 @@ export function ThroughputChart() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="font-medium text-sm">
-          Throughput (24h)
-        </CardTitle>
+        <CardTitle className="font-medium text-sm">Throughput (24h)</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">

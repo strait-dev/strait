@@ -31,10 +31,22 @@ export function StatusDistributionChart() {
   const throughput = analytics?.throughput;
   const chartData = throughput
     ? [
-        { name: "Completed", value: throughput.completed, fill: CHART_COLORS.success },
+        {
+          name: "Completed",
+          value: throughput.completed,
+          fill: CHART_COLORS.success,
+        },
         { name: "Failed", value: throughput.failed, fill: CHART_COLORS.error },
-        { name: "Timed Out", value: throughput.timed_out, fill: CHART_COLORS.neutral },
-        { name: "Canceled", value: throughput.canceled, fill: CHART_COLORS.neutral },
+        {
+          name: "Timed Out",
+          value: throughput.timed_out,
+          fill: CHART_COLORS.neutral,
+        },
+        {
+          name: "Canceled",
+          value: throughput.canceled,
+          fill: CHART_COLORS.neutral,
+        },
       ]
     : [];
 
@@ -79,7 +91,8 @@ export function StatusDistributionChart() {
           </div>
           <div className="flex flex-col gap-2">
             {chartData.map((entry) => {
-              const pct = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+              const pct =
+                total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
               return (
                 <div
                   className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-muted"

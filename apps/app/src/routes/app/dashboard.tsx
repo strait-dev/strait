@@ -57,11 +57,12 @@ function RouteComponent() {
   const throughput = analytics?.throughput;
   const health = analytics?.health_summary;
   const totalRuns = throughput
-    ? throughput.completed + throughput.failed + throughput.timed_out + throughput.canceled
+    ? throughput.completed +
+      throughput.failed +
+      throughput.timed_out +
+      throughput.canceled
     : 0;
-  const successRate = health?.success_rate
-    ? (health.success_rate * 100)
-    : 0;
+  const successRate = health?.success_rate ? health.success_rate * 100 : 0;
   const failedRuns = throughput?.failed ?? 0;
 
   return (
