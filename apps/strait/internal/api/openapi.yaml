@@ -1363,6 +1363,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/DebugBundle'
 
+  /v1/runs/{runID}/resources:
+    get:
+      tags:
+        - Runs
+      summary: List resource snapshots for a run
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Resource snapshots
+
   /v1/runs/{runID}/debug:
     post:
       tags:
@@ -2453,6 +2484,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListAuditEventsResponse'
+
+  /v1/audit-events/export:
+    get:
+      tags: [RBAC]
+      summary: Export audit events in CSV, JSON, or NDJSON format
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, csv, ndjson]
+      responses:
+        '200':
+          description: Streamed audit events
 
   /v1/resource-policies:
     post:
@@ -4619,6 +4676,45 @@ paths:
       responses:
         '201':
           description: Resource sample stored
+  /sdk/v1/runs/{runID}/resource-snapshot:
+    post:
+      tags:
+        - SDK
+      summary: Report resource snapshot (CPU, memory, network)
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cpu_percent:
+                  type: number
+                  format: double
+                memory_mb:
+                  type: number
+                  format: double
+                memory_limit_mb:
+                  type: number
+                  format: double
+                network_rx_bytes:
+                  type: integer
+                  format: int64
+                network_tx_bytes:
+                  type: integer
+                  format: int64
+      responses:
+        '201':
+          description: Resource snapshot stored
+
   /sdk/v1/runs/{runID}/stream:
     post:
       tags:

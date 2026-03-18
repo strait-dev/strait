@@ -477,6 +477,14 @@ func (m *mockAPIStore) ListRunOutputs(ctx context.Context, runID string, limit i
 	return nil, nil
 }
 
+func (m *mockAPIStore) CreateRunResourceSnapshot(_ context.Context, _ *domain.RunResourceSnapshot) error {
+	return nil
+}
+
+func (m *mockAPIStore) ListRunResourceSnapshots(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+	return nil, nil
+}
+
 func (m *mockAPIStore) AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error) {
 	if m.areAllDescendantsTerminalFn != nil {
 		return m.areAllDescendantsTerminalFn(ctx, parentRunID)
@@ -1197,6 +1205,10 @@ func (m *mockAPIStore) CreateAuditEvent(ctx context.Context, ev *domain.AuditEve
 
 func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ int, _, _, _ *time.Time, _ bool) ([]domain.AuditEvent, error) {
 	return nil, nil
+}
+
+func (m *mockAPIStore) StreamAuditEvents(_ context.Context, _, _, _ string, _, _ time.Time, _ func(*domain.AuditEvent) error) error {
+	return nil
 }
 
 // Event trigger mock methods.

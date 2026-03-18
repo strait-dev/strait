@@ -134,6 +134,8 @@ type RunStore interface {
 	ResetRunIdempotencyKey(ctx context.Context, runID string) error
 	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
 	BulkCancelByFilter(ctx context.Context, projectID string, f BulkCancelFilter, now time.Time, reason string) ([]string, error)
+	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
+	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 }
 
 type ProjectQuota struct {

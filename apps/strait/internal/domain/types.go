@@ -483,6 +483,18 @@ type RunComputeUsage struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
+// RunResourceSnapshot records a point-in-time resource utilization sample for a run.
+type RunResourceSnapshot struct {
+	ID             string    `json:"id"`
+	RunID          string    `json:"run_id"`
+	CPUPercent     float64   `json:"cpu_percent"`
+	MemoryMB       float64   `json:"memory_mb"`
+	MemoryLimitMB  float64   `json:"memory_limit_mb"`
+	NetworkRxBytes int64     `json:"network_rx_bytes"`
+	NetworkTxBytes int64     `json:"network_tx_bytes"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 // ExecutionTrace captures timing breakdown for a job run execution.
 type ExecutionTrace struct {
 	QueueWaitMs int64 `json:"queue_wait_ms"` // time from created_at to dequeue

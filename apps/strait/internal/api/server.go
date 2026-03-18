@@ -163,6 +163,8 @@ type RunStore interface {
 	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
 	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
 	DeleteRunState(ctx context.Context, runID, key string) error
+	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
+	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 }
 
 type LogDrainStore interface {
@@ -286,6 +288,7 @@ type RBACStore interface {
 	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
+	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 }
 
 // ActorSyncer lazily persists actor profile information from request headers.

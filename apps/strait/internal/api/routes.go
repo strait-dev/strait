@@ -174,6 +174,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/restart", s.handleRestartRun)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", s.handleListRunState)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/resources", s.handleListRunResources)
 			})
 		})
 
@@ -239,7 +240,10 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(5, time.Minute)).Post("/seed-roles", s.handleSeedSystemRoles)
-		r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/audit-events", s.handleListAuditEvents)
+		r.Route("/audit-events", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListAuditEvents)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/export", s.handleExportAuditEvents)
+		})
 
 		r.Route("/resource-policies", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateResourcePolicy)
@@ -366,6 +370,7 @@ func (s *Server) routes() chi.Router {
 			r.Delete("/state/{key}", s.handleSDKDeleteState)
 			r.Post("/stream", s.handleSDKStreamChunk)
 			r.Post("/resources", s.handleSDKResources)
+			r.Post("/resource-snapshot", s.handleSDKResourceSnapshot)
 		})
 	})
 
