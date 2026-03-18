@@ -1,14 +1,11 @@
 # Lefthook git hooks configuration.
-# Mirrors the CI lint pipelines for Go backend and all SDKs.
+# Mirrors the CI lint pipelines for Go backend, apps, and all SDKs.
 # All hooks run on every commit to catch cross-cutting issues early.
 
 pre-commit:
   parallel: true
   commands:
-    # --- Go backend ---
-    go_vet:
-      run: cd apps/strait && go vet ./...
-      fail_text: "Go vet failed — run 'go vet ./...' in apps/strait"
+    # --- Go backend (golangci-lint includes go vet) ---
     lint:
       run: cd apps/strait && golangci-lint run --timeout=5m ./...
       fail_text: "golangci-lint failed — fix lint errors before committing"
@@ -18,6 +15,30 @@ pre-commit:
     openapi_parity:
       run: cd apps/strait && go run ./scripts/check-openapi-parity
       fail_text: "OpenAPI parity check failed — sync routes.go with both OpenAPI specs before committing"
+
+    # --- Frontend app (apps/app) ---
+    app_lint:
+      run: cd apps/app && bun run biome:lint
+      fail_text: "App lint failed — run 'bun run biome:lint' in apps/app"
+    app_typecheck:
+      run: cd apps/app && bun run typecheck
+      fail_text: "App typecheck failed — run 'bun run typecheck' in apps/app"
+
+    # --- Website (apps/website) ---
+    website_lint:
+      run: cd apps/website && bun run biome:lint
+      fail_text: "Website lint failed — run 'bun run biome:lint' in apps/website"
+    website_typecheck:
+      run: cd apps/website && bun run typecheck
+      fail_text: "Website typecheck failed — run 'bun run typecheck' in apps/website"
+
+    # --- CLI (apps/cli) ---
+    cli_lint:
+      run: cd apps/cli && bun run biome:lint
+      fail_text: "CLI lint failed — run 'bun run biome:lint' in apps/cli"
+    cli_typecheck:
+      run: cd apps/cli && bun run typecheck
+      fail_text: "CLI typecheck failed — run 'bun run typecheck' in apps/cli"
 
     # --- TypeScript SDK ---
     ts_sdk_lint:

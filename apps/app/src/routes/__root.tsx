@@ -22,6 +22,7 @@ export type AuthUser = {
   emailVerified: boolean;
   image?: string | null;
   defaultOrganizationId?: string;
+  activeProjectId?: string;
   onboarded?: boolean;
   twoFactorEnabled?: boolean;
   createdAt: Date;

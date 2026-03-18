@@ -2,6 +2,7 @@ import { Polar } from "@polar-sh/sdk";
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
 
 type SubscriptionData = {
@@ -284,8 +285,8 @@ export const subscriptionQueryOptions = () =>
   queryOptions({
     queryKey: ["subscription"],
     queryFn: () => getSubscriptionServerFn(),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
   });
 
 /** Query options for the current subscription state (plan, limits, feature access). */
@@ -293,6 +294,6 @@ export const subscriptionStateQueryOptions = () =>
   queryOptions({
     queryKey: ["subscription", "state"],
     queryFn: () => getSubscriptionStateServerFn(),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
   });

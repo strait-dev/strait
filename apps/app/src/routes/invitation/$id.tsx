@@ -224,7 +224,7 @@ function RouteComponent() {
             <div>
               <h2 className="font-normal text-lg">
                 You have been invited to join{" "}
-                {invitation.organization?.name || "a store"}
+                {invitation.organization?.name || "an organization"}
               </h2>
               <p className="text-muted-foreground text-sm">
                 Invited by:{" "}
@@ -283,7 +283,7 @@ function RouteComponent() {
           <div>
             <h2 className="font-normal text-lg">
               You have been invited to join{" "}
-              {invitation.organization?.name || "a store"}
+              {invitation.organization?.name || "an organization"}
             </h2>
             <p className="text-muted-foreground text-sm">
               Invited by:{" "}

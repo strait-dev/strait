@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "apps/strait/**"
+      - ".github/workflows/benchmarks.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -4,125 +4,111 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { APIKey, ListParams } from "@/hooks/api/types";
+import { createServerFn } from "@tanstack/react-start";
+import type { APIKey, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { authMiddleware } from "@/middlewares/auth";
 
-type ListApiKeysSearch = ListParams;
+// ---------------------------------------------------------------------------
+// Server functions
+// ---------------------------------------------------------------------------
 
-const now = new Date().toISOString();
-const oneMonthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
-const twoMonthsAgo = new Date(Date.now() - 60 * 86_400_000).toISOString();
-const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+export const fetchApiKeys = createServerFn({ method: "GET" })
+  .inputValidator((data: ListParams) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<PaginatedResponse<APIKey>>("/v1/api-keys", {
+      params: { limit: data.limit, cursor: data.cursor },
+    });
+  });
 
-const MOCK_API_KEYS: APIKey[] = [
-  {
-    id: "key_01",
-    project_id: "proj_01",
-    name: "Production API Key",
-    key_prefix: "strait_a1b2c3",
-    scopes: ["jobs:read", "jobs:write", "jobs:trigger"],
-    expires_at: null,
-    last_used_at: yesterday,
-    created_at: twoMonthsAgo,
-    revoked_at: null,
-    replaced_by_key_id: "",
-    grace_expires_at: null,
-  },
-  {
-    id: "key_02",
-    project_id: "proj_01",
-    name: "Development Key",
-    key_prefix: "strait_d4e5f6",
-    scopes: ["jobs:read"],
-    expires_at: null,
-    last_used_at: now,
-    created_at: oneMonthAgo,
-    revoked_at: null,
-    replaced_by_key_id: "",
-    grace_expires_at: null,
-  },
-  {
-    id: "key_03",
-    project_id: "proj_01",
-    name: "CI/CD Pipeline",
-    key_prefix: "strait_g7h8i9",
-    scopes: ["jobs:read", "jobs:write", "jobs:trigger", "api_keys:manage"],
-    expires_at: null,
-    last_used_at: null,
-    created_at: now,
-    revoked_at: null,
-    replaced_by_key_id: "",
-    grace_expires_at: null,
-  },
-];
+export const createApiKeyFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: { name: string; scopes: string[]; expiresInDays?: number }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    const expiresIn = data.expiresInDays
+      ? `${data.expiresInDays * 24}h`
+      : undefined;
+    return apiRequest<APIKey & { key: string }>("/v1/api-keys", {
+      method: "POST",
+      body: { name: data.name, scopes: data.scopes, expires_in: expiresIn },
+    });
+  });
 
-function mockDelay() {
-  return new Promise<void>((resolve) => setTimeout(resolve, 300));
-}
+export const revokeApiKeyFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { keyId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<void>(`/v1/api-keys/${data.keyId}`, {
+      method: "DELETE",
+    });
+  });
 
-/** Query options for listing API keys. */
-export const apiKeysQueryOptions = (search?: ListApiKeysSearch) =>
+export const rotateApiKeyFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { keyId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    return apiRequest<APIKey & { key: string }>(
+      `/v1/api-keys/${data.keyId}/rotate`,
+      { method: "POST" }
+    );
+  });
+
+// ---------------------------------------------------------------------------
+// Query options
+// ---------------------------------------------------------------------------
+
+export const apiKeysQueryOptions = (search?: ListParams) =>
   queryOptions({
     queryKey: queryKeys.apiKeys.list(search).queryKey,
-    queryFn: async () => {
-      await mockDelay();
-      return {
-        data: MOCK_API_KEYS.filter((k) => !k.revoked_at),
-        page_count: 1,
-        total_count: MOCK_API_KEYS.filter((k) => !k.revoked_at).length,
-      };
-    },
+    queryFn: () => fetchApiKeys({ data: search ?? {} }),
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
   });
 
-/** Creates a new API key. Returns the full key only once. */
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
+
 export const useCreateApiKey = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["apiKeys", "create"],
-    mutationFn: async (data: {
+    mutationFn: (data: {
       name: string;
       scopes: string[];
       expiresInDays?: number;
-    }) => {
-      await mockDelay();
-      const expiresAt = data.expiresInDays
-        ? new Date(Date.now() + data.expiresInDays * 86_400_000).toISOString()
-        : null;
-      const newKey: APIKey & { key: string } = {
-        id: `key_${Date.now()}`,
-        project_id: "proj_01",
-        name: data.name,
-        key_prefix: `strait_${Math.random().toString(36).slice(2, 8)}`,
-        key: `strait_${Array.from({ length: 64 }, () => Math.random().toString(36)[2]).join("")}`,
-        scopes: data.scopes,
-        expires_at: expiresAt,
-        last_used_at: null,
-        created_at: new Date().toISOString(),
-        revoked_at: null,
-        replaced_by_key_id: "",
-        grace_expires_at: null,
-      };
-      return newKey;
-    },
+    }) => createApiKeyFn({ data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys._def });
     },
   });
 };
 
-/** Revokes an API key. */
 export const useRevokeApiKey = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["apiKeys", "revoke"],
-    mutationFn: async (keyId: string) => {
-      await mockDelay();
-      return { id: keyId, status: "revoked" };
+    mutationFn: (keyId: string) => revokeApiKeyFn({ data: { keyId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys._def });
     },
+  });
+};
+
+export const useRotateApiKey = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["apiKeys", "rotate"],
+    mutationFn: (keyId: string) => rotateApiKeyFn({ data: { keyId } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys._def });
     },

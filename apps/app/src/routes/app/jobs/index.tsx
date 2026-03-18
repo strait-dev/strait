@@ -9,7 +9,7 @@ import {
 } from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -22,12 +22,15 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { JobDetailSheet } from "@/components/dashboard/job-detail-sheet";
 import { jobColumns } from "@/components/tables/jobs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
-import type { Job, PaginatedResponse } from "@/hooks/api/types";
+import type { Job } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
 import {
   BriefcaseIcon,
@@ -37,6 +40,7 @@ import {
   PlayActionIcon,
   SearchIcon,
 } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -50,24 +54,34 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/jobs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(jobsQueryOptions());
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(jobsQueryOptions());
+    }
+    return { hasProject, session };
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: JobsPage,
 });
 
 function JobsPage() {
-  const { data } = useSuspenseQuery(jobsQueryOptions()) as {
-    data: PaginatedResponse<Job>;
-  };
+  const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const { data } = useQuery({
+    ...jobsQueryOptions(),
+    enabled: hasProject,
+  });
+
   const selectedStatuses = search.status ?? [];
 
   const filteredData = useMemo(() => {
-    const jobs = data?.data ?? [];
+    const jobs = hasProject ? (data?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return jobs;
     }
@@ -80,7 +94,7 @@ function JobsPage() {
       }
       return false;
     });
-  }, [data?.data, selectedStatuses]);
+  }, [data?.data, selectedStatuses, hasProject]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
@@ -126,6 +140,22 @@ function JobsPage() {
     setSelectedJob(job);
     setSheetOpen(true);
   }
+
+  const emptyState = hasProject ? (
+    <TableEmptyState
+      description="No jobs yet. Deploy your first job using the Strait SDK."
+      hideButton
+      icon={
+        <HugeiconsIcon
+          className="size-6 text-foreground"
+          icon={BriefcaseIcon}
+        />
+      }
+      title="No jobs found"
+    />
+  ) : (
+    <NoProjectState user={session.user} />
+  );
 
   return (
     <Shell>
@@ -195,19 +225,7 @@ function JobsPage() {
         }}
       >
         <DataTable
-          emptyState={
-            <TableEmptyState
-              description="No jobs match the current filters."
-              hideButton
-              icon={
-                <HugeiconsIcon
-                  className="size-6 text-foreground"
-                  icon={BriefcaseIcon}
-                />
-              }
-              title="No jobs found"
-            />
-          }
+          emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar
               actions={[

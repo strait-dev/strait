@@ -9,7 +9,7 @@ import {
 } from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -22,13 +22,16 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
-import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
+import type { JobRun, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
@@ -39,6 +42,7 @@ import {
   SearchIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const searchSchema = z.object({
   query: z.string().optional(),
@@ -61,15 +65,21 @@ const STATUS_OPTIONS: RunStatus[] = [
 export const Route = createFileRoute("/app/runs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(runsQueryOptions());
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(runsQueryOptions());
+    }
+    return { hasProject, session };
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: RunsPage,
 });
 
 function RunsPage() {
-  const { data } = useSuspenseQuery(runsQueryOptions()) as {
-    data: PaginatedResponse<JobRun>;
-  };
+  const { hasProject, session } = Route.useLoaderData();
+  const { data } = useQuery({ ...runsQueryOptions(), enabled: hasProject });
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
@@ -78,8 +88,10 @@ function RunsPage() {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const selectedStatuses = (search.status ?? []) as RunStatus[];
 
+  const tableData = hasProject ? (data?.data ?? []) : [];
+
   const table = useReactTable({
-    data: data?.data ?? [],
+    data: tableData,
     columns: runColumns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -120,6 +132,19 @@ function RunsPage() {
     setSelectedRun(run);
     setSheetOpen(true);
   }
+
+  const emptyState = hasProject ? (
+    <TableEmptyState
+      description="No runs yet. Trigger a job to see run history."
+      hideButton
+      icon={
+        <HugeiconsIcon className="size-6 text-foreground" icon={ActivityIcon} />
+      }
+      title="No runs found"
+    />
+  ) : (
+    <NoProjectState user={session.user} />
+  );
 
   return (
     <Shell>
@@ -194,19 +219,7 @@ function RunsPage() {
         }}
       >
         <DataTable
-          emptyState={
-            <TableEmptyState
-              description="No runs match the current filters."
-              hideButton
-              icon={
-                <HugeiconsIcon
-                  className="size-6 text-foreground"
-                  icon={ActivityIcon}
-                />
-              }
-              title="No runs found"
-            />
-          }
+          emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar
               actions={[

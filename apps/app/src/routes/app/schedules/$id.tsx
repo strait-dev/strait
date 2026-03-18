@@ -18,12 +18,13 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
+import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
+import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { jobQueryOptions } from "@/hooks/api/use-jobs";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
@@ -44,17 +45,15 @@ export const Route = createFileRoute("/app/schedules/$id")({
       context.queryClient.ensureQueryData(runsQueryOptions()),
     ]);
   },
+  pendingComponent: DetailPageSkeleton,
+  errorComponent: ErrorComponent,
   component: ScheduleDetailPage,
 });
 
 function ScheduleDetailPage() {
   const { id } = Route.useParams();
-  const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
-    data: Job | null;
-  };
-  const { data: runs } = useSuspenseQuery(runsQueryOptions()) as {
-    data: PaginatedResponse<JobRun>;
-  };
+  const { data: job } = useSuspenseQuery(jobQueryOptions(id));
+  const { data: runs } = useSuspenseQuery(runsQueryOptions());
   const [activeTab, setActiveTab] = useState("history");
 
   const runsTable = useReactTable({

@@ -206,8 +206,9 @@ func BenchmarkHandleListJobs(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1", nil)
+			r := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 			r.Header.Set("X-Internal-Secret", "test-secret")
+			r.Header.Set("X-Project-Id", "proj-1")
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusOK {
 				b.Fatalf("expected 200, got %d", w.Code)
@@ -520,7 +521,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 					errs[idx] = fmt.Errorf("bulk-cancel expected 200, got %d", w.Code)
 				}
 			case 2:
-				r := authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&limit=10", "")
+				r := authedProjectRequest(http.MethodGet, "/v1/runs?limit=10", "", "proj-1")
 				srv.ServeHTTP(w, r)
 				if w.Code != http.StatusOK {
 					errs[idx] = fmt.Errorf("list runs expected 200, got %d", w.Code)

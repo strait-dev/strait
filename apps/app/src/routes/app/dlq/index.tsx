@@ -10,7 +10,7 @@ import {
 } from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -23,11 +23,14 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { dlqColumns } from "@/components/tables/dlq-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
+import type { JobRun } from "@/hooks/api/types";
 import {
   dlqQueryOptions,
   useBulkDiscardDlq,
@@ -40,6 +43,7 @@ import {
   SearchIcon,
   TrashIcon,
 } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const ERROR_TYPE_OPTIONS = [
   "timeout",
@@ -57,17 +61,26 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/dlq/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(dlqQueryOptions());
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(dlqQueryOptions());
+    }
+    return { hasProject, session };
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: DlqPage,
 });
 
 function DlqPage() {
+  const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { data } = useSuspenseQuery(
-    dlqQueryOptions({ query: search.query, page: search.page })
-  ) as { data: PaginatedResponse<JobRun> };
+  const { data } = useQuery({
+    ...dlqQueryOptions(),
+    enabled: hasProject,
+  });
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
@@ -76,8 +89,10 @@ function DlqPage() {
   const bulkRetry = useBulkRetryDlq();
   const bulkDiscard = useBulkDiscardDlq();
 
+  const tableData = hasProject ? (data?.data ?? []) : [];
+
   const table = useReactTable({
-    data: data?.data ?? [],
+    data: tableData,
     columns: dlqColumns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -127,7 +142,20 @@ function DlqPage() {
     });
   }
 
-  const totalCount = data?.total_count ?? 0;
+  const totalCount = tableData.length;
+
+  const emptyState = hasProject ? (
+    <TableEmptyState
+      description="No dead letter items. Failed runs that exhaust retries will appear here."
+      hideButton
+      icon={
+        <HugeiconsIcon className="size-6 text-foreground" icon={AlertIcon} />
+      }
+      title="No dead letter items"
+    />
+  ) : (
+    <NoProjectState user={session.user} />
+  );
 
   return (
     <Shell>
@@ -234,22 +262,7 @@ function DlqPage() {
         }}
       >
         <div className="pt-2">
-          <DataTable
-            emptyState={
-              <TableEmptyState
-                description="No dead letter items found."
-                hideButton
-                icon={
-                  <HugeiconsIcon
-                    className="size-6 text-foreground"
-                    icon={AlertIcon}
-                  />
-                }
-                title="No dead letter items"
-              />
-            }
-            table={table}
-          />
+          <DataTable emptyState={emptyState} table={table} />
         </div>
       </div>
 

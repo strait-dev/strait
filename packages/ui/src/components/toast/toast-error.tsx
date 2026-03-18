@@ -7,6 +7,7 @@ export function ToastError(props: ToastContentProps) {
   return (
     <ToastContent
       {...props}
+      copyable
       icon={<HugeiconsIcon className="size-4" icon={Alert02Icon} />}
       iconClassName="text-destructive"
     />

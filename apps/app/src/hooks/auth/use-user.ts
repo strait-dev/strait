@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/query-keys";
 import { authClient } from "@/lib/auth-client";
 
@@ -13,6 +13,7 @@ type UpdateUserData = {
 
 /** Updates the current user's information. */
 export const useUpdateUser = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationKey: queryKeys.users.update.queryKey,
     mutationFn: async (data: UpdateUserData) => {
@@ -31,6 +32,9 @@ export const useUpdateUser = () => {
       }
 
       return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth._def });
     },
   });
 };

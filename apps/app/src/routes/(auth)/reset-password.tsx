@@ -32,8 +32,8 @@ const resetPasswordSchema = z
 
 export const Route = createFileRoute("/(auth)/reset-password")({
   validateSearch: resetPasswordSearchSchema,
-  beforeLoad: ({ context }) => {
-    if (context.isAuthenticated) {
+  beforeLoad: ({ context, search }) => {
+    if (context.isAuthenticated && !search.token) {
       throw redirect({ to: "/app" });
     }
   },

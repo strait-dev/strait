@@ -22,14 +22,11 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
+import ErrorComponent from "@/components/common/error-component";
 import { StatusBadge } from "@/components/dashboard/status-badge";
-import type {
-  ExecutionTrace,
-  JobRun,
-  RunEvent,
-  RunStatus,
-} from "@/hooks/api/types";
+import type { ExecutionTrace, RunStatus } from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
@@ -40,6 +37,8 @@ export const Route = createFileRoute("/app/runs/$id")({
       context.queryClient.ensureQueryData(runEventsQueryOptions(params.id)),
     ]);
   },
+  pendingComponent: DetailPageSkeleton,
+  errorComponent: ErrorComponent,
   component: RunDetailPage,
 });
 
@@ -58,12 +57,9 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
 
 function RunDetailPage() {
   const { id } = Route.useParams();
-  const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
-    data: JobRun | null;
-  };
-  const { data: events } = useSuspenseQuery(runEventsQueryOptions(id)) as {
-    data: RunEvent[];
-  };
+  const { data: run } = useSuspenseQuery(runQueryOptions(id));
+  const { data: eventsData } = useSuspenseQuery(runEventsQueryOptions(id));
+  const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");
 
   if (!run) {

@@ -33,7 +33,7 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	projectID := query.Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
@@ -406,8 +406,7 @@ func (s *Server) handleReplayRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListDeadLetterRuns(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	projectID := query.Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return

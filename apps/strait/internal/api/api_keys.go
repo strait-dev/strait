@@ -122,7 +122,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return

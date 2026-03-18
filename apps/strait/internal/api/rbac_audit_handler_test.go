@@ -10,7 +10,7 @@ func TestHandleListAuditEvents_InvalidOrder(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
-	req := authedRequest(http.MethodGet, "/v1/audit-events?project_id=proj_1&order=sideways", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/audit-events?order=sideways", "", "proj_1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -23,7 +23,7 @@ func TestHandleListAuditEvents_InvalidFrom(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t, &mockAPIStore{}, nil, nil)
-	req := authedRequest(http.MethodGet, "/v1/audit-events?project_id=proj_1&from=bad-time", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/audit-events?from=bad-time", "", "proj_1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

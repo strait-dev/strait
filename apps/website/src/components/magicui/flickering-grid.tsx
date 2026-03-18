@@ -25,12 +25,7 @@ const FlickeringGrid = ({
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   const memoizedColor = useMemo(() => {
-    const tempEl = document.createElement("div");
-    tempEl.style.color = color;
-    document.body.appendChild(tempEl);
-    const computed = getComputedStyle(tempEl).color;
-    document.body.removeChild(tempEl);
-    const match = computed.match(/\d+/g);
+    const match = color.match(/\d+/g);
     if (match && match.length >= 3) {
       return `${match[0]}, ${match[1]}, ${match[2]}`;
     }

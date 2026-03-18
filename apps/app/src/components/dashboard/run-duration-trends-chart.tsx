@@ -4,6 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -13,18 +14,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
-
-const MOCK_DATA = [
-  { time: "00:00", avg: 1.2, p95: 3.4 },
-  { time: "04:00", avg: 1.1, p95: 2.8 },
-  { time: "08:00", avg: 1.8, p95: 4.2 },
-  { time: "12:00", avg: 2.4, p95: 5.1 },
-  { time: "16:00", avg: 1.9, p95: 4.6 },
-  { time: "20:00", avg: 1.4, p95: 3.2 },
-  { time: "24:00", avg: 1.3, p95: 3.0 },
-];
 
 const formatSeconds = (v: number) => `${v.toFixed(1)}s`;
 
@@ -47,11 +39,21 @@ const LEGEND_ITEMS = [
 ];
 
 export function RunDurationTrendsChart() {
+  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
+
+  const chartData = (analytics?.slowest_jobs ?? [])
+    .map((j) => ({
+      job: j.job_slug || j.job_id.slice(0, 12),
+      avg: j.avg_duration_secs,
+      p95: j.p95_duration_secs,
+    }))
+    .slice(0, 7);
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="font-medium text-sm">
-          Run Duration Trends
+          Run Duration by Job
         </CardTitle>
         <div className="flex items-center gap-1">
           {LEGEND_ITEMS.map((item) => (
@@ -76,12 +78,12 @@ export function RunDurationTrendsChart() {
             minWidth={1}
             width="100%"
           >
-            <BarChart data={MOCK_DATA}>
+            <BarChart data={chartData}>
               <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
               <XAxis
                 className="text-muted-foreground"
-                dataKey="time"
-                tick={{ fontSize: 14 }}
+                dataKey="job"
+                tick={{ fontSize: 11 }}
               />
               <YAxis
                 className="text-muted-foreground"

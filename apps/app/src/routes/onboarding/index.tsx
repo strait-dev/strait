@@ -10,7 +10,10 @@ import { BusinessNeedsStep } from "@/components/onboarding/steps/business-needs-
 import { CompanyInfoStep } from "@/components/onboarding/steps/company-info-step";
 import type { OnboardingStepProps } from "@/components/onboarding/types";
 import { useOnboardingAnalytics } from "@/hooks/analytics/use-onboarding-analytics";
-import { useCompleteOnboarding } from "@/hooks/onboarding/use-onboarding";
+import {
+  useCompleteOnboarding,
+  useSkipOnboarding,
+} from "@/hooks/onboarding/use-onboarding";
 import { getSession } from "@/lib/auth-handler";
 import { ArrowLeftIcon, ArrowRightIcon, LoadingIcon } from "@/lib/icons";
 import type { OnboardingFormData } from "@/lib/schema";
@@ -84,6 +87,7 @@ function OnboardingFlow() {
   const { currentStep, totalSteps, setCurrentStep, reset } =
     useOnboardingStore();
   const completeOnboarding = useCompleteOnboarding();
+  const skipOnboarding = useSkipOnboarding();
   const analytics = useOnboardingAnalytics();
   const previousStepRef = useRef<number | null>(null);
 
@@ -323,39 +327,51 @@ function OnboardingFlow() {
       {/* Fixed Footer */}
       <footer className="fixed right-0 bottom-0 left-0 z-30 border-border border-t bg-background">
         <div className="container mx-auto px-4 py-4">
-          <div className="mx-auto flex max-w-xl items-center gap-3">
-            {currentStep > 1 ? (
-              <Button
-                aria-label="Go back to previous step"
-                className="gap-2"
-                disabled={completeOnboarding.isPending}
-                onClick={handleBack}
-                variant="outline"
-              >
-                <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
-                Back
-                <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground text-xs sm:inline-block">
-                  ⌘⌫
-                </kbd>
-              </Button>
-            ) : null}
-            <form.Subscribe selector={(state) => state.values}>
-              {() => (
+          <div className="mx-auto flex max-w-xl flex-col gap-3">
+            <div className="flex items-center gap-3">
+              {currentStep > 1 ? (
                 <Button
-                  aria-label="Continue to next step"
-                  className="flex-1 gap-2"
-                  disabled={!getIsStepValid() || completeOnboarding.isPending}
-                  onClick={handleContinue}
+                  aria-label="Go back to previous step"
+                  className="gap-2"
+                  disabled={completeOnboarding.isPending}
+                  onClick={handleBack}
+                  variant="outline"
                 >
-                  {continueButtonText}
-                  {completeOnboarding.isPending ? null : (
-                    <kbd className="hidden rounded bg-primary-foreground/20 px-1.5 py-0.5 font-mono text-primary-foreground text-xs sm:inline-block">
-                      ⌘↵
-                    </kbd>
-                  )}
+                  <HugeiconsIcon className="size-4" icon={ArrowLeftIcon} />
+                  Back
+                  <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground text-xs sm:inline-block">
+                    ⌘⌫
+                  </kbd>
                 </Button>
-              )}
-            </form.Subscribe>
+              ) : null}
+              <form.Subscribe selector={(state) => state.values}>
+                {() => (
+                  <Button
+                    aria-label="Continue to next step"
+                    className="flex-1 gap-2"
+                    disabled={!getIsStepValid() || completeOnboarding.isPending}
+                    onClick={handleContinue}
+                  >
+                    {continueButtonText}
+                    {completeOnboarding.isPending ? null : (
+                      <kbd className="hidden rounded bg-primary-foreground/20 px-1.5 py-0.5 font-mono text-primary-foreground text-xs sm:inline-block">
+                        ⌘↵
+                      </kbd>
+                    )}
+                  </Button>
+                )}
+              </form.Subscribe>
+            </div>
+            {currentStep === FINAL_STEP ? (
+              <button
+                className="text-center text-muted-foreground text-sm hover:text-foreground hover:underline"
+                disabled={skipOnboarding.isPending}
+                onClick={() => skipOnboarding.mutate()}
+                type="button"
+              >
+                {skipOnboarding.isPending ? "Skipping..." : "Skip for now"}
+              </button>
+            ) : null}
           </div>
         </div>
       </footer>

@@ -4,6 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -13,23 +14,25 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
-
-const MOCK_DATA = [
-  { job: "payment-sync", failures: 42 },
-  { job: "email-digest", failures: 31 },
-  { job: "inventory-check", failures: 24 },
-  { job: "report-gen", failures: 18 },
-  { job: "data-export", failures: 12 },
-  { job: "cache-warm", failures: 9 },
-];
 
 const LABEL_MAP = {
   failures: { label: "Failures", color: CHART_COLORS.error },
 };
 
 export function FailedRunsByJobChart() {
+  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
+
+  const chartData = (analytics?.slowest_jobs ?? [])
+    .filter((j) => j.failed_runs > 0)
+    .map((j) => ({
+      job: j.job_slug || j.job_id.slice(0, 12),
+      failures: j.failed_runs,
+    }))
+    .slice(0, 6);
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -45,7 +48,7 @@ export function FailedRunsByJobChart() {
             minWidth={1}
             width="100%"
           >
-            <BarChart data={MOCK_DATA}>
+            <BarChart data={chartData}>
               <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
               <XAxis
                 className="text-muted-foreground"

@@ -1,6 +1,8 @@
 import { Shell } from "@strait/ui/components/shell";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { NoProjectState } from "@/components/common/no-project-state";
 import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
 import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
 import { MetricsCard } from "@/components/dashboard/metrics-card";
@@ -12,53 +14,102 @@ import { StatusDistributionChart } from "@/components/dashboard/status-distribut
 import { ThroughputChart } from "@/components/dashboard/throughput-chart";
 import { TopJobsChart } from "@/components/dashboard/top-jobs-chart";
 import {
+  analyticsQueryOptions as analyticsQueryOptionsFn,
+  statsQueryOptions as statsQueryOptionsFn,
+} from "@/hooks/api/use-dashboard";
+import { runsQueryOptions } from "@/hooks/api/use-runs";
+import {
   ActivityIcon,
   AlertIcon,
   CheckCircleIcon,
   ClockIcon,
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
+import type { AppRouteContext } from "@/routes/app/layout";
+
+const statsQueryOptions = statsQueryOptionsFn();
+const analyticsQueryOptions = analyticsQueryOptionsFn(24);
 
 export const Route = createFileRoute("/app/dashboard")({
+  loader: async ({ context }) => {
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
+    if (hasProject) {
+      await Promise.allSettled([
+        context.queryClient.ensureQueryData(statsQueryOptions),
+        context.queryClient.ensureQueryData(analyticsQueryOptions),
+        context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
+      ]);
+    }
+    return { hasProject, session };
+  },
   component: RouteComponent,
 });
 
 function RouteComponent() {
+  const { hasProject, session } = Route.useLoaderData();
+  if (!hasProject) {
+    return (
+      <Shell>
+        <NoProjectState user={session.user} />
+      </Shell>
+    );
+  }
+
+  return <DashboardContent />;
+}
+
+function DashboardContent() {
+  const { data: stats } = useQuery(statsQueryOptions);
+  const { data: analytics } = useQuery(analyticsQueryOptions);
+
+  const queued = stats?.queued ?? 0;
+  const executing = stats?.executing ?? 0;
+  const delayed = stats?.delayed ?? 0;
+  const totalActive = queued + executing + delayed;
+
+  const throughput = analytics?.throughput;
+  const health = analytics?.health_summary;
+  const totalRuns = throughput
+    ? throughput.completed +
+      throughput.failed +
+      throughput.timed_out +
+      throughput.canceled
+    : 0;
+  const successRate = health?.success_rate ? health.success_rate * 100 : 0;
+  const failedRuns = throughput?.failed ?? 0;
+
   return (
     <Shell>
       {/* Row 1: Metrics */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <MetricsCard
-          change={{ value: 12.5, label: "vs last 24h" }}
           chartColor={CHART_COLORS.active}
-          chartData={[42, 28, 65, 89, 74, 56, 48]}
+          chartData={[]}
           icon={ActivityIcon}
-          title="Total Runs"
-          value="2,847"
+          title="Total Runs (24h)"
+          value={totalRuns.toLocaleString()}
         />
         <MetricsCard
-          change={{ value: 2.1, label: "vs last 24h" }}
           chartColor={CHART_COLORS.success}
-          chartData={[91, 93, 92, 95, 94, 96, 94]}
+          chartData={[]}
           icon={CheckCircleIcon}
           title="Success Rate"
-          value="94.2%"
+          value={`${successRate.toFixed(1)}%`}
         />
         <MetricsCard
-          change={{ value: -8.3, label: "vs last 24h" }}
           chartColor={CHART_COLORS.error}
-          chartData={[3, 1, 5, 7, 4, 2, 3]}
+          chartData={[]}
           icon={AlertIcon}
           title="Failed Runs"
-          value="168"
+          value={failedRuns.toLocaleString()}
         />
         <MetricsCard
-          change={{ value: -15.0, label: "vs last hour" }}
           chartColor={CHART_COLORS.neutral}
-          chartData={[8, 4, 15, 28, 22, 12, 6]}
+          chartData={[]}
           icon={ClockIcon}
           title="Queued"
-          value="23"
+          value={totalActive.toLocaleString()}
         />
       </div>
 

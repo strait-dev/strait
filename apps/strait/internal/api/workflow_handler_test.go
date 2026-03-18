@@ -280,7 +280,7 @@ func TestHandleListWorkflows_Success(t *testing.T) {
 
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -670,7 +670,7 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&status=running&limit=20", ""))
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?status=running&limit=20", "", "proj-1"))
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", w.Code)
@@ -699,7 +699,7 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&status=invalid-status", ""))
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?status=invalid-status", "", "proj-1"))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", w.Code)
@@ -1869,7 +1869,7 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&limit=-1", ""))
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?limit=-1", "", "proj-1"))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", w.Code)
@@ -1892,7 +1892,7 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&limit=200", ""))
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?limit=200", "", "proj-1"))
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -1909,7 +1909,7 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1", ""))
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs", "", "proj-1"))
 
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("expected 500, got %d", w.Code)
@@ -2940,7 +2940,7 @@ func TestHandleListWorkflows_TagFilter(t *testing.T) {
 
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows?project_id=proj-1&tag_key=env&tag_value=prod", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows?tag_key=env&tag_value=prod", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -2965,7 +2965,7 @@ func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
 
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs?project_id=proj-1&tag_key=env&tag_value=staging", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?tag_key=env&tag_value=staging", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())

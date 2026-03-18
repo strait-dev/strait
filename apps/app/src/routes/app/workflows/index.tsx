@@ -9,7 +9,7 @@ import {
 } from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -22,7 +22,10 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet";
 import { workflowColumns } from "@/components/tables/workflows-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -37,6 +40,7 @@ import {
   SearchIcon,
   WorkflowIcon,
 } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -50,13 +54,24 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/workflows/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(workflowsQueryOptions());
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(workflowsQueryOptions());
+    }
+    return { hasProject, session };
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: WorkflowsPage,
 });
 
 function WorkflowsPage() {
-  const { data } = useSuspenseQuery(workflowsQueryOptions());
+  const { hasProject, session } = Route.useLoaderData();
+  const { data } = useQuery({
+    ...workflowsQueryOptions(),
+    enabled: hasProject,
+  });
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(
@@ -68,7 +83,7 @@ function WorkflowsPage() {
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const filteredData = useMemo(() => {
-    const workflows = data?.data ?? [];
+    const workflows = hasProject ? (data?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return workflows;
     }
@@ -81,7 +96,7 @@ function WorkflowsPage() {
       }
       return false;
     });
-  }, [data?.data, selectedStatuses]);
+  }, [data?.data, hasProject, selectedStatuses]);
 
   const table = useReactTable({
     data: filteredData,
@@ -125,6 +140,19 @@ function WorkflowsPage() {
     setSelectedWorkflow(workflow);
     setSheetOpen(true);
   }
+
+  const emptyState = hasProject ? (
+    <TableEmptyState
+      description="No workflows yet. Create a workflow to orchestrate multiple jobs."
+      hideButton
+      icon={
+        <HugeiconsIcon className="size-6 text-foreground" icon={WorkflowIcon} />
+      }
+      title="No workflows found"
+    />
+  ) : (
+    <NoProjectState user={session.user} />
+  );
 
   return (
     <Shell>
@@ -194,19 +222,7 @@ function WorkflowsPage() {
         }}
       >
         <DataTable
-          emptyState={
-            <TableEmptyState
-              description="No workflows match the current filters."
-              hideButton
-              icon={
-                <HugeiconsIcon
-                  className="size-6 text-foreground"
-                  icon={WorkflowIcon}
-                />
-              }
-              title="No workflows found"
-            />
-          }
+          emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar
               actions={[

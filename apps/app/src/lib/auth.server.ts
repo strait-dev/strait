@@ -1,5 +1,4 @@
 import { passkey } from "@better-auth/passkey";
-import { sso } from "@better-auth/sso";
 import {
   checkout,
   polar,
@@ -26,6 +25,10 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { Pool } from "pg";
 import { resend } from "@/lib/resend.server";
 
+export const authPool = new Pool({
+  connectionString: process.env.AUTH_DATABASE_URL,
+});
+
 const polarClient = process.env.POLAR_ACCESS_TOKEN
   ? new Polar({
       accessToken: process.env.POLAR_ACCESS_TOKEN,
@@ -51,7 +54,7 @@ const polarClient = process.env.POLAR_ACCESS_TOKEN
  * so TypeScript can infer the full plugin API types (organization methods, etc).
  */
 export const auth = betterAuth({
-  database: new Pool({ connectionString: process.env.AUTH_DATABASE_URL }),
+  database: authPool,
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: {
@@ -135,7 +138,9 @@ export const auth = betterAuth({
     }),
     oneTap(),
     twoFactor(),
-    sso(),
+    // SSO disabled: @better-auth/sso has a known ESM incompatibility
+    // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
+    // https://github.com/better-auth/better-auth/issues/8620 is fixed.
     ...(polarClient
       ? [
           polar({
@@ -180,9 +185,36 @@ export const auth = betterAuth({
         ]
       : []),
   ],
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          const result = await authPool.query<{
+            defaultOrganizationId: string | null;
+          }>(`SELECT "defaultOrganizationId" FROM "user" WHERE id = $1`, [
+            session.userId,
+          ]);
+          const defaultOrgId = result.rows[0]?.defaultOrganizationId;
+          if (typeof defaultOrgId === "string" && defaultOrgId) {
+            return {
+              data: {
+                ...session,
+                activeOrganizationId: defaultOrgId,
+              },
+            };
+          }
+          return { data: session };
+        },
+      },
+    },
+  },
   user: {
     additionalFields: {
       defaultOrganizationId: {
+        type: "string",
+        required: false,
+      },
+      activeProjectId: {
         type: "string",
         required: false,
       },

@@ -37,6 +37,7 @@ export interface ConfirmToastOptions {
 export interface ToastContentProps {
   action?: ToastAction;
   className?: string;
+  copyable?: boolean;
   description?: string;
   dismissible?: boolean;
   onDismiss?: () => void;

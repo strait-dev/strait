@@ -326,7 +326,11 @@ const TwoFactorSetup = ({ enabled }: Props) => {
               />
               {error && <FieldError>{error}</FieldError>}
             </Field>
-            <Button disabled={isLoading || !password} onClick={handleEnable}>
+            <Button
+              className="w-fit"
+              disabled={isLoading || !password}
+              onClick={handleEnable}
+            >
               {isLoading ? (
                 <HugeiconsIcon
                   className="size-4 animate-spin"

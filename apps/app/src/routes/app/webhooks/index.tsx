@@ -15,7 +15,7 @@ import {
   SheetTitle,
 } from "@strait/ui/components/sheet";
 import { Shell } from "@strait/ui/components/shell";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -29,6 +29,10 @@ import { formatDistanceToNow } from "date-fns";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
+import TableEmptyState from "@/components/common/table-empty-state";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { webhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -43,6 +47,7 @@ import {
   TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 const STATUS_OPTIONS = ["Active", "Inactive"] as const;
 
@@ -55,22 +60,31 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/webhooks/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(webhooksQueryOptions());
+    const { session } = context as AppRouteContext;
+    const hasProject = !!session.user.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(webhooksQueryOptions());
+    }
+    return { hasProject, session };
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: WebhooksPage,
 });
 
 function WebhooksPage() {
+  const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { data } = useSuspenseQuery(
-    webhooksQueryOptions({ query: search.query, page: search.page })
-  );
+  const { data } = useQuery({
+    ...webhooksQueryOptions(),
+    enabled: hasProject,
+  });
 
   const selectedStatuses = search.status ?? [];
 
   const filteredData = useMemo(() => {
-    const webhooks = data?.data ?? [];
+    const webhooks = hasProject ? (data?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return webhooks;
     }
@@ -83,7 +97,7 @@ function WebhooksPage() {
       }
       return false;
     });
-  }, [data?.data, selectedStatuses]);
+  }, [data?.data, selectedStatuses, hasProject]);
 
   const [selectedWebhook, setSelectedWebhook] =
     useState<WebhookSubscription | null>(null);
@@ -132,6 +146,23 @@ function WebhooksPage() {
     setSelectedWebhook(webhook);
     setSheetOpen(true);
   }
+
+  const emptyState = hasProject ? (
+    <TableEmptyState
+      description="Create a webhook to receive notifications about run events."
+      hideButton
+      icon={
+        <HugeiconsIcon
+          className="text-muted-foreground"
+          icon={WebhookIcon}
+          size={24}
+        />
+      }
+      title="No webhooks yet"
+    />
+  ) : (
+    <NoProjectState user={session.user} />
+  );
 
   return (
     <Shell>
@@ -201,11 +232,7 @@ function WebhooksPage() {
         }}
       >
         <DataTable
-          emptyState={
-            <div className="py-12 text-center text-muted-foreground">
-              No webhooks configured.
-            </div>
-          }
+          emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar
               actions={[

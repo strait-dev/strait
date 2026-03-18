@@ -4,6 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -13,34 +14,35 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { ChartTooltip } from "./chart-tooltip";
 
-const MOCK_DATA = [
-  { time: "00:00", throughput: 32 },
-  { time: "04:00", throughput: 18 },
-  { time: "08:00", throughput: 54 },
-  { time: "12:00", throughput: 78 },
-  { time: "16:00", throughput: 62 },
-  { time: "20:00", throughput: 45 },
-  { time: "24:00", throughput: 28 },
-];
-
 const LABEL_MAP = {
-  throughput: {
-    label: "Runs/hour",
+  count: {
+    label: "Runs",
     color: CHART_COLORS.success,
     format: (v: number) => `${v.toLocaleString()} runs`,
   },
 };
 
 export function ThroughputChart() {
+  const { data: analytics } = useSuspenseQuery(analyticsQueryOptions(24));
+
+  const throughput = analytics?.throughput;
+  const chartData = throughput
+    ? [
+        { status: "Completed", count: throughput.completed },
+        { status: "Failed", count: throughput.failed },
+        { status: "Timed Out", count: throughput.timed_out },
+        { status: "Canceled", count: throughput.canceled },
+      ]
+    : [];
+
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="font-medium text-sm">
-          Throughput (runs/hour)
-        </CardTitle>
+        <CardTitle className="font-medium text-sm">Throughput (24h)</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">
@@ -50,11 +52,11 @@ export function ThroughputChart() {
             minWidth={1}
             width="100%"
           >
-            <BarChart data={MOCK_DATA}>
+            <BarChart data={chartData}>
               <CartesianGrid className="stroke-border" strokeDasharray="3 3" />
               <XAxis
                 className="text-muted-foreground"
-                dataKey="time"
+                dataKey="status"
                 tick={{ fontSize: 14 }}
               />
               <YAxis
@@ -66,7 +68,7 @@ export function ThroughputChart() {
                 cursor={{ fill: "var(--muted)" }}
               />
               <Bar
-                dataKey="throughput"
+                dataKey="count"
                 fill={CHART_COLORS.success}
                 radius={[4, 4, 0, 0]}
               />
