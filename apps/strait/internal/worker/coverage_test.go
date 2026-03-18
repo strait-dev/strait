@@ -38,6 +38,15 @@ func (m *mockWorkerPublisher) Subscribe(_ context.Context, _ string) (*pubsub.Su
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockWorkerPublisher) PublishBatch(ctx context.Context, messages []pubsub.PubSubMessage) error {
+	for _, msg := range messages {
+		if err := m.Publish(ctx, msg.Channel, msg.Data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *mockWorkerPublisher) Close() error { return nil }
 
 var _ pubsub.Publisher = (*mockWorkerPublisher)(nil)

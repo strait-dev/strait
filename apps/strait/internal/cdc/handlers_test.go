@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"strait/internal/pubsub"
 )
 
 type publishCall struct {
@@ -24,6 +26,15 @@ func (m *mockPublisher) Publish(ctx context.Context, channel string, data []byte
 	m.calls = append(m.calls, publishCall{channel: channel, data: append([]byte(nil), data...)})
 	if m.publishFn != nil {
 		return m.publishFn(ctx, channel, data)
+	}
+	return nil
+}
+
+func (m *mockPublisher) PublishBatch(ctx context.Context, messages []pubsub.PubSubMessage) error {
+	for _, msg := range messages {
+		if err := m.Publish(ctx, msg.Channel, msg.Data); err != nil {
+			return err
+		}
 	}
 	return nil
 }

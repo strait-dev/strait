@@ -1045,6 +1045,15 @@ func (m *mockPublisher) Subscribe(ctx context.Context, channel string) (*pubsub.
 	return nil, nil
 }
 
+func (m *mockPublisher) PublishBatch(ctx context.Context, messages []pubsub.PubSubMessage) error {
+	for _, msg := range messages {
+		if err := m.Publish(ctx, msg.Channel, msg.Data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *mockPublisher) Close() error {
 	if m.closeFn != nil {
 		return m.closeFn()

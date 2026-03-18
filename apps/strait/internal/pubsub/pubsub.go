@@ -2,8 +2,15 @@ package pubsub
 
 import "context"
 
+// PubSubMessage represents a single message to be published.
+type PubSubMessage struct {
+	Channel string
+	Data    []byte
+}
+
 type Publisher interface {
 	Publish(ctx context.Context, channel string, data []byte) error
+	PublishBatch(ctx context.Context, messages []PubSubMessage) error
 	Subscribe(ctx context.Context, channel string) (*Subscription, error)
 	Close() error
 }
