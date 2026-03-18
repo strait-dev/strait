@@ -1,5 +1,5 @@
 import { source } from "@/lib/source";
-import { DocsPage, DocsBody } from "fumadocs-ui/page";
+import { DocsPage, DocsBody, DocsDescription } from "fumadocs-ui/page";
 import { notFound } from "next/navigation";
 import { getMDXComponents } from "@/mdx-components";
 import { Feedback } from "@/app/components/feedback";
@@ -28,6 +28,9 @@ export default async function Page({ params }: Props) {
       }}
     >
       <DocsBody>
+        {page.data.description ? (
+          <DocsDescription>{page.data.description}</DocsDescription>
+        ) : null}
         <MDX components={getMDXComponents()} />
         <Feedback />
       </DocsBody>
