@@ -44,15 +44,13 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			version_id, version_policy, backwards_compatible, created_by, updated_by,
 			max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, skip_if_running, result_schema,
 			debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions,
-			on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
-			max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools
+			on_complete_trigger_workflow, on_complete_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1,
 			$27, $28, $29, $30, $31,
 			$32, $33::jsonb, $34::jsonb, $35, $36, $37, $38, $39,
 			$40, $41, $42, $43, $44, $45, $46, $47,
-			$48, $49,
-			$50, $51, $52, $53, $54)
+			$48, $49, $50, $51, $52, $53, $54)
 		RETURNING created_at, updated_at, version`
 
 	tagsJSON, err := marshalTags(job.Tags)

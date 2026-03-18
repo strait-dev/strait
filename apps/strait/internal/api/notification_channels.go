@@ -14,7 +14,6 @@ import (
 )
 
 type CreateNotificationChannelRequest struct {
-	ProjectID   string          `json:"project_id" validate:"required"`
 	ChannelType string          `json:"channel_type" validate:"required,oneof=slack discord webhook email"`
 	Name        string          `json:"name" validate:"required"`
 	Config      json.RawMessage `json:"config" validate:"required"`
@@ -43,8 +42,14 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 		enabled = *req.Enabled
 	}
 
+	projectID := projectIDFromContext(r.Context())
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
 	ch := &domain.NotificationChannel{
-		ProjectID:   req.ProjectID,
+		ProjectID:   projectID,
 		ChannelType: req.ChannelType,
 		Name:        req.Name,
 		Config:      req.Config,
@@ -60,7 +65,7 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleListNotificationChannels(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
@@ -164,7 +169,7 @@ func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleListNotificationDeliveries(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
