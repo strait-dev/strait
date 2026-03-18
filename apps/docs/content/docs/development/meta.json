@@ -1,0 +1,10 @@
+{
+  "title": "Development",
+  "pages": [
+    "contributing",
+    "testing",
+    "database-schema",
+    "technology-choices",
+    "migrations"
+  ]
+}

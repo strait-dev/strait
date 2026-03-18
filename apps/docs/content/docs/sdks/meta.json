@@ -1,0 +1,4 @@
+{
+  "title": "SDKs",
+  "pages": ["index", "configuration", "typescript", "python", "go", "ruby", "rust"]
+}

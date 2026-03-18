@@ -1,13 +1,40 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
-import { initializeSentry } from "@/lib/sentry";
+import { captureException, initializeSentry } from "@/lib/sentry";
 import { routeTree } from "./routeTree.gen";
 
 export const getRouter = () => {
   const queryClient: QueryClient = new QueryClient({
+    queryCache: new QueryCache({
+      onError: (error, query) => {
+        captureException(error, {
+          tags: {
+            location: "query",
+            queryKey: JSON.stringify(query.queryKey),
+          },
+        });
+      },
+    }),
+    mutationCache: new MutationCache({
+      onError: (error, _variables, _context, mutation) => {
+        captureException(error, {
+          tags: {
+            location: "mutation",
+            mutationKey: mutation.options.mutationKey
+              ? JSON.stringify(mutation.options.mutationKey)
+              : undefined,
+          },
+        });
+      },
+    }),
     defaultOptions: {
       queries: {
         staleTime: 5 * 60 * 1000,

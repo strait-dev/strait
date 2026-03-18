@@ -1,0 +1,120 @@
+---
+title: "Integrations"
+description: "Connect Strait with your existing tools, frameworks, and infrastructure."
+---
+
+# Integrations
+
+Strait integrates with your stack through its REST API, SDKs, webhooks, and CDC (Change Data Capture) stream. This section covers framework-specific patterns and platform integrations.
+
+## Framework Integrations
+
+### Next.js / React
+
+Use the TypeScript SDK to trigger jobs from Next.js API routes or Server Actions:
+
+```ts
+// app/actions.ts
+"use server";
+
+import { createClient } from "@strait/ts";
+
+const strait = createClient({
+  baseUrl: process.env.STRAIT_API_URL,
+  apiKey: process.env.STRAIT_API_KEY,
+});
+
+export async function triggerProcessing(formData: FormData) {
+  const run = await strait.jobs.trigger("process-upload", {
+    payload: { fileId: formData.get("fileId") },
+  });
+  return run.id;
+}
+```
+
+### Hono / Express
+
+Register a webhook verification middleware and SDK endpoint handler:
+
+```ts
+import { Hono } from "hono";
+import { verifyWebhook } from "@strait/ts/webhooks";
+
+const app = new Hono();
+
+// Verify incoming Strait webhooks
+app.post("/webhooks/strait", async (c) => {
+  const signature = c.req.header("x-strait-signature");
+  const body = await c.req.text();
+  if (!verifyWebhook(body, signature, process.env.STRAIT_WEBHOOK_SECRET)) {
+    return c.text("Invalid signature", 401);
+  }
+  const event = JSON.parse(body);
+  // Handle run.completed, run.failed, etc.
+  return c.text("OK");
+});
+```
+
+### Python (FastAPI / Django)
+
+```python
+from strait import Client
+
+client = Client.from_env()
+
+# Trigger a job from a FastAPI endpoint
+@app.post("/process")
+async def process_item(item_id: str):
+    run = client.jobs.trigger("process-item", payload={"item_id": item_id})
+    return {"run_id": run.id}
+```
+
+## Platform Integrations
+
+### Vercel
+
+Deploy Strait job endpoints as Vercel Serverless Functions. Configure the endpoint URL in your job definition to point to your Vercel deployment:
+
+```json
+{
+  "name": "process-upload",
+  "endpoint_url": "https://your-app.vercel.app/api/jobs/process-upload",
+  "timeout_secs": 300,
+  "retry_strategy": "exponential"
+}
+```
+
+### Docker / Kubernetes
+
+Strait ships as a single Go binary. Deploy with Docker:
+
+```bash
+docker pull ghcr.io/leonardomso/strait:latest
+docker run -d \
+  -e DATABASE_URL=postgres://... \
+  -e REDIS_URL=redis://... \
+  -p 8080:8080 \
+  ghcr.io/leonardomso/strait:latest
+```
+
+For Kubernetes, use a Deployment with separate API and Worker replicas for horizontal scaling. See the [Deployment Guide](/docs/guides/deployment) for detailed manifests.
+
+### Sequin (CDC)
+
+Strait uses [Sequin](https://sequinstream.com) for real-time Change Data Capture. When jobs, runs, or workflows change state, Sequin captures the PostgreSQL WAL events and streams them to your application. See [CDC](/docs/concepts/cdc) for configuration.
+
+## Monitoring
+
+### Prometheus / Grafana
+
+Strait exposes Prometheus metrics at `/metrics`. Scrape this endpoint to monitor queue depth, throughput, latency, and error rates. See [Monitoring](/docs/operations/monitoring-and-alerts) for dashboards and alert rules.
+
+### OpenTelemetry
+
+Strait emits OpenTelemetry traces for job execution, linking API server, worker, and external endpoint spans. Configure your OTLP collector endpoint via environment variables.
+
+## What's Next
+
+- Browse the [SDK Reference](/docs/sdks) for language-specific documentation
+- Read the [API Reference](/docs/api-reference) for raw REST endpoints
+- Learn about [Webhooks](/docs/concepts/webhooks) for event-driven integrations

@@ -1,0 +1,55 @@
+---
+title: "Workflow Runs"
+description: "Manage and monitor workflow runs from the CLI."
+---
+
+## workflow-runs list
+
+List workflow runs.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --project | string | | Filter by project ID |
+| --status | string | | Filter by status (e.g., running, completed, failed) |
+| --limit | int | 50 | Maximum number of runs to return |
+
+```bash
+strait workflow-runs list --project my-project --status running
+```
+
+## workflow-runs get
+
+Get workflow run by ID.
+
+```bash
+strait workflow-runs get <run-id>
+```
+
+## workflow-runs cancel
+
+Cancel a workflow run and all its step runs.
+
+```bash
+strait workflow-runs cancel <run-id>
+```
+
+## workflow-runs steps
+
+List step runs for a workflow run.
+
+```bash
+strait workflow-runs steps <run-id>
+```
+
+## workflow-runs watch
+
+Watch workflow run status and step progression.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| --interval | duration | 2s | Polling interval |
+| --timeout | duration | 5m | Maximum time to watch |
+
+```bash
+strait workflow-runs watch <run-id> --interval 1s
+```

@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+
+# Fumadocs generated
+.source/
+
+# Generated at build time
+public/llms.txt
+public/llms-full.txt

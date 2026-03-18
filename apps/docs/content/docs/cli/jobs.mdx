@@ -1,0 +1,111 @@
+---
+title: "Jobs"
+description: "Manage and trigger jobs via the CLI."
+---
+
+## jobs list
+List jobs for a project.
+
+```bash
+strait jobs list --project proj_1
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--project` | string | Project ID |
+
+## jobs get
+Get a job by ID or slug.
+
+```bash
+strait jobs get job_abc123
+strait jobs get send-email
+```
+
+## jobs create
+Create a new job.
+
+```bash
+strait jobs create \
+  --name "Send Email" \
+  --slug send-email \
+  --endpoint http://localhost:3000/jobs/send-email \
+  --timeout-secs 60 \
+  --max-attempts 3
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--project` | string | | Project ID |
+| `--name` | string | | Job name |
+| `--slug` | string | | Job slug |
+| `--description` | string | | Job description |
+| `--cron` | string | | Cron schedule expression |
+| `--endpoint` | string | | Job endpoint URL |
+| `--timeout-secs` | int | 60 | Execution timeout in seconds |
+| `--max-attempts` | int | 3 | Maximum retry attempts |
+| `--run-ttl-secs` | int | 0 | Run TTL in seconds (0 = no expiry) |
+
+## jobs edit
+Update an existing job.
+
+```bash
+strait jobs edit send-email --field timeout_secs=120
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--field` | string | Field update in `key=value` form |
+| `--editor` | string | Editor command for interactive mode |
+
+## jobs delete
+Disable a job by ID or slug.
+
+```bash
+strait jobs delete send-email --yes
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--yes` | bool | false | Skip confirmation prompt |
+
+## jobs trigger
+Trigger a job run.
+
+```bash
+strait jobs trigger send-email --payload '{"to": "user@example.com"}'
+```
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--payload` | string | | Inline JSON payload |
+| `--payload-file` | string | | Path to payload JSON file |
+| `--priority` | int | 0 | Run priority |
+| `--scheduled-at` | string | | RFC3339 timestamp for delayed execution |
+| `--idempotency-key` | string | | Idempotency key |
+
+## jobs trigger-bulk
+Trigger multiple runs for a job.
+
+```bash
+strait jobs trigger-bulk send-email --items-file items.json
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--items-json` | string | JSON array of bulk trigger items |
+| `--items-file` | string | Path to JSON file with bulk trigger items |
+
+## jobs versions
+List version history for a job.
+
+```bash
+strait jobs versions send-email
+```
+
+## jobs describe
+Show rich details and recent runs for a job.
+
+```bash
+strait jobs describe send-email
+```

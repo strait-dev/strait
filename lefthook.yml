@@ -32,6 +32,14 @@ pre-commit:
       run: cd apps/website && bun run typecheck
       fail_text: "Website typecheck failed — run 'bun run typecheck' in apps/website"
 
+    # --- Docs (apps/docs) ---
+    docs_lint:
+      run: cd apps/docs && bun run biome:lint
+      fail_text: "Docs lint failed — run 'bun run biome:lint' in apps/docs"
+    docs_typecheck:
+      run: cd apps/docs && bun run typecheck
+      fail_text: "Docs typecheck failed — run 'bun run typecheck' in apps/docs"
+
     # --- CLI (apps/cli) ---
     cli_lint:
       run: cd apps/cli && bun run biome:lint

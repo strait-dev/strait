@@ -14,6 +14,7 @@ import {
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
 import { getSession } from "@/lib/auth-handler";
+import { captureException } from "@/lib/sentry";
 
 export type AuthUser = {
   id: string;
@@ -54,7 +55,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         session,
         isAuthenticated: !!session,
       };
-    } catch {
+    } catch (error) {
+      captureException(error, {
+        tags: { location: "root_beforeLoad" },
+      });
       return { session: null, isAuthenticated: false };
     }
   },

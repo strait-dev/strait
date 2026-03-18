@@ -35,7 +35,7 @@
     "deploy:sequin": "cd deploy/sequin && fly deploy -a strait-sequin"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.7",
+    "@biomejs/biome": "2.4.8",
     "@changesets/changelog-github": "^0.6.0",
     "@changesets/cli": "^2.30.0",
     "@commitlint/cli": "^20.5.0",
@@ -45,7 +45,7 @@
     "baseline-browser-mapping": "^2.10.8",
     "knip": "^5.88.0",
     "lefthook": "^2.1.4",
-    "turbo": "^2.8.17",
+    "turbo": "^2.8.18",
     "ultracite": "7.3.2"
   }
 }
