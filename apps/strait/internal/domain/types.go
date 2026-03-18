@@ -788,6 +788,41 @@ const (
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
 const DefaultEventTimeoutSecs = 3600
 
+// SLO metric types.
+const (
+	SLOMetricSuccessRate    = "success_rate"
+	SLOMetricP95LatencySecs = "p95_latency_secs"
+	SLOMetricP99LatencySecs = "p99_latency_secs"
+)
+
+// JobSLO defines a service level objective for a job.
+type JobSLO struct {
+	ID          string    `json:"id"`
+	JobID       string    `json:"job_id"`
+	ProjectID   string    `json:"project_id"`
+	Metric      string    `json:"metric"`
+	Target      float64   `json:"target"`
+	WindowHours int       `json:"window_hours"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// JobSLOEvaluation records a point-in-time evaluation of an SLO.
+type JobSLOEvaluation struct {
+	ID              string    `json:"id"`
+	SLOID           string    `json:"slo_id"`
+	CurrentValue    float64   `json:"current_value"`
+	BudgetRemaining float64   `json:"budget_remaining"`
+	EvaluatedAt     time.Time `json:"evaluated_at"`
+}
+
+// JobSLOStatus combines an SLO with its latest evaluation.
+type JobSLOStatus struct {
+	JobSLO
+	CurrentValue    *float64   `json:"current_value,omitempty"`
+	BudgetRemaining *float64   `json:"budget_remaining,omitempty"`
+	EvaluatedAt     *time.Time `json:"evaluated_at,omitempty"`
+}
+
 const (
 	WebhookStatusPending   = "pending"
 	WebhookStatusDelivered = "delivered"
