@@ -43,6 +43,7 @@ const (
 	WebhookEventWorkflowCompleted    = "workflow.completed"
 	WebhookEventWorkflowFailed       = "workflow.failed"
 	WebhookEventComputeBudgetWarning = "compute_budget_warning"
+	WebhookEventSLOBudgetWarning     = "slo.budget_warning"
 )
 
 // ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
