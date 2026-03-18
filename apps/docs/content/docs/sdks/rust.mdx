@@ -1,0 +1,269 @@
+---
+title: "Rust SDK"
+description: "Official Rust SDK for Strait with async/await, builder pattern, and full API coverage."
+---
+
+The Rust SDK (`strait`) provides a type-safe, async-first interface with full API coverage across 5 modules.
+
+## Installation
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+strait = "0.1"
+tokio = { version = "1", features = ["full"] }
+```
+
+## Client Creation
+
+### From `strait.json` (recommended)
+
+```rust
+use strait::Client;
+
+let client = Client::from_file(None).await?;
+```
+
+See [Configuration](/docs/sdks/configuration) for `strait.json` schema and options.
+
+You can specify a custom directory or explicit path:
+
+```rust
+// Custom directory
+let client = Client::from_file(Some(
+    strait::ConfigFileOptions::builder()
+        .dir("/path/to/project")
+        .build()
+)).await?;
+
+// Explicit path
+let client = Client::from_file(Some(
+    strait::ConfigFileOptions::builder()
+        .path("/path/to/config.json")
+        .build()
+)).await?;
+```
+
+### From environment variables
+
+```rust
+// Reads STRAIT_BASE_URL, STRAIT_API_KEY, STRAIT_AUTH_TYPE, STRAIT_TIMEOUT_MS
+let client = Client::from_env()?;
+```
+
+### Inline with builder
+
+```rust
+let client = Client::builder()
+    .base_url("https://api.strait.dev")
+    .api_key("sk_live_...")
+    .timeout_ms(5000)
+    .build()?;
+```
+
+### Client options
+
+| Option | Description |
+|---|---|
+| `.base_url(url)` | API base URL (trailing slashes stripped) |
+| `.bearer_token(token)` | Bearer token auth |
+| `.api_key(key)` | API key auth |
+| `.run_token(token)` | Run token auth |
+| `.auth(auth)` | Set auth mode directly |
+| `.default_headers(h)` | Headers sent with every request |
+| `.timeout_ms(ms)` | Timeout in milliseconds (default: 30000) |
+| `.http_client(client)` | Custom `reqwest::Client` |
+| `.middleware(mw)` | Request/response/error hooks |
+
+## Calling Operations
+
+Operations are organized into service modules under `strait::operations`:
+
+```rust
+use strait::Client;
+use strait::operations::Jobs;
+
+let client = Client::from_file(None).await?;
+let jobs = Jobs::new(&client);
+
+// List jobs
+let list = jobs.list(Some(
+    &[("project_id", "proj_1")]
+)).await?;
+
+// Create a job
+let created = jobs.create(serde_json::json!({
+    "name": "Sync Inventory",
+    "slug": "sync-inventory",
+    "project_id": "proj_1",
+    "endpoint_url": "https://worker.example.com/run",
+})).await?;
+
+// Trigger a job
+let run = jobs.trigger("job_abc", serde_json::json!({
+    "payload": { "sku": "ABC-123" },
+})).await?;
+```
+
+### Available services
+
+`Jobs`, `Runs`, `Workflows`, `WorkflowRuns`, `Deployments`, `Environments`, `Secrets`, `ApiKeys`, `Webhooks`, `EventTriggers`, `EventSources`, `BatchOperations`, `Stats`, `Analytics`, `LogDrains`, `SdkRuns`, `Rbac`, `JobGroups`, `Health`
+
+## Authoring DSL
+
+### Defining jobs
+
+```rust
+use strait::authoring::{self, JobOptions, RunContext};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Payload {
+    sku: String,
+}
+
+let job = authoring::define_job(JobOptions {
+    name: "Sync Inventory",
+    slug: "sync-inventory",
+    endpoint_url: "https://worker.dev/jobs/sync",
+    project_id: "proj_1",
+    run: |payload: Payload, ctx: RunContext| async move {
+        sync_inventory(&payload.sku).await
+    },
+})?;
+
+job.register(&client, None).await?;
+job.trigger(&client, Payload { sku: "ABC-123".into() }).await?;
+```
+
+### Defining workflows
+
+```rust
+use strait::authoring::{self, WorkflowOptions, Step};
+
+let wf = authoring::define_workflow(WorkflowOptions {
+    name: "Order Pipeline",
+    slug: "order-pipeline",
+    project_id: "proj_1",
+    steps: vec![
+        Step::job("validate", "job_validate"),
+        Step::job("charge", "job_charge").depends_on(&["validate"]),
+        Step::approval("review").depends_on(&["charge"]),
+    ],
+})?;
+// DAG is validated at definition time
+```
+
+## Composition Helpers
+
+```rust
+use strait::composition;
+
+// Retry with backoff
+let result = composition::with_retry(
+    || async { call_api().await },
+    composition::RetryOptions { attempts: 5, delay_ms: 100 },
+).await?;
+
+// Paginate
+let mut stream = composition::paginate(|cursor| async move {
+    list_fn(cursor).await
+});
+while let Some(item) = stream.next().await {
+    // process item
+}
+
+// Wait for run
+let run = composition::wait_for_run(
+    |id| async move { get_run(id).await },
+    |run| get_status(run),
+    "run_123",
+    None,
+).await?;
+```
+
+## FSM State Machines
+
+```rust
+use strait::fsm;
+
+fsm::can_transition_run(fsm::RunState::Executing, fsm::RunEvent::Complete);  // true
+fsm::is_terminal_run_status(fsm::RunState::Completed);                        // true
+```
+
+## Middleware
+
+```rust
+let client = Client::builder()
+    .base_url("https://api.strait.dev")
+    .api_key("sk_live_...")
+    .middleware(strait::Middleware {
+        on_request: Some(Box::new(|ctx| {
+            println!("{} {}", ctx.method, ctx.url);
+        })),
+        on_response: Some(Box::new(|ctx| {
+            println!("{} {}ms", ctx.status, ctx.duration_ms);
+        })),
+        on_error: Some(Box::new(|ctx| {
+            eprintln!("error: {}", ctx.error);
+        })),
+    })
+    .build()?;
+```
+
+## Custom HTTP Client
+
+Pass a custom `reqwest::Client` to the builder:
+
+```rust
+let http_client = reqwest::Client::builder()
+    .pool_max_idle_per_host(10)
+    .connect_timeout(std::time::Duration::from_secs(5))
+    .build()?;
+
+let client = Client::builder()
+    .base_url("https://api.strait.dev")
+    .api_key("sk_live_...")
+    .http_client(http_client)
+    .build()?;
+```
+
+## Error Handling
+
+All errors are typed enums. Use `match` to handle:
+
+```rust
+use strait::error::StraitError;
+
+match jobs.get("nonexistent").await {
+    Ok(result) => println!("Found: {:?}", result),
+    Err(StraitError::NotFound(e)) => println!("Not found: {}", e.message),
+    Err(StraitError::RateLimited(e)) => println!("Rate limited: {}", e.message),
+    Err(StraitError::Unauthorized(e)) => println!("Auth error: {}", e.message),
+    Err(e) => println!("Error: {}", e),
+}
+```
+
+| Error variant | HTTP Status | Description |
+|---|---|---|
+| `StraitError::Transport` | — | Network failure |
+| `StraitError::Decode` | — | JSON decode failure |
+| `StraitError::Validation` | — | Config/input validation |
+| `StraitError::Unauthorized` | 401, 403 | Auth failure |
+| `StraitError::NotFound` | 404 | Resource not found |
+| `StraitError::Conflict` | 409 | Duplicate/conflict |
+| `StraitError::RateLimited` | 429 | Rate limit exceeded |
+| `StraitError::Api` | other | Generic HTTP error |
+| `StraitError::Timeout` | — | Polling timeout |
+| `StraitError::DagValidation` | — | Invalid workflow DAG |
+
+## Crates
+
+| Crate/Module | Import | Description |
+|---|---|---|
+| `strait` | `use strait::Client` | Client, config, errors, HTTP, middleware |
+| `strait::authoring` | `use strait::authoring` | define_job, define_workflow, steps, DAG validation |
+| `strait::composition` | `use strait::composition` | Result, retry, wait, paginate, deployments |
+| `strait::fsm` | `use strait::fsm` | Run, workflow, step state machines |
+| `strait::operations` | `use strait::operations` | Domain services for all API endpoints |

@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "getting-started",
+    "concepts",
+    "sdks",
+    "integrations",
+    "ai",
+    "api-reference",
+    "cli",
+    "guides",
+    "operations",
+    "development"
+  ]
+}

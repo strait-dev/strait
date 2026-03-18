@@ -1,0 +1,90 @@
+---
+title: "Development & Deployment"
+description: "Code-first project flow for build, dev, and deployment lifecycle commands in the unified CLI."
+---
+
+The unified TypeScript CLI is **code-first**. Project state is sourced from `strait.config.ts`, compiled into a deterministic manifest, then promoted through deployment versions.
+
+## build
+
+Compile local definitions into a deterministic manifest payload.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--outDir` | string | value from config | Manifest output directory override |
+| `--dryRun` | bool | false | Print manifest payload without writing files |
+| `--json` | bool | false | Emit machine-readable JSON |
+
+```bash
+strait build --dryRun --json
+```
+
+## dev
+
+Resolve config and render local project readiness summary. `--watch` runs a one-cycle rebuild probe for config changes.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--watch` | bool | false | Watch config for one rebuild cycle |
+| `--json` | bool | false | Emit machine-readable JSON |
+
+```bash
+strait dev --watch --json
+```
+
+## deploy
+
+Create and finalize a deployment version from the compiled manifest.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--context` | string | active context | Context override |
+| `--server` | string | resolved from context/env | API server override |
+| `--env` | string | config deploy default or `production` | Target environment |
+| `--artifactUri` | string | file URI for generated manifest | Artifact URI override |
+| `--dryRun` | bool | false | Print create/finalize payload plan only |
+| `--json` | bool | false | Emit machine-readable JSON |
+
+```bash
+strait deploy --env staging --json
+```
+
+## promote
+
+Promote a finalized deployment version to active status for an environment.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--context` | string | active context | Context override |
+| `--server` | string | resolved from context/env | API server override |
+| `--env` | string | config deploy default or `production` | Target environment |
+| `--json` | bool | false | Emit machine-readable JSON |
+
+```bash
+strait promote dep_123 --env production --json
+```
+
+## rollback
+
+Rollback by promoting a previous deployment version ID.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--to` | string | required | Deployment version ID to roll back to |
+| `--config` | string | auto-discover `strait.config.*` | Config path override |
+| `--context` | string | active context | Context override |
+| `--server` | string | resolved from context/env | API server override |
+| `--env` | string | config deploy default or `production` | Target environment |
+| `--json` | bool | false | Emit machine-readable JSON |
+
+```bash
+strait rollback --to dep_101 --env production --json
+```
+
+## Removed declarative surfaces
+
+`validate`, `apply`, and `diff` are removed from the unified CLI. YAML manifest orchestration is no longer a canonical path.

@@ -1,0 +1,54 @@
+---
+title: "Idempotency"
+description: "Preventing duplicate job executions using idempotency keys and payload hashing."
+---
+
+Strait provides robust mechanisms to ensure that the same job is not executed multiple times accidentally, which is critical for non-idempotent operations like processing payments or sending notifications.
+
+## Idempotency Keys
+
+The primary way to ensure idempotency is by providing an `X-Idempotency-Key` (or `Idempotency-Key`) header when triggering a job.
+
+### How it Works
+1. When a trigger request includes an idempotency key, Strait checks if a run with the same `job_id` and `idempotency_key` already exists.
+2. If a match is found, Strait returns the details of the **existing run** instead of creating a new one.
+3. If no match is found, a new run is created and associated with that key.
+
+### Example
+```bash
+curl -X POST https://strait.dev/v1/jobs/{jobID}/trigger \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "X-Idempotency-Key: unique-request-id-123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": { "order_id": "order_abc" }
+  }'
+```
+
+## Payload-Based Deduplication
+
+In addition to explicit keys, Strait can automatically deduplicate runs based on their payload content.
+
+### Dedup Window
+This is configured per-job via the `dedup_window_secs` field. If set, Strait will look for any recent run (within the window) that has the exact same payload hash.
+
+### How it Works
+1. Strait canonicalizes the JSON payload and generates a SHA-256 hash.
+2. It searches for a run of the same job with the same payload hash within the configured `dedup_window_secs`.
+3. If found, it returns the existing run.
+
+## Implementation Details
+
+- **Database Index**: Idempotency is enforced at the database level using a unique partial index on `(job_id, idempotency_key)`.
+- **Canonicalization**: Before hashing, payloads are unmarshaled and remarshaled to ensure that differences in whitespace or key order do not result in different hashes for the same logical data.
+
+## Summary of Deduplication Logic
+
+| Feature | Triggered By | Scope | Window |
+| --- | --- | --- | --- |
+| **Idempotency Key** | `X-Idempotency-Key` header | Per Job | Infinite (until run is deleted) |
+| **Payload Dedup** | `dedup_window_secs` config | Per Job | Configurable (e.g., 60s) |
+
+<Callout type="info">
+  Always use `X-Idempotency-Key` for critical operations. Use `dedup_window_secs` as a safety net to prevent accidental double-clicks or retry loops from client SDKs.
+</Callout>
