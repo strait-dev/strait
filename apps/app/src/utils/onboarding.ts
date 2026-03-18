@@ -15,7 +15,7 @@ const generateSlug = (name: string): string => {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .substring(0, MAX_SLUG_LENGTH)
+    .slice(0, MAX_SLUG_LENGTH)
     .replace(TRAILING_HYPHENS_REGEX, "");
 };
 

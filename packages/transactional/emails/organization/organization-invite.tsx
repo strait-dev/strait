@@ -99,7 +99,7 @@ const OrganizationInvite = ({
               href={inviteLink}
               style={{ color: "#171717" }}
             >
-              {inviteLink.substring(0, MAX_LINK_LENGTH)}...
+              {inviteLink.slice(0, MAX_LINK_LENGTH)}...
             </Link>
           </Text>
 

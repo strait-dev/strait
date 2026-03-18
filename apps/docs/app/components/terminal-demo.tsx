@@ -44,9 +44,7 @@ export function TerminalDemo() {
         {LINES.slice(0, visibleLines).map((line) => (
           <div
             key={line.text}
-            className={
-              line.prompt ? "text-green-400" : "text-neutral-400"
-            }
+            className={line.prompt ? "text-green-400" : "text-neutral-400"}
           >
             {line.prompt ? (
               <>

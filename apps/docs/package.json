@@ -14,27 +14,27 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@next/third-parties": "^16.1.7",
+    "@next/third-parties": "^16.2.0",
     "@strait/ui": "workspace:*",
     "fumadocs-core": "^16.6.17",
     "fumadocs-mdx": "^14.2.10",
     "fumadocs-openapi": "^10.3.18",
     "fumadocs-ui": "^16.6.17",
     "geist": "^1.7.0",
-    "next": "^16.1.7",
+    "next": "^16.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.1",
+    "@tailwindcss/postcss": "^4.2.2",
     "@types/mdx": "^2.0.13",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@typescript/native-preview": "^7.0.0-dev.20260318.1",
-    "babel-plugin-react-compiler": "^19.1.0-rc.2",
-    "tailwindcss": "^4.2.1",
-    "tsx": "^4.20.3",
-    "yaml": "^2.8.0",
-    "typescript": "^5.9.3"
+    "babel-plugin-react-compiler": "^1.0.0",
+    "tailwindcss": "^4.2.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "yaml": "^2.8.2"
   }
 }
