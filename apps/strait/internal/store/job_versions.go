@@ -161,7 +161,9 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       COALESCE(NULLIF(jv.machine_preset, ''), j.machine_preset),
 		       COALESCE(NULLIF(jv.image_uri, ''), j.image_uri),
 		       COALESCE(NULLIF(jv.region, ''), j.region),
-		       j.preferred_regions
+		       j.preferred_regions,
+		       j.on_complete_trigger_workflow,
+		       j.on_complete_payload_mapping
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id
 		WHERE jv.job_id = $1 AND jv.version = $2`
