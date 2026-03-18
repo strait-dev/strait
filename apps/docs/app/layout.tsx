@@ -7,12 +7,34 @@ import type { Metadata, Viewport } from "next";
 import "./global.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://docs.strait.dev"),
   title: {
     default: "Strait Docs",
     template: "%s — Strait Docs",
   },
   description:
     "Documentation for Strait, the background job orchestration platform.",
+  icons: {
+    icon: [
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Strait Docs",
+    title: "Strait Docs",
+    description:
+      "Documentation for Strait, the background job orchestration platform.",
+    url: "https://docs.strait.dev",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Strait Docs",
+    description:
+      "Documentation for Strait, the background job orchestration platform.",
+  },
 };
 
 export const viewport: Viewport = {
