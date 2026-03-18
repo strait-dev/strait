@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -15,16 +16,31 @@ import (
 
 // SLOEvaluator periodically evaluates all job SLOs and records results.
 type SLOEvaluator struct {
-	store  *store.Queries
-	logger *slog.Logger
+	store    *store.Queries
+	logger   *slog.Logger
+	notifier SLOWebhookNotifier
 }
 
 // NewSLOEvaluator creates a new SLO evaluator.
-func NewSLOEvaluator(store *store.Queries, logger *slog.Logger) *SLOEvaluator {
+func NewSLOEvaluator(store *store.Queries, logger *slog.Logger, opts ...SLOEvaluatorOption) *SLOEvaluator {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &SLOEvaluator{store: store, logger: logger}
+	e := &SLOEvaluator{store: store, logger: logger}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// SLOEvaluatorOption configures the SLO evaluator.
+type SLOEvaluatorOption func(*SLOEvaluator)
+
+// WithSLOWebhookNotifier sets the webhook notifier for SLO budget alerts.
+func WithSLOWebhookNotifier(n SLOWebhookNotifier) SLOEvaluatorOption {
+	return func(e *SLOEvaluator) {
+		e.notifier = n
+	}
 }
 
 // Evaluate runs a single evaluation cycle for all SLOs.
@@ -101,6 +117,26 @@ func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now t
 			"current", currentValue,
 			"budget_remaining", budget,
 		)
+
+		if e.notifier != nil {
+			alertPayload, marshalErr := json.Marshal(map[string]any{
+				"event":            domain.WebhookEventSLOBudgetWarning,
+				"slo_id":           slo.ID,
+				"job_id":           slo.JobID,
+				"metric":           slo.Metric,
+				"target":           slo.Target,
+				"current_value":    currentValue,
+				"budget_remaining": budget,
+			})
+			if marshalErr != nil {
+				e.logger.Warn("failed to marshal slo alert payload", "error", marshalErr)
+			} else if notifyErr := e.notifier.NotifySLOBudgetWarning(ctx, slo.ProjectID, alertPayload); notifyErr != nil {
+				e.logger.Warn("failed to send slo budget webhook",
+					"slo_id", slo.ID,
+					"error", notifyErr,
+				)
+			}
+		}
 	}
 
 	return nil
@@ -109,13 +145,13 @@ func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now t
 func metricValue(metric string, stats *store.JobHealthStats) float64 {
 	switch metric {
 	case domain.SLOMetricSuccessRate:
-		return stats.SuccessRate
+		// SuccessRate from GetJobHealthStats is a percentage (0-100);
+		// CalculateErrorBudget expects a fraction (0-1).
+		return stats.SuccessRate / 100.0
 	case domain.SLOMetricP95LatencySecs:
 		return stats.P95DurationSecs
 	case domain.SLOMetricP99LatencySecs:
-		// P99 not yet available in health stats; P95 is used as a lower-bound
-		// approximation. This means P99 SLO targets should be set accordingly.
-		return stats.P95DurationSecs
+		return stats.P99DurationSecs
 	default:
 		return 0
 	}

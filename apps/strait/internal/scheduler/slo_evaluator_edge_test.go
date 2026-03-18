@@ -141,9 +141,11 @@ func TestMetricValue_NilStats(t *testing.T) {
 
 func TestMetricValue_AllMetricTypes(t *testing.T) {
 	t.Parallel()
+	// SuccessRate from store is a percentage (0-100).
 	stats := &store.JobHealthStats{
-		SuccessRate:     0.95,
+		SuccessRate:     95.0,
 		P95DurationSecs: 1.5,
+		P99DurationSecs: 2.3,
 	}
 
 	if v := metricValue(domain.SLOMetricSuccessRate, stats); v != 0.95 {
@@ -152,8 +154,8 @@ func TestMetricValue_AllMetricTypes(t *testing.T) {
 	if v := metricValue(domain.SLOMetricP95LatencySecs, stats); v != 1.5 {
 		t.Errorf("p95_latency = %v, want 1.5", v)
 	}
-	if v := metricValue(domain.SLOMetricP99LatencySecs, stats); v != 1.5 {
-		t.Errorf("p99_latency = %v, want 1.5 (approximation)", v)
+	if v := metricValue(domain.SLOMetricP99LatencySecs, stats); v != 2.3 {
+		t.Errorf("p99_latency = %v, want 2.3", v)
 	}
 	if v := metricValue("unknown_metric", stats); v != 0 {
 		t.Errorf("unknown = %v, want 0", v)
