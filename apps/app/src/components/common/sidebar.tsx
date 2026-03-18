@@ -42,6 +42,7 @@ import {
 } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
+import ProjectSwitcher from "../project/project-switcher";
 import PaymentPendingCard from "../subscription/payment-pending-card";
 import TrialUpgradeCard from "../subscription/trial-upgrade-card";
 import CommandMenu from "./command-menu";
@@ -162,6 +163,16 @@ const AppSidebar = ({ session }: Props) => {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Project switcher */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Project</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <ProjectSwitcher user={session.user} />
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+
         {/* Search */}
         <SidebarGroup>
           <CommandMenu organizationId={session.user.defaultOrganizationId} />

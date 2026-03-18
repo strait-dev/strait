@@ -23,6 +23,7 @@ import { useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
@@ -32,6 +33,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import type { AuthUser } from "@/routes/__root";
 import {
   ActivityIcon,
   CalendarIcon,
@@ -63,7 +65,12 @@ const STATUS_OPTIONS: RunStatus[] = [
 export const Route = createFileRoute("/app/runs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(runsQueryOptions());
+    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const hasProject = !!session?.user?.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(runsQueryOptions());
+    }
+    return { hasProject };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -71,6 +78,12 @@ export const Route = createFileRoute("/app/runs/")({
 });
 
 function RunsPage() {
+  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
+  const { session } = Route.useRouteContext() as any;
+  if (!hasProject) {
+    return <Shell><NoProjectState user={session.user} /></Shell>;
+  }
+
   const { data } = useSuspenseQuery(runsQueryOptions()) as {
     data: PaginatedResponse<JobRun>;
   };
@@ -200,7 +213,7 @@ function RunsPage() {
         <DataTable
           emptyState={
             <TableEmptyState
-              description="No runs match the current filters."
+              description="No runs yet. Trigger a job to see run history."
               hideButton
               icon={
                 <HugeiconsIcon

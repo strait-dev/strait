@@ -2,6 +2,7 @@ import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { NoProjectState } from "@/components/common/no-project-state";
 import { FailedRunsByJobChart } from "@/components/dashboard/failed-runs-by-job-chart";
 import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed";
 import { MetricsCard } from "@/components/dashboard/metrics-card";
@@ -17,6 +18,7 @@ import {
   statsQueryOptions as statsQueryOptionsFn,
 } from "@/hooks/api/use-dashboard";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import type { AuthUser } from "@/routes/__root";
 import {
   ActivityIcon,
   AlertIcon,
@@ -30,16 +32,27 @@ const analyticsQueryOptions = analyticsQueryOptionsFn(24);
 
 export const Route = createFileRoute("/app/dashboard")({
   loader: async ({ context }) => {
-    await Promise.allSettled([
-      context.queryClient.ensureQueryData(statsQueryOptions),
-      context.queryClient.ensureQueryData(analyticsQueryOptions),
-      context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
-    ]);
+    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const hasProject = !!session?.user?.activeProjectId;
+    if (hasProject) {
+      await Promise.allSettled([
+        context.queryClient.ensureQueryData(statsQueryOptions),
+        context.queryClient.ensureQueryData(analyticsQueryOptions),
+        context.queryClient.ensureQueryData(runsQueryOptions({ limit: 20 })),
+      ]);
+    }
+    return { hasProject };
   },
   component: RouteComponent,
 });
 
 function RouteComponent() {
+  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
+  const { session } = Route.useRouteContext() as any;
+  if (!hasProject) {
+    return <Shell><NoProjectState user={session.user} /></Shell>;
+  }
+
   const { data: stats } = useQuery(statsQueryOptions);
   const { data: analytics } = useQuery(analyticsQueryOptions);
 

@@ -36,24 +36,24 @@ export async function apiRequest<T>(
     }
   }
 
-  // Resolve project ID from the active organization
+  // Resolve project ID from the user's activeProjectId
   let projectId: string | undefined;
   try {
     const headers = getRequestHeaders();
     const session = await auth.api.getSession({ headers });
-    if (session?.session) {
+    if (session?.user) {
+      const activeProjectId = (session.user as Record<string, unknown>)
+        .activeProjectId;
+      if (typeof activeProjectId === "string" && activeProjectId) {
+        projectId = activeProjectId;
+      }
+    }
+    // Fallback to activeOrganizationId for backwards compatibility
+    if (!projectId && session?.session) {
       const activeOrgId = (session.session as Record<string, unknown>)
         .activeOrganizationId;
       if (typeof activeOrgId === "string" && activeOrgId) {
         projectId = activeOrgId;
-      }
-    }
-    // Fallback to user's default organization for older sessions
-    if (!projectId && session?.user) {
-      const defaultOrgId = (session.user as Record<string, unknown>)
-        .defaultOrganizationId;
-      if (typeof defaultOrgId === "string" && defaultOrgId) {
-        projectId = defaultOrgId;
       }
     }
   } catch {

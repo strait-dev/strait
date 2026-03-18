@@ -35,15 +35,15 @@ export const CreateOrganizationLimitGate = ({
           />
           <AlertDescription className="text-accent-foreground">
             <div className="space-y-2">
-              <p className="font-medium">Store limit reached</p>
+              <p className="font-medium">Organization limit reached</p>
               <p className="text-sm">
-                Your current plan allows {availableLimit} store
+                Your current plan allows {availableLimit} organization
                 {availableLimit === 1 ? "" : "s"}, and you already have{" "}
                 {existingCount}.
                 {nextPlan ? (
                   <span>
                     {" "}
-                    Upgrade to {nextPlan.name} to create more stores.
+                    Upgrade to {nextPlan.name} to create more organizations.
                   </span>
                 ) : null}
               </p>

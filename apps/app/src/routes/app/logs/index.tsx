@@ -26,12 +26,14 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { createActionsColumn } from "@/components/tables/shared-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { EventTrigger } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
+import type { AuthUser } from "@/routes/__root";
 import {
   EyeIcon,
   FileTextIcon,
@@ -163,7 +165,12 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/logs/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(eventsQueryOptions());
+    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const hasProject = !!session?.user?.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(eventsQueryOptions());
+    }
+    return { hasProject };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -171,6 +178,12 @@ export const Route = createFileRoute("/app/logs/")({
 });
 
 function LogsPage() {
+  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
+  const { session } = Route.useRouteContext() as any;
+  if (!hasProject) {
+    return <Shell><NoProjectState user={session.user} /></Shell>;
+  }
+
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data } = useSuspenseQuery(eventsQueryOptions());
@@ -301,7 +314,7 @@ function LogsPage() {
         <DataTable
           emptyState={
             <TableEmptyState
-              description="No events match the current filters."
+              description="No log entries yet. Logs will appear as your jobs execute."
               hideButton
               icon={
                 <HugeiconsIcon

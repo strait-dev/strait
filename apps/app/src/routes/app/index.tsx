@@ -1,13 +1,19 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Shell } from "@strait/ui/components/shell";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
 
+import { GettingStarted } from "@/components/common/getting-started";
 import { MetricsCard } from "@/components/dashboard/metrics-card";
 import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
+import {
+  analyticsQueryOptions,
+  statsQueryOptions,
+} from "@/hooks/api/use-dashboard";
 import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription";
 import {
   ActivityIcon,
@@ -21,7 +27,7 @@ import {
   ZapIcon,
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import type { Session } from "@/routes/__root";
+import type { AuthUser, Session } from "@/routes/__root";
 
 const subscriptionSearchSchema = z.object({
   subscription: z.string().optional(),
@@ -38,9 +44,19 @@ export const Route = createFileRoute("/app/")({
       throw new Error("Session unexpectedly null");
     }
 
+    const hasProject = !!(session.user as AuthUser).activeProjectId;
+
     await context.queryClient.ensureQueryData(subscriptionQueryOptions());
 
-    return { session };
+    // Only prefetch data queries if user has a project
+    if (hasProject) {
+      await Promise.all([
+        context.queryClient.ensureQueryData(statsQueryOptions()).catch(() => null),
+        context.queryClient.ensureQueryData(analyticsQueryOptions(24)).catch(() => null),
+      ]);
+    }
+
+    return { session, hasProject };
   },
   component: RouteComponent,
 });
@@ -48,6 +64,10 @@ export const Route = createFileRoute("/app/")({
 function RouteComponent() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
+  const { session, hasProject } = Route.useLoaderData() as {
+    session: NonNullable<Session>;
+    hasProject: boolean;
+  };
 
   const handleUrlCleanup = useCallback(() => {
     navigate({
@@ -56,79 +76,24 @@ function RouteComponent() {
     });
   }, [navigate]);
 
+  if (!hasProject) {
+    return (
+      <Shell>
+        <GettingStarted user={session.user} />
+        <SubscriptionSuccessDialog
+          checkoutId={search.checkout_id}
+          isNewSubscription={!!search.checkout_success}
+          isUpgrade={!!search.subscription}
+          onUrlCleanup={handleUrlCleanup}
+          timestamp={search.t}
+        />
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
-      {/* Metrics Row 1 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricsCard
-          change={{ value: 12.5, label: "vs yesterday" }}
-          chartColor={CHART_COLORS.active}
-          chartData={[52, 38, 71, 95, 82, 64, 58]}
-          icon={ActivityIcon}
-          title="Total Runs (24h)"
-          value="3,847"
-        />
-        <MetricsCard
-          change={{ value: 2.1, label: "vs yesterday" }}
-          chartColor={CHART_COLORS.success}
-          chartData={[95, 96, 97, 98, 97, 98, 97]}
-          icon={CheckCircleIcon}
-          title="Success Rate"
-          value="97.4%"
-        />
-        <MetricsCard
-          change={{ value: -18, label: "vs yesterday" }}
-          chartColor={CHART_COLORS.error}
-          chartData={[5, 3, 7, 4, 2, 1, 2]}
-          icon={AlertIcon}
-          title="Failed Runs"
-          value="89"
-        />
-        <MetricsCard
-          change={{ value: -8, label: "vs yesterday" }}
-          chartColor={CHART_COLORS.active}
-          chartData={[4.8, 4.5, 4.3, 4.1, 4.0, 4.2, 4.2]}
-          icon={ClockIcon}
-          title="Avg Duration"
-          value="4.2s"
-        />
-      </div>
-
-      {/* Metrics Row 2 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricsCard
-          chartColor={CHART_COLORS.success}
-          chartData={[20, 22, 21, 23, 24, 24, 24]}
-          description="Across 3 environments"
-          icon={BriefcaseIcon}
-          title="Active Jobs"
-          value={24}
-        />
-        <MetricsCard
-          chartColor={CHART_COLORS.active}
-          chartData={[10, 11, 11, 12, 12, 12, 12]}
-          description="8 active, 4 paused"
-          icon={WorkflowIcon}
-          title="Workflows"
-          value={12}
-        />
-        <MetricsCard
-          chartColor={CHART_COLORS.error}
-          chartData={[12, 10, 9, 8, 8, 7, 7]}
-          description="Awaiting review"
-          icon={ZapIcon}
-          title="Dead Letter"
-          value={7}
-        />
-        <MetricsCard
-          chartColor={CHART_COLORS.neutral}
-          chartData={[148, 150, 152, 154, 155, 156, 156]}
-          description="Next: 2m 34s"
-          icon={CalendarIcon}
-          title="Scheduled"
-          value={156}
-        />
-      </div>
+      <OverviewMetrics />
 
       <div className="flex justify-center">
         <Button render={<Link to="/app/dashboard" />} variant="outline">
@@ -145,5 +110,87 @@ function RouteComponent() {
         timestamp={search.t}
       />
     </Shell>
+  );
+}
+
+function OverviewMetrics() {
+  const { data: stats } = useQuery(statsQueryOptions());
+  const { data: analytics } = useQuery(analyticsQueryOptions(24));
+
+  const health = analytics?.health_summary;
+  const throughput = analytics?.throughput;
+
+  const totalRuns = throughput
+    ? throughput.completed + throughput.failed + throughput.timed_out + throughput.canceled
+    : 0;
+  const successRate = health?.success_rate ?? 0;
+  const failedRuns = throughput?.failed ?? 0;
+  const avgDuration = health?.avg_duration_secs ?? 0;
+
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricsCard
+          chartColor={CHART_COLORS.active}
+          chartData={[0]}
+          icon={ActivityIcon}
+          title="Total Runs (24h)"
+          value={totalRuns}
+        />
+        <MetricsCard
+          chartColor={CHART_COLORS.success}
+          chartData={[0]}
+          icon={CheckCircleIcon}
+          title="Success Rate"
+          value={`${successRate.toFixed(1)}%`}
+        />
+        <MetricsCard
+          chartColor={CHART_COLORS.error}
+          chartData={[0]}
+          icon={AlertIcon}
+          title="Failed Runs"
+          value={failedRuns}
+        />
+        <MetricsCard
+          chartColor={CHART_COLORS.active}
+          chartData={[0]}
+          icon={ClockIcon}
+          title="Avg Duration"
+          value={`${avgDuration.toFixed(1)}s`}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricsCard
+          chartColor={CHART_COLORS.success}
+          chartData={[0]}
+          icon={BriefcaseIcon}
+          title="Active Jobs"
+          value={health?.active_jobs ?? 0}
+        />
+        <MetricsCard
+          chartColor={CHART_COLORS.active}
+          chartData={[0]}
+          icon={WorkflowIcon}
+          title="Workflows"
+          value={health?.total_jobs ?? 0}
+        />
+        <MetricsCard
+          chartColor={CHART_COLORS.error}
+          chartData={[0]}
+          icon={ZapIcon}
+          title="Dead Letter"
+          value={0}
+        />
+        <MetricsCard
+          chartColor={CHART_COLORS.neutral}
+          chartData={[0]}
+          description={`Queue depth: ${stats?.queued ?? 0}`}
+          icon={CalendarIcon}
+          title="Queued"
+          value={stats?.queued ?? 0}
+        />
+      </div>
+    </>
   );
 }

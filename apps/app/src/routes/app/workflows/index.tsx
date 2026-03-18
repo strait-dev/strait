@@ -23,6 +23,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { WorkflowDetailSheet } from "@/components/dashboard/workflow-detail-sheet";
@@ -31,6 +32,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Workflow } from "@/hooks/api/types";
 import { workflowsQueryOptions } from "@/hooks/api/use-workflows";
+import type { AuthUser } from "@/routes/__root";
 import {
   EyeIcon,
   FilterIcon,
@@ -52,7 +54,12 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/workflows/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(workflowsQueryOptions());
+    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const hasProject = !!session?.user?.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(workflowsQueryOptions());
+    }
+    return { hasProject };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -60,6 +67,12 @@ export const Route = createFileRoute("/app/workflows/")({
 });
 
 function WorkflowsPage() {
+  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
+  const { session } = Route.useRouteContext() as any;
+  if (!hasProject) {
+    return <Shell><NoProjectState user={session.user} /></Shell>;
+  }
+
   const { data } = useSuspenseQuery(workflowsQueryOptions());
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -200,7 +213,7 @@ function WorkflowsPage() {
         <DataTable
           emptyState={
             <TableEmptyState
-              description="No workflows match the current filters."
+              description="No workflows yet. Create a workflow to orchestrate multiple jobs."
               hideButton
               icon={
                 <HugeiconsIcon

@@ -17,8 +17,10 @@ import {
 import { Sheet, SheetTrigger } from "@strait/ui/components/sheet";
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
 import { toast } from "@strait/ui/components/toast/index";
-import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
+import { projectsQueryOptions, useSetActiveProject } from "@/hooks/api/use-projects";
 import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
   useOrganization,
@@ -28,7 +30,7 @@ import {
 import {
   PlusIcon,
   SettingsOutlineIcon,
-  StoreIcon,
+  BuildingIcon,
   UnfoldMoreIcon,
 } from "@/lib/icons";
 import type { AuthUser, Session } from "@/routes/__root";
@@ -62,6 +64,9 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
   });
 
   const setActiveOrganization = useSetDefaultOrganization();
+  const setActiveProject = useSetActiveProject();
+  const queryClient = useQueryClient();
+  const router = useRouter();
 
   const onSetActiveOrganization = useCallback(
     async (org: OrganizationData) => {
@@ -69,31 +74,39 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
         return;
       }
 
-      // Prevent multiple concurrent requests
       if (setActiveOrganization.isPending) {
         return;
       }
 
-      // Use toast.promise for better UX
-      const switchPromise = setActiveOrganization.mutateAsync({
-        id: org.id,
-      });
+      const switchPromise = (async () => {
+        await setActiveOrganization.mutateAsync({ id: org.id });
+
+        // Auto-select the first project in the new org
+        const projects = await queryClient.fetchQuery(
+          projectsQueryOptions(org.id)
+        );
+        if (projects && projects.length > 0) {
+          await setActiveProject.mutateAsync({ projectId: projects[0].id });
+        }
+
+        await queryClient.invalidateQueries();
+        router.invalidate();
+      })();
 
       toast.promise(switchPromise, {
-        loading: "Switching active store...",
-        success: "Active store changed successfully!",
-        error: "Error changing active store",
+        loading: "Switching organization...",
+        success: "Organization switched successfully!",
+        error: "Error switching organization",
       });
 
       try {
         await switchPromise;
-        // Close dropdown after successful switch
         setDropdownOpen(false);
       } catch (_error) {
         // Error toast is already handled by toast.promise
       }
     },
-    [activeOrganization, setActiveOrganization]
+    [activeOrganization, setActiveOrganization, setActiveProject, queryClient, router]
   );
 
   // Handle case where user has no organizations (needs onboarding)
@@ -154,7 +167,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
               <AvatarImage src={activeOrganization.logo} />
             ) : null}
             <AvatarFallback>
-              <HugeiconsIcon className="size-4" icon={StoreIcon} />
+              <HugeiconsIcon className="size-4" icon={BuildingIcon} />
             </AvatarFallback>
           </Avatar>
 
@@ -183,7 +196,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
                     <AvatarImage src={activeOrganization.logo} />
                   ) : null}
                   <AvatarFallback>
-                    <HugeiconsIcon className="size-4" icon={StoreIcon} />
+                    <HugeiconsIcon className="size-4" icon={BuildingIcon} />
                   </AvatarFallback>
                 </Avatar>
 
@@ -242,7 +255,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
               }
             >
               <HugeiconsIcon className="size-4" icon={PlusIcon} />
-              Create new store
+              Create new organization
             </SheetTrigger>
           </CreateOrganizationLimitGate>
         </DropdownMenuContent>

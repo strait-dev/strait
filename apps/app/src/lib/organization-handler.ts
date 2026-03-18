@@ -114,6 +114,12 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
         headers,
       });
 
+      // Also update the user's defaultOrganizationId
+      await auth.api.updateUser({
+        body: { defaultOrganizationId: data.organizationId },
+        headers,
+      });
+
       return result ?? null;
     } catch {
       return null;

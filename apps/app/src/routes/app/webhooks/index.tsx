@@ -30,6 +30,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { webhookColumns } from "@/components/tables/webhooks-columns";
@@ -37,6 +38,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { webhooksQueryOptions } from "@/hooks/api/use-webhooks";
+import type { AuthUser } from "@/routes/__root";
 import {
   EyeIcon,
   FilterIcon,
@@ -57,7 +59,12 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/webhooks/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(webhooksQueryOptions());
+    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const hasProject = !!session?.user?.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(webhooksQueryOptions());
+    }
+    return { hasProject };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -65,6 +72,12 @@ export const Route = createFileRoute("/app/webhooks/")({
 });
 
 function WebhooksPage() {
+  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
+  const { session } = Route.useRouteContext() as any;
+  if (!hasProject) {
+    return <Shell><NoProjectState user={session.user} /></Shell>;
+  }
+
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { data } = useSuspenseQuery(webhooksQueryOptions());
@@ -205,7 +218,7 @@ function WebhooksPage() {
         <DataTable
           emptyState={
             <div className="py-12 text-center text-muted-foreground">
-              No webhooks configured.
+              No webhooks yet. Create a webhook to receive notifications about run events.
             </div>
           }
           floatingBar={

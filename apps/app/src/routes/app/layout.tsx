@@ -16,7 +16,7 @@ import * as z from "zod";
 import ErrorComponent from "@/components/common/error-component";
 import HeaderBreadcrumb from "@/components/common/header-breadcrumb";
 import HeaderUserMenu from "@/components/common/header-user-menu";
-import { RequireOrganization } from "@/components/common/require-organization";
+import { projectsQueryOptions } from "@/hooks/api/use-projects";
 import Sidebar from "@/components/common/sidebar";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import FeedbackDialog from "@/components/help/feedback-dialog";
@@ -83,11 +83,18 @@ export const Route = createFileRoute("/app")({
 
     const defaultOrgId = session.user.defaultOrganizationId;
 
+    const activeProjectId = session.user.activeProjectId;
+
     await Promise.all([
       context.queryClient.ensureQueryData(organizationsQueryOptions()),
       defaultOrgId
         ? context.queryClient.ensureQueryData(
             organizationQueryOptions(defaultOrgId)
+          )
+        : Promise.resolve(),
+      defaultOrgId
+        ? context.queryClient.ensureQueryData(
+            projectsQueryOptions(defaultOrgId)
           )
         : Promise.resolve(),
       context.queryClient.ensureQueryData(subscriptionQueryOptions()),
@@ -97,6 +104,7 @@ export const Route = createFileRoute("/app")({
     return {
       session,
       hasOrganization: !!defaultOrgId,
+      hasProject: !!activeProjectId,
     };
   },
   errorComponent: ErrorComponent,
@@ -107,6 +115,7 @@ type SearchParams = z.infer<typeof appSearchSchema>;
 type LoaderData = {
   session: NonNullable<Session>;
   hasOrganization: boolean;
+  hasProject: boolean;
 };
 
 function RouteComponent() {
@@ -187,12 +196,7 @@ function RouteComponent() {
           className="flex flex-1 flex-col gap-4 bg-background pt-0"
           vaul-drawer-wrapper=""
         >
-          <RequireOrganization
-            hasOrganization={hasOrganization}
-            organizationId={session.user?.defaultOrganizationId}
-          >
-            <Outlet />
-          </RequireOrganization>
+          <Outlet />
         </div>
       </SidebarInset>
 

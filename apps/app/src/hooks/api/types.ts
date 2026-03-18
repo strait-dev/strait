@@ -450,6 +450,18 @@ export type ProjectSettings = {
   plan_tier: PlanTier;
 };
 
+/** Frontend-managed project entity (stored in the auth DB). */
+export type Project = {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  description: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Queue stats from GET /v1/stats. */
 export type QueueStatsResponse = {
   queued: number;

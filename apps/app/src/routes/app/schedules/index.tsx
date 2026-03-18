@@ -23,6 +23,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
+import { NoProjectState } from "@/components/common/no-project-state";
 import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { ScheduleDetailSheet } from "@/components/dashboard/schedule-detail-sheet";
 import { scheduleColumns } from "@/components/tables/schedules-columns";
@@ -30,6 +31,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import { schedulesQueryOptions } from "@/hooks/api/use-schedules";
+import type { AuthUser } from "@/routes/__root";
 import {
   EyeIcon,
   FilterIcon,
@@ -50,7 +52,12 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/app/schedules/")({
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(schedulesQueryOptions());
+    const session = (context as unknown as { session: { user: AuthUser } }).session;
+    const hasProject = !!session?.user?.activeProjectId;
+    if (hasProject) {
+      await context.queryClient.ensureQueryData(schedulesQueryOptions());
+    }
+    return { hasProject };
   },
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
@@ -58,6 +65,12 @@ export const Route = createFileRoute("/app/schedules/")({
 });
 
 function SchedulesPage() {
+  const { hasProject } = Route.useLoaderData() as { hasProject: boolean };
+  const { session } = Route.useRouteContext() as any;
+  if (!hasProject) {
+    return <Shell><NoProjectState user={session.user} /></Shell>;
+  }
+
   const { data } = useSuspenseQuery(schedulesQueryOptions()) as {
     data: PaginatedResponse<Job>;
   };
@@ -192,7 +205,7 @@ function SchedulesPage() {
         }}
       >
         <DataTable
-          emptyState={<div>No schedules found</div>}
+          emptyState={<div className="flex h-[300px] items-center justify-center text-muted-foreground">No schedules yet. Add a cron expression to a job to create a schedule.</div>}
           floatingBar={
             <DataTableFloatingBar
               actions={[
