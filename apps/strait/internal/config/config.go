@@ -154,6 +154,15 @@ type Config struct {
 	// OTel metrics push
 	OTLPMetricEndpoint string `mapstructure:"OTLP_METRIC_ENDPOINT"`
 	OTLPMetricEnabled  bool   `mapstructure:"OTLP_METRIC_ENABLED"`
+
+	// Polar billing integration
+	PolarAccessToken      string `mapstructure:"POLAR_ACCESS_TOKEN"`
+	PolarWebhookSecret    string `mapstructure:"POLAR_WEBHOOK_SECRET"`
+	PolarServer           string `mapstructure:"POLAR_SERVER"`
+	PolarStarterMonthlyID string `mapstructure:"POLAR_STARTER_MONTHLY_ID"`
+	PolarStarterYearlyID  string `mapstructure:"POLAR_STARTER_YEARLY_ID"`
+	PolarProMonthlyID     string `mapstructure:"POLAR_PRO_MONTHLY_ID"`
+	PolarProYearlyID      string `mapstructure:"POLAR_PRO_YEARLY_ID"`
 }
 
 func setDefaults() {

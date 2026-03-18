@@ -6,16 +6,16 @@ import "slices"
 type PlanTier string
 
 const (
-	PlanFree         PlanTier = "free"
-	PlanStarter      PlanTier = "starter"
-	PlanProfessional PlanTier = "professional"
-	PlanEnterprise   PlanTier = "enterprise"
+	PlanFree       PlanTier = "free"
+	PlanStarter    PlanTier = "starter"
+	PlanPro        PlanTier = "pro"
+	PlanEnterprise PlanTier = "enterprise"
 )
 
 // IsValid returns true if the plan tier is a recognized value.
 func (p PlanTier) IsValid() bool {
 	switch p {
-	case PlanFree, PlanStarter, PlanProfessional, PlanEnterprise:
+	case PlanFree, PlanStarter, PlanPro, PlanEnterprise:
 		return true
 	}
 	return false
@@ -44,8 +44,8 @@ func AllPlanConfigs() map[PlanTier]PlanConfig {
 			AllowedRegions: []string{"iad", "lax", "lhr", "fra", "nrt", "syd"},
 			MultiRegion:    false,
 		},
-		PlanProfessional: {
-			Tier:           PlanProfessional,
+		PlanPro: {
+			Tier:           PlanPro,
 			MaxRegions:     3,
 			AllowedRegions: nil, // all regions
 			MultiRegion:    true,

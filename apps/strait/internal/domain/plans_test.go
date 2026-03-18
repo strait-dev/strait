@@ -13,7 +13,7 @@ func TestPlanTier_IsValid(t *testing.T) {
 	}{
 		{PlanFree, true},
 		{PlanStarter, true},
-		{PlanProfessional, true},
+		{PlanPro, true},
 		{PlanEnterprise, true},
 		{PlanTier("unknown"), false},
 		{PlanTier(""), false},
@@ -63,14 +63,14 @@ func TestGetPlanConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("professional_plan", func(t *testing.T) {
+	t.Run("pro_plan", func(t *testing.T) {
 		t.Parallel()
-		cfg := GetPlanConfig(PlanProfessional)
+		cfg := GetPlanConfig(PlanPro)
 		if cfg.MaxRegions != 3 {
 			t.Errorf("expected MaxRegions=3, got %d", cfg.MaxRegions)
 		}
 		if !cfg.MultiRegion {
-			t.Error("expected MultiRegion=true for professional plan")
+			t.Error("expected MultiRegion=true for pro plan")
 		}
 		if cfg.AllowedRegions != nil {
 			t.Errorf("expected nil AllowedRegions (all regions), got %v", cfg.AllowedRegions)
@@ -117,9 +117,9 @@ func TestIsRegionAllowed(t *testing.T) {
 		{"starter_lax", PlanStarter, "lax", true},
 		{"starter_ord", PlanStarter, "ord", false},
 		{"starter_hkg", PlanStarter, "hkg", false},
-		{"professional_iad", PlanProfessional, "iad", true},
-		{"professional_hkg", PlanProfessional, "hkg", true},
-		{"professional_any", PlanProfessional, "jnb", true},
+		{"pro_iad", PlanPro, "iad", true},
+		{"pro_hkg", PlanPro, "hkg", true},
+		{"pro_any", PlanPro, "jnb", true},
 		{"enterprise_iad", PlanEnterprise, "iad", true},
 		{"enterprise_any", PlanEnterprise, "bog", true},
 	}

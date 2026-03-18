@@ -264,7 +264,7 @@ func TestHandleListRegions_IncludesAvailability(t *testing.T) {
 			if !r.Availability["starter"] {
 				t.Error("expected iad available on starter plan")
 			}
-			if !r.Availability["professional"] {
+			if !r.Availability["pro"] {
 				t.Error("expected iad available on professional plan")
 			}
 			if !r.Availability["enterprise"] {
@@ -278,7 +278,7 @@ func TestHandleListRegions_IncludesAvailability(t *testing.T) {
 			if r.Availability["starter"] {
 				t.Error("expected hkg NOT available on starter plan")
 			}
-			if !r.Availability["professional"] {
+			if !r.Availability["pro"] {
 				t.Error("expected hkg available on professional plan")
 			}
 		}

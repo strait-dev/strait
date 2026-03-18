@@ -37,10 +37,10 @@ func (s *Server) handleListRegions(w http.ResponseWriter, _ *http.Request) {
 
 		// Annotate per-plan availability.
 		resp.Availability = map[string]bool{
-			string(domain.PlanFree):         domain.IsRegionAllowed(domain.PlanFree, reg.Code),
-			string(domain.PlanStarter):      domain.IsRegionAllowed(domain.PlanStarter, reg.Code),
-			string(domain.PlanProfessional): domain.IsRegionAllowed(domain.PlanProfessional, reg.Code),
-			string(domain.PlanEnterprise):   domain.IsRegionAllowed(domain.PlanEnterprise, reg.Code),
+			string(domain.PlanFree):       domain.IsRegionAllowed(domain.PlanFree, reg.Code),
+			string(domain.PlanStarter):    domain.IsRegionAllowed(domain.PlanStarter, reg.Code),
+			string(domain.PlanPro):        domain.IsRegionAllowed(domain.PlanPro, reg.Code),
+			string(domain.PlanEnterprise): domain.IsRegionAllowed(domain.PlanEnterprise, reg.Code),
 		}
 
 		regions[i] = resp
