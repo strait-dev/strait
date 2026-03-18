@@ -22,7 +22,9 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { runColumns } from "@/components/tables/runs-columns";
@@ -63,6 +65,8 @@ export const Route = createFileRoute("/app/runs/")({
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(runsQueryOptions());
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: RunsPage,
 });
 

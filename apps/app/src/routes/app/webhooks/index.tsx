@@ -29,6 +29,8 @@ import { formatDistanceToNow } from "date-fns";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { webhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -57,6 +59,8 @@ export const Route = createFileRoute("/app/webhooks/")({
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(webhooksQueryOptions());
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: WebhooksPage,
 });
 

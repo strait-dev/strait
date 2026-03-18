@@ -22,6 +22,8 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { ScheduleDetailSheet } from "@/components/dashboard/schedule-detail-sheet";
 import { scheduleColumns } from "@/components/tables/schedules-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -50,6 +52,8 @@ export const Route = createFileRoute("/app/schedules/")({
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(schedulesQueryOptions());
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: SchedulesPage,
 });
 

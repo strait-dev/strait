@@ -22,7 +22,9 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
+import ErrorComponent from "@/components/common/error-component";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import type { ExecutionTrace, JobRun, RunStatus } from "@/hooks/api/types";
 import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
@@ -35,6 +37,8 @@ export const Route = createFileRoute("/app/runs/$id")({
       context.queryClient.ensureQueryData(runEventsQueryOptions(params.id)),
     ]);
   },
+  pendingComponent: DetailPageSkeleton,
+  errorComponent: ErrorComponent,
   component: RunDetailPage,
 });
 

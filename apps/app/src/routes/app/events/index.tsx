@@ -8,6 +8,8 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { formatDistanceToNow } from "date-fns";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import type { EventTrigger } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 
@@ -55,6 +57,8 @@ export const Route = createFileRoute("/app/events/")({
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(eventsQueryOptions());
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: EventsPage,
 });
 

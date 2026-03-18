@@ -33,7 +33,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
+import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { ChartTooltip } from "@/components/dashboard/chart-tooltip";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
@@ -64,6 +66,8 @@ export const Route = createFileRoute("/app/jobs/$id")({
       context.queryClient.ensureQueryData(runsQueryOptions()),
     ]);
   },
+  pendingComponent: DetailPageSkeleton,
+  errorComponent: ErrorComponent,
   component: JobDetailPage,
 });
 

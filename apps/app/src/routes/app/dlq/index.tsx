@@ -23,7 +23,9 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
 
+import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
+import { TablePageSkeleton } from "@/components/common/table-page-skeleton";
 import { RunDetailSheet } from "@/components/dashboard/run-detail-sheet";
 import { dlqColumns } from "@/components/tables/dlq-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -59,6 +61,8 @@ export const Route = createFileRoute("/app/dlq/")({
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(dlqQueryOptions());
   },
+  pendingComponent: TablePageSkeleton,
+  errorComponent: ErrorComponent,
   component: DlqPage,
 });
 

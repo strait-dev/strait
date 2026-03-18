@@ -25,7 +25,9 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
+import { DetailPageSkeleton } from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
+import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { WorkflowDAGFlow } from "@/components/dashboard/workflow-dag-flow";
@@ -54,6 +56,8 @@ export const Route = createFileRoute("/app/workflows/$id")({
       context.queryClient.ensureQueryData(workflowRunsQueryOptions(params.id)),
     ]);
   },
+  pendingComponent: DetailPageSkeleton,
+  errorComponent: ErrorComponent,
   component: WorkflowDetailPage,
 });
 
