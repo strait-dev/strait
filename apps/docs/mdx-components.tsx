@@ -6,7 +6,9 @@ import { createAPIPage } from "fumadocs-openapi/ui";
 import { openapi } from "@/lib/openapi";
 import type { MDXComponents } from "mdx/types";
 
-const APIPage = createAPIPage(openapi);
+const APIPage = createAPIPage(openapi, {
+  playground: { enabled: true },
+});
 
 export function getMDXComponents(components?: MDXComponents): MDXComponents {
   return {
