@@ -1,0 +1,211 @@
+package cdc
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+)
+
+func TestCollect_AllActions(t *testing.T) {
+	t.Parallel()
+	actions := []Action{ActionInsert, ActionUpdate, ActionDelete}
+	pub := &mockPublisher{}
+
+	for _, action := range actions {
+		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
+			h := NewJobRunHandler(pub, nil)
+			msg := Message{
+				Action:   action,
+				Record:   json.RawMessage(`{"id":"r1","job_id":"j1","project_id":"p1","status":"completed"}`),
+				Changes:  json.RawMessage(`{}`),
+				Metadata: Metadata{TableName: "job_runs", CommitTimestamp: "2026-03-18T00:00:00Z"},
+			}
+			pubMsg, err := h.Collect(context.Background(), msg)
+			if err != nil {
+				t.Fatalf("Collect() error = %v", err)
+			}
+			if pubMsg == nil {
+				t.Fatal("expected non-nil message")
+			}
+			var event ChangeEvent
+			if err := json.Unmarshal(pubMsg.Data, &event); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if event.Action != action {
+				t.Errorf("action = %q, want %q", event.Action, action)
+			}
+		})
+	}
+}
+
+func TestCollect_PreservesChangesField(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{}
+	h := NewJobRunHandler(pub, nil)
+
+	changes := json.RawMessage(`{"status":{"old":"executing","new":"completed"}}`)
+	msg := Message{
+		Action:   ActionUpdate,
+		Record:   json.RawMessage(`{"id":"r1","job_id":"j1","project_id":"p1","status":"completed"}`),
+		Changes:  changes,
+		Metadata: Metadata{TableName: "job_runs", CommitTimestamp: "2026-03-18T00:00:00Z"},
+	}
+
+	pubMsg, err := h.Collect(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+
+	var event ChangeEvent
+	if err := json.Unmarshal(pubMsg.Data, &event); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if string(event.Changes) != string(changes) {
+		t.Errorf("changes not preserved: got %s, want %s", event.Changes, changes)
+	}
+}
+
+func TestCollect_PreservesTimestamp(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{}
+	h := NewWorkflowRunHandler(pub, nil)
+
+	ts := "2026-03-18T12:34:56Z"
+	msg := Message{
+		Action:   ActionInsert,
+		Record:   json.RawMessage(`{"id":"wfr-1","workflow_id":"wf-1","project_id":"p1","status":"running"}`),
+		Metadata: Metadata{TableName: "workflow_runs", CommitTimestamp: ts},
+	}
+
+	pubMsg, err := h.Collect(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+
+	var event ChangeEvent
+	if err := json.Unmarshal(pubMsg.Data, &event); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if event.Timestamp != ts {
+		t.Errorf("timestamp = %q, want %q", event.Timestamp, ts)
+	}
+}
+
+func TestCollect_InvalidRecord_AllHandlers(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{}
+	invalid := json.RawMessage(`{broken`)
+
+	handlers := []CollectableHandler{
+		NewJobRunHandler(pub, nil),
+		NewWorkflowRunHandler(pub, nil),
+		NewWorkflowStepRunHandler(pub, nil),
+		NewEventTriggerHandler(pub, nil),
+	}
+
+	for _, h := range handlers {
+		t.Run(h.Table(), func(t *testing.T) {
+			t.Parallel()
+			msg := Message{
+				Action:   ActionInsert,
+				Record:   invalid,
+				Metadata: Metadata{TableName: h.Table()},
+			}
+			_, err := h.Collect(context.Background(), msg)
+			if err == nil {
+				t.Errorf("handler %s: expected error for invalid record", h.Table())
+			}
+		})
+	}
+}
+
+func TestCollect_EmptyProjectID(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{}
+	h := NewJobRunHandler(pub, nil)
+
+	msg := Message{
+		Action:   ActionInsert,
+		Record:   json.RawMessage(`{"id":"r1","job_id":"j1","project_id":"","status":"completed"}`),
+		Metadata: Metadata{TableName: "job_runs", CommitTimestamp: "2026-03-18T00:00:00Z"},
+	}
+
+	pubMsg, err := h.Collect(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	// Channel should still be formed, even with empty project ID.
+	if pubMsg.Channel != "cdc:project::job_runs" {
+		t.Errorf("Channel = %q, want %q", pubMsg.Channel, "cdc:project::job_runs")
+	}
+}
+
+func TestCollect_LargeRecord(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{}
+	h := NewJobRunHandler(pub, nil)
+
+	// Build a large record with a big payload field.
+	largePayload := make([]byte, 100000)
+	for i := range largePayload {
+		largePayload[i] = 'x'
+	}
+	record, _ := json.Marshal(map[string]any{
+		"id":         "r1",
+		"job_id":     "j1",
+		"project_id": "p1",
+		"status":     "completed",
+		"payload":    string(largePayload),
+	})
+
+	msg := Message{
+		Action:   ActionInsert,
+		Record:   record,
+		Metadata: Metadata{TableName: "job_runs", CommitTimestamp: "2026-03-18T00:00:00Z"},
+	}
+
+	pubMsg, err := h.Collect(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if len(pubMsg.Data) < 100000 {
+		t.Errorf("large record should produce large message, got %d bytes", len(pubMsg.Data))
+	}
+}
+
+func TestCollectChangeEvent_EmptyRecord(t *testing.T) {
+	t.Parallel()
+	event := ChangeEvent{
+		Table:  "job_runs",
+		Action: ActionInsert,
+		Record: json.RawMessage(`{}`),
+		Source: "cdc",
+	}
+
+	msg, err := collectChangeEvent(event, "ch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.Channel != "ch" {
+		t.Errorf("Channel = %q, want %q", msg.Channel, "ch")
+	}
+}
+
+func TestCollectChangeEvent_NilRecord(t *testing.T) {
+	t.Parallel()
+	event := ChangeEvent{
+		Table:  "job_runs",
+		Action: ActionInsert,
+		Record: nil,
+		Source: "cdc",
+	}
+
+	msg, err := collectChangeEvent(event, "ch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg == nil {
+		t.Fatal("expected non-nil message")
+	}
+}

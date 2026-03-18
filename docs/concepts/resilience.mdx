@@ -30,6 +30,21 @@ last_failure_at TIMESTAMPTZ
 
 The in-memory circuit breaker (`apps/strait/internal/worker/circuitbreaker.go`) provides fast lookups during dispatch. The PostgreSQL table provides durability.
 
+### Endpoint Health Scoring
+
+In addition to the binary circuit breaker, Strait supports continuous health scoring for endpoints. The health score (0-100) is computed using an Exponentially Weighted Moving Average (EWMA) of three signals:
+
+- **Success rate** (50% weight): Fraction of dispatches that return a successful response.
+- **Failure/timeout rate** (30% weight): Fraction of dispatches that fail or time out.
+- **Latency score** (20% weight): How close the P95 latency is to the job's configured timeout.
+
+**Health levels:**
+- **Healthy (score > 60)**: Full concurrency allowed.
+- **Degraded (score 30-60)**: Concurrency is proportionally throttled (down to 25% of max).
+- **Unhealthy (score < 30)**: Endpoint is blocked (equivalent to circuit open). Runs are snoozed with backoff.
+
+The health score is stored in the `endpoint_health_scores` table and updated on every dispatch result. Recovery happens naturally as successful dispatches raise the EWMA score back above thresholds.
+
 ### Fallback Endpoint
 
 When a job has a `fallback_endpoint_url` configured and the primary endpoint fails dispatch, Strait automatically retries against the fallback URL. The fallback fires when:
