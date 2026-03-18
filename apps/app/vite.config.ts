@@ -1,3 +1,4 @@
+import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
 import { nitroV2Plugin } from "@tanstack/nitro-v2-vite-plugin";
@@ -21,6 +22,11 @@ export default defineConfig({
     }),
     nitroV2Plugin({ preset: "vercel", compatibilityDate: "2025-10-27" }),
     viteReact(),
+    sentryTanstackStart({
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+    }),
   ],
   optimizeDeps: {
     include: ["@hugeicons/react"],
