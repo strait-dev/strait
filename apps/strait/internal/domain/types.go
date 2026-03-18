@@ -479,6 +479,35 @@ type EndpointCircuitState struct {
 	CreatedAt           time.Time    `json:"created_at"`
 }
 
+// EndpointHealthScore tracks continuous health scoring for an endpoint.
+// Score ranges from 0-100 where:
+//   - Score > 60: healthy (full concurrency)
+//   - Score 30-60: degraded (throttled concurrency)
+//   - Score < 30: unhealthy (blocked, equivalent to circuit open)
+type EndpointHealthScore struct {
+	EndpointURL   string    `json:"endpoint_url"`
+	HealthScore   float64   `json:"health_score"`
+	SuccessRate   float64   `json:"success_rate"`
+	TimeoutRate   float64   `json:"timeout_rate"`
+	LatencyScore  float64   `json:"latency_score"`
+	TotalRequests int64     `json:"total_requests"`
+	LastLatencyMs float64   `json:"last_latency_ms"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// HealthLevel returns the health classification for the endpoint.
+func (h *EndpointHealthScore) HealthLevel() string {
+	switch {
+	case h.HealthScore < 30:
+		return "unhealthy"
+	case h.HealthScore <= 60:
+		return "degraded"
+	default:
+		return "healthy"
+	}
+}
+
 type WebhookDelivery struct {
 	ID             string     `json:"id"`
 	RunID          string     `json:"run_id,omitempty"`

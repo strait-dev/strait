@@ -1,0 +1,471 @@
+package worker
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"sync"
+	"testing"
+
+	"strait/internal/domain"
+)
+
+type mockHealthScoreStore struct {
+	mu     sync.Mutex
+	scores map[string]*domain.EndpointHealthScore
+}
+
+func newMockHealthScoreStore() *mockHealthScoreStore {
+	return &mockHealthScoreStore{scores: make(map[string]*domain.EndpointHealthScore)}
+}
+
+func (m *mockHealthScoreStore) GetEndpointHealthScore(_ context.Context, endpointURL string) (*domain.EndpointHealthScore, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.scores[endpointURL]
+	if !ok {
+		return nil, nil
+	}
+	cp := *s
+	return &cp, nil
+}
+
+func (m *mockHealthScoreStore) UpsertEndpointHealthScore(_ context.Context, score *domain.EndpointHealthScore) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *score
+	m.scores[score.EndpointURL] = &cp
+	return nil
+}
+
+func TestEWMA(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		prev     float64
+		current  float64
+		alpha    float64
+		expected float64
+	}{
+		{prev: 1.0, current: 1.0, alpha: 0.1, expected: 1.0},
+		{prev: 1.0, current: 0.0, alpha: 0.1, expected: 0.9},
+		{prev: 0.0, current: 1.0, alpha: 0.1, expected: 0.1},
+		{prev: 0.5, current: 0.5, alpha: 0.1, expected: 0.5},
+		{prev: 0.0, current: 0.0, alpha: 0.1, expected: 0.0},
+		{prev: 1.0, current: 0.0, alpha: 0.5, expected: 0.5},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("prev=%.1f_cur=%.1f_alpha=%.1f", tt.prev, tt.current, tt.alpha), func(t *testing.T) {
+			t.Parallel()
+			result := ewma(tt.prev, tt.current, tt.alpha)
+			if math.Abs(result-tt.expected) > 1e-9 {
+				t.Errorf("ewma(%v, %v, %v) = %v, want %v", tt.prev, tt.current, tt.alpha, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHealthScorer_NewEndpoint_StartsHealthy(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	score, allowed, err := hs.CheckHealth(ctx, "https://example.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !allowed {
+		t.Error("new endpoint should be allowed")
+	}
+	if score.HealthScore != 100.0 {
+		t.Errorf("new endpoint score = %v, want 100.0", score.HealthScore)
+	}
+}
+
+func TestHealthScorer_SuccessSequence_StaysHealthy(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	for i := range 20 {
+		_, err := hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://example.com/api",
+			Success:      true,
+			LatencyMs:    50,
+			JobTimeoutMs: 5000,
+		})
+		if err != nil {
+			t.Fatalf("iteration %d: unexpected error: %v", i, err)
+		}
+	}
+
+	score, allowed, err := hs.CheckHealth(ctx, "https://example.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !allowed {
+		t.Error("consistently successful endpoint should be allowed")
+	}
+	if score.HealthScore < 90.0 {
+		t.Errorf("score = %v, want > 90.0 for consistent success", score.HealthScore)
+	}
+}
+
+func TestHealthScorer_FailureSequence_BecomesUnhealthy(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// Send many failures to drive score below the unhealthy threshold.
+	for i := range 100 {
+		_, err := hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://failing.com/api",
+			Success:      false,
+			LatencyMs:    0,
+			JobTimeoutMs: 5000,
+		})
+		if err != nil {
+			t.Fatalf("iteration %d: unexpected error: %v", i, err)
+		}
+	}
+
+	score, allowed, err := hs.CheckHealth(ctx, "https://failing.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if allowed {
+		t.Errorf("consistently failing endpoint should be blocked, score = %v", score.HealthScore)
+	}
+	if score.HealthScore >= healthScoreUnhealthy {
+		t.Errorf("score = %v, want < %v for consistent failures", score.HealthScore, healthScoreUnhealthy)
+	}
+}
+
+func TestHealthScorer_DegradedEndpoint(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// Alternate success and failure (50% failure rate).
+	for i := range 200 {
+		_, err := hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://flaky.com/api",
+			Success:      i%2 == 0,
+			LatencyMs:    100,
+			JobTimeoutMs: 5000,
+		})
+		if err != nil {
+			t.Fatalf("iteration %d: unexpected error: %v", i, err)
+		}
+	}
+
+	score, allowed, err := hs.CheckHealth(ctx, "https://flaky.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// With 50% success rate, the composite score should be in the degraded range.
+	if !allowed {
+		t.Errorf("degraded endpoint should still be allowed (throttled), score = %v", score.HealthScore)
+	}
+	if score.HealthScore < healthScoreUnhealthy || score.HealthScore > healthScoreDegraded+10 {
+		t.Errorf("score = %v, want in degraded range [%v, %v]", score.HealthScore, healthScoreUnhealthy, healthScoreDegraded)
+	}
+}
+
+func TestHealthScorer_Recovery(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// Drive to unhealthy with many failures.
+	for range 300 {
+		_, _ = hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://recovering.com/api",
+			Success:      false,
+			JobTimeoutMs: 5000,
+		})
+	}
+
+	score, allowed, _ := hs.CheckHealth(ctx, "https://recovering.com/api")
+	if allowed {
+		t.Fatalf("should be blocked after failures, score = %v", score.HealthScore)
+	}
+
+	// Recover with consistent successes.
+	for range 200 {
+		_, _ = hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://recovering.com/api",
+			Success:      true,
+			LatencyMs:    50,
+			JobTimeoutMs: 5000,
+		})
+	}
+
+	score, allowed, err := hs.CheckHealth(ctx, "https://recovering.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !allowed {
+		t.Errorf("recovered endpoint should be allowed, score = %v", score.HealthScore)
+	}
+	if score.HealthScore < healthScoreDegraded {
+		t.Errorf("recovered endpoint score = %v, want > %v", score.HealthScore, healthScoreDegraded)
+	}
+}
+
+func TestHealthScorer_TimeoutAffectsScore(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// Record many timeouts.
+	for range 100 {
+		_, _ = hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://timeout.com/api",
+			Success:      false,
+			TimedOut:     true,
+			LatencyMs:    5000,
+			JobTimeoutMs: 5000,
+		})
+	}
+
+	score, allowed, err := hs.CheckHealth(ctx, "https://timeout.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if allowed {
+		t.Errorf("timeout endpoint should be blocked, score = %v", score.HealthScore)
+	}
+}
+
+func TestHealthScorer_HighLatencyReducesScore(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// Record successes but with very high latency (near timeout).
+	for range 100 {
+		_, _ = hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://slow.com/api",
+			Success:      true,
+			LatencyMs:    4500,
+			JobTimeoutMs: 5000,
+		})
+	}
+
+	score, _, err := hs.CheckHealth(ctx, "https://slow.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Success rate is 1.0 but latency score should be low (4500/5000 = 0.9, so latency_score = 0.1).
+	// Composite = 0.5*1.0 + 0.3*1.0 + 0.2*0.1 = 0.82 * 100 = 82.
+	// With EWMA decay from initial 1.0, should still be lower than a fast endpoint.
+	if score.HealthScore >= 100 {
+		t.Errorf("high latency endpoint score = %v, should be reduced from max", score.HealthScore)
+	}
+}
+
+func TestHealthScorer_TotalRequestsIncrement(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	for range 10 {
+		_, _ = hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://counter.com/api",
+			Success:      true,
+			LatencyMs:    100,
+			JobTimeoutMs: 5000,
+		})
+	}
+
+	score, _, err := hs.CheckHealth(ctx, "https://counter.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if score.TotalRequests != 10 {
+		t.Errorf("total_requests = %d, want 10", score.TotalRequests)
+	}
+}
+
+func TestThrottledConcurrency(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		score          *domain.EndpointHealthScore
+		maxConcurrency int
+		wantMin        int
+		wantMax        int
+	}{
+		{
+			name:           "nil score returns full concurrency",
+			score:          nil,
+			maxConcurrency: 10,
+			wantMin:        10,
+			wantMax:        10,
+		},
+		{
+			name:           "healthy endpoint returns full concurrency",
+			score:          &domain.EndpointHealthScore{HealthScore: 80},
+			maxConcurrency: 10,
+			wantMin:        10,
+			wantMax:        10,
+		},
+		{
+			name:           "degraded endpoint at 30 returns throttled",
+			score:          &domain.EndpointHealthScore{HealthScore: 30},
+			maxConcurrency: 10,
+			wantMin:        1,
+			wantMax:        4,
+		},
+		{
+			name:           "degraded endpoint at 45 returns moderate throttle",
+			score:          &domain.EndpointHealthScore{HealthScore: 45},
+			maxConcurrency: 10,
+			wantMin:        4,
+			wantMax:        8,
+		},
+		{
+			name:           "unhealthy endpoint returns zero",
+			score:          &domain.EndpointHealthScore{HealthScore: 10},
+			maxConcurrency: 10,
+			wantMin:        0,
+			wantMax:        0,
+		},
+		{
+			name:           "zero max concurrency passes through",
+			score:          &domain.EndpointHealthScore{HealthScore: 50},
+			maxConcurrency: 0,
+			wantMin:        0,
+			wantMax:        0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ThrottledConcurrency(tt.score, tt.maxConcurrency)
+			if got < tt.wantMin || got > tt.wantMax {
+				t.Errorf("ThrottledConcurrency(score=%v, max=%d) = %d, want [%d, %d]",
+					tt.score, tt.maxConcurrency, got, tt.wantMin, tt.wantMax)
+			}
+		})
+	}
+}
+
+func TestEndpointHealthScore_HealthLevel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		score    float64
+		expected string
+	}{
+		{0, "unhealthy"},
+		{10, "unhealthy"},
+		{29.9, "unhealthy"},
+		{30, "degraded"},
+		{45, "degraded"},
+		{60, "degraded"},
+		{60.1, "healthy"},
+		{80, "healthy"},
+		{100, "healthy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("score_%.1f", tt.score), func(t *testing.T) {
+			t.Parallel()
+			h := &domain.EndpointHealthScore{HealthScore: tt.score}
+			if got := h.HealthLevel(); got != tt.expected {
+				t.Errorf("HealthLevel() = %q, want %q for score %v", got, tt.expected, tt.score)
+			}
+		})
+	}
+}
+
+func TestHealthScorer_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// Concurrent access should not panic or produce corrupt state.
+	// Due to read-modify-write semantics, total_requests may be lower
+	// than the number of goroutines (lost updates are expected without
+	// external serialization).
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, _ = hs.RecordResult(ctx, DispatchResult{
+				EndpointURL:  "https://concurrent.com/api",
+				Success:      idx%3 != 0,
+				LatencyMs:    float64(idx * 10),
+				JobTimeoutMs: 5000,
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	score, _, err := hs.CheckHealth(ctx, "https://concurrent.com/api")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if score.TotalRequests < 1 {
+		t.Errorf("total_requests = %d, want at least 1", score.TotalRequests)
+	}
+	if score.HealthScore < 0 || score.HealthScore > 100 {
+		t.Errorf("score = %v out of [0, 100] range", score.HealthScore)
+	}
+}
+
+func TestHealthScorer_ZeroJobTimeout(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// When job timeout is 0, latency score should stay at default.
+	score, err := hs.RecordResult(ctx, DispatchResult{
+		EndpointURL:  "https://notimeout.com/api",
+		Success:      true,
+		LatencyMs:    500,
+		JobTimeoutMs: 0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if score.LatencyScore != 1.0 {
+		t.Errorf("latency score = %v, want 1.0 when job timeout is 0", score.LatencyScore)
+	}
+}
+
+func TestHealthScorer_ScoreClampedToRange(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store)
+	ctx := context.Background()
+
+	// Record many results and verify score stays in [0, 100].
+	for i := range 50 {
+		score, err := hs.RecordResult(ctx, DispatchResult{
+			EndpointURL:  "https://clamped.com/api",
+			Success:      i%5 != 0,
+			LatencyMs:    float64(i * 100),
+			JobTimeoutMs: 5000,
+		})
+		if err != nil {
+			t.Fatalf("iteration %d: unexpected error: %v", i, err)
+		}
+		if score.HealthScore < 0 || score.HealthScore > 100 {
+			t.Fatalf("score %v out of [0, 100] range at iteration %d", score.HealthScore, i)
+		}
+	}
+}

@@ -243,6 +243,14 @@ func (m *mockExecutorStore) GetPresetRecommendation(ctx context.Context, jobID s
 	return nil, nil
 }
 
+func (m *mockExecutorStore) GetEndpointHealthScore(_ context.Context, _ string) (*domain.EndpointHealthScore, error) {
+	return nil, nil
+}
+
+func (m *mockExecutorStore) UpsertEndpointHealthScore(_ context.Context, _ *domain.EndpointHealthScore) error {
+	return nil
+}
+
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

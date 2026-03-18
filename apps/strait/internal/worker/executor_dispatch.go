@@ -190,7 +190,34 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 
-	acquired := e.tryAcquireBulkheadSlot(job.ID, job.MaxConcurrency)
+	// Health score check: block unhealthy endpoints, throttle degraded ones.
+	healthScore, healthAllowed, healthErr := e.healthScorer.CheckHealth(ctx, job.EndpointURL)
+	if healthErr != nil {
+		e.logger.Warn(
+			"health score check failed, proceeding with dispatch",
+			"run_id", run.ID,
+			"endpoint", job.EndpointURL,
+			"error", healthErr,
+		)
+	} else if !healthAllowed {
+		healthRetryAt := NextRetryAt(run.Attempt)
+		e.logger.Info(
+			"endpoint unhealthy, snoozing run",
+			"run_id", run.ID,
+			"endpoint", job.EndpointURL,
+			"health_score", healthScore.HealthScore,
+		)
+		e.snoozeRun(ctx, run, "endpoint health score below threshold", &healthRetryAt)
+		return
+	}
+
+	// Apply health-based concurrency throttling for degraded endpoints.
+	effectiveConcurrency := job.MaxConcurrency
+	if healthScore != nil {
+		effectiveConcurrency = ThrottledConcurrency(healthScore, job.MaxConcurrency)
+	}
+
+	acquired := e.tryAcquireBulkheadSlot(job.ID, effectiveConcurrency)
 	if !acquired {
 		bulkheadRetryAt := NextRetryAt(run.Attempt)
 		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)

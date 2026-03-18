@@ -46,16 +46,27 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
 	}
 
+	var execDur time.Duration
+	if run.StartedAt != nil {
+		execDur = now.Sub(*run.StartedAt)
+	}
+
+	// Record health score for successful dispatch.
+	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
+		EndpointURL:  job.EndpointURL,
+		Success:      true,
+		LatencyMs:    float64(execDur.Milliseconds()),
+		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
+	}); hsErr != nil {
+		e.logger.Warn("failed to record health score success", "endpoint", job.EndpointURL, "error", hsErr)
+	}
+
 	e.logger.Info(
 		"run completed",
 		"run_id", run.ID,
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
 	)
-	var execDur time.Duration
-	if run.StartedAt != nil {
-		execDur = now.Sub(*run.StartedAt)
-	}
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventCompleted, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusCompleted,
@@ -139,6 +150,16 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	errClass := classifyError(err)
 	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
 		e.logger.Warn("failed to record circuit breaker failure", "endpoint", job.EndpointURL, "error", recordErr)
+	}
+
+	// Record health score for failed dispatch.
+	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
+		EndpointURL:  job.EndpointURL,
+		Success:      false,
+		LatencyMs:    0,
+		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
+	}); hsErr != nil {
+		e.logger.Warn("failed to record health score failure", "endpoint", job.EndpointURL, "error", hsErr)
 	}
 
 	e.logger.Warn(
@@ -240,6 +261,17 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 
 	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
 		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", job.EndpointURL, "error", err)
+	}
+
+	// Record health score for timeout (counts as failure with timeout flag).
+	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
+		EndpointURL:  job.EndpointURL,
+		Success:      false,
+		TimedOut:     true,
+		LatencyMs:    float64(job.TimeoutSecs * 1000),
+		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
+	}); hsErr != nil {
+		e.logger.Warn("failed to record health score timeout", "endpoint", job.EndpointURL, "error", hsErr)
 	}
 
 	e.logger.Warn(

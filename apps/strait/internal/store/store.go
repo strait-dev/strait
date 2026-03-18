@@ -120,6 +120,8 @@ type RunStore interface {
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
+	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
+	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)

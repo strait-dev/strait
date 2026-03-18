@@ -46,6 +46,8 @@ type ExecutorStore interface {
 	SetRunMachineID(ctx context.Context, runID, machineID string) error
 	RecordOOMEvent(ctx context.Context, jobID, preset string) error
 	GetPresetRecommendation(ctx context.Context, jobID string) (*store.PresetRecommendation, error)
+	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
+	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
 }
 
 type executionPolicy struct {
@@ -87,6 +89,7 @@ type Executor struct {
 	jobActiveRunsMu          sync.Mutex
 	circuitThreshold         int
 	circuitOpenFor           time.Duration
+	healthScorer             *HealthScorer
 	logger                   *slog.Logger
 	webhookMaxRetry          int
 	middlewares              []ExecutionMiddleware
@@ -238,6 +241,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		machinePool:              machinePool,
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultFlyRegion:         cfg.DefaultFlyRegion,
+		healthScorer:             NewHealthScorer(cfg.Store),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 	}

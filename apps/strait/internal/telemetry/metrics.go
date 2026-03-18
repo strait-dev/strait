@@ -36,6 +36,7 @@ type Metrics struct {
 	WebhookDeliveryAttempts  metric.Int64Counter
 	WebhookRetryAttempts     metric.Int64Counter
 	WebhookCircuitBreaker    metric.Int64Gauge
+	EndpointHealthScore      metric.Float64Gauge
 	WebhookPayloadBytes      metric.Int64Histogram
 	AnalyticsQueryDuration   metric.Float64Histogram
 	BulkOperationsTotal      metric.Int64Counter
@@ -271,6 +272,15 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create webhook circuit breaker gauge: %w", err)
+	}
+
+	endpointHealthScore, err := meter.Float64Gauge(
+		"strait_endpoint_health_score",
+		metric.WithDescription("Endpoint health score (0-100, lower is worse)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create endpoint health score gauge: %w", err)
 	}
 
 	webhookPayloadBytes, err := meter.Int64Histogram(
@@ -535,6 +545,7 @@ func InitMetrics(serviceName string) (*Metrics, http.Handler, func(context.Conte
 		WebhookDeliveryAttempts:  webhookDeliveryAttempts,
 		WebhookRetryAttempts:     webhookRetryAttempts,
 		WebhookCircuitBreaker:    webhookCircuitBreaker,
+		EndpointHealthScore:      endpointHealthScore,
 		WebhookPayloadBytes:      webhookPayloadBytes,
 		EventTriggersCreated:     eventTriggersCreated,
 		EventTriggersReceived:    eventTriggersReceived,
