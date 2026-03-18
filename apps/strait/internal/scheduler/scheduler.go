@@ -23,6 +23,7 @@ type SchedulerStore interface {
 	IndexMaintenanceStore
 	StatsAggregatorStore
 	CostEstimateRefresherStore
+	MemoryCleanupStore
 	store.DebounceStore
 	store.BatchStore
 	store.RunComputeUsageStore
@@ -38,6 +39,7 @@ type Scheduler struct {
 	statsAggregator       *StatsAggregator
 	budgetMonitor         *BudgetMonitor
 	costEstimateRefresher *CostEstimateRefresher
+	memoryCleanup         *MemoryCleanup
 	wg                    conc.WaitGroup
 }
 
@@ -58,6 +60,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		statsAggregator:       NewStatsAggregator(s),
 		budgetMonitor:         NewBudgetMonitor(s, nil, 5*time.Minute),
 		costEstimateRefresher: NewCostEstimateRefresher(s, time.Hour),
+		memoryCleanup:         NewMemoryCleanup(s, 5*time.Minute),
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -96,6 +99,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
 	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
 	s.wg.Go(func() { s.costEstimateRefresher.Run(ctx) })
+	s.wg.Go(func() { s.memoryCleanup.Run(ctx) })
 
 	slog.Info("scheduler started")
 	return nil

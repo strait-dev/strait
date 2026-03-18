@@ -190,6 +190,9 @@ func (m *mockSchedulerStore) ListActiveJobIDs(_ context.Context) ([]string, erro
 	return nil, nil
 }
 func (m *mockSchedulerStore) UpsertJobCostEstimate(_ context.Context, _ string) error { return nil }
+func (m *mockSchedulerStore) DeleteExpiredJobMemory(_ context.Context) (int64, error) {
+	return 0, nil
+}
 
 func testSchedulerConfig() *config.Config {
 	return &config.Config{

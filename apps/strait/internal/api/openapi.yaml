@@ -4748,6 +4748,98 @@ paths:
         '429':
           description: Iteration limit exceeded
 
+  /sdk/v1/runs/{runID}/memory:
+    get:
+      tags:
+        - SDK
+      summary: List all job memory keys
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Memory keys listed
+
+  /sdk/v1/runs/{runID}/memory/{key}:
+    post:
+      tags:
+        - SDK
+      summary: Set job memory key
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - value
+              properties:
+                value:
+                  type: object
+                ttl_secs:
+                  type: integer
+      responses:
+        '201':
+          description: Memory key set
+    get:
+      tags:
+        - SDK
+      summary: Get job memory key
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Memory key value
+    delete:
+      tags:
+        - SDK
+      summary: Delete job memory key
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Memory key deleted
+
   /sdk/v1/runs/{runID}/stream:
     post:
       tags:
@@ -4811,6 +4903,129 @@ paths:
       responses:
         '200':
           description: State keys listed
+
+  /v1/notification-channels:
+    post:
+      tags:
+        - NotificationChannels
+      summary: Create a notification channel
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNotificationChannelRequest'
+      responses:
+        '201':
+          description: Notification channel created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+    get:
+      tags:
+        - NotificationChannels
+      summary: List notification channels
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of notification channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationChannel'
+
+  /v1/notification-channels/{channelID}:
+    parameters:
+      - name: channelID
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - NotificationChannels
+      summary: Get a notification channel
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Notification channel details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+    patch:
+      tags:
+        - NotificationChannels
+      summary: Update a notification channel
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationChannelRequest'
+      responses:
+        '200':
+          description: Notification channel updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+    delete:
+      tags:
+        - NotificationChannels
+      summary: Delete a notification channel
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Notification channel deleted
+
+  /v1/notification-deliveries:
+    get:
+      tags:
+        - NotificationChannels
+      summary: List notification deliveries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: List of notification deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationDelivery'
 
 components:
   securitySchemes:
@@ -7336,3 +7551,91 @@ components:
           type: string
         plan_tier:
           type: string
+
+    NotificationChannel:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        channel_type:
+          type: string
+          enum: [slack, discord, webhook, email]
+        name:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateNotificationChannelRequest:
+      type: object
+      required:
+        - project_id
+        - channel_type
+        - name
+        - config
+      properties:
+        project_id:
+          type: string
+        channel_type:
+          type: string
+          enum: [slack, discord, webhook, email]
+        name:
+          type: string
+        config:
+          type: object
+        enabled:
+          type: boolean
+
+    UpdateNotificationChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        channel_type:
+          type: string
+          enum: [slack, discord, webhook, email]
+        config:
+          type: object
+        enabled:
+          type: boolean
+
+    NotificationDelivery:
+      type: object
+      properties:
+        id:
+          type: string
+        channel_id:
+          type: string
+        project_id:
+          type: string
+        event_type:
+          type: string
+        payload:
+          type: object
+        status:
+          type: string
+        attempts:
+          type: integer
+        max_attempts:
+          type: integer
+        last_error:
+          type: string
+        next_retry_at:
+          type: string
+          format: date-time
+        delivered_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

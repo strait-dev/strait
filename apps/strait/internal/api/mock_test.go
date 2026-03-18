@@ -189,12 +189,24 @@ type mockAPIStore struct {
 	getRunStateFn                        func(ctx context.Context, runID, key string) (*domain.RunState, error)
 	listRunStateFn                       func(ctx context.Context, runID string) ([]domain.RunState, error)
 	deleteRunStateFn                     func(ctx context.Context, runID, key string) error
+	upsertJobMemoryFn                    func(ctx context.Context, mem *domain.JobMemory) error
+	getJobMemoryFn                       func(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
+	listJobMemoryFn                      func(ctx context.Context, jobID string) ([]domain.JobMemory, error)
+	deleteJobMemoryFn                    func(ctx context.Context, jobID, key string) error
+	sumJobMemorySizeBytesFn              func(ctx context.Context, jobID string) (int, error)
 	replayWebhookDeliveryFn              func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	createWebhookDeliveryFn              func(ctx context.Context, d *domain.WebhookDelivery) error
 	listManagedMachineIDsByWorkflowRunFn func(ctx context.Context, workflowRunID string) ([]string, error)
 	markJobRunsPausedByWorkflowRunFn     func(ctx context.Context, workflowRunID string) (int64, error)
 	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 	updateProjectDefaultRegionFn         func(ctx context.Context, projectID, defaultRegion string) error
+	createNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
+	getNotificationChannelFn             func(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	listNotificationChannelsFn           func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	updateNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
+	deleteNotificationChannelFn          func(ctx context.Context, id string) error
+	createNotificationDeliveryFn         func(ctx context.Context, d *domain.NotificationDelivery) error
+	listNotificationDeliveriesFn         func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
 
 func (m *mockAPIStore) CreateJob(ctx context.Context, job *domain.Job) error {
@@ -1649,4 +1661,88 @@ func (m *mockAPIStore) UpdateProjectDefaultRegion(ctx context.Context, projectID
 		return m.updateProjectDefaultRegionFn(ctx, projectID, defaultRegion)
 	}
 	return nil
+}
+
+func (m *mockAPIStore) UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error {
+	if m.upsertJobMemoryFn != nil {
+		return m.upsertJobMemoryFn(ctx, mem)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error) {
+	if m.getJobMemoryFn != nil {
+		return m.getJobMemoryFn(ctx, jobID, key)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error) {
+	if m.listJobMemoryFn != nil {
+		return m.listJobMemoryFn(ctx, jobID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) DeleteJobMemory(ctx context.Context, jobID, key string) error {
+	if m.deleteJobMemoryFn != nil {
+		return m.deleteJobMemoryFn(ctx, jobID, key)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error) {
+	if m.sumJobMemorySizeBytesFn != nil {
+		return m.sumJobMemorySizeBytesFn(ctx, jobID)
+	}
+	return 0, nil
+}
+
+func (m *mockAPIStore) CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error {
+	if m.createNotificationChannelFn != nil {
+		return m.createNotificationChannelFn(ctx, ch)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error) {
+	if m.getNotificationChannelFn != nil {
+		return m.getNotificationChannelFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	if m.listNotificationChannelsFn != nil {
+		return m.listNotificationChannelsFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockAPIStore) UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error {
+	if m.updateNotificationChannelFn != nil {
+		return m.updateNotificationChannelFn(ctx, ch)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) DeleteNotificationChannel(ctx context.Context, id string) error {
+	if m.deleteNotificationChannelFn != nil {
+		return m.deleteNotificationChannelFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
+	if m.createNotificationDeliveryFn != nil {
+		return m.createNotificationDeliveryFn(ctx, d)
+	}
+	return nil
+}
+
+func (m *mockAPIStore) ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error) {
+	if m.listNotificationDeliveriesFn != nil {
+		return m.listNotificationDeliveriesFn(ctx, projectID, limit, cursor)
+	}
+	return nil, nil
 }

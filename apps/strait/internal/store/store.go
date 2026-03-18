@@ -30,6 +30,7 @@ var (
 	ErrEventKeyConflict            = errors.New("event key conflict")
 	ErrWorkflowVersionNotFound     = errors.New("workflow version not found")
 	ErrDeploymentVersionNotFound   = errors.New("deployment version not found")
+	ErrNotificationChannelNotFound = errors.New("notification channel not found")
 )
 
 type DBTX interface {
@@ -159,6 +160,8 @@ type ProjectQuota struct {
 	MaxTokensPerRun               int64
 	MaxToolCallsPerRun            int
 	MaxIterationsPerRun           int
+	MaxMemoryPerKeyBytes          int
+	MaxMemoryPerJobBytes          int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -336,11 +339,34 @@ type EventSourceStore interface {
 	DeleteEventSubscription(ctx context.Context, subID string) error
 }
 
+// JobMemoryStore defines operations for job-level persistent memory.
+type JobMemoryStore interface {
+	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
+	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
+	ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error)
+	DeleteJobMemory(ctx context.Context, jobID, key string) error
+	SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error)
+	DeleteExpiredJobMemory(ctx context.Context) (int64, error)
+}
+
 // CostEstimateStore defines operations for job cost estimates.
 type CostEstimateStore interface {
 	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
 	UpsertJobCostEstimate(ctx context.Context, jobID string) error
 	ListActiveJobIDs(ctx context.Context) ([]string, error)
+}
+
+// NotificationStore handles notification channel and delivery operations.
+type NotificationStore interface {
+	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	DeleteNotificationChannel(ctx context.Context, id string) error
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	ListPendingNotificationDeliveries(ctx context.Context, limit int) ([]domain.NotificationDelivery, error)
+	UpdateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
 
 type Store interface {
@@ -365,6 +391,8 @@ type Store interface {
 	LogDrainStore
 	EventSourceStore
 	CostEstimateStore
+	JobMemoryStore
+	NotificationStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

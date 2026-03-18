@@ -503,7 +503,8 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	query := `
 		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
 		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd, default_region, plan_tier,
-		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run
+		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
+		       max_memory_per_key_bytes, max_memory_per_job_bytes
 		FROM project_quotas
 		WHERE project_id = $1`
 
@@ -522,6 +523,8 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	var maxTokensPerRun *int64
 	var maxToolCallsPerRun *int
 	var maxIterationsPerRun *int
+	var maxMemoryPerKeyBytes *int
+	var maxMemoryPerJobBytes *int
 	err := q.db.QueryRow(ctx, query, projectID).Scan(
 		&quota.ProjectID,
 		&maxQueued,
@@ -538,6 +541,8 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		&maxTokensPerRun,
 		&maxToolCallsPerRun,
 		&maxIterationsPerRun,
+		&maxMemoryPerKeyBytes,
+		&maxMemoryPerJobBytes,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -587,6 +592,12 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	}
 	if maxIterationsPerRun != nil {
 		quota.MaxIterationsPerRun = *maxIterationsPerRun
+	}
+	if maxMemoryPerKeyBytes != nil {
+		quota.MaxMemoryPerKeyBytes = *maxMemoryPerKeyBytes
+	}
+	if maxMemoryPerJobBytes != nil {
+		quota.MaxMemoryPerJobBytes = *maxMemoryPerJobBytes
 	}
 
 	return quota, nil

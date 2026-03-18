@@ -201,6 +201,17 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 
+		r.Route("/notification-channels", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateNotificationChannel)
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListNotificationChannels)
+			r.Route("/{channelID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetNotificationChannel)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateNotificationChannel)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteNotificationChannel)
+			})
+		})
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/notification-deliveries", s.handleListNotificationDeliveries)
+
 		r.Route("/log-drains", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListLogDrains)
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateLogDrain)
@@ -372,6 +383,12 @@ func (s *Server) routes() chi.Router {
 			r.Post("/resources", s.handleSDKResources)
 			r.Post("/resource-snapshot", s.handleSDKResourceSnapshot)
 			r.Post("/iteration", s.handleSDKIteration)
+			r.Route("/memory", func(r chi.Router) {
+				r.Post("/{key}", s.handleSDKSetMemory)
+				r.Get("/{key}", s.handleSDKGetMemory)
+				r.Get("/", s.handleSDKListMemory)
+				r.Delete("/{key}", s.handleSDKDeleteMemory)
+			})
 		})
 	})
 

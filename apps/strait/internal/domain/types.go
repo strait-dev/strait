@@ -46,6 +46,49 @@ const (
 	WebhookEventSLOBudgetWarning     = "slo.budget_warning"
 )
 
+const (
+	ChannelTypeSlack   = "slack"
+	ChannelTypeDiscord = "discord"
+	ChannelTypeWebhook = "webhook"
+	ChannelTypeEmail   = "email"
+)
+
+const (
+	NotificationEventApprovalRequested = "approval.requested"
+	NotificationEventApprovalReminder  = "approval.reminder"
+	NotificationEventApprovalExpired   = "approval.expired"
+	NotificationEventApprovalCompleted = "approval.completed"
+)
+
+// NotificationChannel represents a configured notification destination for a project.
+type NotificationChannel struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	ChannelType string    `json:"channel_type"`
+	Name        string    `json:"name"`
+	Config      []byte    `json:"-"`
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// NotificationDelivery tracks a single notification delivery attempt.
+type NotificationDelivery struct {
+	ID          string          `json:"id"`
+	ChannelID   string          `json:"channel_id"`
+	ProjectID   string          `json:"project_id"`
+	EventType   string          `json:"event_type"`
+	Payload     json.RawMessage `json:"payload"`
+	Status      string          `json:"status"`
+	Attempts    int             `json:"attempts"`
+	MaxAttempts int             `json:"max_attempts"`
+	LastError   string          `json:"last_error,omitempty"`
+	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
+	DeliveredAt *time.Time      `json:"delivered_at,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
 // ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
 // that triggers a warning alert.
 const ComputeBudgetAlertThresholdPct = 80
@@ -272,6 +315,19 @@ type RunState struct {
 	StateKey  string          `json:"state_key"`
 	Value     json.RawMessage `json:"value"`
 	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// JobMemory represents a persistent key-value entry scoped to a job.
+type JobMemory struct {
+	ID           string          `json:"id"`
+	JobID        string          `json:"job_id"`
+	ProjectID    string          `json:"project_id"`
+	MemoryKey    string          `json:"memory_key"`
+	Value        json.RawMessage `json:"value"`
+	SizeBytes    int             `json:"size_bytes"`
+	TTLExpiresAt *time.Time      `json:"ttl_expires_at,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 type JobGroup struct {

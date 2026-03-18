@@ -57,6 +57,7 @@ type APIStore interface {
 	RBACStore
 	LogDrainStore
 	EventSourceStore
+	NotificationChannelStore
 }
 
 // JobStore handles job CRUD, groups, environments, secrets, and dependencies.
@@ -169,6 +170,11 @@ type RunStore interface {
 	CountRunToolCalls(ctx context.Context, runID string) (int, error)
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
+	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
+	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
+	ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error)
+	DeleteJobMemory(ctx context.Context, jobID, key string) error
+	SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error)
 }
 
 type LogDrainStore interface {
@@ -293,6 +299,17 @@ type RBACStore interface {
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
+}
+
+// NotificationChannelStore handles notification channel and delivery operations.
+type NotificationChannelStore interface {
+	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	DeleteNotificationChannel(ctx context.Context, id string) error
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
 
 // ActorSyncer lazily persists actor profile information from request headers.
