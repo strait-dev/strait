@@ -136,6 +136,10 @@ type RunStore interface {
 	BulkCancelByFilter(ctx context.Context, projectID string, f BulkCancelFilter, now time.Time, reason string) ([]string, error)
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
+	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
+	CountRunToolCalls(ctx context.Context, runID string) (int, error)
+	CountRunIterations(ctx context.Context, runID string) (int, error)
+	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 }
 
 type ProjectQuota struct {
@@ -152,6 +156,9 @@ type ProjectQuota struct {
 	RateLimitWindowSecs           int
 	DefaultRegion                 string
 	PlanTier                      string
+	MaxTokensPerRun               int64
+	MaxToolCallsPerRun            int
+	MaxIterationsPerRun           int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -329,6 +336,13 @@ type EventSourceStore interface {
 	DeleteEventSubscription(ctx context.Context, subID string) error
 }
 
+// CostEstimateStore defines operations for job cost estimates.
+type CostEstimateStore interface {
+	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
+	UpsertJobCostEstimate(ctx context.Context, jobID string) error
+	ListActiveJobIDs(ctx context.Context) ([]string, error)
+}
+
 type Store interface {
 	JobStore
 	JobGroupStore
@@ -350,6 +364,7 @@ type Store interface {
 	DeploymentStore
 	LogDrainStore
 	EventSourceStore
+	CostEstimateStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

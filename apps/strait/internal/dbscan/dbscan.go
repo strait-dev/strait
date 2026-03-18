@@ -154,6 +154,14 @@ func NilIfZeroInt(value int) any {
 	return value
 }
 
+// NilIfZeroInt64 returns nil for zero int64 values, preserving NULL in SQL inserts.
+func NilIfZeroInt64(value int64) any {
+	if value == 0 {
+		return nil
+	}
+	return value
+}
+
 // NilIfEmptyIntSlice returns nil for empty slices, preserving NULL in SQL inserts.
 func NilIfEmptyIntSlice(value []int) any {
 	if len(value) == 0 {

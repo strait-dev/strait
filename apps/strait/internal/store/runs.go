@@ -2238,3 +2238,63 @@ func (q *Queries) CountActiveRunsForJob(ctx context.Context, jobID string) (int,
 	err := q.db.QueryRow(ctx, query, jobID).Scan(&count)
 	return count, err
 }
+
+// SumRunTotalTokens returns the total tokens used by a single run.
+func (q *Queries) SumRunTotalTokens(ctx context.Context, runID string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunTotalTokens")
+	defer span.End()
+
+	query := `SELECT COALESCE(SUM(total_tokens), 0) FROM run_usage WHERE run_id = $1`
+	var total int64
+	if err := q.db.QueryRow(ctx, query, runID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("sum run total tokens: %w", err)
+	}
+	return total, nil
+}
+
+// CountRunToolCalls returns the number of tool calls recorded for a run.
+func (q *Queries) CountRunToolCalls(ctx context.Context, runID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunToolCalls")
+	defer span.End()
+
+	query := `SELECT COUNT(*) FROM run_tool_calls WHERE run_id = $1`
+	var count int
+	if err := q.db.QueryRow(ctx, query, runID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count run tool calls: %w", err)
+	}
+	return count, nil
+}
+
+// CountRunIterations returns the number of iterations recorded for a run.
+func (q *Queries) CountRunIterations(ctx context.Context, runID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunIterations")
+	defer span.End()
+
+	query := `SELECT COUNT(*) FROM run_iterations WHERE run_id = $1`
+	var count int
+	if err := q.db.QueryRow(ctx, query, runID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count run iterations: %w", err)
+	}
+	return count, nil
+}
+
+// CreateRunIteration inserts a new run iteration record.
+func (q *Queries) CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunIteration")
+	defer span.End()
+
+	if iter.ID == "" {
+		iter.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		INSERT INTO run_iterations (id, run_id, iteration, description)
+		VALUES ($1, $2, $3, $4)
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, iter.ID, iter.RunID, iter.Iteration, iter.Description).Scan(&iter.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("create run iteration: %w", err)
+	}
+	return nil
+}

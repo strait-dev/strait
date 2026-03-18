@@ -185,6 +185,12 @@ func (m *mockSchedulerStore) CleanupStaleReservations(_ context.Context, _ time.
 	return 0, nil
 }
 
+// CostEstimateRefresherStore methods (no-op for tests).
+func (m *mockSchedulerStore) ListActiveJobIDs(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) UpsertJobCostEstimate(_ context.Context, _ string) error { return nil }
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval:           100 * time.Millisecond,

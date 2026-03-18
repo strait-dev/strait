@@ -224,6 +224,11 @@ type Job struct {
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	MaxTokensPerRun           int64             `json:"max_tokens_per_run,omitempty"`
+	MaxToolCallsPerRun        int               `json:"max_tool_calls_per_run,omitempty"`
+	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
+	AllowedTools              []string          `json:"allowed_tools,omitempty"`
+	BlockedTools              []string          `json:"blocked_tools,omitempty"`
 	CreatedBy                 string            `json:"created_by,omitempty"`
 	UpdatedBy                 string            `json:"updated_by,omitempty"`
 	CreatedAt                 time.Time         `json:"created_at"`
@@ -457,6 +462,15 @@ type RunToolCall struct {
 	DurationMs int             `json:"duration_ms,omitempty"`
 	Status     string          `json:"status"`
 	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// RunIteration represents a single iteration of an agent run.
+type RunIteration struct {
+	ID          string    `json:"id"`
+	RunID       string    `json:"run_id"`
+	Iteration   int       `json:"iteration"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type RunOutput struct {
@@ -987,33 +1001,44 @@ type Workflow struct {
 
 // WorkflowStep represents a step (node) within a workflow DAG.
 type WorkflowStep struct {
-	ID                    string             `json:"id"`
-	WorkflowID            string             `json:"workflow_id"`
-	JobID                 string             `json:"job_id,omitempty"`
-	StepRef               string             `json:"step_ref"`
-	DependsOn             []string           `json:"depends_on"`
-	Condition             json.RawMessage    `json:"condition,omitempty"`
-	OnFailure             FailurePolicy      `json:"on_failure"`
-	Payload               json.RawMessage    `json:"payload,omitempty"`
-	StepType              WorkflowStepType   `json:"step_type,omitempty"`
-	ApprovalTimeoutSecs   int                `json:"approval_timeout_secs,omitempty"`
-	ApprovalApprovers     []string           `json:"approval_approvers,omitempty"`
-	RetryMaxAttempts      int                `json:"retry_max_attempts,omitempty"`
-	RetryBackoff          RetryBackoffPolicy `json:"retry_backoff,omitempty"`
-	RetryInitialDelaySecs int                `json:"retry_initial_delay_secs,omitempty"`
-	RetryMaxDelaySecs     int                `json:"retry_max_delay_secs,omitempty"`
-	TimeoutSecsOverride   int                `json:"timeout_secs_override,omitempty"`
-	OutputTransform       string             `json:"output_transform,omitempty"`
-	SubWorkflowID         string             `json:"sub_workflow_id,omitempty"`
-	MaxNestingDepth       int                `json:"max_nesting_depth,omitempty"`
-	EventKey              string             `json:"event_key,omitempty"`
-	EventTimeoutSecs      int                `json:"event_timeout_secs,omitempty"`
-	EventNotifyURL        string             `json:"event_notify_url,omitempty"`
-	SleepDurationSecs     int                `json:"sleep_duration_secs,omitempty"`
-	EventEmitKey          string             `json:"event_emit_key,omitempty"` // auto-send event on step completion
-	ConcurrencyKey        string             `json:"concurrency_key,omitempty"`
-	ResourceClass         string             `json:"resource_class,omitempty"`
-	CreatedAt             time.Time          `json:"created_at"`
+	ID                        string             `json:"id"`
+	WorkflowID                string             `json:"workflow_id"`
+	JobID                     string             `json:"job_id,omitempty"`
+	StepRef                   string             `json:"step_ref"`
+	DependsOn                 []string           `json:"depends_on"`
+	Condition                 json.RawMessage    `json:"condition,omitempty"`
+	OnFailure                 FailurePolicy      `json:"on_failure"`
+	Payload                   json.RawMessage    `json:"payload,omitempty"`
+	StepType                  WorkflowStepType   `json:"step_type,omitempty"`
+	ApprovalTimeoutSecs       int                `json:"approval_timeout_secs,omitempty"`
+	ApprovalApprovers         []string           `json:"approval_approvers,omitempty"`
+	RetryMaxAttempts          int                `json:"retry_max_attempts,omitempty"`
+	RetryBackoff              RetryBackoffPolicy `json:"retry_backoff,omitempty"`
+	RetryInitialDelaySecs     int                `json:"retry_initial_delay_secs,omitempty"`
+	RetryMaxDelaySecs         int                `json:"retry_max_delay_secs,omitempty"`
+	TimeoutSecsOverride       int                `json:"timeout_secs_override,omitempty"`
+	OutputTransform           string             `json:"output_transform,omitempty"`
+	SubWorkflowID             string             `json:"sub_workflow_id,omitempty"`
+	MaxNestingDepth           int                `json:"max_nesting_depth,omitempty"`
+	EventKey                  string             `json:"event_key,omitempty"`
+	EventTimeoutSecs          int                `json:"event_timeout_secs,omitempty"`
+	EventNotifyURL            string             `json:"event_notify_url,omitempty"`
+	SleepDurationSecs         int                `json:"sleep_duration_secs,omitempty"`
+	EventEmitKey              string             `json:"event_emit_key,omitempty"` // auto-send event on step completion
+	ConcurrencyKey            string             `json:"concurrency_key,omitempty"`
+	ResourceClass             string             `json:"resource_class,omitempty"`
+	CostGateThresholdMicrousd int64              `json:"cost_gate_threshold_microusd,omitempty"`
+	CostGateTimeoutSecs       int                `json:"cost_gate_timeout_secs,omitempty"`
+	CostGateDefaultAction     string             `json:"cost_gate_default_action,omitempty"`
+	CreatedAt                 time.Time          `json:"created_at"`
+}
+
+// JobCostEstimate holds the cached average cost for a job based on recent runs.
+type JobCostEstimate struct {
+	JobID           string    `json:"job_id"`
+	AvgCostMicrousd int64     `json:"avg_cost_microusd"`
+	SampleCount     int       `json:"sample_count"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // WorkflowSnapshot captures an immutable point-in-time workflow definition

@@ -371,6 +371,7 @@ func (s *Server) routes() chi.Router {
 			r.Post("/stream", s.handleSDKStreamChunk)
 			r.Post("/resources", s.handleSDKResources)
 			r.Post("/resource-snapshot", s.handleSDKResourceSnapshot)
+			r.Post("/iteration", s.handleSDKIteration)
 		})
 	})
 

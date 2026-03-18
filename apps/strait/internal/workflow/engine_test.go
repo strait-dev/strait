@@ -149,6 +149,10 @@ func (m *mockEngineStore) CopyRunState(_ context.Context, _, _ string) error {
 	return nil
 }
 
+func (m *mockEngineStore) GetJobCostEstimate(_ context.Context, _ string) (*domain.JobCostEstimate, error) {
+	return nil, nil
+}
+
 type mockEngineQueue struct {
 	enqueueFn func(ctx context.Context, run *domain.JobRun) error
 }

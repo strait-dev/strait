@@ -89,6 +89,49 @@ func (e *WorkflowEngine) startStep(
 		return e.startSubWorkflowStep(ctx, stepRun, step, wfRun, mergedPayload, now)
 	}
 
+	// Cost gate: if a threshold is configured and the estimated cost exceeds it,
+	// pause the step and request approval before proceeding.
+	if step.CostGateThresholdMicrousd > 0 && step.JobID != "" {
+		estimate, err := e.store.GetJobCostEstimate(ctx, step.JobID)
+		if err == nil && estimate != nil && estimate.AvgCostMicrousd > step.CostGateThresholdMicrousd {
+			if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
+				return fmt.Errorf("set cost gate step waiting: %w", err)
+			}
+
+			timeoutSecs := step.CostGateTimeoutSecs
+			if timeoutSecs <= 0 {
+				timeoutSecs = domain.DefaultEventTimeoutSecs
+			}
+			expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
+
+			approval := &domain.WorkflowStepApproval{
+				ID:                fmt.Sprintf("costgate:%s", stepRun.ID),
+				WorkflowRunID:     wfRun.ID,
+				WorkflowStepRunID: stepRun.ID,
+				Approvers:         []string{},
+				Status:            domain.ApprovalStatusPending,
+				RequestedAt:       now,
+				ExpiresAt:         &expiresAt,
+			}
+			if err := e.store.CreateWorkflowStepApproval(ctx, approval); err != nil {
+				return fmt.Errorf("create cost gate approval: %w", err)
+			}
+
+			stepRun.Status = domain.StepWaiting
+			stepRun.StartedAt = &now
+
+			e.logger.Info("cost gate triggered",
+				"workflow_run_id", wfRun.ID,
+				"step_ref", step.StepRef,
+				"job_id", step.JobID,
+				"avg_cost_microusd", estimate.AvgCostMicrousd,
+				"threshold_microusd", step.CostGateThresholdMicrousd,
+			)
+
+			return nil
+		}
+	}
+
 	// For regular job steps: enqueue first, then mark running.
 	// This avoids orphan running steps if enqueue fails.
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)

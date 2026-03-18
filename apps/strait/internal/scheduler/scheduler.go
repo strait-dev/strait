@@ -22,21 +22,23 @@ type SchedulerStore interface {
 	ReaperStore
 	IndexMaintenanceStore
 	StatsAggregatorStore
+	CostEstimateRefresherStore
 	store.DebounceStore
 	store.BatchStore
 	store.RunComputeUsageStore
 }
 
 type Scheduler struct {
-	cron            *CronScheduler
-	poller          *DelayedPoller
-	reaper          *Reaper
-	indexMaintainer *IndexMaintainer
-	debouncePoller  *DebouncePoller
-	batchFlusher    *BatchFlusher
-	statsAggregator *StatsAggregator
-	budgetMonitor   *BudgetMonitor
-	wg              conc.WaitGroup
+	cron                  *CronScheduler
+	poller                *DelayedPoller
+	reaper                *Reaper
+	indexMaintainer       *IndexMaintainer
+	debouncePoller        *DebouncePoller
+	batchFlusher          *BatchFlusher
+	statsAggregator       *StatsAggregator
+	budgetMonitor         *BudgetMonitor
+	costEstimateRefresher *CostEstimateRefresher
+	wg                    conc.WaitGroup
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -50,11 +52,12 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
 			WithStalledAction(cfg.StalledWorkflowAction),
-		indexMaintainer: NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
-		debouncePoller:  NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
-		batchFlusher:    NewBatchFlusher(s, q, cfg.BatchFlushInterval),
-		statsAggregator: NewStatsAggregator(s),
-		budgetMonitor:   NewBudgetMonitor(s, nil, 5*time.Minute),
+		indexMaintainer:       NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
+		debouncePoller:        NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
+		batchFlusher:          NewBatchFlusher(s, q, cfg.BatchFlushInterval),
+		statsAggregator:       NewStatsAggregator(s),
+		budgetMonitor:         NewBudgetMonitor(s, nil, 5*time.Minute),
+		costEstimateRefresher: NewCostEstimateRefresher(s, time.Hour),
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -92,6 +95,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
 	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
 	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
+	s.wg.Go(func() { s.costEstimateRefresher.Run(ctx) })
 
 	slog.Info("scheduler started")
 	return nil

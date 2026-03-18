@@ -165,6 +165,10 @@ type RunStore interface {
 	DeleteRunState(ctx context.Context, runID, key string) error
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
+	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
+	CountRunToolCalls(ctx context.Context, runID string) (int, error)
+	CountRunIterations(ctx context.Context, runID string) (int, error)
+	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 }
 
 type LogDrainStore interface {

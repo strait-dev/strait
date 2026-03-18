@@ -4715,6 +4715,39 @@ paths:
         '201':
           description: Resource snapshot stored
 
+  /sdk/v1/runs/{runID}/iteration:
+    post:
+      tags:
+        - SDK
+      summary: Record an agent iteration
+      security:
+        - runToken: []
+      parameters:
+        - name: runID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - iteration
+              properties:
+                iteration:
+                  type: integer
+                  minimum: 1
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Iteration recorded
+        '429':
+          description: Iteration limit exceeded
+
   /sdk/v1/runs/{runID}/stream:
     post:
       tags:

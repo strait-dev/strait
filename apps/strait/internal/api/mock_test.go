@@ -485,6 +485,22 @@ func (m *mockAPIStore) ListRunResourceSnapshots(_ context.Context, _ string, _, 
 	return nil, nil
 }
 
+func (m *mockAPIStore) SumRunTotalTokens(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) CountRunToolCalls(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) CountRunIterations(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAPIStore) CreateRunIteration(_ context.Context, _ *domain.RunIteration) error {
+	return nil
+}
+
 func (m *mockAPIStore) AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error) {
 	if m.areAllDescendantsTerminalFn != nil {
 		return m.areAllDescendantsTerminalFn(ctx, parentRunID)
