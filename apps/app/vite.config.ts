@@ -41,9 +41,6 @@ export default defineConfig({
   },
   ssr: {
     external: ["better-auth", "postgres", "drizzle-orm"],
-    // samlify (CJS) requires camelcase@9 (ESM-only) which fails at runtime.
-    // Bundling them lets Vite handle the CJS/ESM interop.
-    noExternal: ["samlify", "camelcase"],
   },
   server: {
     port: 5173,

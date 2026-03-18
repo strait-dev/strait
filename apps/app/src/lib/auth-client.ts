@@ -1,5 +1,4 @@
 import { passkeyClient } from "@better-auth/passkey/client";
-import { ssoClient } from "@better-auth/sso/client";
 import { polarClient } from "@polar-sh/better-auth";
 import {
   magicLinkClient,
@@ -25,7 +24,6 @@ export const authClient = createAuthClient({
     passkeyClient(),
     magicLinkClient(),
     twoFactorClient(),
-    ssoClient(),
     ...(googleClientId ? [oneTapClient({ clientId: googleClientId })] : []),
   ],
 });

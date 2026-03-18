@@ -1,5 +1,4 @@
 import { passkey } from "@better-auth/passkey";
-import { sso } from "@better-auth/sso";
 import {
   checkout,
   polar,
@@ -139,7 +138,9 @@ export const auth = betterAuth({
     }),
     oneTap(),
     twoFactor(),
-    sso(),
+    // SSO disabled: @better-auth/sso has a known ESM incompatibility
+    // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
+    // https://github.com/better-auth/better-auth/issues/8620 is fixed.
     ...(polarClient
       ? [
           polar({
