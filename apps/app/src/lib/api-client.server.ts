@@ -59,6 +59,7 @@ export async function apiRequest<T>(
 
   if (projectId) {
     fetchHeaders["X-Project-Id"] = projectId;
+    url.searchParams.set("project_id", projectId);
   }
 
   const response = await fetch(url.toString(), {
