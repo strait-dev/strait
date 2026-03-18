@@ -194,6 +194,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newBackupCommand(state))
 	cmd.AddCommand(newProfileCommand(state))
 	cmd.AddCommand(newDeployCommand(state))
+	cmd.AddCommand(newProjectCommand(state))
 
 	rawArgs := os.Args[1:]
 	configPath := extractConfigPath(rawArgs)

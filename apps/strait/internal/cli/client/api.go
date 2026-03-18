@@ -368,3 +368,14 @@ func (c *Client) PurgeEventTriggers(ctx context.Context, olderThanDays int, dryR
 	}
 	return 0, nil
 }
+
+func (c *Client) ListEnvironments(ctx context.Context, projectID string) ([]domain.Environment, error) {
+	query := url.Values{}
+	query.Set("project_id", projectID)
+
+	var out []domain.Environment
+	if err := c.doListJSON(ctx, "/v1/environments", query, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
