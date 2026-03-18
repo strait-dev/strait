@@ -48,6 +48,9 @@ func NewOnCompleteTrigger(lookup WorkflowLookup, trigger WorkflowTriggerer, logg
 // MaybeTrigger checks if the job has an on_complete_trigger_workflow configured
 // and triggers the workflow if the run completed successfully.
 func (t *OnCompleteTrigger) MaybeTrigger(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage) {
+	if run == nil || job == nil {
+		return
+	}
 	if job.OnCompleteTriggerWorkflow == "" {
 		return
 	}

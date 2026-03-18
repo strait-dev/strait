@@ -144,8 +144,8 @@ func (c *Consumer) poll(ctx context.Context) error {
 
 	ackIDs := make([]string, 0, len(messages))
 	nackIDs := make([]string, 0, len(messages))
-
-	var batch []pubsub.PubSubMessage
+	batchAckIDs := make([]string, 0, len(messages))
+	batch := make([]pubsub.PubSubMessage, 0, len(messages))
 
 	for _, msg := range messages {
 		handler, ok := c.handlers[msg.Metadata.TableName]
@@ -174,7 +174,8 @@ func (c *Consumer) poll(ctx context.Context) error {
 			if pubMsg != nil {
 				batch = append(batch, *pubMsg)
 			}
-			ackIDs = append(ackIDs, msg.AckID)
+			// Track separately; only ACK after successful publish.
+			batchAckIDs = append(batchAckIDs, msg.AckID)
 			continue
 		}
 
@@ -192,11 +193,17 @@ func (c *Consumer) poll(ctx context.Context) error {
 		ackIDs = append(ackIDs, msg.AckID)
 	}
 
-	// Flush batch in a single Redis pipeline.
+	// Flush batch in a single Redis pipeline. On failure, NACK the messages
+	// so they are retried instead of being silently lost.
 	if len(batch) > 0 && c.publisher != nil {
 		if err := c.publisher.PublishBatch(ctx, batch); err != nil {
-			c.logger.Warn("batch publish failed", "count", len(batch), "error", err)
+			c.logger.Error("batch publish failed, nacking messages", "count", len(batch), "error", err)
+			nackIDs = append(nackIDs, batchAckIDs...)
+		} else {
+			ackIDs = append(ackIDs, batchAckIDs...)
 		}
+	} else {
+		ackIDs = append(ackIDs, batchAckIDs...)
 	}
 
 	if len(ackIDs) > 0 {

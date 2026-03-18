@@ -40,6 +40,11 @@ func (e *SLOEvaluator) Evaluate(ctx context.Context) error {
 
 	now := time.Now()
 	for _, slo := range slos {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		if err := e.evaluateSLO(ctx, slo, now); err != nil {
 			e.logger.Warn("slo evaluation failed",
 				"slo_id", slo.ID,
@@ -108,7 +113,9 @@ func metricValue(metric string, stats *store.JobHealthStats) float64 {
 	case domain.SLOMetricP95LatencySecs:
 		return stats.P95DurationSecs
 	case domain.SLOMetricP99LatencySecs:
-		return stats.P95DurationSecs // Use P95 as approximation for P99
+		// P99 not yet available in health stats; P95 is used as a lower-bound
+		// approximation. This means P99 SLO targets should be set accordingly.
+		return stats.P95DurationSecs
 	default:
 		return 0
 	}
