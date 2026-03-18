@@ -8,8 +8,7 @@ import { createRouter } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
-import { captureException } from "@/lib/sentry";
-import { initializeSentry } from "@/lib/sentry";
+import { captureException, initializeSentry } from "@/lib/sentry";
 import { routeTree } from "./routeTree.gen";
 
 export const getRouter = () => {

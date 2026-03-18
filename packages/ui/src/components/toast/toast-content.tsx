@@ -1,4 +1,8 @@
-import { Cancel01Icon, Copy01Icon, Tick01Icon } from "@hugeicons/core-free-icons";
+import {
+  Cancel01Icon,
+  Copy01Icon,
+  Tick01Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactNode, useState } from "react";
 import { cn } from "../../utils/index";
