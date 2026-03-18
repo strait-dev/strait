@@ -19,15 +19,40 @@ type RequestOptions = {
   params?: Record<string, string | number | boolean | undefined>;
 };
 
-/** Make an authenticated request to the Strait Go API. */
-export async function apiRequest<T>(
-  path: string,
-  options: RequestOptions = {}
-): Promise<T> {
-  const { method = "GET", body, params } = options;
-  const base = getApiBaseUrl();
-  const url = new URL(path, base);
+/** Resolve the active project ID from the current session. */
+async function resolveProjectId(): Promise<string | undefined> {
+  try {
+    const headers = getRequestHeaders();
+    const session = await auth.api.getSession({ headers });
 
+    if (session?.user) {
+      const activeProjectId = (session.user as Record<string, unknown>)
+        .activeProjectId;
+      if (typeof activeProjectId === "string" && activeProjectId) {
+        return activeProjectId;
+      }
+    }
+
+    // Fallback to activeOrganizationId for backwards compatibility
+    if (session?.session) {
+      const activeOrgId = (session.session as Record<string, unknown>)
+        .activeOrganizationId;
+      if (typeof activeOrgId === "string" && activeOrgId) {
+        return activeOrgId;
+      }
+    }
+  } catch {
+    // Session resolution is best-effort
+  }
+  return undefined;
+}
+
+/** Build the URL with query params. */
+function buildUrl(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined>
+): URL {
+  const url = new URL(path, getApiBaseUrl());
   if (params) {
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== "") {
@@ -35,30 +60,27 @@ export async function apiRequest<T>(
       }
     }
   }
+  return url;
+}
 
-  // Resolve project ID from the user's activeProjectId
-  let projectId: string | undefined;
+/** Parse an error response body into a human-readable detail string. */
+function parseErrorDetail(text: string): string {
   try {
-    const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
-    if (session?.user) {
-      const activeProjectId = (session.user as Record<string, unknown>)
-        .activeProjectId;
-      if (typeof activeProjectId === "string" && activeProjectId) {
-        projectId = activeProjectId;
-      }
-    }
-    // Fallback to activeOrganizationId for backwards compatibility
-    if (!projectId && session?.session) {
-      const activeOrgId = (session.session as Record<string, unknown>)
-        .activeOrganizationId;
-      if (typeof activeOrgId === "string" && activeOrgId) {
-        projectId = activeOrgId;
-      }
-    }
+    const parsed = JSON.parse(text);
+    return parsed.error || parsed.message || text;
   } catch {
-    // Session resolution is best-effort
+    return text;
   }
+}
+
+/** Make an authenticated request to the Strait Go API. */
+export async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {}
+): Promise<T> {
+  const { method = "GET", body, params } = options;
+  const url = buildUrl(path, params);
+  const projectId = await resolveProjectId();
 
   const fetchHeaders: Record<string, string> = {
     "X-Internal-Secret": getInternalSecret(),
@@ -77,13 +99,7 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const text = await response.text();
-    let detail = text;
-    try {
-      const parsed = JSON.parse(text);
-      detail = parsed.error || parsed.message || text;
-    } catch {
-      // raw text is fine
-    }
+    const detail = parseErrorDetail(text);
     throw new Error(
       `API ${method} ${path} failed (${response.status}): ${detail}`
     );

@@ -1,6 +1,19 @@
 import { Shell } from "@strait/ui/components/shell";
 import { Skeleton } from "@strait/ui/components/skeleton";
 
+const HEADER_KEYS = ["hdr-0", "hdr-1", "hdr-2", "hdr-3", "hdr-4"];
+const ROW_KEYS = [
+  "row-0",
+  "row-1",
+  "row-2",
+  "row-3",
+  "row-4",
+  "row-5",
+  "row-6",
+  "row-7",
+];
+const CELL_KEYS = ["cell-0", "cell-1", "cell-2", "cell-3", "cell-4"];
+
 export function TablePageSkeleton() {
   return (
     <Shell>
@@ -15,18 +28,18 @@ export function TablePageSkeleton() {
       <div className="rounded-md border">
         <div className="border-b px-4 py-3">
           <div className="flex gap-8">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton className="h-4 w-24" key={i} />
+            {HEADER_KEYS.map((key) => (
+              <Skeleton className="h-4 w-24" key={key} />
             ))}
           </div>
         </div>
-        {Array.from({ length: 8 }).map((_, i) => (
+        {ROW_KEYS.map((rowKey) => (
           <div
             className="flex gap-8 border-b px-4 py-3 last:border-b-0"
-            key={i}
+            key={rowKey}
           >
-            {Array.from({ length: 5 }).map((_, j) => (
-              <Skeleton className="h-4 w-24" key={j} />
+            {CELL_KEYS.map((cellKey) => (
+              <Skeleton className="h-4 w-24" key={cellKey} />
             ))}
           </div>
         ))}
