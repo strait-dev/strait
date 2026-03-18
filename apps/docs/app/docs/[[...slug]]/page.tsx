@@ -1,5 +1,5 @@
 import { source } from "@/lib/source";
-import { DocsPage, DocsBody } from "fumadocs-ui/layouts/docs/page";
+import { DocsPage, DocsBody } from "fumadocs-ui/page";
 import { notFound } from "next/navigation";
 import { getMDXComponents } from "@/mdx-components";
 import { Feedback } from "@/app/components/feedback";
@@ -18,7 +18,15 @@ export default async function Page({ params }: Props) {
   const MDX = page.data.body;
 
   return (
-    <DocsPage toc={page.data.toc}>
+    <DocsPage
+      toc={page.data.toc}
+      editOnGithub={{
+        owner: "leonardomso",
+        repo: "strait",
+        path: `apps/docs/content/docs/${page.slugs.join("/")}.mdx`,
+        sha: "master",
+      }}
+    >
       <DocsBody>
         <MDX components={getMDXComponents()} />
         <Feedback />
