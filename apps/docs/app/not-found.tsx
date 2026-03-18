@@ -8,9 +8,7 @@ export default function NotFound() {
       <Badge variant="secondary" className="font-mono">
         404
       </Badge>
-      <h1 className="mt-4 font-bold text-3xl tracking-tight">
-        Page not found
-      </h1>
+      <h1 className="mt-4 font-bold text-3xl tracking-tight">Page not found</h1>
       <p className="mt-4 max-w-md text-muted-foreground">
         The page you are looking for does not exist or has been moved.
       </p>
@@ -18,7 +16,11 @@ export default function NotFound() {
         <Button size="lg" render={<Link href="/" />}>
           Home
         </Button>
-        <Button variant="outline" size="lg" render={<Link href="/docs/getting-started" />}>
+        <Button
+          variant="outline"
+          size="lg"
+          render={<Link href="/docs/getting-started" />}
+        >
           Documentation
         </Button>
       </div>

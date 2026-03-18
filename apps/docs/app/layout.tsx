@@ -54,7 +54,7 @@ const Layout = ({ children }: Props) => {
       className={cn(
         "min-h-screen bg-background antialiased",
         GeistSans.className,
-        GeistMono.variable,
+        GeistMono.variable
       )}
       lang="en-US"
       suppressHydrationWarning
