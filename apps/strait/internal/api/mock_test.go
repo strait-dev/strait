@@ -505,7 +505,7 @@ func (m *mockAPIStore) CountProjectActiveRuns(ctx context.Context, projectID str
 	return 0, nil
 }
 
-func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (m *mockAPIStore) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	if m.listRunsByProjectFn != nil {
 		return m.listRunsByProjectFn(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, limit, cursor)
 	}

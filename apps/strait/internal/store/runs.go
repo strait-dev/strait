@@ -822,7 +822,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	return runs, nil
 }
 
-func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByProject")
 	defer span.End()
 
@@ -875,6 +875,12 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	if executionMode != nil {
 		baseQuery += fmt.Sprintf(" AND execution_mode = $%d", param)
 		args = append(args, string(*executionMode))
+		param++
+	}
+
+	if errorClass != nil {
+		baseQuery += fmt.Sprintf(" AND error_class = $%d", param)
+		args = append(args, *errorClass)
 		param++
 	}
 

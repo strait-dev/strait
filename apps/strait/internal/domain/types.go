@@ -50,6 +50,34 @@ const (
 // that triggers a warning alert.
 const ComputeBudgetAlertThresholdPct = 80
 
+// Error class constants for run error categorization.
+const (
+	ErrorClassRateLimited = "rate_limited"
+	ErrorClassAuth        = "auth"
+	ErrorClassClient      = "client"
+	ErrorClassServer      = "server"
+	ErrorClassTransient   = "transient"
+	ErrorClassTimeout     = "timeout"
+	ErrorClassOOM         = "oom"
+	ErrorClassConnection  = "connection"
+	ErrorClassBudget      = "budget"
+	ErrorClassUnknown     = "unknown"
+)
+
+// ValidErrorClasses is the set of recognized error class values for API filtering.
+var ValidErrorClasses = map[string]bool{
+	ErrorClassRateLimited: true,
+	ErrorClassAuth:        true,
+	ErrorClassClient:      true,
+	ErrorClassServer:      true,
+	ErrorClassTransient:   true,
+	ErrorClassTimeout:     true,
+	ErrorClassOOM:         true,
+	ErrorClassConnection:  true,
+	ErrorClassBudget:      true,
+	ErrorClassUnknown:     true,
+}
+
 type EventType string
 
 const (
