@@ -75,6 +75,7 @@ type EnvironmentStore interface {
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id string) error
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	CreateStandardEnvironments(ctx context.Context, projectID string) error
 }
 
 type JobSecretStore interface {

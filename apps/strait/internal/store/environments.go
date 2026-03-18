@@ -47,8 +47,8 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 	}
 
 	query := `
-		INSERT INTO environments (id, project_id, name, slug, parent_id, variables, variables_encrypted)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO environments (id, project_id, name, slug, parent_id, variables, variables_encrypted, is_standard)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING created_at, updated_at`
 
 	err = q.db.QueryRow(
@@ -61,6 +61,7 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 		dbscan.NilIfEmptyString(env.ParentID),
 		variablesJSON,
 		variablesEncrypted,
+		env.IsStandard,
 	).Scan(&env.CreatedAt, &env.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create environment: %w", err)
@@ -74,7 +75,7 @@ func (q *Queries) GetEnvironment(ctx context.Context, id string) (*domain.Enviro
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, parent_id, variables, variables_encrypted, created_at, updated_at
+		SELECT id, project_id, name, slug, parent_id, variables, variables_encrypted, is_standard, created_at, updated_at
 		FROM environments
 		WHERE id = $1`
 
@@ -94,7 +95,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, projectID string, limit 
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, parent_id, variables, variables_encrypted, created_at, updated_at
+		SELECT id, project_id, name, slug, parent_id, variables, variables_encrypted, is_standard, created_at, updated_at
 		FROM environments
 		WHERE project_id = $1`
 
@@ -187,17 +188,52 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 	return nil
 }
 
+// ErrStandardEnvironment is returned when attempting to delete or rename a standard environment.
+var ErrStandardEnvironment = errors.New("cannot modify standard environment")
+
 func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEnvironment")
 	defer span.End()
 
-	query := `DELETE FROM environments WHERE id = $1`
+	// Prevent deletion of standard environments.
+	query := `DELETE FROM environments WHERE id = $1 AND is_standard = FALSE`
 	tag, err := q.db.Exec(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("delete environment: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
+		// Check if the environment exists but is standard.
+		var isStandard bool
+		checkErr := q.db.QueryRow(ctx, `SELECT is_standard FROM environments WHERE id = $1`, id).Scan(&isStandard)
+		if checkErr != nil {
+			return ErrEnvironmentNotFound
+		}
+		if isStandard {
+			return ErrStandardEnvironment
+		}
 		return ErrEnvironmentNotFound
+	}
+
+	return nil
+}
+
+// CreateStandardEnvironments creates the three standard environments (development,
+// staging, production) for a project. This should be called when a project is created.
+func (q *Queries) CreateStandardEnvironments(ctx context.Context, projectID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateStandardEnvironments")
+	defer span.End()
+
+	for _, slug := range domain.StandardEnvironmentSlugs {
+		name := domain.StandardEnvironmentNames[slug]
+		env := &domain.Environment{
+			ProjectID:  projectID,
+			Name:       name,
+			Slug:       slug,
+			IsStandard: true,
+		}
+		if err := q.CreateEnvironment(ctx, env); err != nil {
+			return fmt.Errorf("create standard environment %s: %w", slug, err)
+		}
 	}
 
 	return nil
@@ -281,6 +317,7 @@ func (q *Queries) scanEnvironment(scanner scanTarget) (*domain.Environment, erro
 		&parentID,
 		&variablesRaw,
 		&variablesEncrypted,
+		&env.IsStandard,
 		&env.CreatedAt,
 		&env.UpdatedAt,
 	)

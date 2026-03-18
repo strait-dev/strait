@@ -251,14 +251,25 @@ type JobGroup struct {
 }
 
 type Environment struct {
-	ID        string            `json:"id"`
-	ProjectID string            `json:"project_id"`
-	Name      string            `json:"name"`
-	Slug      string            `json:"slug"`
-	ParentID  string            `json:"parent_id,omitempty"`
-	Variables map[string]string `json:"variables,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID         string            `json:"id"`
+	ProjectID  string            `json:"project_id"`
+	Name       string            `json:"name"`
+	Slug       string            `json:"slug"`
+	ParentID   string            `json:"parent_id,omitempty"`
+	IsStandard bool              `json:"is_standard"`
+	Variables  map[string]string `json:"variables,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
+}
+
+// StandardEnvironmentSlugs defines the three standard environments created for every project.
+var StandardEnvironmentSlugs = []string{"development", "staging", "production"}
+
+// StandardEnvironmentNames maps slugs to display names.
+var StandardEnvironmentNames = map[string]string{
+	"development": "Development",
+	"staging":     "Staging",
+	"production":  "Production",
 }
 
 type JobDependency struct {
