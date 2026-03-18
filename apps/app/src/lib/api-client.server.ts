@@ -48,6 +48,14 @@ export async function apiRequest<T>(
         projectId = activeOrgId;
       }
     }
+    // Fallback to user's default organization for older sessions
+    if (!projectId && session?.user) {
+      const defaultOrgId = (session.user as Record<string, unknown>)
+        .defaultOrganizationId;
+      if (typeof defaultOrgId === "string" && defaultOrgId) {
+        projectId = defaultOrgId;
+      }
+    }
   } catch {
     // Session resolution is best-effort
   }
@@ -59,7 +67,6 @@ export async function apiRequest<T>(
 
   if (projectId) {
     fetchHeaders["X-Project-Id"] = projectId;
-    url.searchParams.set("project_id", projectId);
   }
 
   const response = await fetch(url.toString(), {
