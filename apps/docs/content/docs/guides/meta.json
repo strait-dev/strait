@@ -18,6 +18,10 @@
     "dag-operations-playbook",
     "event-triggers",
     "environment-variables",
-    "database"
+    "database",
+    "tutorials",
+    "troubleshooting",
+    "migrating-from-bullmq",
+    "migrating-from-temporal"
   ]
 }

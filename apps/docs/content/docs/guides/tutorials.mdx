@@ -1,0 +1,123 @@
+---
+title: "Tutorials"
+description: "Step-by-step walkthroughs for common Strait workflows."
+---
+
+# Tutorials
+
+End-to-end project walkthroughs to help you build real systems with Strait.
+
+## Build a PDF Processing Pipeline
+
+Create a multi-step workflow that uploads a PDF, extracts text, summarizes it with an LLM, and stores the result.
+
+### 1. Define the jobs
+
+```bash
+strait jobs create --name "extract-text" \
+  --endpoint "https://your-app.com/api/jobs/extract-text" \
+  --timeout 120
+
+strait jobs create --name "summarize" \
+  --endpoint "https://your-app.com/api/jobs/summarize" \
+  --timeout 300
+
+strait jobs create --name "store-result" \
+  --endpoint "https://your-app.com/api/jobs/store-result" \
+  --timeout 30
+```
+
+### 2. Create the workflow DAG
+
+```json
+{
+  "name": "pdf-pipeline",
+  "steps": [
+    { "name": "extract", "job": "extract-text" },
+    { "name": "summarize", "job": "summarize", "depends_on": ["extract"] },
+    { "name": "store", "job": "store-result", "depends_on": ["summarize"] }
+  ]
+}
+```
+
+### 3. Trigger with a file payload
+
+```bash
+strait trigger pdf-pipeline --payload '{"file_url": "https://example.com/report.pdf"}'
+```
+
+Each step receives the output of its dependencies as input. The summarize step gets the extracted text, and the store step gets the summary.
+
+## Set Up a Cron-Based Report Generator
+
+Schedule a daily report that aggregates metrics and sends a Slack notification.
+
+### 1. Create the job with a cron schedule
+
+```bash
+strait jobs create --name "daily-report" \
+  --endpoint "https://your-app.com/api/jobs/daily-report" \
+  --schedule "0 9 * * *" \
+  --timeout 600
+```
+
+### 2. Implement the endpoint
+
+```typescript
+export async function POST(req: Request) {
+  const sdk = createSDKClient({ runToken: req.headers.get("x-strait-run-token") });
+
+  await sdk.log({ level: "info", message: "Starting daily report" });
+
+  const metrics = await fetchMetrics();
+  await sdk.progress(0.5);
+
+  await sendSlackReport(metrics);
+  await sdk.progress(1.0);
+
+  return Response.json({ metrics_count: metrics.length });
+}
+```
+
+The job runs every day at 9 AM UTC. Failed runs are automatically retried with exponential backoff.
+
+## Create an AI Agent with Cost Controls
+
+Build a research agent that searches the web, analyzes results, and generates a report -- with spending limits.
+
+### 1. Create a cost-budgeted job
+
+```bash
+strait jobs create --name "research-agent" \
+  --endpoint "https://your-app.com/api/agents/research" \
+  --timeout 1800 \
+  --max-cost-per-run 2.00 \
+  --daily-cost-limit 50.00
+```
+
+### 2. Implement with checkpoints
+
+```typescript
+const sdk = createSDKClient({ runToken: process.env.STRAIT_RUN_TOKEN });
+
+const checkpoint = await sdk.getCheckpoint();
+let state = checkpoint ?? { phase: "search", results: [] };
+
+if (state.phase === "search") {
+  const results = await webSearch(query);
+  state = { phase: "analyze", results };
+  await sdk.checkpoint(state);
+  await sdk.reportUsage({ model: "gpt-4o", input_tokens: 500, cost_usd: 0.005 });
+}
+
+if (state.phase === "analyze") {
+  const analysis = await analyzeResults(state.results);
+  state = { phase: "report", analysis };
+  await sdk.checkpoint(state);
+  await sdk.reportUsage({ model: "gpt-4o", input_tokens: 2000, output_tokens: 1000, cost_usd: 0.04 });
+}
+
+return Response.json({ report: state.analysis });
+```
+
+If the agent exceeds $2.00 per run, Strait will stop execution. Checkpoints let it resume from where it left off after a restart.
