@@ -16,6 +16,7 @@ type mockBillingStore struct {
 	upsertCount    int
 	lastPlanUpdate *planUpdate
 	subscriptions  map[string]*OrgSubscription
+	projects       map[string][]string
 }
 
 func (m *mockBillingStore) GetOrgSubscription(_ context.Context, orgID string) (*OrgSubscription, error) {
@@ -50,7 +51,10 @@ func (m *mockBillingStore) GetProjectOrgID(_ context.Context, _ string) (string,
 	return "", nil
 }
 
-func (m *mockBillingStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
+func (m *mockBillingStore) ListProjectsByOrg(_ context.Context, orgID string) ([]string, error) {
+	if m.projects != nil {
+		return m.projects[orgID], nil
+	}
 	return nil, nil
 }
 
