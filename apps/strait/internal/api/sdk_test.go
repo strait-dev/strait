@@ -1086,7 +1086,7 @@ func TestHandleListRuns_Success(t *testing.T) {
 
 	cursor := time.Now().UTC().Format(time.RFC3339)
 	w := httptest.NewRecorder()
-	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&status=executing&limit=500&cursor="+cursor, "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/?status=executing&limit=500&cursor="+cursor, "", "proj-1")
 
 	srv.ServeHTTP(w, r)
 
@@ -1128,7 +1128,7 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&metadata_key=env&metadata_value=prod", "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/?metadata_key=env&metadata_value=prod", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
 
@@ -1145,7 +1145,7 @@ func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&metadata_value=prod", "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/?metadata_value=prod", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
 
@@ -1173,7 +1173,7 @@ func TestHandleListRuns_InvalidLimit(t *testing.T) {
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&limit=abc", "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/?limit=abc", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
 
@@ -1187,7 +1187,7 @@ func TestHandleListRuns_InvalidCursor(t *testing.T) {
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&cursor=not-a-time", "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/?cursor=not-a-time", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
 
@@ -1208,7 +1208,7 @@ func TestHandleListRuns_InvalidStatus(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	r := authedRequest(http.MethodGet, "/v1/runs/?project_id=proj-1&status=definitely-not-valid", "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/?status=definitely-not-valid", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
 

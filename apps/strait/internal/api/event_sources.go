@@ -91,7 +91,7 @@ func (s *Server) handleCreateEventSource(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleListEventSources(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
@@ -108,7 +108,7 @@ func (s *Server) handleListEventSources(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleGetEventSource(w http.ResponseWriter, r *http.Request) {
 	sourceID := chi.URLParam(r, "sourceID")
-	projectID := r.URL.Query().Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
@@ -129,7 +129,7 @@ func (s *Server) handleGetEventSource(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateEventSource(w http.ResponseWriter, r *http.Request) {
 	sourceID := chi.URLParam(r, "sourceID")
-	projectID := r.URL.Query().Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
@@ -193,7 +193,7 @@ func (s *Server) handleUpdateEventSource(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteEventSource(w http.ResponseWriter, r *http.Request) {
 	sourceID := chi.URLParam(r, "sourceID")
-	projectID := r.URL.Query().Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return

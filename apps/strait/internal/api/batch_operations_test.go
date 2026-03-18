@@ -262,7 +262,7 @@ func TestHandleListRuns_PayloadContainsFilter(t *testing.T) {
 	}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, `/v1/runs?project_id=proj-1&payload_contains={"key":"val"}`, "")
+	req := authedProjectRequest(http.MethodGet, `/v1/runs?payload_contains={"key":"val"}`, "", "proj-1")
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {

@@ -561,7 +561,7 @@ func (s *Server) handleCreateTagPolicy(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListTagPolicies(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	projectID := query.Get("project_id")
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return
@@ -605,10 +605,7 @@ func (s *Server) handleDeleteTagPolicy(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	projectID := query.Get("project_id")
-	if projectID == "" {
-		projectID = projectIDFromContext(r.Context())
-	}
+	projectID := projectIDFromContext(r.Context())
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
 		return

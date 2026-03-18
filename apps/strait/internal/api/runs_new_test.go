@@ -169,7 +169,7 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&triggered_by=api", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?triggered_by=api", "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -195,7 +195,7 @@ func TestHandleListRuns_ExecutionModeFilter_Managed(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&execution_mode=managed", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?execution_mode=managed", "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -219,7 +219,7 @@ func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&execution_mode=http", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?execution_mode=http", "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -234,7 +234,7 @@ func TestHandleListRuns_ExecutionModeFilter_Invalid(t *testing.T) {
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&execution_mode=invalid", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?execution_mode=invalid", "", "proj-1"))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid execution_mode, got %d: %s", w.Code, w.Body.String())
 	}
@@ -252,7 +252,7 @@ func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs", "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -275,7 +275,7 @@ func TestHandleListRuns_ExecutionModeFilter_CombinedWithStatus(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs?project_id=proj-1&status=completed&execution_mode=managed", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?status=completed&execution_mode=managed", "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}

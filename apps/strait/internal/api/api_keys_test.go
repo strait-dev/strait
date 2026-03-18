@@ -181,7 +181,7 @@ func TestHandleListAPIKeys_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/api-keys/?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/api-keys/", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -217,7 +217,7 @@ func TestHandleListAPIKeys_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/api-keys/?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/api-keys/", "", "proj-1"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)

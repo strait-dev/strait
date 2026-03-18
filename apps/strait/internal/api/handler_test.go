@@ -90,6 +90,14 @@ func authedRequest(method, path string, body string) *http.Request {
 	return r
 }
 
+func authedProjectRequest(method, path, body, projectID string) *http.Request {
+	r := authedRequest(method, path, body)
+	if projectID != "" {
+		r.Header.Set("X-Project-Id", projectID)
+	}
+	return r
+}
+
 func TestHandleHealth(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
@@ -309,7 +317,7 @@ func TestHandleListJobs_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/jobs/", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -505,7 +513,7 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/?project_id=proj-1&tag_key=team&tag_value=core", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/jobs/?tag_key=team&tag_value=core", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -1425,7 +1433,7 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/dlq?project_id=proj-1&limit=25", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/dlq?limit=25", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())

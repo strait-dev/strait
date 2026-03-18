@@ -191,11 +191,9 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 					}
 				})
 			}
-
-			r = r.WithContext(ctx)
 		}
 
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

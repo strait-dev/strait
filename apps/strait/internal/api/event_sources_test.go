@@ -84,7 +84,7 @@ func TestHandleListEventSources_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/event-sources?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -126,7 +126,7 @@ func TestHandleGetEventSource_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/event-sources/src-1?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/src-1", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -151,7 +151,7 @@ func TestHandleGetEventSource_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/event-sources/src-999?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/src-999", "", "proj-1"))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
@@ -171,7 +171,7 @@ func TestHandleUpdateEventSource_Success(t *testing.T) {
 
 	body := `{"name": "renamed-source"}`
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/event-sources/src-1?project_id=proj-1", body))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/event-sources/src-1", body, "proj-1"))
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
@@ -183,7 +183,7 @@ func TestHandleUpdateEventSource_EmptyPatch(t *testing.T) {
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/event-sources/src-1?project_id=proj-1", `{}`))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/event-sources/src-1", `{}`, "proj-1"))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
@@ -205,7 +205,7 @@ func TestHandleDeleteEventSource_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/event-sources/src-1?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-1", "", "proj-1"))
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
@@ -222,7 +222,7 @@ func TestHandleDeleteEventSource_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/event-sources/src-999?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-999", "", "proj-1"))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
