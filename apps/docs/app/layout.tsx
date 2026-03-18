@@ -3,6 +3,7 @@ import { RootProvider } from "fumadocs-ui/provider/next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import type { Metadata, Viewport } from "next";
+import { cn } from "@strait/ui/utils";
 
 import "./global.css";
 
@@ -50,12 +51,26 @@ type Props = {
 const Layout = ({ children }: Props) => {
   return (
     <html
-      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      className={cn(
+        "min-h-screen bg-background antialiased",
+        GeistSans.className,
+        GeistMono.variable,
+      )}
       lang="en-US"
       suppressHydrationWarning
     >
-      <body className="min-h-screen bg-background font-sans text-foreground antialiased">
-        <RootProvider>{children}</RootProvider>
+      <body className="selection:bg-primary selection:text-primary-foreground">
+        <RootProvider
+          theme={{
+            attribute: "class",
+            defaultTheme: "dark",
+            disableTransitionOnChange: true,
+            enableSystem: false,
+            enableColorScheme: false,
+          }}
+        >
+          {children}
+        </RootProvider>
         {process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID ? (
           <GoogleTagManager
             gtmId={process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID}
