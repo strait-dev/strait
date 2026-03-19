@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
+	"github.com/getsentry/sentry-go"
 	concpool "github.com/sourcegraph/conc/pool"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -466,6 +468,21 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 	// Non-retryable or exhausted → dead letter.
 	if !retryable || d.Attempts >= d.MaxAttempts {
 		d.Status = domain.WebhookStatusDead
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("delivery_id", d.ID)
+			scope.SetTag("webhook_url_domain", extractDomain(d.WebhookURL))
+			scope.SetTag("attempt", fmt.Sprintf("%d", d.Attempts))
+			scope.SetLevel(sentry.LevelWarning)
+			scope.SetContext("webhook", map[string]any{
+				"delivery_id":  d.ID,
+				"attempts":     d.Attempts,
+				"max_attempts": d.MaxAttempts,
+				"retryable":    retryable,
+				"error":        errMsg,
+			})
+			scope.SetFingerprint([]string{"webhook_dead_lettered"})
+			sentry.CaptureMessage(fmt.Sprintf("webhook delivery dead-lettered: %s", errMsg))
+		})
 		if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
 			n.logger.Error("failed to dead-letter webhook", "delivery_id", d.ID, "error", err)
 		}
@@ -587,4 +604,12 @@ func matchesEventType(types []string, eventType string) bool {
 		}
 	}
 	return false
+}
+
+func extractDomain(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "unknown"
+	}
+	return u.Host
 }
