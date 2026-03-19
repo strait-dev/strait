@@ -2,8 +2,10 @@ import { Polar } from "@polar-sh/sdk";
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { Effect } from "effect";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { auth } from "@/lib/auth.server";
+import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 
 type SubscriptionData = {
   id: string;
@@ -209,15 +211,12 @@ const getBackendPlanTier = async (
   if (!orgId) {
     return null;
   }
-  try {
-    const { apiRequest } = await import("@/lib/api-client.server");
-    const data = await apiRequest<{ plan: string }>("/v1/usage/current", {
+  return await runWithFallback(
+    apiEffect<{ plan: string }>("/v1/usage/current", {
       params: { org_id: orgId },
-    });
-    return data?.plan ?? null;
-  } catch {
-    return null;
-  }
+    }).pipe(Effect.map((data) => data?.plan ?? null)),
+    null
+  );
 };
 
 const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
