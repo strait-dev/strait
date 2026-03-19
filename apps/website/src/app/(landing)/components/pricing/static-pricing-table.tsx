@@ -57,7 +57,7 @@ export function StaticPricingTable() {
         </div>
       </div>
 
-      <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 xl:gap-10">
+      <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
         {PLAN_KEYS.map((key) => {
           const plan = PLANS[key];
           const isEnterprise = key === "enterprise";
@@ -70,7 +70,7 @@ export function StaticPricingTable() {
           return (
             <div
               className={cn(
-                "relative flex h-full flex-col overflow-hidden rounded-2xl border transition-shadow duration-300",
+                "relative flex h-full flex-col overflow-hidden rounded-xl border transition-shadow duration-300",
                 plan.highlighted
                   ? "border-primary/40"
                   : "border-border/60 bg-card hover:border-border hover:shadow-md"
@@ -78,7 +78,7 @@ export function StaticPricingTable() {
               key={key}
             >
               {plan.highlighted ? (
-                <div className="relative bg-primary px-6 py-8 sm:px-8">
+                <div className="relative bg-primary px-5 py-6 sm:px-6">
                   <div className="showcase-dots pointer-events-none absolute inset-0" />
                   <div
                     className="pointer-events-none absolute inset-0 opacity-30"
@@ -88,10 +88,10 @@ export function StaticPricingTable() {
                     }}
                   />
                   <div className="relative z-10">
-                    <span className="mb-4 inline-block rounded-md bg-primary-foreground/20 px-3 py-1.5 font-medium text-primary-foreground text-xs backdrop-blur-sm">
+                    <span className="mb-3 inline-block rounded-md bg-primary-foreground/20 px-2.5 py-1 font-medium text-primary-foreground text-xs backdrop-blur-sm">
                       Most popular
                     </span>
-                    <h3 className="text-2xl text-primary-foreground tracking-tight">
+                    <h3 className="text-primary-foreground text-xl">
                       {plan.name}
                     </h3>
                     <p className="mt-2 max-w-sm text-pretty text-primary-foreground/70 text-sm leading-relaxed">
@@ -100,11 +100,9 @@ export function StaticPricingTable() {
                   </div>
                 </div>
               ) : (
-                <div className="px-6 pt-8 sm:px-8">
+                <div className="px-5 pt-6 sm:px-6">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-2xl text-foreground tracking-tight">
-                      {plan.name}
-                    </h3>
+                    <h3 className="text-foreground text-xl">{plan.name}</h3>
                     {plan.badge && plan.badge !== "Most popular" && (
                       <Badge variant="outline">{plan.badge}</Badge>
                     )}
@@ -115,8 +113,8 @@ export function StaticPricingTable() {
                 </div>
               )}
 
-              <div className="flex flex-1 flex-col px-6 pb-8 sm:px-8">
-                <div className="mt-8 mb-8 flex items-baseline gap-1">
+              <div className="flex flex-1 flex-col px-5 pb-6 sm:px-6">
+                <div className="mt-6 mb-6 flex items-baseline gap-1">
                   <span className="text-4xl text-foreground tabular-nums tracking-tight sm:text-5xl">
                     {priceDisplay}
                   </span>
@@ -133,7 +131,7 @@ export function StaticPricingTable() {
                   </p>
                 )}
 
-                <div className="mb-8 border-border/40 border-t" />
+                <div className="mb-6 border-border/40 border-t" />
 
                 {plan.computeCredit !== "100 runs/mo (micro, 10s)" && (
                   <p className="mb-4 font-medium text-foreground text-sm">
@@ -141,7 +139,7 @@ export function StaticPricingTable() {
                   </p>
                 )}
 
-                <ul className="mb-10 flex-1 space-y-3.5">
+                <ul className="mb-8 flex-1 space-y-3">
                   {plan.features.map((feature) => (
                     <li
                       className="flex items-start gap-3 text-sm leading-relaxed"

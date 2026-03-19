@@ -225,7 +225,7 @@ const PricingComparisonClient = ({
           >
             {header.title}
           </h2>
-          <p className="max-w-2xl text-pretty text-lg text-muted-foreground leading-relaxed">
+          <p className="max-w-2xl text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
             {header.description}
           </p>
         </div>

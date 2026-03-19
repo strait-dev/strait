@@ -219,7 +219,7 @@ const Hero = () => {
             <h1 className="mt-6 text-balance text-4xl leading-[1.12] sm:text-5xl lg:text-6xl">
               Background jobs, workflows, and AI agents that never lose state.
             </h1>
-            <p className="mt-6 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+            <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
               One platform to queue, orchestrate, and observe every async
               workload. Open-source and self-hostable.
             </p>

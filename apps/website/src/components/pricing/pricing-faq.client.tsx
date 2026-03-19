@@ -39,11 +39,11 @@ const PricingFaqClient = ({
         {/* Section Header - kicker pattern */}
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
           <span className="kicker">{badge}</span>
-          <h2 className="text-balance font-semibold text-4xl text-foreground tracking-tight sm:text-5xl lg:text-6xl">
+          <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             {title}
           </h2>
           {description ? (
-            <p className="max-w-2xl text-balance text-lg text-muted-foreground leading-relaxed">
+            <p className="max-w-2xl text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
               {description}
             </p>
           ) : null}

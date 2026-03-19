@@ -310,7 +310,7 @@ const FeatureBentoGrid = () => (
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
           Write code as if failures don&apos;t exist.
         </h2>
-        <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+        <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
           Strait handles retries, state, scaling, and observability so you can
           focus on your product.
         </p>

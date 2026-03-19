@@ -1,4 +1,5 @@
 import dynamic from "next/dynamic";
+import { Suspense } from "react";
 import { generateMetadata as generatePageMetadata } from "@/lib/metadata.ts";
 import {
   getHowToSchema,
@@ -24,6 +25,12 @@ const ProblemSection = dynamic(
   () => import("./components/common/hero/problem-section.tsx")
 );
 const CTA = dynamic(() => import("./components/common/cta/cta.tsx"));
+const PricingComparison = dynamic(
+  () => import("@/components/pricing/pricing-comparison.tsx")
+);
+const PricingFaq = dynamic(
+  () => import("@/components/pricing/pricing-faq.tsx")
+);
 
 export const metadata = generatePageMetadata({
   path: "/",
@@ -79,6 +86,10 @@ const LandingPage = () => {
       <CodeExampleSection />
       <ComparisonSection />
       <PricingTeaser />
+      <PricingComparison />
+      <Suspense fallback={null}>
+        <PricingFaq />
+      </Suspense>
       <CTA />
     </>
   );

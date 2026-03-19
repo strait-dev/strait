@@ -50,7 +50,7 @@ const ComparisonSection = () => (
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             How Strait compares.
           </h2>
-          <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+          <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
             More SDKs, simpler self-hosting, and AI cost tracking that
             competitors don&apos;t offer.
           </p>

@@ -278,7 +278,7 @@ const CodeExampleSection = () => {
             <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
               From idea to production in minutes.
             </h2>
-            <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+            <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
               Define a job, wire it into a workflow, set cost guardrails for AI
               agents, and stream status to your frontend.
             </p>

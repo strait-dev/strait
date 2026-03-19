@@ -56,10 +56,10 @@ export default function PricingPage() {
             <h1 className="mt-6 text-balance text-4xl leading-[1.12] tracking-tight sm:text-5xl lg:text-6xl">
               Simple pricing, built for reliable orchestration.
             </h1>
-            <p className="mt-6 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+            <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
               Start free with all core features. Scale when you are ready.
             </p>
-            <p className="mt-6 text-pretty text-base text-muted-foreground/70 leading-relaxed sm:text-lg">
+            <p className="mt-3 text-pretty text-muted-foreground/70 text-sm leading-relaxed sm:text-base">
               No hidden fees. Cancel anytime. Self-host or let us run it for
               you.
             </p>
@@ -91,7 +91,7 @@ export default function PricingPage() {
             <h2 className="text-balance text-2xl leading-[1.2] tracking-tight sm:text-3xl lg:text-4xl">
               Every plan includes all core features.
             </h2>
-            <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+            <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
               Pay only for scale and governance.
             </p>
           </div>

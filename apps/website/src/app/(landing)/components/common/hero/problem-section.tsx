@@ -81,7 +81,7 @@ const ProblemSection = () => (
           <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
             Sound familiar?
           </h2>
-          <p className="mt-4 text-pretty text-base text-muted-foreground leading-relaxed sm:text-lg">
+          <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
             Teams bolt on queues, cron hacks, and retry wrappers until the glue
             code is harder to maintain than the product itself.
           </p>
@@ -157,13 +157,7 @@ const ProblemSection = () => (
             key={item.role}
             variant={i % 2 === 0 ? "fade-left" : "fade-right"}
           >
-            <div
-              className="rounded-xl border border-border/60 bg-card p-5"
-              style={{
-                borderLeftColor: "var(--destructive)",
-                borderLeftWidth: 3,
-              }}
-            >
+            <div className="rounded-xl border border-border/40 bg-card/50 p-5">
               <p className="text-foreground text-sm italic leading-relaxed">
                 &ldquo;{item.quote}&rdquo;
               </p>
