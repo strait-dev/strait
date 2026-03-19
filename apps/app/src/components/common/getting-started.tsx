@@ -113,7 +113,7 @@ export const GettingStarted = ({ user }: Props) => {
             </div>
             <CardTitle className="text-base">Create a project</CardTitle>
           </CardHeader>
-          <CardContent className="pl-14">
+          <CardContent className="pl-6 sm:pl-14">
             <p className="text-muted-foreground text-sm">
               Projects organize your jobs and workflows.
             </p>
@@ -136,7 +136,7 @@ export const GettingStarted = ({ user }: Props) => {
             </div>
             <CardTitle className="text-base">Install the SDK</CardTitle>
           </CardHeader>
-          <CardContent className="pl-14">
+          <CardContent className="pl-6 sm:pl-14">
             <p className="text-muted-foreground text-sm">
               Add the Strait SDK to your application.
             </p>
@@ -171,7 +171,7 @@ export const GettingStarted = ({ user }: Props) => {
             </div>
             <CardTitle className="text-base">Deploy your first job</CardTitle>
           </CardHeader>
-          <CardContent className="pl-14">
+          <CardContent className="pl-6 sm:pl-14">
             <p className="text-muted-foreground text-sm">
               Register and deploy a job to start processing work.
             </p>

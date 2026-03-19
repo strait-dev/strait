@@ -76,10 +76,10 @@ function RunDetailPage() {
   return (
     <Shell>
       {/* Header */}
-      <div className="flex items-start justify-between pt-4 pb-6">
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3 pt-4 pb-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-2 overflow-hidden">
           <div className="flex items-center gap-3">
-            <h1 className="text-balance font-mono font-normal text-xl tracking-tight">
+            <h1 className="truncate font-mono font-normal text-lg tracking-tight sm:text-xl">
               {run.id}
             </h1>
             <StatusBadge showDot status={run.status} />
@@ -91,7 +91,7 @@ function RunDetailPage() {
             </span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           {isFailed && (
             <Button size="sm" variant="outline">
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
@@ -122,7 +122,7 @@ function RunDetailPage() {
           <CardTitle>Execution Overview</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
             <DetailCell label="Status" value={run.status} />
             <DetailCell
               label="Duration"
@@ -171,7 +171,7 @@ function RunDetailPage() {
         </TabsList>
 
         <TabsContent className="mt-6" value="logs">
-          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
             {events && events.length > 0
               ? events
                   .map(
@@ -184,13 +184,13 @@ function RunDetailPage() {
         </TabsContent>
 
         <TabsContent className="mt-6" value="payload">
-          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
             {run.payload ? JSON.stringify(run.payload, null, 2) : "No payload"}
           </pre>
         </TabsContent>
 
         <TabsContent className="mt-6" value="response">
-          <pre className="max-h-[500px] overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
+          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
             {run.result
               ? JSON.stringify(run.result, null, 2)
               : "No response data"}

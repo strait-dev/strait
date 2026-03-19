@@ -180,10 +180,10 @@ function JobDetailPage() {
   return (
     <Shell>
       {/* Header */}
-      <div className="flex items-start justify-between pt-4 pb-4">
+      <div className="flex flex-col gap-3 pt-4 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-3">
-            <h1 className="text-balance font-normal text-2xl tracking-tight">
+            <h1 className="text-balance font-normal text-xl tracking-tight sm:text-2xl">
               {job.name}
             </h1>
             <StatusBadge
@@ -246,7 +246,7 @@ function JobDetailPage() {
 
           {/* Run History Bar Chart */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-col gap-2 pb-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="font-medium text-sm">
                 Run History (Last {rangeDays} Days)
               </CardTitle>

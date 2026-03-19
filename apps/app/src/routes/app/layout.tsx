@@ -183,9 +183,13 @@ function RouteComponent() {
                 <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
                 <HeaderBreadcrumb />
               </div>
-              <div className="flex items-center gap-2">
-                <ThemeToggle />
-                <FeedbackDialog user={session.user} />
+              <div className="flex items-center gap-1 sm:gap-2">
+                <span className="hidden sm:inline-flex">
+                  <ThemeToggle />
+                </span>
+                <span className="hidden sm:inline-flex">
+                  <FeedbackDialog user={session.user} />
+                </span>
                 <SupportDialog user={session.user} />
                 <HeaderUserMenu user={session.user} />
               </div>
