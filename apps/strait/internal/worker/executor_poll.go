@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/getsentry/sentry-go"
 )
 
 func (e *Executor) poll(ctx context.Context) {
@@ -74,6 +76,25 @@ func (e *Executor) poll(ctx context.Context) {
 		e.pool.Submit(execCtx, func() {
 			defer func() {
 				if r := recover(); r != nil {
+					sentry.WithScope(func(scope *sentry.Scope) {
+						scope.SetTag("run_id", run.ID)
+						scope.SetTag("job_id", run.JobID)
+						scope.SetTag("project_id", run.ProjectID)
+						scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+						scope.SetTag("execution_mode", string(run.ExecutionMode))
+						scope.SetLevel(sentry.LevelFatal)
+						scope.SetContext("run", map[string]any{
+							"run_id":         run.ID,
+							"job_id":         run.JobID,
+							"project_id":     run.ProjectID,
+							"attempt":        run.Attempt,
+							"priority":       run.Priority,
+							"execution_mode": run.ExecutionMode,
+							"status":         run.Status,
+						})
+						sentry.CurrentHub().Recover(r)
+					})
+					sentry.Flush(2 * time.Second)
 					e.logger.Error("panic in executor goroutine", "run_id", run.ID, "panic", r)
 					e.handleSystemFailure(execCtx, &run, fmt.Sprintf("panic: %v", r))
 				}
