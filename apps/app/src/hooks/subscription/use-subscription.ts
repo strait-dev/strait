@@ -201,6 +201,25 @@ const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
   }
 );
 
+/** Fetch the plan tier from the backend usage API as a fallback. */
+const getBackendPlanTier = async (
+  session: { session: { activeOrganizationId?: string | null } } | null
+): Promise<string | null> => {
+  const orgId = session?.session?.activeOrganizationId;
+  if (!orgId) {
+    return null;
+  }
+  try {
+    const { apiRequest } = await import("@/lib/api-client.server");
+    const data = await apiRequest<{ plan: string }>("/v1/usage/current", {
+      params: { org_id: orgId },
+    });
+    return data?.plan ?? null;
+  } catch {
+    return null;
+  }
+};
+
 const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionStateData> => {
     const headers = getRequestHeaders();
@@ -229,9 +248,17 @@ const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
     const subscription = await getSubscriptionByEmail(email);
     const status = subscription?.status ?? "none";
     const normalizedStatus = status === "cancelled" ? "canceled" : status;
-    const planSlug = subscription?.productId
+    let planSlug = subscription?.productId
       ? (PRODUCT_PLAN_MAP[subscription.productId] ?? null)
       : null;
+
+    // Fallback: if Polar lookup returned no plan, try the backend usage API.
+    if (!planSlug) {
+      const backendPlan = await getBackendPlanTier(session);
+      if (backendPlan && backendPlan !== "free") {
+        planSlug = backendPlan;
+      }
+    }
     const isTrialing = normalizedStatus === "trialing";
     const hasActiveSubscription = ACTIVE_STATUSES.has(normalizedStatus);
     const needsAttention = ATTENTION_STATUSES.has(normalizedStatus);

@@ -5,6 +5,7 @@ import {
   useCanAddMoreByPlan,
   useFeatureLimitByPlan,
 } from "@/hooks/posthog/use-feature-flag";
+import { useOrgUsage } from "@/hooks/billing/use-org-usage";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 
 type AddMoreGateProps = {
@@ -27,8 +28,16 @@ const FEATURE_TO_FLAG_MAP = {
   products: FEATURE_FLAGS.LIMIT_PRODUCTS,
 } as const;
 
+// Maps feature-gate features to backend usage dimensions for fallback.
+const FEATURE_TO_USAGE_MAP = {
+  stores: "projects",
+  teamMembersPerStore: "members",
+  products: "projects",
+} as const;
+
 /**
- * Component that checks if user can add more items without exceeding their limit
+ * Component that checks if user can add more items without exceeding their limit.
+ * Uses PostHog feature flags as primary source, with backend usage data as fallback.
  */
 export const AddMoreGate = ({
   feature,
@@ -40,6 +49,7 @@ export const AddMoreGate = ({
 }: AddMoreGateProps) => {
   const { data } = useSuspenseQuery(subscriptionStateQueryOptions());
   const { plan, isTrialing, nextPlan } = data;
+  const { data: orgUsage } = useOrgUsage();
 
   const flagKey = FEATURE_TO_FLAG_MAP[feature];
 
@@ -52,9 +62,21 @@ export const AddMoreGate = ({
     additionalCount
   );
 
-  const displayLimit = limit === -1 ? "unlimited" : limit;
+  // Backend fallback: if PostHog returns no limit (-1 or undefined), check
+  // the backend usage data directly.
+  let effectiveCanAdd = canAdd;
+  let effectiveLimit: number | "unlimited" = limit === -1 ? "unlimited" : limit;
 
-  if (canAdd) {
+  if (limit === -1 && orgUsage) {
+    const usageKey = FEATURE_TO_USAGE_MAP[feature];
+    const dimension = orgUsage.usage[usageKey];
+    if (dimension && dimension.limit > 0) {
+      effectiveLimit = dimension.limit;
+      effectiveCanAdd = currentCount + additionalCount <= dimension.limit;
+    }
+  }
+
+  if (effectiveCanAdd) {
     return <>{children}</>;
   }
 
@@ -62,7 +84,7 @@ export const AddMoreGate = ({
     return (
       <>
         {upgradePrompt({
-          limit: displayLimit,
+          limit: effectiveLimit,
           currentCount,
           trying: additionalCount,
           nextPlan: nextPlan || undefined,

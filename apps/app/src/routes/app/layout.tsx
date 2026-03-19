@@ -18,6 +18,7 @@ import HeaderBreadcrumb from "@/components/common/header-breadcrumb";
 import HeaderUserMenu from "@/components/common/header-user-menu";
 import Sidebar from "@/components/common/sidebar";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { UpgradeNudgeBanner } from "@/components/billing/upgrade-nudge-banner";
 import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
 import { usePostHog } from "@/components/providers/posthog-provider";
@@ -195,6 +196,9 @@ function RouteComponent() {
           className="flex flex-1 flex-col gap-4 bg-background pt-0"
           vaul-drawer-wrapper=""
         >
+          <div className="px-4 pt-2">
+            <UpgradeNudgeBanner />
+          </div>
           <Outlet />
         </div>
       </SidebarInset>
