@@ -8,7 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { APIKey, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { apiRequest } from "@/lib/api-client.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 // ---------------------------------------------------------------------------
@@ -19,9 +19,11 @@ export const fetchApiKeys = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<PaginatedResponse<APIKey>>("/v1/api-keys", {
-      params: { limit: data.limit, cursor: data.cursor },
-    });
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<APIKey>>("/v1/api-keys", {
+        params: { limit: data.limit, cursor: data.cursor },
+      })
+    );
   });
 
 export const createApiKeyFn = createServerFn({ method: "POST" })
@@ -33,28 +35,33 @@ export const createApiKeyFn = createServerFn({ method: "POST" })
     const expiresIn = data.expiresInDays
       ? `${data.expiresInDays * 24}h`
       : undefined;
-    return await apiRequest<APIKey & { key: string }>("/v1/api-keys", {
-      method: "POST",
-      body: { name: data.name, scopes: data.scopes, expires_in: expiresIn },
-    });
+    return await runWithSentryReport(
+      apiEffect<APIKey & { key: string }>("/v1/api-keys", {
+        method: "POST",
+        body: { name: data.name, scopes: data.scopes, expires_in: expiresIn },
+      })
+    );
   });
 
 export const revokeApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator((data: { keyId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<void>(`/v1/api-keys/${data.keyId}`, {
-      method: "DELETE",
-    });
+    return await runWithSentryReport(
+      apiEffect<void>(`/v1/api-keys/${data.keyId}`, {
+        method: "DELETE",
+      })
+    );
   });
 
 export const rotateApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator((data: { keyId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    return await apiRequest<APIKey & { key: string }>(
-      `/v1/api-keys/${data.keyId}/rotate`,
-      { method: "POST" }
+    return await runWithSentryReport(
+      apiEffect<APIKey & { key: string }>(`/v1/api-keys/${data.keyId}/rotate`, {
+        method: "POST",
+      })
     );
   });
 
