@@ -135,39 +135,76 @@ func TestThroughputCeiling(t *testing.T) {
 	}
 }
 
-// TestConcurrencyCeiling finds the maximum concurrent connections.
+// TestConcurrencyCeiling finds the maximum concurrent connections for HTTP and Managed modes.
 // Use: go test -tags=loadtest -run TestConcurrencyCeiling -timeout 1h ./internal/loadtest/...
 func TestConcurrencyCeiling(t *testing.T) {
 	h := setupHarness(t)
-	scenario := loadtest.ConcurrencyCeiling()
 
-	t.Logf("running scenario: %s", scenario.Name)
+	// Subtest: HTTP concurrency ceiling
+	t.Run("HTTP", func(t *testing.T) {
+		scenario := loadtest.ConcurrencyCeiling()
+		t.Logf("running: HTTP concurrency ceiling")
 
-	engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
-		return h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
-			"timestamp": time.Now().UnixMilli(),
+		engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
+			return h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
+				"timestamp": time.Now().UnixMilli(),
+			})
 		})
+
+		result, err := engine.Run(context.Background())
+		if err != nil {
+			t.Fatalf("HTTP concurrency test failed: %v", err)
+		}
+
+		t.Logf("=== HTTP CONCURRENCY CEILING ===")
+		t.Logf("max sustained: %d concurrent | breaks at: %d | bottleneck: %s",
+			result.MaxRate, result.BreakingRate, result.Bottleneck)
+
+		for _, step := range result.Steps {
+			t.Logf("  concurrent=%d ops=%d errs=%d error_rate=%.2f%% p99=%s",
+				step.Rate, step.Operations, step.Errors,
+				step.ErrorRate*100, step.LatencyP99)
+		}
+
+		if err := h.WriteResult("concurrency_ceiling_http.json", result); err != nil {
+			t.Errorf("writing result: %v", err)
+		}
 	})
 
-	result, err := engine.Run(context.Background())
-	if err != nil {
-		t.Fatalf("concurrency ceiling test failed: %v", err)
-	}
+	// Subtest: Managed (Docker) concurrency ceiling
+	t.Run("Managed", func(t *testing.T) {
+		if os.Getenv("COMPUTE_RUNTIME") != "docker" {
+			t.Skip("set COMPUTE_RUNTIME=docker to test managed concurrency")
+		}
 
-	t.Logf("=== CONCURRENCY CEILING RESULTS ===")
-	t.Logf("max sustained concurrent: %d", result.MaxRate)
-	t.Logf("breaks at: %d concurrent", result.BreakingRate)
-	t.Logf("bottleneck: %s", result.Bottleneck)
+		engine := loadtest.NewRampEngine(loadtest.RampConfig{
+			Mode:         loadtest.RampConcurrency,
+			StartRate:    10,
+			StepSize:     10,
+			StepInterval: 2 * time.Minute,
+			StopCondition: loadtest.StopCondition{
+				MaxErrorRate: 0.05,
+				MaxDuration:  1 * time.Hour,
+			},
+		}, func(ctx context.Context) error {
+			return h.TriggerJob(ctx, "loadtest-project", "loadtest-managed", map[string]any{
+				"timestamp": time.Now().UnixMilli(),
+			})
+		})
 
-	for _, step := range result.Steps {
-		t.Logf("  concurrent=%d ops=%d errs=%d error_rate=%.2f%% p99=%s",
-			step.Rate, step.Operations, step.Errors,
-			step.ErrorRate*100, step.LatencyP99)
-	}
+		result, err := engine.Run(context.Background())
+		if err != nil {
+			t.Fatalf("managed concurrency test failed: %v", err)
+		}
 
-	if err := h.WriteResult("concurrency_ceiling.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
-	}
+		t.Logf("=== MANAGED CONCURRENCY CEILING ===")
+		t.Logf("max sustained: %d containers | breaks at: %d | bottleneck: %s",
+			result.MaxRate, result.BreakingRate, result.Bottleneck)
+
+		if err := h.WriteResult("concurrency_ceiling_managed.json", result); err != nil {
+			t.Errorf("writing result: %v", err)
+		}
+	})
 }
 
 // TestProductionSimulation runs a multi-tenant production simulation.
@@ -209,16 +246,30 @@ func TestProductionSimulation(t *testing.T) {
 		},
 	)
 
+	// Inject error scenarios during simulation (50/min as per STR-197)
+	errorCtx, errorCancel := context.WithCancel(context.Background())
+	defer errorCancel()
+	errorInjector := loadtest.NewErrorInjector(h, "loadtest-project", 50)
+	go errorInjector.Run(errorCtx)
+
 	result, err := sim.Run(context.Background())
 	if err != nil {
 		t.Fatalf("production simulation failed: %v", err)
 	}
+	errorCancel()
 
 	t.Logf("=== PRODUCTION SIMULATION RESULTS ===")
 	t.Logf("total runs: %d", result.TotalRuns)
 	t.Logf("total errors: %d", result.TotalErrors)
 	t.Logf("runs/sec: %.1f", result.RunsPerSecond)
 	t.Logf("duration: %s", result.Duration)
+	t.Logf("error scenarios injected: %d", errorInjector.Injected())
+
+	// Log per-tenant stats
+	for id, stats := range result.PerTenant {
+		t.Logf("  tenant=%s runs=%d errors=%d rate=%.1f/sec",
+			id, stats.Runs, stats.Errors, stats.Rate)
+	}
 
 	if err := h.WriteResult("production_simulation.json", result); err != nil {
 		t.Errorf("writing result: %v", err)
@@ -335,23 +386,24 @@ func TestEndurance(t *testing.T) {
 
 	t.Logf("running endurance test: %d jobs/sec for %s", targetRate, duration)
 
-	engine := loadtest.NewRampEngine(loadtest.RampConfig{
-		Mode:         loadtest.RampThroughput,
-		StartRate:    targetRate,
-		StepSize:     0, // No ramp - hold steady
-		StepInterval: 1 * time.Minute,
-		StopCondition: loadtest.StopCondition{
-			MaxLatencyP99: 10 * time.Second,
-			MaxErrorRate:  0.05,
-			MaxDuration:   duration,
+	// Create endurance runner with spike injection and alert thresholds
+	runner := loadtest.NewEnduranceRunner(loadtest.EnduranceConfig{
+		TargetRate:     targetRate,
+		Duration:       duration,
+		SpikeInterval:  4 * time.Hour,
+		SpikeMultiple:  10,
+		SpikeDuration:  5 * time.Minute,
+		LongRunJobs:    20,
+		LongRunMinutes: 240,
+		AlertThresholds: loadtest.AlertThresholds{
+			MemoryGrowthPerHourMB: 100,
+			GoroutineGrowthPerHour: 1000,
+			P99GrowthPerHourPct:   10,
+			ErrorGrowthPerHourPct: 0.1,
 		},
-	}, func(ctx context.Context) error {
-		return h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
-			"timestamp": time.Now().UnixMilli(),
-		})
 	})
 
-	result, err := engine.Run(context.Background())
+	result, alerts, err := runner.Run(context.Background(), h)
 	if err != nil {
 		t.Fatalf("endurance test failed: %v", err)
 	}
@@ -360,6 +412,16 @@ func TestEndurance(t *testing.T) {
 	t.Logf("duration: %s", result.Duration)
 	t.Logf("total operations: %d", result.TotalOperations)
 	t.Logf("total errors: %d", result.TotalErrors)
+	t.Logf("spikes injected: %d", result.SpikesInjected)
+	t.Logf("long-run jobs completed: %d/%d", result.LongRunCompleted, result.LongRunTotal)
+
+	// Report alerts
+	for _, alert := range alerts {
+		t.Logf("ALERT [%s]: %s (hour %d)", alert.Severity, alert.Message, alert.Hour)
+		if alert.Severity == "LEAK" || alert.Severity == "DEGRADATION" {
+			t.Errorf("endurance alert: %s", alert.Message)
+		}
+	}
 
 	// Check for memory leaks: compare first and last metric snapshots
 	snapshots := h.Metrics.Snapshots()
@@ -382,6 +444,9 @@ func TestEndurance(t *testing.T) {
 
 	if err := h.WriteResult("endurance.json", result); err != nil {
 		t.Errorf("writing result: %v", err)
+	}
+	if err := h.WriteResult("endurance_alerts.json", alerts); err != nil {
+		t.Errorf("writing alerts: %v", err)
 	}
 }
 

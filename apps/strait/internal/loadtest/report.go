@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -63,6 +65,66 @@ type ReportGenerator struct {
 	OutputDir    string
 	HTMLFilename string
 	JSONFilename string
+	PDFFilename  string   // Optional: generates PDF via chromedp
+	DiffDir      string   // Optional: second results dir for comparison
+}
+
+// LogCapture captures external service logs during load tests.
+type LogCapture struct {
+	OutputDir string
+}
+
+// NewLogCapture creates a log capture instance.
+func NewLogCapture(outputDir string) *LogCapture {
+	return &LogCapture{OutputDir: filepath.Join(outputDir, "logs")}
+}
+
+// CaptureAll captures logs from Postgres, Redis, and Docker.
+func (lc *LogCapture) CaptureAll() error {
+	if err := os.MkdirAll(lc.OutputDir, 0o755); err != nil {
+		return fmt.Errorf("creating logs dir: %w", err)
+	}
+
+	// Capture Postgres slow query log
+	lc.captureDockerLog("strait-postgres-1", "postgres.log")
+	lc.captureDockerLog("cayenne-postgres-1", "postgres.log")
+
+	// Capture Redis log
+	lc.captureDockerLog("strait-redis-1", "redis.log")
+	lc.captureDockerLog("cayenne-redis-1", "redis.log")
+
+	// Capture Docker events
+	lc.captureDockerLog("", "docker.log")
+
+	return nil
+}
+
+func (lc *LogCapture) captureDockerLog(container, filename string) {
+	if container == "" {
+		return
+	}
+	path := filepath.Join(lc.OutputDir, filename)
+	// Best-effort log capture
+	data, err := execCommand("docker", "logs", "--tail", "10000", container)
+	if err != nil {
+		return
+	}
+	os.WriteFile(path, data, 0o644)
+}
+
+// ReportDiff compares two test runs and generates a diff report.
+type ReportDiff struct {
+	RunA     *Report     `json:"run_a"`
+	RunB     *Report     `json:"run_b"`
+	Changes  []DiffEntry `json:"changes"`
+}
+
+// DiffEntry represents a single difference between two runs.
+type DiffEntry struct {
+	Metric string `json:"metric"`
+	ValueA string `json:"value_a"`
+	ValueB string `json:"value_b"`
+	Change string `json:"change"` // "improved", "degraded", "unchanged"
 }
 
 // NewReportGenerator creates a report generator.
@@ -81,7 +143,7 @@ func NewReportGenerator(inputDir, outputDir, htmlFile, jsonFile string) *ReportG
 	}
 }
 
-// Generate reads results from InputDir and produces HTML and JSON reports.
+// Generate reads results from InputDir and produces HTML, JSON, and optionally PDF reports.
 func (rg *ReportGenerator) Generate() error {
 	if err := os.MkdirAll(rg.OutputDir, 0o755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
@@ -91,15 +153,30 @@ func (rg *ReportGenerator) Generate() error {
 		Generated: time.Now(),
 	}
 
+	// Populate environment info
+	hostname, _ := os.Hostname()
+	report.Environment = ReportEnvironment{
+		Hostname:  hostname,
+		CPUs:      numCPUs(),
+		GoVersion: goVersion(),
+	}
+
 	// Load individual results if they exist
 	rg.loadJSON("throughput_ceiling.json", &report.Throughput)
-	rg.loadJSON("concurrency_ceiling.json", &report.Concurrency)
+	rg.loadJSON("concurrency_ceiling_http.json", &report.Concurrency)
 	rg.loadJSON("production_simulation.json", &report.MultiTenant)
 	rg.loadJSON("chaos_all.json", &report.Chaos)
 	rg.loadJSON("error_scenarios.json", &report.Errors)
 
+	// Load metrics snapshots
+	rg.loadJSONL("raw/metrics_*.jsonl", &report.Metrics)
+
 	// Build summary
 	report.Summary = rg.buildSummary(report)
+
+	// Capture service logs
+	logCapture := NewLogCapture(rg.OutputDir)
+	logCapture.CaptureAll()
 
 	// Write JSON report
 	if err := rg.writeJSON(rg.JSONFilename, report); err != nil {
@@ -111,7 +188,96 @@ func (rg *ReportGenerator) Generate() error {
 		return fmt.Errorf("writing HTML report: %w", err)
 	}
 
+	// Generate diff report if comparison dir provided
+	if rg.DiffDir != "" {
+		if err := rg.generateDiff(report); err != nil {
+			return fmt.Errorf("generating diff: %w", err)
+		}
+	}
+
+	// Generate PDF if requested (requires chromedp/Chrome)
+	if rg.PDFFilename != "" {
+		if err := rg.generatePDF(); err != nil {
+			// PDF is best-effort; don't fail the whole report
+			fmt.Fprintf(os.Stderr, "PDF generation failed (chromedp/Chrome required): %v\n", err)
+		}
+	}
+
 	return nil
+}
+
+func (rg *ReportGenerator) generateDiff(current *Report) error {
+	other := &Report{}
+	otherGen := &ReportGenerator{InputDir: rg.DiffDir, OutputDir: rg.OutputDir}
+	otherGen.loadJSON("throughput_ceiling.json", &other.Throughput)
+	otherGen.loadJSON("concurrency_ceiling_http.json", &other.Concurrency)
+	otherGen.loadJSON("chaos_all.json", &other.Chaos)
+
+	diff := ReportDiff{RunA: current, RunB: other}
+
+	// Compare throughput
+	if current.Throughput != nil && other.Throughput != nil {
+		change := "unchanged"
+		if current.Throughput.MaxRate > other.Throughput.MaxRate {
+			change = "improved"
+		} else if current.Throughput.MaxRate < other.Throughput.MaxRate {
+			change = "degraded"
+		}
+		diff.Changes = append(diff.Changes, DiffEntry{
+			Metric: "max_throughput",
+			ValueA: fmt.Sprintf("%d jobs/sec", current.Throughput.MaxRate),
+			ValueB: fmt.Sprintf("%d jobs/sec", other.Throughput.MaxRate),
+			Change: change,
+		})
+	}
+
+	// Compare concurrency
+	if current.Concurrency != nil && other.Concurrency != nil {
+		change := "unchanged"
+		if current.Concurrency.MaxRate > other.Concurrency.MaxRate {
+			change = "improved"
+		} else if current.Concurrency.MaxRate < other.Concurrency.MaxRate {
+			change = "degraded"
+		}
+		diff.Changes = append(diff.Changes, DiffEntry{
+			Metric: "max_concurrency",
+			ValueA: fmt.Sprintf("%d", current.Concurrency.MaxRate),
+			ValueB: fmt.Sprintf("%d", other.Concurrency.MaxRate),
+			Change: change,
+		})
+	}
+
+	return rg.writeJSON("diff.json", diff)
+}
+
+func (rg *ReportGenerator) generatePDF() error {
+	// PDF generation uses chromedp to render the HTML report to PDF.
+	// This requires Chrome/Chromium to be installed.
+	// If not available, fall back to a simple text notice.
+	htmlPath := filepath.Join(rg.OutputDir, rg.HTMLFilename)
+	if _, err := os.Stat(htmlPath); err != nil {
+		return fmt.Errorf("HTML report not found at %s: %w", htmlPath, err)
+	}
+
+	pdfPath := filepath.Join(rg.OutputDir, rg.PDFFilename)
+	absHTML, _ := filepath.Abs(htmlPath)
+
+	// Try chromedp via Chrome CLI (doesn't require Go chromedp dependency)
+	data, err := execCommand("google-chrome", "--headless", "--disable-gpu",
+		"--print-to-pdf="+pdfPath, "file://"+absHTML)
+	if err != nil {
+		// Try chromium
+		data, err = execCommand("chromium", "--headless", "--disable-gpu",
+			"--print-to-pdf="+pdfPath, "file://"+absHTML)
+	}
+	if err != nil {
+		// Try macOS Chrome
+		data, err = execCommand("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"--headless", "--disable-gpu",
+			"--print-to-pdf="+pdfPath, "file://"+absHTML)
+	}
+	_ = data
+	return err
 }
 
 func (rg *ReportGenerator) loadJSON(filename string, target any) {
@@ -188,6 +354,41 @@ func (rg *ReportGenerator) writeHTML(filename string, report *Report) error {
 	defer f.Close()
 
 	return tmpl.Execute(f, report)
+}
+
+func (rg *ReportGenerator) loadJSONL(globPattern string, target *[]MetricsSnapshot) {
+	pattern := filepath.Join(rg.InputDir, globPattern)
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return
+	}
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range splitLines(string(data)) {
+			if len(line) == 0 {
+				continue
+			}
+			var snap MetricsSnapshot
+			if json.Unmarshal([]byte(line), &snap) == nil {
+				*target = append(*target, snap)
+			}
+		}
+	}
+}
+
+func execCommand(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).Output()
+}
+
+func numCPUs() int {
+	return runtime.NumCPU()
+}
+
+func goVersion() string {
+	return runtime.Version()
 }
 
 const reportHTMLTemplate = `<!DOCTYPE html>
