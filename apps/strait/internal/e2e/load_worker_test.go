@@ -167,11 +167,11 @@ func TestLoadWorker_RunCreationAndListing(t *testing.T) {
 	var requests int
 	cursor := ""
 	for {
-		path := fmt.Sprintf("/v1/runs/?project_id=%s&limit=100", projectID)
+		path := "/v1/runs/?limit=100"
 		if cursor != "" {
 			path += "&cursor=" + cursor
 		}
-		resp := doRequest(t, "GET", path, "")
+		resp := doRequest(t, "GET", path, "", projectID)
 		if resp.Code != 200 {
 			t.Fatalf("list runs: %d", resp.Code)
 		}

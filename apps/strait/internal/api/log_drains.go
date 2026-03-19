@@ -72,11 +72,7 @@ func (s *Server) handleCreateLogDrain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListLogDrains(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	drains, err := s.store.ListLogDrains(r.Context(), projectID)
 	if err != nil {
@@ -89,11 +85,7 @@ func (s *Server) handleListLogDrains(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetLogDrain(w http.ResponseWriter, r *http.Request) {
 	drainID := chi.URLParam(r, "drainID")
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	drain, err := s.store.GetLogDrain(r.Context(), drainID, projectID)
 	if err != nil {
@@ -110,11 +102,7 @@ func (s *Server) handleGetLogDrain(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateLogDrain(w http.ResponseWriter, r *http.Request) {
 	drainID := chi.URLParam(r, "drainID")
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	var req UpdateLogDrainRequest
 	if err := s.decodeJSON(r, &req); err != nil {
@@ -174,11 +162,7 @@ func (s *Server) handleUpdateLogDrain(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteLogDrain(w http.ResponseWriter, r *http.Request) {
 	drainID := chi.URLParam(r, "drainID")
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	err := s.store.DeleteLogDrain(r.Context(), drainID, projectID)
 	if err != nil {

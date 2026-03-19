@@ -993,11 +993,7 @@ func (s *Server) handleBulkCancelWorkflowRuns(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id query parameter is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	now := time.Now()
 	canceled, err := s.store.BulkCancelWorkflowRuns(r.Context(), projectID, req.WorkflowRunIDs, now)

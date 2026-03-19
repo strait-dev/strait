@@ -27,6 +27,8 @@ import (
 	"strait/internal/telemetry"
 	"strait/internal/worker"
 
+	"sync/atomic"
+
 	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -38,6 +40,11 @@ import (
 
 //go:embed openapi.yaml
 var openapiSpec []byte
+
+// globalAllowPrivateEndpoints is an atomic flag set by NewServer when
+// ALLOW_PRIVATE_ENDPOINTS is true. Used by the package-level validateURL
+// to skip private/loopback network checks in development.
+var globalAllowPrivateEndpoints atomic.Bool
 
 // APIStore is the subset of store operations needed by the API handlers.
 // Composed of smaller, focused interfaces for each domain.
@@ -465,8 +472,8 @@ func NewServer(deps ServerDeps) *Server {
 		containerRuntime:   deps.ContainerRuntime,
 	}
 
-	if deps.Config != nil {
-		allowPrivateEndpoints = deps.Config.AllowPrivateEndpoints
+	if deps.Config != nil && deps.Config.AllowPrivateEndpoints {
+		globalAllowPrivateEndpoints.Store(true)
 	}
 
 	if deps.TxPool != nil {
@@ -641,10 +648,6 @@ func (s *Server) decodeJSON(r *http.Request, v any) error {
 	return dec.Decode(v)
 }
 
-// allowPrivateEndpoints disables private/loopback endpoint URL validation.
-// Set via ALLOW_PRIVATE_ENDPOINTS=true for local development and testing.
-var allowPrivateEndpoints bool
-
 func validateURL(rawURL string) error {
 	if err := worker.ValidateEndpointURL(rawURL); err != nil {
 		msg := err.Error()
@@ -654,7 +657,12 @@ func validateURL(rawURL string) error {
 		return errors.New(msg)
 	}
 
-	if allowPrivateEndpoints {
+	// ALLOW_PRIVATE_ENDPOINTS is checked at startup via config; the flag is
+	// stored on the Server struct. For the package-level validateURL (called
+	// from handlers that have no server reference), we skip the network
+	// checks only when the global was set by the last NewServer call.
+	// This is safe because in production there is exactly one Server instance.
+	if globalAllowPrivateEndpoints.Load() {
 		return nil
 	}
 
