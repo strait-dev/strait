@@ -48,24 +48,21 @@ func (b *ShardedBulkhead) TryAcquire(jobID string, maxConcurrency int) bool {
 	}
 
 	s := b.shard(jobID)
-
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	counter, ok := s.counters[jobID]
 	if !ok {
-		counter = &atomic.Int32{}
+		counter = new(atomic.Int32)
 		s.counters[jobID] = counter
 	}
-	s.mu.Unlock()
 
-	for {
-		cur := counter.Load()
-		if int(cur) >= maxConcurrency {
-			return false
-		}
-		if counter.CompareAndSwap(cur, cur+1) {
-			return true
-		}
+	cur := counter.Load()
+	if int(cur) >= maxConcurrency {
+		return false
 	}
+	counter.Add(1)
+	return true
 }
 
 // Release releases a slot for the given jobID. If the count reaches 0, the
@@ -79,23 +76,17 @@ func (b *ShardedBulkhead) Release(jobID string, maxConcurrency int) {
 	}
 
 	s := b.shard(jobID)
-
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	counter, ok := s.counters[jobID]
 	if !ok {
-		s.mu.Unlock()
 		return
 	}
-	s.mu.Unlock()
 
 	newVal := counter.Add(-1)
 	if newVal <= 0 {
-		s.mu.Lock()
-		// Re-check: another goroutine may have incremented between Add and Lock.
-		if counter.Load() <= 0 {
-			delete(s.counters, jobID)
-		}
-		s.mu.Unlock()
+		delete(s.counters, jobID)
 	}
 }
 
@@ -103,8 +94,9 @@ func (b *ShardedBulkhead) Release(jobID string, maxConcurrency int) {
 func (b *ShardedBulkhead) ActiveCount(jobID string) int {
 	s := b.shard(jobID)
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	counter, ok := s.counters[jobID]
-	s.mu.Unlock()
 	if !ok {
 		return 0
 	}

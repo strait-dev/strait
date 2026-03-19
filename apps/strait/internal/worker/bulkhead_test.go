@@ -133,30 +133,21 @@ func TestShardedBulkhead_ConcurrentSameJob(t *testing.T) {
 	const limit = 50
 	const goroutines = 200
 
-	var ready sync.WaitGroup
-	ready.Add(goroutines)
 	start := make(chan struct{})
 	var successes atomic.Int32
+	var wg sync.WaitGroup
 
 	for range goroutines {
-		go func() {
-			ready.Done()
+		wg.Go(func() {
 			<-start
 			if b.TryAcquire("job-1", limit) {
 				successes.Add(1)
 			}
-		}()
+		})
 	}
 
-	ready.Wait()
 	close(start)
-
-	// Wait for all goroutines.
-	// Since TryAcquire is non-blocking, they should complete quickly.
-	// We check the final result.
-	for b.ActiveCount("job-1") < limit && successes.Load() < limit {
-		// spin briefly
-	}
+	wg.Wait()
 
 	if got := successes.Load(); got != limit {
 		t.Fatalf("successes = %d, want %d", got, limit)
