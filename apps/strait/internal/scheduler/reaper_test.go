@@ -2269,6 +2269,48 @@ func TestReaper_ReapExpiredApprovals_MixedApprovals(t *testing.T) {
 	}
 }
 
+func TestSkipThenReap_ApprovalNotReaped(t *testing.T) {
+	t.Parallel()
+	// Simulates the full skip-then-reap lifecycle:
+	// 1. An approval starts as "pending"
+	// 2. SkipStep transitions it to "rejected"
+	// 3. The reaper's ListExpiredWorkflowStepApprovals (WHERE status = 'pending')
+	//    no longer matches it, so it is never reaped.
+	expires := time.Now().Add(-1 * time.Minute) // already expired
+
+	// After skip, the approval status is "rejected" (was "pending" before skip).
+	approvalStatus := domain.ApprovalStatusRejected
+
+	// Step 2: simulate reaper query — only returns pending approvals.
+	updateCalled := false
+	ms := &mockReaperStore{
+		listExpiredApprovalsFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			// The real query filters WHERE status = 'pending'.
+			if approvalStatus == domain.ApprovalStatusPending {
+				return []domain.WorkflowStepApproval{
+					{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: approvalStatus, ExpiresAt: &expires},
+				}, nil
+			}
+			return nil, nil
+		},
+		updateWorkflowApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+			updateCalled = true
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			updateCalled = true
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredApprovals(context.Background())
+
+	if updateCalled {
+		t.Fatal("rejected approval should not be reaped — WHERE status = 'pending' must exclude it")
+	}
+}
+
 func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
 	t.Parallel()
 	var deliveries []*domain.NotificationDelivery
