@@ -11,6 +11,7 @@ import { eventsRoutes } from "./commands/events";
 import { healthCommand } from "./commands/health";
 import { initCommand } from "./commands/init";
 import { jobsRoutes } from "./commands/jobs";
+import { logsCommand } from "./commands/logs";
 import { promoteCommandRoute } from "./commands/promote";
 import { rollbackCommandRoute } from "./commands/rollback";
 import { runsRoutes } from "./commands/runs";
@@ -34,6 +35,7 @@ const routes = buildRouteMap({
     health: healthCommand,
     init: initCommand,
     jobs: jobsRoutes,
+    logs: logsCommand,
     promote: promoteCommandRoute,
     rollback: rollbackCommandRoute,
     runs: runsRoutes,
