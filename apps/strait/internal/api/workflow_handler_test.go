@@ -1061,7 +1061,7 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 
 		cb := &mockWorkflowTrigger{
 			approveStepFn: func(_ context.Context, workflowRunID, stepRef, approver string) error {
-				if workflowRunID != "wr-1" || stepRef != "review" || approver != "alice" {
+				if workflowRunID != "wr-1" || stepRef != "review" || approver != "user:alice" {
 					t.Fatalf("unexpected approve args: %s %s %s", workflowRunID, stepRef, approver)
 				}
 				approved = true
@@ -1087,7 +1087,7 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 				if stepRunID != "sr-1" {
 					t.Fatalf("unexpected stepRunID %q", stepRunID)
 				}
-				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "alice"}, nil
+				return &domain.WorkflowStepApproval{ID: "ap-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: "approved", ApprovedBy: "user:alice"}, nil
 			},
 		}
 
@@ -1098,7 +1098,9 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, pub, cb, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -2775,7 +2777,9 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		t.Parallel()
 		srv := newWorkflowTestServer(t, &mockAPIStore{}, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusServiceUnavailable {
 			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
@@ -2796,7 +2800,9 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		}
 		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`))
+		req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/approve", `{"approver":"alice"}`)
+		req.Header.Set("X-Actor-Id", "user:alice")
+		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())

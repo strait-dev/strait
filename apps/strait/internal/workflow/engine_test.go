@@ -153,6 +153,14 @@ func (m *mockEngineStore) GetJobCostEstimate(_ context.Context, _ string) (*doma
 	return nil, nil
 }
 
+func (m *mockEngineStore) ListEnabledNotificationChannels(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+	return nil, nil
+}
+
+func (m *mockEngineStore) CreateNotificationDelivery(_ context.Context, _ *domain.NotificationDelivery) error {
+	return nil
+}
+
 type mockEngineQueue struct {
 	enqueueFn func(ctx context.Context, run *domain.JobRun) error
 }

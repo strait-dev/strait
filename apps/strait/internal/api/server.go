@@ -316,10 +316,10 @@ type RBACStore interface {
 // NotificationChannelStore handles notification channel and delivery operations.
 type NotificationChannelStore interface {
 	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
-	GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
 	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
 	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
-	DeleteNotificationChannel(ctx context.Context, id string) error
+	DeleteNotificationChannel(ctx context.Context, id, projectID string) error
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }

@@ -206,10 +206,10 @@ type mockAPIStore struct {
 	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 	updateProjectDefaultRegionFn         func(ctx context.Context, projectID, defaultRegion string) error
 	createNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
-	getNotificationChannelFn             func(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	getNotificationChannelFn             func(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
 	listNotificationChannelsFn           func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
 	updateNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
-	deleteNotificationChannelFn          func(ctx context.Context, id string) error
+	deleteNotificationChannelFn          func(ctx context.Context, id, projectID string) error
 	createNotificationDeliveryFn         func(ctx context.Context, d *domain.NotificationDelivery) error
 	listNotificationDeliveriesFn         func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
@@ -1745,9 +1745,9 @@ func (m *mockAPIStore) CreateNotificationChannel(ctx context.Context, ch *domain
 	return nil
 }
 
-func (m *mockAPIStore) GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error) {
+func (m *mockAPIStore) GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error) {
 	if m.getNotificationChannelFn != nil {
-		return m.getNotificationChannelFn(ctx, id)
+		return m.getNotificationChannelFn(ctx, id, projectID)
 	}
 	return nil, nil
 }
@@ -1766,9 +1766,9 @@ func (m *mockAPIStore) UpdateNotificationChannel(ctx context.Context, ch *domain
 	return nil
 }
 
-func (m *mockAPIStore) DeleteNotificationChannel(ctx context.Context, id string) error {
+func (m *mockAPIStore) DeleteNotificationChannel(ctx context.Context, id, projectID string) error {
 	if m.deleteNotificationChannelFn != nil {
-		return m.deleteNotificationChannelFn(ctx, id)
+		return m.deleteNotificationChannelFn(ctx, id, projectID)
 	}
 	return nil
 }

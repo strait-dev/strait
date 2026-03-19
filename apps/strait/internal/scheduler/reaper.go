@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -90,6 +91,12 @@ type WorkflowCallback interface {
 	OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string)
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
+	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
+}
+
+// CostGateDefaultActionStore is an optional interface for looking up cost gate default actions.
+type CostGateDefaultActionStore interface {
+	GetCostGateDefaultAction(ctx context.Context, stepRunID string) (string, error)
 }
 
 // AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
@@ -417,6 +424,13 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 
 	now := time.Now()
 	for _, approval := range approvals {
+		// Cost gate approvals with default_action=approve should auto-approve on timeout.
+		if strings.HasPrefix(approval.ID, "costgate:") {
+			if r.handleCostGateTimeout(ctx, &approval) {
+				continue
+			}
+		}
+
 		if err := r.store.UpdateWorkflowStepApproval(ctx, approval.ID, "timed_out", "", nil, "approval timed out"); err != nil {
 			slog.Error("failed to mark approval timed out", "approval_id", approval.ID, "error", err)
 			continue
@@ -448,6 +462,51 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// handleCostGateTimeout checks if a cost gate approval should be auto-approved on timeout.
+// Returns true if the approval was handled (auto-approved), false to fall through to default fail behavior.
+func (r *Reaper) handleCostGateTimeout(ctx context.Context, approval *domain.WorkflowStepApproval) bool {
+	if r.workflowCallback == nil {
+		return false
+	}
+
+	cgStore, ok := r.store.(CostGateDefaultActionStore)
+	if !ok {
+		return false
+	}
+
+	action, err := cgStore.GetCostGateDefaultAction(ctx, approval.WorkflowStepRunID)
+	if err != nil {
+		slog.Warn("failed to look up cost gate default action", "approval_id", approval.ID, "error", err)
+		return false
+	}
+	if action != "approve" {
+		return false
+	}
+
+	// Look up step run to get the step ref needed by ApproveStep.
+	type stepRunGetter interface {
+		GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	}
+	srGetter, ok := r.store.(stepRunGetter)
+	if !ok {
+		return false
+	}
+
+	stepRun, srErr := srGetter.GetWorkflowStepRun(ctx, approval.WorkflowStepRunID)
+	if srErr != nil || stepRun == nil {
+		slog.Warn("failed to get step run for cost gate auto-approve", "approval_id", approval.ID, "error", srErr)
+		return false
+	}
+
+	if err := r.workflowCallback.ApproveStep(ctx, approval.WorkflowRunID, stepRun.StepRef, "system:cost-gate-timeout"); err != nil {
+		slog.Error("failed to auto-approve cost gate on timeout", "approval_id", approval.ID, "error", err)
+		return false
+	}
+
+	slog.Info("cost gate auto-approved on timeout", "approval_id", approval.ID, "workflow_run_id", approval.WorkflowRunID, "step_ref", stepRun.StepRef)
+	return true
 }
 
 func (r *Reaper) reapExpiredEventTriggers(ctx context.Context) {

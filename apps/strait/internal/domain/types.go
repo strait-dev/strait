@@ -50,7 +50,7 @@ const (
 	ChannelTypeSlack   = "slack"
 	ChannelTypeDiscord = "discord"
 	ChannelTypeWebhook = "webhook"
-	ChannelTypeEmail   = "email"
+	ChannelTypeEmail   = "email" // not yet supported (no email sender implemented)
 )
 
 const (

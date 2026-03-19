@@ -399,7 +399,8 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 		return fmt.Errorf("approval for step %s is already %s", stepRef, approval.Status)
 	}
 
-	if !slices.Contains(approval.Approvers, approver) {
+	// Empty approvers list means any authenticated user can approve (e.g. cost gates).
+	if len(approval.Approvers) > 0 && !slices.Contains(approval.Approvers, approver) {
 		return fmt.Errorf("approver %s is not allowed for step %s", approver, stepRef)
 	}
 
