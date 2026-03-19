@@ -53,14 +53,6 @@ type ReaperStore interface {
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
 
-type CostGateDefaultActionStore interface {
-	GetCostGateDefaultAction(ctx context.Context, stepRunID string) (string, error)
-}
-
-type workflowStepRunLookupStore interface {
-	GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
-}
-
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
 type DLQMonitorStore interface {
 	ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error)
@@ -98,8 +90,20 @@ type WorkflowCallback interface {
 	OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error
 	OnStepCompleted(ctx context.Context, workflowRunID string, stepRunID string)
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
-	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
+	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
+}
+
+// CostGateDefaultActionStore is an optional interface for looking up cost gate default actions.
+type CostGateDefaultActionStore interface {
+	GetCostGateDefaultAction(ctx context.Context, stepRunID string) (string, error)
+}
+
+// ApprovalNotifierStore is an optional interface for sending approval lifecycle notifications.
+type ApprovalNotifierStore interface {
+	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 }
 
 // AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
@@ -117,6 +121,11 @@ const reaperAdvisoryLockID int64 = 0x5374726169745265 // "StraitRe" as int64
 type MachineDestroyer interface {
 	Stop(ctx context.Context, machineID string) error
 	Destroy(ctx context.Context, machineID string) error
+}
+
+// ApprovalReminderStore is an optional interface for querying approvals past their reminder point.
+type ApprovalReminderStore interface {
+	ListApprovalsPastReminderPoint(ctx context.Context) ([]domain.WorkflowStepApproval, error)
 }
 
 type Reaper struct {
@@ -138,6 +147,7 @@ type Reaper struct {
 	stalledAction         string
 	dlqAlertCooldown      map[string]time.Time
 	queueAlertCooldown    map[string]time.Time
+	reminderSent          map[string]time.Time
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -181,6 +191,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		stalledAction:         "log_only",
 		dlqAlertCooldown:      make(map[string]time.Time),
 		queueAlertCooldown:    make(map[string]time.Time),
+		reminderSent:          make(map[string]time.Time),
 	}
 }
 
@@ -266,6 +277,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapExpired(ctx)
 	r.reapTimedOutWorkflows(ctx)
 	r.reapExpiredApprovals(ctx)
+	r.reapApprovalReminders(ctx)
 	r.reapExpiredEventTriggers(ctx)
 	r.reapInconsistentEventTriggers(ctx)
 	r.reapStalledWorkflows(ctx)
@@ -303,6 +315,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		r.reapExpired(loopCtx)
 		r.reapTimedOutWorkflows(loopCtx)
 		r.reapExpiredApprovals(loopCtx)
+		r.reapApprovalReminders(loopCtx)
 		r.reapExpiredEventTriggers(loopCtx)
 		r.reapInconsistentEventTriggers(loopCtx)
 		r.reapStalledWorkflows(loopCtx)
@@ -427,8 +440,11 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 
 	now := time.Now()
 	for _, approval := range approvals {
-		if r.handleCostGateTimeout(ctx, approval) {
-			continue
+		// Cost gate approvals with default_action=approve should auto-approve on timeout.
+		if strings.HasPrefix(approval.ID, "costgate:") {
+			if r.handleCostGateTimeout(ctx, &approval) {
+				continue
+			}
 		}
 
 		if err := r.store.UpdateWorkflowStepApproval(ctx, approval.ID, "timed_out", "", nil, "approval timed out"); err != nil {
@@ -442,6 +458,13 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 		}); err != nil {
 			slog.Error("failed to mark approval step failed", "approval_id", approval.ID, "error", err)
 		}
+
+		r.sendApprovalNotification(ctx, approval.WorkflowRunID, domain.NotificationEventApprovalExpired, map[string]any{
+			"approval_id":     approval.ID,
+			"workflow_run_id": approval.WorkflowRunID,
+			"step_run_id":     approval.WorkflowStepRunID,
+			"expired_at":      now,
+		})
 
 		// Delegate to the workflow callback, which respects on_failure policy
 		// (continue, skip_dependents, fail_workflow). Falls back to directly
@@ -464,43 +487,170 @@ func (r *Reaper) reapExpiredApprovals(ctx context.Context) {
 	}
 }
 
-func (r *Reaper) handleCostGateTimeout(ctx context.Context, approval domain.WorkflowStepApproval) bool {
-	if !strings.HasPrefix(approval.ID, "costgate:") || r.workflowCallback == nil {
+func (r *Reaper) reapApprovalReminders(ctx context.Context) {
+	rs, ok := r.store.(ApprovalReminderStore)
+	if !ok {
+		return
+	}
+	ns, hasNotifier := r.store.(ApprovalNotifierStore)
+	if !hasNotifier {
+		return
+	}
+
+	// Clean stale entries from reminderSent once the approval has expired.
+	now := time.Now()
+	for id, expiresAt := range r.reminderSent {
+		if now.After(expiresAt) {
+			delete(r.reminderSent, id)
+		}
+	}
+
+	approvals, err := rs.ListApprovalsPastReminderPoint(ctx)
+	if err != nil {
+		slog.Warn("failed to list approvals past reminder point", "error", err)
+		return
+	}
+
+	for _, approval := range approvals {
+		if _, sent := r.reminderSent[approval.ID]; sent {
+			continue
+		}
+
+		wfRun, wfErr := ns.GetWorkflowRun(ctx, approval.WorkflowRunID)
+		if wfErr != nil || wfRun == nil {
+			slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID, "error", wfErr)
+			continue
+		}
+
+		var timeRemainingSecs float64
+		if approval.ExpiresAt != nil {
+			timeRemainingSecs = time.Until(*approval.ExpiresAt).Seconds()
+		}
+
+		channels, chErr := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
+		if chErr != nil {
+			slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
+			continue
+		}
+
+		payload, marshalErr := json.Marshal(map[string]any{
+			"approval_id":         approval.ID,
+			"workflow_run_id":     approval.WorkflowRunID,
+			"workflow_id":         wfRun.WorkflowID,
+			"step_run_id":         approval.WorkflowStepRunID,
+			"time_remaining_secs": timeRemainingSecs,
+		})
+		if marshalErr != nil {
+			continue
+		}
+
+		for _, ch := range channels {
+			d := &domain.NotificationDelivery{
+				ChannelID:   ch.ID,
+				ProjectID:   wfRun.ProjectID,
+				EventType:   domain.NotificationEventApprovalReminder,
+				Payload:     payload,
+				Status:      "pending",
+				MaxAttempts: 3,
+			}
+			if err := ns.CreateNotificationDelivery(ctx, d); err != nil {
+				slog.Warn("failed to create approval reminder delivery", "channel_id", ch.ID, "error", err)
+			}
+		}
+
+		if approval.ExpiresAt != nil {
+			r.reminderSent[approval.ID] = *approval.ExpiresAt
+		} else {
+			r.reminderSent[approval.ID] = now.Add(time.Hour)
+		}
+	}
+}
+
+// sendApprovalNotification sends an approval lifecycle notification through configured channels.
+// It type-asserts the store to ApprovalNotifierStore; if the store does not implement it, this is a no-op.
+func (r *Reaper) sendApprovalNotification(ctx context.Context, workflowRunID, eventType string, payload map[string]any) {
+	ns, ok := r.store.(ApprovalNotifierStore)
+	if !ok {
+		return
+	}
+
+	wfRun, err := ns.GetWorkflowRun(ctx, workflowRunID)
+	if err != nil || wfRun == nil {
+		slog.Warn("failed to get workflow run for approval notification", "workflow_run_id", workflowRunID, "error", err)
+		return
+	}
+
+	channels, err := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
+	if err != nil {
+		slog.Warn("failed to list notification channels for approval notification", "project_id", wfRun.ProjectID, "error", err)
+		return
+	}
+
+	payload["workflow_id"] = wfRun.WorkflowID
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		slog.Warn("failed to marshal approval notification payload", "error", marshalErr)
+		return
+	}
+
+	for _, ch := range channels {
+		d := &domain.NotificationDelivery{
+			ChannelID:   ch.ID,
+			ProjectID:   wfRun.ProjectID,
+			EventType:   eventType,
+			Payload:     payloadBytes,
+			Status:      "pending",
+			MaxAttempts: 3,
+		}
+		if err := ns.CreateNotificationDelivery(ctx, d); err != nil {
+			slog.Warn("failed to create approval notification delivery",
+				"channel_id", ch.ID, "event_type", eventType, "error", err)
+		}
+	}
+}
+
+// handleCostGateTimeout checks if a cost gate approval should be auto-approved on timeout.
+// Returns true if the approval was handled (auto-approved), false to fall through to default fail behavior.
+func (r *Reaper) handleCostGateTimeout(ctx context.Context, approval *domain.WorkflowStepApproval) bool {
+	if r.workflowCallback == nil {
 		return false
 	}
 
-	actionStore, ok := r.store.(CostGateDefaultActionStore)
+	cgStore, ok := r.store.(CostGateDefaultActionStore)
 	if !ok {
 		return false
 	}
-	action, err := actionStore.GetCostGateDefaultAction(ctx, approval.WorkflowStepRunID)
+
+	action, err := cgStore.GetCostGateDefaultAction(ctx, approval.WorkflowStepRunID)
 	if err != nil {
-		slog.Error("failed to get cost gate default action", "approval_id", approval.ID, "step_run_id", approval.WorkflowStepRunID, "error", err)
+		slog.Warn("failed to look up cost gate default action", "approval_id", approval.ID, "error", err)
 		return false
 	}
 	if action != "approve" {
 		return false
 	}
 
-	stepRunStore, ok := r.store.(workflowStepRunLookupStore)
+	// Look up step run to get the step ref needed by ApproveStep.
+	type stepRunGetter interface {
+		GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	}
+	srGetter, ok := r.store.(stepRunGetter)
 	if !ok {
 		return false
 	}
-	stepRun, err := stepRunStore.GetWorkflowStepRun(ctx, approval.WorkflowStepRunID)
-	if err != nil {
-		slog.Error("failed to get cost gate step run", "approval_id", approval.ID, "step_run_id", approval.WorkflowStepRunID, "error", err)
-		return false
-	}
-	if stepRun == nil {
-		slog.Error("cost gate step run not found", "approval_id", approval.ID, "step_run_id", approval.WorkflowStepRunID)
+
+	stepRun, srErr := srGetter.GetWorkflowStepRun(ctx, approval.WorkflowStepRunID)
+	if srErr != nil || stepRun == nil {
+		slog.Warn("failed to get step run for cost gate auto-approve", "approval_id", approval.ID, "error", srErr)
 		return false
 	}
 
 	if err := r.workflowCallback.ApproveStep(ctx, approval.WorkflowRunID, stepRun.StepRef, "system:cost-gate-timeout"); err != nil {
-		slog.Error("failed to auto-approve expired cost gate", "approval_id", approval.ID, "workflow_run_id", approval.WorkflowRunID, "step_ref", stepRun.StepRef, "error", err)
+		slog.Error("failed to auto-approve cost gate on timeout", "approval_id", approval.ID, "error", err)
 		return false
 	}
 
+	slog.Info("cost gate auto-approved on timeout", "approval_id", approval.ID, "workflow_run_id", approval.WorkflowRunID, "step_ref", stepRun.StepRef)
 	return true
 }
 

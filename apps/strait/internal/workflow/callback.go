@@ -57,12 +57,6 @@ type CallbackStore interface {
 	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
 	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
-	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
-}
-
-type callbackNotificationStore interface {
-	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
-	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 }
 
 // NewStepCallback creates a new step callback handler for workflow progression.

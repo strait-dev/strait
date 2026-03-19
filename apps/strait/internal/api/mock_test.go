@@ -66,6 +66,11 @@ type mockAPIStore struct {
 	resetRunIdempotencyKeyFn             func(ctx context.Context, runID string) error
 	listChildRunsFn                      func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	insertEventFn                        func(ctx context.Context, event *domain.RunEvent) error
+	createRunResourceSnapshotFn          func(ctx context.Context, s *domain.RunResourceSnapshot) error
+	listRunResourceSnapshotsFn           func(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
+	getApprovalStatsFn                   func(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
+	getCostOutliersFn                    func(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
+	streamAuditEventsFn                  func(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	listEventsByRunFilteredFn            func(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	listWebhookDeliveriesFn              func(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	createWebhookSubscriptionFn          func(ctx context.Context, sub *domain.WebhookSubscription) error
@@ -206,10 +211,10 @@ type mockAPIStore struct {
 	requeuePausedJobRunsFn               func(ctx context.Context, workflowRunID string) (int64, error)
 	updateProjectDefaultRegionFn         func(ctx context.Context, projectID, defaultRegion string) error
 	createNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
-	getNotificationChannelFn             func(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	getNotificationChannelFn             func(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
 	listNotificationChannelsFn           func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
 	updateNotificationChannelFn          func(ctx context.Context, ch *domain.NotificationChannel) error
-	deleteNotificationChannelFn          func(ctx context.Context, id string) error
+	deleteNotificationChannelFn          func(ctx context.Context, id, projectID string) error
 	createNotificationDeliveryFn         func(ctx context.Context, d *domain.NotificationDelivery) error
 	listNotificationDeliveriesFn         func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
 }
@@ -494,11 +499,17 @@ func (m *mockAPIStore) ListRunOutputs(ctx context.Context, runID string, limit i
 	return nil, nil
 }
 
-func (m *mockAPIStore) CreateRunResourceSnapshot(_ context.Context, _ *domain.RunResourceSnapshot) error {
+func (m *mockAPIStore) CreateRunResourceSnapshot(ctx context.Context, s *domain.RunResourceSnapshot) error {
+	if m.createRunResourceSnapshotFn != nil {
+		return m.createRunResourceSnapshotFn(ctx, s)
+	}
 	return nil
 }
 
-func (m *mockAPIStore) ListRunResourceSnapshots(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+func (m *mockAPIStore) ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error) {
+	if m.listRunResourceSnapshotsFn != nil {
+		return m.listRunResourceSnapshotsFn(ctx, runID, from, to, limit)
+	}
 	return nil, nil
 }
 
@@ -762,6 +773,20 @@ func (m *mockAPIStore) GetComputeCostAnalytics(ctx context.Context, projectID st
 		return m.getComputeCostAnalyticsFn(ctx, projectID, from, to)
 	}
 	return &store.ComputeCostAnalytics{}, nil
+}
+
+func (m *mockAPIStore) GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error) {
+	if m.getApprovalStatsFn != nil {
+		return m.getApprovalStatsFn(ctx, projectID, from, to)
+	}
+	return &store.ApprovalStats{}, nil
+}
+
+func (m *mockAPIStore) GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error) {
+	if m.getCostOutliersFn != nil {
+		return m.getCostOutliersFn(ctx, projectID, from, to, threshold)
+	}
+	return nil, nil
 }
 
 func (m *mockAPIStore) AggregateCostStatsHourly(ctx context.Context, hour time.Time) error {
@@ -1275,7 +1300,10 @@ func (m *mockAPIStore) ListAuditEvents(_ context.Context, _, _, _, _ string, _ i
 	return nil, nil
 }
 
-func (m *mockAPIStore) StreamAuditEvents(_ context.Context, _, _, _ string, _, _ time.Time, _ func(*domain.AuditEvent) error) error {
+func (m *mockAPIStore) StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error {
+	if m.streamAuditEventsFn != nil {
+		return m.streamAuditEventsFn(ctx, projectID, actorID, resourceType, from, to, fn)
+	}
 	return nil
 }
 
@@ -1745,9 +1773,9 @@ func (m *mockAPIStore) CreateNotificationChannel(ctx context.Context, ch *domain
 	return nil
 }
 
-func (m *mockAPIStore) GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error) {
+func (m *mockAPIStore) GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error) {
 	if m.getNotificationChannelFn != nil {
-		return m.getNotificationChannelFn(ctx, id)
+		return m.getNotificationChannelFn(ctx, id, projectID)
 	}
 	return nil, nil
 }
@@ -1766,9 +1794,9 @@ func (m *mockAPIStore) UpdateNotificationChannel(ctx context.Context, ch *domain
 	return nil
 }
 
-func (m *mockAPIStore) DeleteNotificationChannel(ctx context.Context, id string) error {
+func (m *mockAPIStore) DeleteNotificationChannel(ctx context.Context, id, projectID string) error {
 	if m.deleteNotificationChannelFn != nil {
-		return m.deleteNotificationChannelFn(ctx, id)
+		return m.deleteNotificationChannelFn(ctx, id, projectID)
 	}
 	return nil
 }

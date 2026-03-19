@@ -92,8 +92,7 @@ type Executor struct {
 	workflowCallback         WorkflowCallback
 	partitionCycle           []string
 	nextPartition            int
-	jobActiveRuns            map[string]int
-	jobActiveRunsMu          sync.Mutex
+	bulkhead                 *ShardedBulkhead
 	circuitThreshold         int
 	circuitOpenFor           time.Duration
 	healthScorer             *HealthScorer
@@ -233,7 +232,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		metrics:                  cfg.Metrics,
 		workflowCallback:         cfg.WorkflowCallback,
 		partitionCycle:           buildPartitionCycle(cfg.Partitions, cfg.PartitionWeights),
-		jobActiveRuns:            make(map[string]int),
+		bulkhead:                 NewShardedBulkhead(cfg.DefaultJobMaxConcurrency),
 		circuitThreshold:         defaultCircuitFailureThreshold,
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
@@ -259,42 +258,11 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 }
 
 func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {
-	if maxConcurrency <= 0 {
-		maxConcurrency = e.defaultJobMaxConcurrency
-	}
-	if maxConcurrency <= 0 {
-		return true
-	}
-
-	e.jobActiveRunsMu.Lock()
-	defer e.jobActiveRunsMu.Unlock()
-
-	if e.jobActiveRuns[jobID] >= maxConcurrency {
-		return false
-	}
-
-	e.jobActiveRuns[jobID]++
-	return true
+	return e.bulkhead.TryAcquire(jobID, maxConcurrency)
 }
 
 func (e *Executor) releaseBulkheadSlot(jobID string, maxConcurrency int) {
-	if maxConcurrency <= 0 {
-		maxConcurrency = e.defaultJobMaxConcurrency
-	}
-	if maxConcurrency <= 0 {
-		return
-	}
-
-	e.jobActiveRunsMu.Lock()
-	defer e.jobActiveRunsMu.Unlock()
-
-	active := e.jobActiveRuns[jobID]
-	if active <= 1 {
-		delete(e.jobActiveRuns, jobID)
-		return
-	}
-
-	e.jobActiveRuns[jobID] = active - 1
+	e.bulkhead.Release(jobID, maxConcurrency)
 }
 
 // Use adds execution middleware to the chain. Must be called before Run().

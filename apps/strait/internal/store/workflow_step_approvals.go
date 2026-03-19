@@ -2,13 +2,11 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"strait/internal/domain"
 
-	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -53,15 +51,7 @@ func (q *Queries) GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRu
 		FROM workflow_step_approvals
 		WHERE workflow_step_run_id = $1`
 
-	approval, err := scanWorkflowStepApproval(q.db.QueryRow(ctx, query, stepRunID))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get workflow step approval by step run id: %w", err)
-	}
-
-	return approval, nil
+	return scanWorkflowStepApproval(q.db.QueryRow(ctx, query, stepRunID))
 }
 
 func (q *Queries) UpdateWorkflowStepApproval(
@@ -136,6 +126,43 @@ func (q *Queries) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domai
 	return approvals, nil
 }
 
+func (q *Queries) ListApprovalsPastReminderPoint(ctx context.Context) ([]domain.WorkflowStepApproval, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListApprovalsPastReminderPoint")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_run_id, workflow_step_run_id, approvers, status,
+		       approved_by, requested_at, approved_at, expires_at, error
+		FROM workflow_step_approvals
+		WHERE status = 'pending'
+		  AND expires_at IS NOT NULL
+		  AND expires_at > NOW()
+		  AND NOW() >= requested_at + (expires_at - requested_at) * 0.5
+		ORDER BY expires_at ASC
+		LIMIT 1000`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list approvals past reminder point: %w", err)
+	}
+	defer rows.Close()
+
+	approvals := make([]domain.WorkflowStepApproval, 0, 8)
+	for rows.Next() {
+		approval, scanErr := scanWorkflowStepApproval(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan approval past reminder point: %w", scanErr)
+		}
+		approvals = append(approvals, *approval)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list approvals past reminder point rows: %w", err)
+	}
+
+	return approvals, nil
+}
+
 func (q *Queries) GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetStepRunByWorkflowRunAndRef")
 	defer span.End()
@@ -177,6 +204,48 @@ func scanWorkflowStepApproval(scanner scanTarget) (*domain.WorkflowStepApproval,
 	}
 
 	return &approval, nil
+}
+
+// ApprovalStats contains aggregate statistics for workflow step approvals.
+type ApprovalStats struct {
+	TotalRequested      int     `json:"total_requested"`
+	TotalApproved       int     `json:"total_approved"`
+	TotalTimedOut       int     `json:"total_timed_out"`
+	TotalPending        int     `json:"total_pending"`
+	AvgApprovalTimeSecs float64 `json:"avg_approval_time_secs"`
+}
+
+func (q *Queries) GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*ApprovalStats, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetApprovalStats")
+	defer span.End()
+
+	query := `
+		SELECT
+			COUNT(*) AS total_requested,
+			COUNT(*) FILTER (WHERE a.status = 'approved') AS total_approved,
+			COUNT(*) FILTER (WHERE a.status = 'timed_out') AS total_timed_out,
+			COUNT(*) FILTER (WHERE a.status = 'pending') AS total_pending,
+			COALESCE(AVG(EXTRACT(EPOCH FROM (a.approved_at - a.requested_at)))
+				FILTER (WHERE a.status = 'approved' AND a.approved_at IS NOT NULL), 0) AS avg_approval_time_secs
+		FROM workflow_step_approvals a
+		JOIN workflow_runs wr ON a.workflow_run_id = wr.id
+		WHERE wr.project_id = $1
+		  AND a.requested_at >= $2
+		  AND a.requested_at < $3`
+
+	var stats ApprovalStats
+	err := q.db.QueryRow(ctx, query, projectID, from, to).Scan(
+		&stats.TotalRequested,
+		&stats.TotalApproved,
+		&stats.TotalTimedOut,
+		&stats.TotalPending,
+		&stats.AvgApprovalTimeSecs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get approval stats: %w", err)
+	}
+
+	return &stats, nil
 }
 
 func nilIfEmptyString(v string) any {

@@ -20,7 +20,7 @@ import (
 )
 
 type approveWorkflowStepRequest struct {
-	Approver string `json:"approver,omitempty"`
+	Approver string `json:"approver,omitempty"` // deprecated: ignored, approver is taken from auth context
 }
 
 type skipStepRequest struct {
@@ -321,19 +321,16 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 		slog.Warn("failed to get workflow run before approve step", "workflow_run_id", workflowRunID, "error", beforeErr)
 	}
 
+	// Decode body but ignore the approver field — use authenticated identity.
 	var req approveWorkflowStepRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if !s.validateRequest(w, r, &req) {
-		return
-	}
-
 	approver := actorFromContext(r.Context())
 	if approver == "" {
-		respondError(w, r, http.StatusUnauthorized, "authenticated actor is required to approve workflow steps")
+		respondError(w, r, http.StatusUnauthorized, "authenticated identity required")
 		return
 	}
 

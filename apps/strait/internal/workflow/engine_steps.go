@@ -74,6 +74,8 @@ func (e *WorkflowEngine) startStep(
 
 		stepRun.Status = domain.StepWaiting
 		stepRun.StartedAt = &now
+
+		e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 		return nil
 	}
 
@@ -119,6 +121,8 @@ func (e *WorkflowEngine) startStep(
 
 			stepRun.Status = domain.StepWaiting
 			stepRun.StartedAt = &now
+
+			e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 
 			e.logger.Info("cost gate triggered",
 				"workflow_run_id", wfRun.ID,
@@ -438,4 +442,58 @@ func cloneRaw(in json.RawMessage) json.RawMessage {
 	out := make(json.RawMessage, len(in))
 	copy(out, in)
 	return out
+}
+
+// enqueueApprovalNotification creates notification deliveries for all enabled
+// notification channels in the project for a given approval event.
+func (e *WorkflowEngine) enqueueApprovalNotification(ctx context.Context, projectID, eventType string, payload map[string]any) {
+	channels, err := e.store.ListEnabledNotificationChannels(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to list notification channels for approval", "project_id", projectID, "error", err)
+		return
+	}
+	if len(channels) == 0 {
+		return
+	}
+
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		e.logger.Warn("failed to marshal approval notification payload", "error", marshalErr)
+		return
+	}
+
+	for _, ch := range channels {
+		d := &domain.NotificationDelivery{
+			ChannelID:   ch.ID,
+			ProjectID:   projectID,
+			EventType:   eventType,
+			Payload:     payloadBytes,
+			Status:      "pending",
+			MaxAttempts: 3,
+		}
+		if err := e.store.CreateNotificationDelivery(ctx, d); err != nil {
+			e.logger.Warn("failed to create notification delivery",
+				"channel_id", ch.ID, "event_type", eventType, "error", err)
+		}
+	}
+}
+
+// enqueueApprovalNotifications creates notification deliveries for all enabled
+// notification channels in the project when an approval is requested.
+func (e *WorkflowEngine) enqueueApprovalNotifications(
+	ctx context.Context,
+	projectID string,
+	approval *domain.WorkflowStepApproval,
+	stepRun *domain.WorkflowStepRun,
+	wfRun *domain.WorkflowRun,
+) {
+	e.enqueueApprovalNotification(ctx, projectID, domain.NotificationEventApprovalRequested, map[string]any{
+		"approval_id":     approval.ID,
+		"workflow_run_id": wfRun.ID,
+		"workflow_id":     wfRun.WorkflowID,
+		"step_ref":        stepRun.StepRef,
+		"approvers":       approval.Approvers,
+		"requested_at":    approval.RequestedAt,
+		"expires_at":      approval.ExpiresAt,
+	})
 }

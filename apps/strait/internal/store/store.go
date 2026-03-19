@@ -359,10 +359,11 @@ type CostEstimateStore interface {
 // NotificationStore handles notification channel and delivery operations.
 type NotificationStore interface {
 	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
-	GetNotificationChannel(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
 	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
 	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
-	DeleteNotificationChannel(ctx context.Context, id string) error
+	DeleteNotificationChannel(ctx context.Context, id, projectID string) error
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 	ListPendingNotificationDeliveries(ctx context.Context, limit int) ([]domain.NotificationDelivery, error)
 	UpdateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error

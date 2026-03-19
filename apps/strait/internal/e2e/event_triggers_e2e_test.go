@@ -25,9 +25,9 @@ func TestE2E_WaitForEventStep_CompletesViaAPI(t *testing.T) {
 	// Create a workflow with a wait_for_event step.
 	wf := wfCreateWorkflow(t, srv, projectID, "Event Wait Workflow", "wf-evt-wait-"+newID(), []map[string]any{
 		{
-			"step_ref":           "wait_step",
-			"step_type":          "wait_for_event",
-			"event_key":          "e2e-check:{{app_id}}",
+			"step_ref":          "wait_step",
+			"step_type":         "wait_for_event",
+			"event_key":         "e2e-check:{{app_id}}",
 			"event_timeout_secs": 300,
 		},
 	})
@@ -112,9 +112,9 @@ func TestE2E_WaitForEventStep_TimeoutViaReaper(t *testing.T) {
 
 	wf := wfCreateWorkflow(t, srv, projectID, "Event Timeout Workflow", "wf-evt-timeout-"+newID(), []map[string]any{
 		{
-			"step_ref":           "wait_step",
-			"step_type":          "wait_for_event",
-			"event_key":          "timeout-check:" + newID(),
+			"step_ref":          "wait_step",
+			"step_type":         "wait_for_event",
+			"event_key":         "timeout-check:" + newID(),
 			"event_timeout_secs": 1,
 		},
 	})
@@ -187,9 +187,9 @@ func TestE2E_WaitForEventStep_ChainedDependencies(t *testing.T) {
 
 	wf := wfCreateWorkflow(t, srv, projectID, "Chained Workflow", "wf-chain-"+newID(), []map[string]any{
 		{
-			"step_ref":           "wait_step",
-			"step_type":          "wait_for_event",
-			"event_key":          "chain-check:" + newID(),
+			"step_ref":          "wait_step",
+			"step_type":         "wait_for_event",
+			"event_key":         "chain-check:" + newID(),
 			"event_timeout_secs": 300,
 		},
 		{
@@ -256,9 +256,9 @@ func TestE2E_SendEvent_AlreadyReceived_Returns409(t *testing.T) {
 
 	wf := wfCreateWorkflow(t, srv, projectID, "Conflict Workflow", "wf-conflict-"+newID(), []map[string]any{
 		{
-			"step_ref":           "wait_step",
-			"step_type":          "wait_for_event",
-			"event_key":          eventKey,
+			"step_ref":          "wait_step",
+			"step_type":         "wait_for_event",
+			"event_key":         eventKey,
 			"event_timeout_secs": 300,
 		},
 	})
@@ -287,9 +287,9 @@ func TestE2E_ApprovalStepWithParallelEventTrigger(t *testing.T) {
 
 	wf := wfCreateWorkflow(t, srv, projectID, "Approval Workflow", "wf-approval-"+newID(), []map[string]any{
 		{
-			"step_ref":              "approve_step",
-			"step_type":             "approval",
-			"approval_approvers":    []string{"admin@example.com"},
+			"step_ref":            "approve_step",
+			"step_type":           "approval",
+			"approval_approvers":  []string{"test:e2e-actor"},
 			"approval_timeout_secs": 3600,
 		},
 	})
@@ -319,7 +319,7 @@ func TestE2E_ApprovalStepWithParallelEventTrigger(t *testing.T) {
 	}
 
 	// Approve the step.
-	approveResp := wfDoReqWithActor(t, srv, http.MethodPost, "/v1/workflow-runs/"+runID+"/steps/approve_step/approve", `{}`, "admin@example.com")
+	approveResp := wfDoReq(t, srv, http.MethodPost, "/v1/workflow-runs/"+runID+"/steps/approve_step/approve", `{"approver":"admin@example.com"}`)
 	if approveResp.Code != http.StatusOK {
 		t.Fatalf("approve step status = %d, body = %s", approveResp.Code, approveResp.Body.String())
 	}

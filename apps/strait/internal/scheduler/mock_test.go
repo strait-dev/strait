@@ -34,10 +34,8 @@ type mockReaperStore struct {
 	updateWorkflowRunStatusFn                 func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	updateStepRunStatusFn                     func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	getRunFn                                  func(ctx context.Context, id string) (*domain.JobRun, error)
-	getWorkflowStepRunFn                      func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	listExpiredApprovalsFn                    func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
 	getStepRunByRunAndRefFn                   func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
-	getCostGateDefaultActionFn                func(ctx context.Context, stepRunID string) (string, error)
 	updateWorkflowApprovalFn                  func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	updateRunStatusFn                         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	deleteOldWorkflowRunsFn                   func(ctx context.Context, before time.Time, limit int) (int64, error)
@@ -198,13 +196,6 @@ func (m *mockReaperStore) GetRun(ctx context.Context, id string) (*domain.JobRun
 	return nil, nil
 }
 
-func (m *mockReaperStore) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
-	if m.getWorkflowStepRunFn != nil {
-		return m.getWorkflowStepRunFn(ctx, id)
-	}
-	return nil, nil
-}
-
 func (m *mockReaperStore) ListExpiredWorkflowStepApprovals(ctx context.Context) ([]domain.WorkflowStepApproval, error) {
 	if m.listExpiredApprovalsFn != nil {
 		return m.listExpiredApprovalsFn(ctx)
@@ -217,13 +208,6 @@ func (m *mockReaperStore) GetStepRunByWorkflowRunAndRef(ctx context.Context, wor
 		return m.getStepRunByRunAndRefFn(ctx, workflowRunID, stepRef)
 	}
 	return nil, nil
-}
-
-func (m *mockReaperStore) GetCostGateDefaultAction(ctx context.Context, stepRunID string) (string, error) {
-	if m.getCostGateDefaultActionFn != nil {
-		return m.getCostGateDefaultActionFn(ctx, stepRunID)
-	}
-	return "", nil
 }
 
 func (m *mockReaperStore) UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error {
@@ -319,8 +303,8 @@ type mockWorkflowCallback struct {
 	onEventReceivedFn  func(ctx context.Context, trigger *domain.EventTrigger) error
 	onStepCompletedFn  func(ctx context.Context, workflowRunID string, stepRunID string)
 	onStepFailedFn     func(ctx context.Context, workflowRunID string, stepRunID string)
-	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
 	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
+	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
 }
 
 func (m *mockWorkflowCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
@@ -349,16 +333,16 @@ func (m *mockWorkflowCallback) OnStepFailed(ctx context.Context, workflowRunID s
 	}
 }
 
-func (m *mockWorkflowCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
-	if m.approveStepFn != nil {
-		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
+func (m *mockWorkflowCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
+	if m.resumeWorkflowFn != nil {
+		return m.resumeWorkflowFn(ctx, workflowRunID)
 	}
 	return nil
 }
 
-func (m *mockWorkflowCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
-	if m.resumeWorkflowFn != nil {
-		return m.resumeWorkflowFn(ctx, workflowRunID)
+func (m *mockWorkflowCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
+	if m.approveStepFn != nil {
+		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
 	}
 	return nil
 }

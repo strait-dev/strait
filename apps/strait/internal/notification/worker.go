@@ -79,7 +79,7 @@ func (w *Worker) process(ctx context.Context) {
 }
 
 func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) error {
-	ch, err := w.store.GetNotificationChannel(ctx, d.ChannelID)
+	ch, err := w.store.GetNotificationChannel(ctx, d.ChannelID, d.ProjectID)
 	if err != nil {
 		d.Attempts++
 		d.LastError = fmt.Sprintf("failed to get channel: %v", err)

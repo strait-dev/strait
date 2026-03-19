@@ -439,3 +439,74 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 	}
 	return nil
 }
+
+// CostOutlier represents a run whose cost significantly exceeds the average for its job.
+type CostOutlier struct {
+	RunID           string  `json:"run_id"`
+	JobID           string  `json:"job_id"`
+	CostMicrousd    int64   `json:"cost_microusd"`
+	AvgCostMicrousd float64 `json:"avg_cost_microusd"`
+	StddevMicrousd  float64 `json:"stddev_cost_microusd"`
+	DeviationsAbove float64 `json:"deviations_above_avg"`
+}
+
+// GetCostOutliers finds runs whose total cost exceeds the per-job average by
+// more than threshold standard deviations within the given time range.
+func (q *Queries) GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]CostOutlier, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetCostOutliers")
+	defer span.End()
+
+	query := `
+		WITH run_costs AS (
+			SELECT
+				u.run_id,
+				jr.job_id,
+				SUM(u.cost_microusd) AS cost_microusd
+			FROM run_usage u
+			JOIN job_runs jr ON jr.id = u.run_id
+			WHERE jr.project_id = $1
+			  AND jr.created_at >= $2
+			  AND jr.created_at < $3
+			GROUP BY u.run_id, jr.job_id
+		),
+		job_stats AS (
+			SELECT
+				job_id,
+				AVG(cost_microusd) AS avg_cost,
+				STDDEV_POP(cost_microusd) AS stddev_cost
+			FROM run_costs
+			GROUP BY job_id
+			HAVING STDDEV_POP(cost_microusd) > 0
+		)
+		SELECT
+			rc.run_id,
+			rc.job_id,
+			rc.cost_microusd,
+			js.avg_cost,
+			js.stddev_cost,
+			(rc.cost_microusd - js.avg_cost) / js.stddev_cost AS deviations_above
+		FROM run_costs rc
+		JOIN job_stats js ON js.job_id = rc.job_id
+		WHERE rc.cost_microusd > js.avg_cost + ($4 * js.stddev_cost)
+		ORDER BY deviations_above DESC`
+
+	rows, err := q.db.Query(ctx, query, projectID, from, to, threshold)
+	if err != nil {
+		return nil, fmt.Errorf("get cost outliers: %w", err)
+	}
+	defer rows.Close()
+
+	outliers := make([]CostOutlier, 0)
+	for rows.Next() {
+		var o CostOutlier
+		if err := rows.Scan(&o.RunID, &o.JobID, &o.CostMicrousd, &o.AvgCostMicrousd, &o.StddevMicrousd, &o.DeviationsAbove); err != nil {
+			return nil, fmt.Errorf("get cost outliers scan: %w", err)
+		}
+		outliers = append(outliers, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get cost outliers rows: %w", err)
+	}
+
+	return outliers, nil
+}
