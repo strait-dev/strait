@@ -5,6 +5,7 @@ import { buildCommandRoute } from "./commands/build";
 import { contextRoutes } from "./commands/context";
 import { deployCommandRoute } from "./commands/deploy";
 import { devCommandRoute } from "./commands/dev";
+import { doctorCommand } from "./commands/doctor";
 import { eventsRoutes } from "./commands/events";
 import { healthCommand } from "./commands/health";
 import { initCommand } from "./commands/init";
@@ -25,6 +26,7 @@ const routes = buildRouteMap({
     build: buildCommandRoute,
     context: contextRoutes,
     deploy: deployCommandRoute,
+    doctor: doctorCommand,
     dev: devCommandRoute,
     events: eventsRoutes,
     health: healthCommand,
