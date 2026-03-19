@@ -323,7 +323,7 @@ export type OperationQueryParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
-  "getV1NotificationChannels": { "project_id": string };
+  "getV1NotificationChannels": undefined;
   "postV1NotificationChannels": undefined;
   "deleteV1NotificationChannelsByChannelID": undefined;
   "getV1NotificationChannelsByChannelID": undefined;

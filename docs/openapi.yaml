@@ -5060,12 +5060,6 @@ paths:
       summary: List notification channels
       security:
         - bearerAuth: []
-      parameters:
-        - name: project_id
-          in: query
-          required: true
-          schema:
-            type: string
       responses:
         '200':
           description: List of notification channels
@@ -7738,7 +7732,7 @@ components:
           type: string
         channel_type:
           type: string
-          enum: [slack, discord, webhook, email]
+          enum: [slack, discord, webhook]
         name:
           type: string
         enabled:
@@ -7753,16 +7747,13 @@ components:
     CreateNotificationChannelRequest:
       type: object
       required:
-        - project_id
         - channel_type
         - name
         - config
       properties:
-        project_id:
-          type: string
         channel_type:
           type: string
-          enum: [slack, discord, webhook, email]
+          enum: [slack, discord, webhook]
         name:
           type: string
         config:
@@ -7777,7 +7768,7 @@ components:
           type: string
         channel_type:
           type: string
-          enum: [slack, discord, webhook, email]
+          enum: [slack, discord, webhook]
         config:
           type: object
         enabled:
