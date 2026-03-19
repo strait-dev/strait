@@ -13,7 +13,7 @@ import { UsageDashboard } from "@/components/billing/usage-dashboard";
 import { DefaultCatchBoundary } from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 
-import { UserIcon, CreditCardIcon } from "@/lib/icons";
+import { CreditCardIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
@@ -51,7 +51,11 @@ function RouteComponent() {
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="billing">
-            <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
+            <Suspense
+              fallback={
+                <div className="h-64 animate-pulse rounded-lg bg-muted" />
+              }
+            >
               <UsageDashboard />
             </Suspense>
           </TabsContent>

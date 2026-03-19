@@ -2,8 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
-import { auth, authPool } from "@/lib/auth.server";
 import { apiRequest } from "@/lib/api-client.server";
+import { auth, authPool } from "@/lib/auth.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 /**

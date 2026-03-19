@@ -13,12 +13,12 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useEffect, useRef } from "react";
 import * as z from "zod";
+import { UpgradeNudgeBanner } from "@/components/billing/upgrade-nudge-banner";
 import ErrorComponent from "@/components/common/error-component";
 import HeaderBreadcrumb from "@/components/common/header-breadcrumb";
 import HeaderUserMenu from "@/components/common/header-user-menu";
 import Sidebar from "@/components/common/sidebar";
 import { ThemeToggle } from "@/components/common/theme-toggle";
-import { UpgradeNudgeBanner } from "@/components/billing/upgrade-nudge-banner";
 import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
 import { usePostHog } from "@/components/providers/posthog-provider";

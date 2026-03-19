@@ -28,7 +28,7 @@ type ComparisonResult = {
 function estimateStraitCost(
   runsPerMonth: number,
   computeHours: number,
-  _teamMembers: number,
+  _teamMembers: number
 ): ComparisonResult {
   const microPerSecond = 0.017;
   const monthlyComputeCost = computeHours * 3600 * microPerSecond;
@@ -36,10 +36,18 @@ function estimateStraitCost(
   let recommendedPlan = "Free";
   let planCost = 0;
 
-  if (runsPerMonth > 150_000 || monthlyComputeCost > 19.99 || _teamMembers > 10) {
+  if (
+    runsPerMonth > 150_000 ||
+    monthlyComputeCost > 19.99 ||
+    _teamMembers > 10
+  ) {
     recommendedPlan = "Pro";
     planCost = 49.99;
-  } else if (runsPerMonth > 5000 || monthlyComputeCost > 0 || _teamMembers > 3) {
+  } else if (
+    runsPerMonth > 5000 ||
+    monthlyComputeCost > 0 ||
+    _teamMembers > 3
+  ) {
     recommendedPlan = "Starter";
     planCost = 19.99;
   }
@@ -60,7 +68,9 @@ function estimateStraitCost(
 }
 
 export function MigrationCalculator() {
-  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(
+    null
+  );
   const [runsPerMonth, setRunsPerMonth] = useState(50_000);
   const [computeHours, setComputeHours] = useState(20);
   const [teamMembers, setTeamMembers] = useState(8);
@@ -68,7 +78,11 @@ export function MigrationCalculator() {
   const [result, setResult] = useState<ComparisonResult | null>(null);
 
   const handleCalculate = useCallback(() => {
-    const estimation = estimateStraitCost(runsPerMonth, computeHours, teamMembers);
+    const estimation = estimateStraitCost(
+      runsPerMonth,
+      computeHours,
+      teamMembers
+    );
     estimation.currentCost = currentCost;
     estimation.savings = currentCost - estimation.straitCost;
     setResult(estimation);

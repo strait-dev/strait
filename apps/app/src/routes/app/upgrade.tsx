@@ -16,7 +16,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import type { PlanType, BillingInterval } from "@/components/upgrade/plan-selection";
+import type {
+  BillingInterval,
+  PlanType,
+} from "@/components/upgrade/plan-selection";
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
@@ -94,9 +97,8 @@ function RouteComponent() {
   const [selectedPlan, setSelectedPlan] = useState<PlanType>(
     currentPlan || "starter"
   );
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>(
-    "monthly"
-  );
+  const [billingInterval, setBillingInterval] =
+    useState<BillingInterval>("monthly");
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const { trackSubscription } = useAnalytics();
   const hasTrackedPageView = useRef(false);

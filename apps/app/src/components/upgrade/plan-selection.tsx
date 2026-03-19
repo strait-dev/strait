@@ -1,5 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckIcon as RadixCheckIcon } from "@radix-ui/react-icons";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@strait/ui/components/accordion";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
@@ -303,15 +309,25 @@ const PricingCard = ({
   const isEnterprise = plan.slug === "enterprise";
 
   const getCardButtonText = () => {
-    if (isFreePlan) { return "Get Started Free"; }
-    if (isEnterprise) { return "Contact Sales"; }
-    if (isCurrentPlan) { return "Current Plan"; }
+    if (isFreePlan) {
+      return "Get Started Free";
+    }
+    if (isEnterprise) {
+      return "Contact Sales";
+    }
+    if (isCurrentPlan) {
+      return "Current Plan";
+    }
     return isSelected ? buttonText : "Choose this plan";
   };
 
   const getButtonVariant = () => {
-    if (isCurrentPlan) { return "outline" as const; }
-    if (isSelected) { return "default" as const; }
+    if (isCurrentPlan) {
+      return "outline" as const;
+    }
+    if (isSelected) {
+      return "default" as const;
+    }
     return "outline" as const;
   };
 
@@ -372,7 +388,7 @@ const PricingCard = ({
             <h3 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
               {plan.name}
             </h3>
-            {(isFreePlan || isEnterprise ) ? null : (
+            {isFreePlan || isEnterprise ? null : (
               <div
                 className={cn(
                   "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
@@ -381,9 +397,7 @@ const PricingCard = ({
                     : "border-muted-foreground/30"
                 )}
               >
-                {isSelected ? (
-                  <RadixCheckIcon className="h-2.5 w-2.5" />
-                ) : null}
+                {isSelected ? <RadixCheckIcon className="h-2.5 w-2.5" /> : null}
               </div>
             )}
           </div>
@@ -544,14 +558,228 @@ export const PlanSelection = ({
       {/* Compare link */}
       <div className="text-center">
         <a
-          href="/app/pricing/compare"
           className="text-muted-foreground text-sm underline underline-offset-4 transition-colors hover:text-foreground"
+          href="/app/pricing/compare"
         >
           Compare with competitors
         </a>
       </div>
+
+      {/* Feature comparison matrix */}
+      <FeatureComparisonMatrix />
+
+      {/* FAQ */}
+      <PricingFAQ />
     </div>
   );
 };
 
-export type { BillingInterval, PlanType, UpgradeMode, PlanSlug };
+const COMPARISON_FEATURES = [
+  {
+    name: "Runs per day",
+    free: "5,000",
+    starter: "25,000",
+    pro: "100,000",
+    enterprise: "Unlimited",
+  },
+  {
+    name: "Concurrent runs",
+    free: "5",
+    starter: "25",
+    pro: "100",
+    enterprise: "Unlimited",
+  },
+  {
+    name: "Compute credit",
+    free: "-",
+    starter: "$19.99",
+    pro: "$49.99",
+    enterprise: "Custom",
+  },
+  {
+    name: "Projects",
+    free: "2",
+    starter: "5",
+    pro: "15",
+    enterprise: "Unlimited",
+  },
+  {
+    name: "Team members",
+    free: "3",
+    starter: "10",
+    pro: "25",
+    enterprise: "Unlimited",
+  },
+  {
+    name: "Retention",
+    free: "1 day",
+    starter: "7 days",
+    pro: "30 days",
+    enterprise: "90 days",
+  },
+  { name: "Regions", free: "1", starter: "6", pro: "All", enterprise: "All" },
+  {
+    name: "AI assistant messages/day",
+    free: "20",
+    starter: "100",
+    pro: "500",
+    enterprise: "Unlimited",
+  },
+  {
+    name: "RBAC",
+    free: "-",
+    starter: "Basic",
+    pro: "Full",
+    enterprise: "Full",
+  },
+  {
+    name: "Audit logs",
+    free: "-",
+    starter: "-",
+    pro: "Yes",
+    enterprise: "Yes",
+  },
+  { name: "SSO", free: "-", starter: "-", pro: "-", enterprise: "Yes" },
+  { name: "SLA", free: "-", starter: "-", pro: "-", enterprise: "Yes" },
+  {
+    name: "Webhook subscriptions",
+    free: "2",
+    starter: "10",
+    pro: "50",
+    enterprise: "Unlimited",
+  },
+  {
+    name: "Log drains",
+    free: "-",
+    starter: "1",
+    pro: "5",
+    enterprise: "Unlimited",
+  },
+  {
+    name: "Alert rules",
+    free: "3",
+    starter: "10",
+    pro: "50",
+    enterprise: "Unlimited",
+  },
+] as const;
+
+function FeatureCellValue({ value }: { value: string }) {
+  if (value === "Yes") {
+    return (
+      <HugeiconsIcon
+        className="mx-auto size-4 text-green-500"
+        icon={CheckIcon}
+      />
+    );
+  }
+  if (value === "-") {
+    return <span className="text-muted-foreground/50">-</span>;
+  }
+  return <>{value}</>;
+}
+
+function FeatureComparisonMatrix() {
+  const tiers = ["free", "starter", "pro", "enterprise"] as const;
+  const tierLabels = {
+    free: "Free",
+    starter: "Starter",
+    pro: "Pro",
+    enterprise: "Enterprise",
+  };
+
+  return (
+    <div className="mt-12">
+      <h3 className="mb-6 text-center font-semibold text-lg">
+        Full feature comparison
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="py-3 pr-4 text-left font-medium text-muted-foreground">
+                Feature
+              </th>
+              {tiers.map((tier) => (
+                <th className="px-4 py-3 text-center font-medium" key={tier}>
+                  {tierLabels[tier]}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {COMPARISON_FEATURES.map((feature) => (
+              <tr className="border-border/50 border-b" key={feature.name}>
+                <td className="py-3 pr-4 text-muted-foreground">
+                  {feature.name}
+                </td>
+                {tiers.map((tier) => (
+                  <td className="px-4 py-3 text-center" key={tier}>
+                    <FeatureCellValue value={feature[tier]} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const FAQ_ITEMS = [
+  {
+    question: "How does billing work?",
+    answer:
+      "You are billed monthly or annually based on your chosen plan. Each plan includes a compute credit allowance. Usage beyond the included credit is billed as overage at the plan's per-1K-runs rate.",
+  },
+  {
+    question: "What happens if I exceed my plan limits?",
+    answer:
+      "If you set a spending limit, runs will stop when the limit is reached (or you'll be notified, depending on your setting). Daily run limits reset at midnight UTC. You can upgrade at any time to increase your limits.",
+  },
+  {
+    question: "Can I change plans at any time?",
+    answer:
+      "Yes. Upgrades take effect immediately and you get access to higher limits right away. Downgrades take effect at the end of your current billing period so you don't lose access mid-cycle.",
+  },
+  {
+    question: "What happens when I cancel?",
+    answer:
+      "Your plan remains active until the end of the current billing period. After that, your account reverts to the Free plan. Your data is retained according to the Free plan's retention policy.",
+  },
+  {
+    question: "Is there a spending cap?",
+    answer:
+      "Yes. Every paid plan lets you set a spending limit to cap overage charges. Free plan users are always hard-capped at the included allowances with no overage possible.",
+  },
+  {
+    question: "Do you offer enterprise pricing?",
+    answer:
+      "Yes. Enterprise plans include custom pricing, unlimited resources, SSO, SLA guarantees, and dedicated support. Contact us to discuss your needs.",
+  },
+];
+
+function PricingFAQ() {
+  return (
+    <div className="mx-auto mt-12 max-w-2xl">
+      <h3 className="mb-6 text-center font-semibold text-lg">
+        Frequently asked questions
+      </h3>
+      <Accordion className="w-full">
+        {FAQ_ITEMS.map((item) => (
+          <AccordionItem key={item.question}>
+            <AccordionTrigger className="text-left text-sm">
+              {item.question}
+            </AccordionTrigger>
+            <AccordionContent className="text-muted-foreground text-sm">
+              {item.answer}
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
+    </div>
+  );
+}
+
+export type { BillingInterval, PlanSlug, PlanType, UpgradeMode };

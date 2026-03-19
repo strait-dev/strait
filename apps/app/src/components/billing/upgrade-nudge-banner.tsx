@@ -27,11 +27,7 @@ export function UpgradeNudgeBanner() {
         <Button onClick={handleUpgrade} size="sm" variant="default">
           Upgrade
         </Button>
-        <Button
-          onClick={() => setDismissed(true)}
-          size="sm"
-          variant="ghost"
-        >
+        <Button onClick={() => setDismissed(true)} size="sm" variant="ghost">
           Dismiss
         </Button>
       </div>
