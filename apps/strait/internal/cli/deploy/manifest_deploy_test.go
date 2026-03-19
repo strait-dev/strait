@@ -36,6 +36,12 @@ func TestDeployManifest_CreateAndFinalize(t *testing.T) {
 			if req.ProjectID != "proj-1" {
 				t.Errorf("expected project_id=proj-1, got %q", req.ProjectID)
 			}
+			if req.Runtime != "node" {
+				t.Errorf("expected runtime=node, got %q", req.Runtime)
+			}
+			if req.ArtifactURI != "https://example.com/artifact.tgz" {
+				t.Errorf("expected artifact_uri to be forwarded, got %q", req.ArtifactURI)
+			}
 			if req.Checksum == "" {
 				t.Error("expected checksum to be set")
 			}
@@ -48,6 +54,13 @@ func TestDeployManifest_CreateAndFinalize(t *testing.T) {
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/deployments/dep-1/finalize":
 			finalizeCalled.Add(1)
+			var req client.FinalizeDeploymentRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode finalize request: %v", err)
+			}
+			if req.ProjectID != "proj-1" || req.Environment != "production" {
+				t.Errorf("unexpected finalize request: %+v", req)
+			}
 			w.WriteHeader(http.StatusOK)
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -63,8 +76,9 @@ func TestDeployManifest_CreateAndFinalize(t *testing.T) {
 
 	outDir := filepath.Join(dir, "out")
 	err = DeployManifest(context.Background(), cli, ManifestDeployOptions{
-		ConfigPath: configPath,
-		OutDir:     outDir,
+		ConfigPath:  configPath,
+		ArtifactURI: "https://example.com/artifact.tgz",
+		OutDir:      outDir,
 	})
 	if err != nil {
 		t.Fatalf("DeployManifest: %v", err)
@@ -87,7 +101,7 @@ func TestDeployManifest_CreateFails(t *testing.T) {
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "strait.json")
-	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -112,8 +126,9 @@ func TestDeployManifest_CreateFails(t *testing.T) {
 	}
 
 	err = DeployManifest(context.Background(), cli, ManifestDeployOptions{
-		ConfigPath: configPath,
-		OutDir:     filepath.Join(dir, "out"),
+		ConfigPath:  configPath,
+		ArtifactURI: "https://example.com/artifact.tgz",
+		OutDir:      filepath.Join(dir, "out"),
 	})
 	if err == nil {
 		t.Fatal("expected error when create fails")
@@ -128,7 +143,7 @@ func TestDeployManifest_DryRun(t *testing.T) {
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "strait.json")
-	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,8 +161,9 @@ func TestDeployManifest_DryRun(t *testing.T) {
 	}
 
 	err = DeployManifest(context.Background(), cli, ManifestDeployOptions{
-		ConfigPath: configPath,
-		DryRun:     true,
+		ConfigPath:  configPath,
+		ArtifactURI: "https://example.com/artifact.tgz",
+		DryRun:      true,
 	})
 	if err != nil {
 		t.Fatalf("DeployManifest dry-run: %v", err)
@@ -162,7 +178,7 @@ func TestDeployManifest_EnvironmentDefault(t *testing.T) {
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "strait.json")
-	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,8 +203,9 @@ func TestDeployManifest_EnvironmentDefault(t *testing.T) {
 	}
 
 	_ = DeployManifest(context.Background(), cli, ManifestDeployOptions{
-		ConfigPath: configPath,
-		OutDir:     filepath.Join(dir, "out"),
+		ConfigPath:  configPath,
+		ArtifactURI: "https://example.com/artifact.tgz",
+		OutDir:      filepath.Join(dir, "out"),
 	})
 	if receivedEnv != "production" {
 		t.Fatalf("expected environment=production, got %q", receivedEnv)
@@ -200,7 +217,7 @@ func TestDeployManifest_EnvironmentOverride(t *testing.T) {
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "strait.json")
-	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -227,9 +244,55 @@ func TestDeployManifest_EnvironmentOverride(t *testing.T) {
 	_ = DeployManifest(context.Background(), cli, ManifestDeployOptions{
 		ConfigPath:  configPath,
 		Environment: "staging",
+		ArtifactURI: "https://example.com/artifact.tgz",
 		OutDir:      filepath.Join(dir, "out"),
 	})
 	if receivedEnv != "staging" {
 		t.Fatalf("expected environment=staging, got %q", receivedEnv)
+	}
+}
+
+func TestDeployManifest_RequiresRuntime(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "strait.json")
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cli, err := client.New("https://example.com", "test-key", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = DeployManifest(context.Background(), cli, ManifestDeployOptions{
+		ConfigPath:  configPath,
+		ArtifactURI: "https://example.com/artifact.tgz",
+	})
+	if err == nil || err.Error() != "manifest deploy requires project.runtime in the config file" {
+		t.Fatalf("expected missing runtime error, got %v", err)
+	}
+}
+
+func TestDeployManifest_RequiresArtifactURI(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "strait.json")
+	if err := os.WriteFile(configPath, []byte(`{"project":{"id":"proj-1"},"runtime":"node"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cli, err := client.New("https://example.com", "test-key", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = DeployManifest(context.Background(), cli, ManifestDeployOptions{
+		ConfigPath: configPath,
+	})
+	if err == nil || err.Error() != "manifest deploy requires --artifact-uri" {
+		t.Fatalf("expected missing artifact error, got %v", err)
 	}
 }

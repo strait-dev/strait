@@ -14,7 +14,7 @@ import (
 func newCreateCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create resources with guided wizards",
+		Short: "Create resources from flags or JSON input",
 	}
 
 	cmd.AddCommand(newCreateJobCommand(state))
@@ -38,7 +38,7 @@ func newCreateJobCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "job",
 		Short: "Create a new job",
-		Long:  "Create a new job via flags or interactive wizard.",
+		Long:  "Create a new job via flags or JSON input.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			projectID, err := requireProjectID(state, projectID)
 			if err != nil {
@@ -125,7 +125,7 @@ func newCreateWorkflowCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workflow",
 		Short: "Create a new workflow",
-		Long:  "Create a new workflow via flags or interactive wizard.",
+		Long:  "Create a new workflow via flags or JSON input.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			projectID, err := requireProjectID(state, projectID)
 			if err != nil {

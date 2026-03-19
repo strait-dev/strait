@@ -48,8 +48,10 @@ func newTeamListCommand(state *appState) *cobra.Command {
 			for _, m := range members {
 				rows = append(rows, map[string]any{
 					"id":         m.ID,
-					"email":      m.Email,
-					"role":       m.Role,
+					"project_id": m.ProjectID,
+					"user_id":    m.UserID,
+					"role_id":    m.RoleID,
+					"granted_by": m.GrantedBy,
 					"created_at": m.CreatedAt,
 				})
 			}
@@ -64,21 +66,15 @@ func newTeamListCommand(state *appState) *cobra.Command {
 }
 
 func newTeamAddCommand(state *appState) *cobra.Command {
-	var projectID string
-	var role string
+	var roleID string
 
 	cmd := &cobra.Command{
-		Use:   "add <email>",
-		Short: "Add a member to the project",
+		Use:   "add <user-id>",
+		Short: "Assign a role to a project member",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID, err := requireProjectID(state, projectID)
-			if err != nil {
-				return err
-			}
-
-			if role == "" {
-				return fmt.Errorf("--role is required")
+			if roleID == "" {
+				return fmt.Errorf("--role-id is required")
 			}
 
 			cli, err := newAPIClient(state)
@@ -86,10 +82,9 @@ func newTeamAddCommand(state *appState) *cobra.Command {
 				return err
 			}
 
-			member, err := cli.AddMember(cmd.Context(), client.AddMemberRequest{
-				ProjectID: projectID,
-				Email:     args[0],
-				Role:      role,
+			member, err := cli.AddMember(cmd.Context(), client.AssignMemberRequest{
+				UserID: args[0],
+				RoleID: roleID,
 			})
 			if err != nil {
 				return err
@@ -99,8 +94,7 @@ func newTeamAddCommand(state *appState) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&projectID, "project", "", "project ID")
-	cmd.Flags().StringVar(&role, "role", "", "member role")
+	cmd.Flags().StringVar(&roleID, "role-id", "", "role ID to assign")
 
 	return cmd
 }
@@ -109,8 +103,8 @@ func newTeamRemoveCommand(state *appState) *cobra.Command {
 	var yes bool
 
 	cmd := &cobra.Command{
-		Use:   "remove <member-id>",
-		Short: "Remove a member from the project",
+		Use:   "remove <user-id>",
+		Short: "Remove a member role assignment from the project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := requireConfirmation(state, "Remove this member?", yes); err != nil {
@@ -160,9 +154,15 @@ func newTeamRolesCommand(state *appState) *cobra.Command {
 			rows := make([]map[string]any, 0, len(roles))
 			for _, r := range roles {
 				rows = append(rows, map[string]any{
-					"id":          r.ID,
-					"name":        r.Name,
-					"description": r.Description,
+					"id":             r.ID,
+					"project_id":     r.ProjectID,
+					"name":           r.Name,
+					"description":    r.Description,
+					"permissions":    r.Permissions,
+					"parent_role_id": r.ParentRoleID,
+					"is_system":      r.IsSystem,
+					"created_at":     r.CreatedAt,
+					"updated_at":     r.UpdatedAt,
 				})
 			}
 

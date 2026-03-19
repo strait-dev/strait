@@ -1464,8 +1464,8 @@ func TestFinalizeDeployment(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		if req.ProjectID != "proj-1" {
-			t.Fatalf("expected project_id=proj-1, got %q", req.ProjectID)
+		if req.ProjectID != "proj-1" || req.Environment != "production" {
+			t.Fatalf("unexpected request: %+v", req)
 		}
 
 		w.WriteHeader(http.StatusOK)
@@ -1473,7 +1473,10 @@ func TestFinalizeDeployment(t *testing.T) {
 	defer srv.Close()
 
 	c := mustClient(t, srv.URL)
-	err := c.FinalizeDeployment(context.Background(), "dep-1", FinalizeDeploymentRequest{ProjectID: "proj-1"})
+	err := c.FinalizeDeployment(context.Background(), "dep-1", FinalizeDeploymentRequest{
+		ProjectID:   "proj-1",
+		Environment: "production",
+	})
 	if err != nil {
 		t.Fatalf("FinalizeDeployment: %v", err)
 	}
@@ -1670,18 +1673,31 @@ func TestGetPerformanceAnalytics(t *testing.T) {
 		if r.URL.Query().Get("project_id") != "proj-1" {
 			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
 		}
-		respondPaginated(t, w, http.StatusOK, []PerformanceAnalytics{
-			{JobID: "job-1", JobSlug: "process-payment", TotalRuns: 100, SuccessRate: 0.95, AvgDuration: 1500},
+		if r.URL.Query().Get("period_hours") != "72" {
+			t.Fatalf("expected period_hours=72, got %q", r.URL.Query().Get("period_hours"))
+		}
+		respondJSON(t, w, http.StatusOK, PerformanceAnalytics{
+			SlowestJobs: []JobPerformance{
+				{JobID: "job-1", JobSlug: "process-payment", TotalRuns: 100, FailedRuns: 5, AvgDurationSecs: 1.5, P95DurationSecs: 2.3},
+			},
+			Throughput: ThroughputStats{Completed: 95, Failed: 5, PeriodHours: 72},
+			HealthSummary: HealthSummary{
+				TotalJobs:       10,
+				ActiveJobs:      8,
+				SuccessRate:     0.95,
+				AvgDurationSecs: 1.25,
+				QueueDepth:      3,
+			},
 		})
 	}))
 	defer srv.Close()
 
 	c := mustClient(t, srv.URL)
-	got, err := c.GetPerformanceAnalytics(context.Background(), "proj-1", "")
+	got, err := c.GetPerformanceAnalytics(context.Background(), "proj-1", 72)
 	if err != nil {
 		t.Fatalf("GetPerformanceAnalytics: %v", err)
 	}
-	if len(got) != 1 || got[0].JobID != "job-1" {
+	if got.Throughput.PeriodHours != 72 || len(got.SlowestJobs) != 1 || got.SlowestJobs[0].JobID != "job-1" {
 		t.Fatalf("unexpected response: %+v", got)
 	}
 }
@@ -1698,8 +1714,8 @@ func TestListMembers(t *testing.T) {
 		if r.URL.Query().Get("project_id") != "proj-1" {
 			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
 		}
-		respondPaginated(t, w, http.StatusOK, []Member{
-			{ID: "mem-1", ProjectID: "proj-1", Email: "user@example.com", Role: "admin", CreatedAt: now},
+		respondPaginated(t, w, http.StatusOK, []ProjectMember{
+			{ID: "mem-1", ProjectID: "proj-1", UserID: "user-1", RoleID: "role-admin", GrantedBy: "owner-1", CreatedAt: now},
 		})
 	}))
 	defer srv.Close()
@@ -1709,7 +1725,7 @@ func TestListMembers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListMembers: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "mem-1" {
+	if len(got) != 1 || got[0].ID != "mem-1" || got[0].UserID != "user-1" {
 		t.Fatalf("unexpected response: %+v", got)
 	}
 }
@@ -1726,18 +1742,41 @@ func TestListAuditEvents(t *testing.T) {
 		if r.URL.Query().Get("project_id") != "proj-1" {
 			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
 		}
+		if r.URL.Query().Get("actor_id") != "actor-1" {
+			t.Fatalf("expected actor_id=actor-1, got %q", r.URL.Query().Get("actor_id"))
+		}
+		if r.URL.Query().Get("resource_type") != "job" || r.URL.Query().Get("resource_id") != "job-1" {
+			t.Fatalf("unexpected resource filters: %s", r.URL.RawQuery)
+		}
+		if r.URL.Query().Get("order") != "asc" {
+			t.Fatalf("expected order=asc, got %q", r.URL.Query().Get("order"))
+		}
+		if r.URL.Query().Get("from") == "" || r.URL.Query().Get("to") == "" {
+			t.Fatalf("expected from/to filters, got %s", r.URL.RawQuery)
+		}
 		respondPaginated(t, w, http.StatusOK, []AuditEvent{
-			{ID: "ae-1", ProjectID: "proj-1", Actor: "user@example.com", Action: "job.created", Resource: "job-1", CreatedAt: now},
+			{ID: "ae-1", ProjectID: "proj-1", ActorID: "actor-1", ActorType: "user", Action: "job.created", ResourceType: "job", ResourceID: "job-1", CreatedAt: now},
 		})
 	}))
 	defer srv.Close()
 
+	from := now.Add(-time.Hour)
+	to := now.Add(time.Hour)
 	c := mustClient(t, srv.URL)
-	got, err := c.ListAuditEvents(context.Background(), "proj-1", "", "", 0)
+	got, err := c.ListAuditEvents(context.Background(), ListAuditEventsParams{
+		ProjectID:    "proj-1",
+		ActorID:      "actor-1",
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		Limit:        10,
+		From:         &from,
+		To:           &to,
+		Order:        "asc",
+	})
 	if err != nil {
 		t.Fatalf("ListAuditEvents: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "ae-1" {
+	if len(got) != 1 || got[0].ID != "ae-1" || got[0].ActorID != "actor-1" {
 		t.Fatalf("unexpected response: %+v", got)
 	}
 }
@@ -1753,34 +1792,34 @@ func TestAddMember(t *testing.T) {
 		assertAuth(t, r, "test-key")
 		assertContentType(t, r)
 
-		var req AddMemberRequest
+		var req AssignMemberRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		if req.ProjectID != "proj-1" || req.Email != "user@example.com" || req.Role != "admin" {
+		if req.UserID != "user-1" || req.RoleID != "role-admin" {
 			t.Fatalf("unexpected request: %+v", req)
 		}
 
-		respondJSON(t, w, http.StatusOK, Member{
+		respondJSON(t, w, http.StatusOK, ProjectMember{
 			ID:        "mem-1",
-			ProjectID: req.ProjectID,
-			Email:     req.Email,
-			Role:      req.Role,
+			ProjectID: "proj-1",
+			UserID:    req.UserID,
+			RoleID:    req.RoleID,
+			GrantedBy: "owner-1",
 			CreatedAt: now,
 		})
 	}))
 	defer srv.Close()
 
 	c := mustClient(t, srv.URL)
-	got, err := c.AddMember(context.Background(), AddMemberRequest{
-		ProjectID: "proj-1",
-		Email:     "user@example.com",
-		Role:      "admin",
+	got, err := c.AddMember(context.Background(), AssignMemberRequest{
+		UserID: "user-1",
+		RoleID: "role-admin",
 	})
 	if err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if got.ID != "mem-1" || got.Email != "user@example.com" {
+	if got.ID != "mem-1" || got.UserID != "user-1" || got.RoleID != "role-admin" {
 		t.Fatalf("unexpected response: %+v", got)
 	}
 }
@@ -1790,14 +1829,14 @@ func TestRemoveMember(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assertMethod(t, r, http.MethodDelete)
-		assertPath(t, r, "/v1/members/mem-1")
+		assertPath(t, r, "/v1/members/user-1")
 		assertAuth(t, r, "test-key")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := mustClient(t, srv.URL)
-	if err := c.RemoveMember(context.Background(), "mem-1"); err != nil {
+	if err := c.RemoveMember(context.Background(), "user-1"); err != nil {
 		t.Fatalf("RemoveMember: %v", err)
 	}
 }
@@ -1812,7 +1851,7 @@ func TestListRoles(t *testing.T) {
 		if r.URL.Query().Get("project_id") != "proj-1" {
 			t.Fatalf("expected project_id=proj-1, got %q", r.URL.Query().Get("project_id"))
 		}
-		respondPaginated(t, w, http.StatusOK, []Role{
+		respondPaginated(t, w, http.StatusOK, []ProjectRole{
 			{ID: "role-1", Name: "admin", Description: "Full access"},
 			{ID: "role-2", Name: "viewer", Description: "Read-only access"},
 		})

@@ -1,8 +1,9 @@
 package manifest
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
-	"time"
 )
 
 func TestBuildManifest_SortsJobsBySlug(t *testing.T) {
@@ -61,6 +62,18 @@ func TestBuildManifest_Checksum_Deterministic(t *testing.T) {
 	if m1.Checksum != m2.Checksum {
 		t.Fatalf("checksums differ: %s vs %s", m1.Checksum, m2.Checksum)
 	}
+
+	raw1, err := json.Marshal(m1)
+	if err != nil {
+		t.Fatalf("marshal m1: %v", err)
+	}
+	raw2, err := json.Marshal(m2)
+	if err != nil {
+		t.Fatalf("marshal m2: %v", err)
+	}
+	if string(raw1) != string(raw2) {
+		t.Fatalf("manifest bytes differ:\n%s\n%s", raw1, raw2)
+	}
 }
 
 func TestBuildManifest_Checksum_DiffersOnChange(t *testing.T) {
@@ -96,18 +109,19 @@ func TestBuildManifest_Version(t *testing.T) {
 	}
 }
 
-func TestBuildManifest_GeneratedAt(t *testing.T) {
+func TestBuildManifest_DoesNotIncludeGeneratedAt(t *testing.T) {
 	t.Parallel()
 
 	cfg := &ProjectConfig{
 		Project: ProjectInfo{ID: "proj-1"},
 	}
 
-	before := time.Now().UTC().Add(-time.Second)
 	m := BuildManifest(cfg)
-	after := time.Now().UTC().Add(time.Second)
-
-	if m.GeneratedAt.Before(before) || m.GeneratedAt.After(after) {
-		t.Fatalf("generatedAt %v is outside expected range [%v, %v]", m.GeneratedAt, before, after)
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if strings.Contains(string(raw), "generated_at") {
+		t.Fatalf("manifest should not include generated_at: %s", raw)
 	}
 }

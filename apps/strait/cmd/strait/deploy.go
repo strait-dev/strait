@@ -148,6 +148,104 @@ func newDeployCommand(state *appState) *cobra.Command {
 	cmd.AddCommand(newDeployRollbackCommand(state))
 	cmd.AddCommand(newDeployListCommand(state))
 	cmd.AddCommand(newDeployPreviewCommand(state))
+	cmd.AddCommand(newDeployCreateCommand(state))
+	cmd.AddCommand(newDeployFinalizeCommand(state))
+
+	return cmd
+}
+
+func newDeployCreateCommand(state *appState) *cobra.Command {
+	var configPath string
+	var environment string
+	var artifactURI string
+	var outDir string
+	var dryRun bool
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a draft deployment from a manifest config",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if configPath == "" {
+				return fmt.Errorf("--config is required")
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			deployment, manifest, resolvedEnv, cfg, err := deploy.CreateManifestDeployment(cmd.Context(), cli, deploy.ManifestDeployOptions{
+				ConfigPath:  configPath,
+				Environment: environment,
+				ArtifactURI: artifactURI,
+				DryRun:      dryRun,
+				OutDir:      outDir,
+			})
+			if err != nil {
+				return err
+			}
+
+			if dryRun {
+				return printData(state, manifest)
+			}
+
+			if err := deploy.WriteManifestForCommand(cfg, manifest, outDir); err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{
+				"deployment_id": deployment.ID,
+				"project_id":    manifest.ProjectID,
+				"environment":   resolvedEnv,
+				"checksum":      manifest.Checksum,
+				"status":        deployment.Status,
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "", "path to manifest config file")
+	cmd.Flags().StringVar(&environment, "env", "", "deployment environment (default: production)")
+	cmd.Flags().StringVar(&artifactURI, "artifact-uri", "", "artifact URI for the deployment bundle")
+	cmd.Flags().StringVar(&outDir, "out-dir", "", "directory to write manifest.json")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the manifest without creating a deployment")
+
+	return cmd
+}
+
+func newDeployFinalizeCommand(state *appState) *cobra.Command {
+	var projectID string
+	var environment string
+
+	cmd := &cobra.Command{
+		Use:   "finalize <deployment-id>",
+		Short: "Finalize a draft deployment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedProject, err := requireProjectID(state, projectID)
+			if err != nil {
+				return err
+			}
+
+			cli, err := newAPIClient(state)
+			if err != nil {
+				return err
+			}
+
+			if err := deploy.FinalizeManifestDeployment(cmd.Context(), cli, args[0], resolvedProject, environment); err != nil {
+				return err
+			}
+
+			return printData(state, map[string]any{
+				"deployment_id": args[0],
+				"project_id":    resolvedProject,
+				"environment":   environment,
+				"finalized":     true,
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&projectID, "project", "", "project ID")
+	cmd.Flags().StringVar(&environment, "env", "production", "deployment environment")
 
 	return cmd
 }

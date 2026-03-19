@@ -177,7 +177,6 @@ func newRunsCancelCommand(state *appState) *cobra.Command {
 
 func newRunsLogsCommand(state *appState) *cobra.Command {
 	var follow bool
-	var interval time.Duration
 	var level string
 	var eventType string
 
@@ -192,46 +191,31 @@ func newRunsLogsCommand(state *appState) *cobra.Command {
 			}
 			ctx := cmd.Context()
 
-			seen := map[string]struct{}{}
-			for {
-				events, err := cli.ListRunEvents(ctx, args[0], level, eventType)
+			if !follow {
+				rows, err := listRunEventRows(ctx, cli, args[0], level, eventType, "", time.Time{})
 				if err != nil {
 					return err
 				}
-
-				rows := make([]map[string]any, 0, len(events))
-				for _, event := range events {
-					if _, ok := seen[event.ID]; ok {
-						continue
-					}
-					seen[event.ID] = struct{}{}
-					rows = append(rows, map[string]any{
-						"timestamp": event.CreatedAt,
-						"level":     event.Level,
-						"type":      event.Type,
-						"message":   event.Message,
-					})
-				}
-				if len(rows) > 0 {
-					if err := printData(state, rows); err != nil {
-						return err
-					}
-				}
-
-				if !follow {
-					return nil
-				}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(interval):
-				}
+				return printLogRows(state, rows, false, "", 0)
 			}
+
+			if err := ensureRunStreamable(ctx, cli, args[0]); err != nil {
+				return err
+			}
+
+			rows, err := listRunEventRows(ctx, cli, args[0], level, eventType, "", time.Time{})
+			if err != nil {
+				return err
+			}
+			if err := printLogRows(state, rows, false, "", 0); err != nil {
+				return err
+			}
+
+			return streamRunLogs(ctx, cli, state, args[0], level, eventType, "", time.Time{}, "")
 		},
 	}
 
-	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "stream logs by polling events")
-	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "poll interval when following")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "stream logs over SSE")
 	cmd.Flags().StringVar(&level, "level", "", "event level filter")
 	cmd.Flags().StringVar(&eventType, "type", "", "event type filter")
 	_ = cmd.RegisterFlagCompletionFunc("level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {

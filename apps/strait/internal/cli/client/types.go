@@ -160,10 +160,10 @@ type QueueStats struct {
 type CreateDeploymentVersionRequest struct {
 	ProjectID   string `json:"project_id"`
 	Environment string `json:"environment"`
-	Runtime     string `json:"runtime,omitempty"`
+	Runtime     string `json:"runtime"`
 	Manifest    any    `json:"manifest,omitempty"`
 	Checksum    string `json:"checksum,omitempty"`
-	ArtifactURI string `json:"artifact_uri,omitempty"`
+	ArtifactURI string `json:"artifact_uri"`
 }
 
 type DeploymentVersion struct {
@@ -176,7 +176,8 @@ type DeploymentVersion struct {
 }
 
 type FinalizeDeploymentRequest struct {
-	ProjectID string `json:"project_id"`
+	ProjectID   string `json:"project_id"`
+	Environment string `json:"environment"`
 }
 
 type PromoteDeploymentRequest struct {
@@ -212,44 +213,56 @@ type CreateServerSecretRequest struct {
 // Performance analytics types.
 
 type PerformanceAnalytics struct {
-	JobID       string  `json:"job_id"`
-	JobSlug     string  `json:"job_slug"`
-	TotalRuns   int     `json:"total_runs"`
-	SuccessRate float64 `json:"success_rate"`
-	AvgDuration float64 `json:"avg_duration_ms"`
-	P50Duration float64 `json:"p50_duration_ms"`
-	P95Duration float64 `json:"p95_duration_ms"`
-	P99Duration float64 `json:"p99_duration_ms"`
+	SlowestJobs   []JobPerformance `json:"slowest_jobs"`
+	Throughput    ThroughputStats  `json:"throughput"`
+	HealthSummary HealthSummary    `json:"health_summary"`
+}
+
+type JobPerformance struct {
+	JobID           string  `json:"job_id"`
+	JobSlug         string  `json:"job_slug"`
+	AvgDurationSecs float64 `json:"avg_duration_secs"`
+	P95DurationSecs float64 `json:"p95_duration_secs"`
+	TotalRuns       int     `json:"total_runs"`
+	FailedRuns      int     `json:"failed_runs"`
+}
+
+type ThroughputStats struct {
+	Completed   int `json:"completed"`
+	Failed      int `json:"failed"`
+	TimedOut    int `json:"timed_out"`
+	Canceled    int `json:"canceled"`
+	PeriodHours int `json:"period_hours"`
+}
+
+type HealthSummary struct {
+	TotalJobs       int     `json:"total_jobs"`
+	ActiveJobs      int     `json:"active_jobs"`
+	SuccessRate     float64 `json:"success_rate"`
+	AvgDurationSecs float64 `json:"avg_duration_secs"`
+	QueueDepth      int     `json:"queue_depth"`
 }
 
 // Team/RBAC types.
 
-type Member struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+type ProjectMember = domain.ProjectMemberRole
+
+type AssignMemberRequest struct {
+	UserID string `json:"user_id"`
+	RoleID string `json:"role_id"`
 }
 
-type AddMemberRequest struct {
-	ProjectID string `json:"project_id"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-}
+type ProjectRole = domain.ProjectRole
 
-type Role struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
+type AuditEvent = domain.AuditEvent
 
-type AuditEvent struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	Actor     string    `json:"actor"`
-	Action    string    `json:"action"`
-	Resource  string    `json:"resource"`
-	Detail    string    `json:"detail,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+type ListAuditEventsParams struct {
+	ProjectID    string
+	ActorID      string
+	ResourceType string
+	ResourceID   string
+	Limit        int
+	From         *time.Time
+	To           *time.Time
+	Order        string
 }

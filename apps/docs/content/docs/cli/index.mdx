@@ -1,58 +1,42 @@
 ---
 title: "CLI Overview"
-description: "Unified Strait CLI architecture, interaction model, and migration status."
+description: "Current Strait Go CLI architecture, interaction model, and command scope."
 ---
 
-The Strait CLI is being redesigned as a **single unified TypeScript CLI** with code-first workflows and operational parity.
+The Strait CLI is the Go CLI shipped from `apps/strait/cmd/strait`.
 
-The canonical architecture and migration matrix live in:
-- `apps/cli/README.md`
+The canonical implementation lives in:
+- `apps/strait/cmd/strait/`
+- `apps/strait/internal/cli/`
 
-## Unified CLI direction
+## Current direction
 
-> Status: Phase A architecture freeze and Phases B-G implementation completed; Phase H cleanup is active.
+> Status: Go CLI is the shipped command surface.
 
-Locked platform direction:
 - One CLI surface: `strait`
-- TypeScript implementation in `apps/cli`
-- Command modeling with `stricli`
-- Runtime architecture with Effect services
-- Hybrid UX: interactive for `init/deploy/dev`, script-first for list/get/admin surfaces
-- Universal configuration via `strait.json` (replaces deprecated `strait.config.ts`)
-- `strait init` command for scaffolding config files interactively
-- Atomic deployment versions with promote/rollback flow
-- Hosted runtime support target: Node + Bun (while preserving endpoint execution mode)
+- Go implementation in `apps/strait`
+- Script-safe operational commands for jobs, runs, workflows, events, deploys, and RBAC
+- Deterministic manifest builds from `strait.json` or `strait.config.yaml`/`.yml`
+- Deployment versions with create, finalize, promote, rollback, and list flows
 
 ## Interaction policy
 
 > Default behavior is deterministic and automation-safe.
 
-- Interactive flows are command-scoped (`init`, `deploy`, `dev`).
-- Non-TTY, piped output, and `--ci` always disable prompts and animation.
-- JSON/script output must remain stable and machine-consumable.
+- Non-interactive commands must remain machine-consumable.
+- `--json` output must emit a single JSON document when advertised as script-safe.
+- Interactive prompts are opt-in and must be disabled in CI or non-TTY contexts.
 
-## Animation and accessibility
+## Current CLI baseline
 
-> Motion is optional feedback, never required behavior.
+The Go command set in `apps/strait/cmd/strait` is the source of truth for shipped behavior.
 
-- Only micro-animations are allowed (spinners/progress/transitions).
-- Motion is disabled in non-TTY, CI, and reduced-motion contexts.
-- Every animated state must have equivalent plain-text fallback output.
+Key command groups:
+- `jobs`, `runs`, `workflows`, `workflow-runs`, `events`
+- `build`, `deploy`, `project`, `secrets`
+- `perf`, `team`, `audit`, `status`, `doctor`
 
-## Command migration and parity
-
-> Existing Go CLI command surfaces remain the migration baseline.
-
-The Go command set in `apps/strait/cmd/strait` is the parity source for migration into the unified JS CLI.
-
-Key migration notes:
-- Operational groups (`jobs`, `runs`, `workflows`, `events`, etc.) migrate with script-safe parity.
-- New code-first/deployment groups (`build`, `deploy`, `promote`, `rollback`) are introduced.
-- YAML declarative commands (`validate`, `apply`, `diff`) are removed from the unified CLI cutover path.
-
-## Installation (current state)
-
-> Until unified CLI release channels are in place, use the existing Go build path.
+## Installation
 
 ```bash
 # Build from source (from repo root)
@@ -61,9 +45,3 @@ go build -o strait ./apps/strait/cmd/strait
 # Or install from the app directory
 cd apps/strait && go install ./cmd/strait
 ```
-
-## Legacy command reference pages
-
-> The CLI reference pages under `docs/cli/*` currently document the existing command surface and are being migrated in phases.
-
-Use those pages as compatibility reference during cutover. The unified CLI contract takes precedence for all new work.

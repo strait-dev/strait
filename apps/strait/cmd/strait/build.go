@@ -20,7 +20,7 @@ func newBuildCommand(state *appState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build",
 		Short: "Compile project config into a deployment manifest",
-		Long: `Loads a strait.json or strait.config.yaml config file, compiles it into a
+		Long: `Loads a strait.json or strait.config.yaml/.yml config file, compiles it into a
 deterministic manifest with sorted resources and a SHA-256 checksum,
 and writes it to the output directory.`,
 		Example: `  strait build
@@ -30,7 +30,7 @@ and writes it to the output directory.`,
 			if configPath == "" {
 				configPath = climanifest.FindConfigFile(".")
 				if configPath == "" {
-					return fmt.Errorf("no config file found; create strait.json or strait.config.yaml, or use --config")
+					return fmt.Errorf("no config file found; create strait.json or strait.config.yaml/.yml, or use --config")
 				}
 			}
 
@@ -48,9 +48,7 @@ and writes it to the output directory.`,
 
 			if dryRun || asJSON {
 				fmt.Println(string(encoded))
-				if dryRun {
-					return nil
-				}
+				return nil
 			}
 
 			if outDir == "" {

@@ -93,7 +93,7 @@ func newLoginCommand(state *appState) *cobra.Command {
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "read API key from stdin")
 	cmd.Flags().StringVar(&contextName, "context", "", "context to save API key under")
 	cmd.Flags().StringVar(&server, "server", "", "server URL to validate against")
-	cmd.Flags().BoolVar(&browser, "browser", false, "open browser to create an API key")
+	cmd.Flags().BoolVar(&browser, "browser", false, "open the dashboard API key page in your browser")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "do not open browser")
 
 	return cmd

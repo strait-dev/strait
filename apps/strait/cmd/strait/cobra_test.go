@@ -190,7 +190,7 @@ func TestDeployCommand_HasSubcommands(t *testing.T) {
 	cmd := newRootCommand()
 	deploy := findSubcommand(t, cmd, "deploy")
 
-	expected := []string{"promote", "rollback", "list", "preview"}
+	expected := []string{"create", "finalize", "promote", "rollback", "list", "preview"}
 	assertSubcommands(t, deploy, expected)
 }
 
@@ -260,6 +260,24 @@ func TestCICommand_HasSubcommands(t *testing.T) {
 	assertSubcommands(t, ci, expected)
 }
 
+func TestDevCommand_HasOnlyStatusSubcommand(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	dev := findSubcommand(t, cmd, "dev")
+
+	expected := []string{"status"}
+	assertSubcommands(t, dev, expected)
+
+	for _, unexpected := range []string{"test", "tunnel"} {
+		for _, sub := range dev.Commands() {
+			if sub.Name() == unexpected {
+				t.Fatalf("dev should not expose %q", unexpected)
+			}
+		}
+	}
+}
+
 func TestDebugCommand_HasSubcommands(t *testing.T) {
 	t.Parallel()
 
@@ -281,6 +299,9 @@ func TestPerfCommand_Flags(t *testing.T) {
 			t.Errorf("perf missing --%s flag", name)
 		}
 	}
+	if err := perf.Args(perf, []string{"job-slug"}); err == nil {
+		t.Fatal("perf should reject positional job arguments")
+	}
 }
 
 func TestAuditCommand_Flags(t *testing.T) {
@@ -289,10 +310,28 @@ func TestAuditCommand_Flags(t *testing.T) {
 	cmd := newRootCommand()
 	audit := findSubcommand(t, cmd, "audit")
 
-	for _, name := range []string{"project", "actor", "action", "limit"} {
+	for _, name := range []string{"project", "actor-id", "resource-type", "resource-id", "limit", "from", "to", "order"} {
 		if audit.Flags().Lookup(name) == nil {
 			t.Errorf("audit missing --%s flag", name)
 		}
+	}
+}
+
+func TestTeamAddCommand_UsesUserAndRoleIDs(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	team := findSubcommand(t, cmd, "team")
+	add := findSubcommand(t, team, "add")
+
+	if add.Use != "add <user-id>" {
+		t.Fatalf("unexpected usage: %s", add.Use)
+	}
+	if add.Flags().Lookup("role-id") == nil {
+		t.Fatal("team add missing --role-id flag")
+	}
+	if add.Flags().Lookup("role") != nil {
+		t.Fatal("team add should not expose deprecated --role flag")
 	}
 }
 

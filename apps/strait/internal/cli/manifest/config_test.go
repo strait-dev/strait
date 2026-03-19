@@ -34,6 +34,20 @@ func TestFindConfigFile_YAML(t *testing.T) {
 	}
 }
 
+func TestFindConfigFile_YML(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "strait.config.yml"), []byte("project:\n  id: p1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FindConfigFile(dir)
+	if filepath.Base(got) != "strait.config.yml" {
+		t.Fatalf("expected strait.config.yml, got %q", got)
+	}
+}
+
 func TestFindConfigFile_Priority(t *testing.T) {
 	t.Parallel()
 
@@ -118,6 +132,25 @@ jobs:
 	}
 	if cfg.Project.ID != "proj-123" {
 		t.Fatalf("expected project.id=proj-123, got %q", cfg.Project.ID)
+	}
+}
+
+func TestLoadProjectConfig_ValidYML(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	content := "project:\n  id: proj-456\nruntime: node\n"
+	path := filepath.Join(dir, "strait.config.yml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if cfg.Project.ID != "proj-456" {
+		t.Fatalf("expected project.id=proj-456, got %q", cfg.Project.ID)
 	}
 }
 

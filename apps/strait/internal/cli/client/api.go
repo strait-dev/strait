@@ -446,67 +446,79 @@ func (c *Client) DeleteServerSecret(ctx context.Context, id string) error {
 
 // Performance analytics methods.
 
-func (c *Client) GetPerformanceAnalytics(ctx context.Context, projectID string, period string) ([]PerformanceAnalytics, error) {
+func (c *Client) GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*PerformanceAnalytics, error) {
 	query := url.Values{}
 	query.Set("project_id", projectID)
-	if strings.TrimSpace(period) != "" {
-		query.Set("period", strings.TrimSpace(period))
+	if periodHours > 0 {
+		query.Set("period_hours", fmt.Sprintf("%d", periodHours))
 	}
 
-	var out []PerformanceAnalytics
-	if err := c.doListJSON(ctx, "/v1/analytics/performance", query, &out); err != nil {
+	var out PerformanceAnalytics
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/analytics/performance", query, nil, &out); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return &out, nil
 }
 
 // Team/RBAC methods.
 
-func (c *Client) ListMembers(ctx context.Context, projectID string) ([]Member, error) {
+func (c *Client) ListMembers(ctx context.Context, projectID string) ([]ProjectMember, error) {
 	query := url.Values{}
 	query.Set("project_id", projectID)
 
-	var out []Member
+	var out []ProjectMember
 	if err := c.doListJSON(ctx, "/v1/members", query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *Client) AddMember(ctx context.Context, req AddMemberRequest) (*Member, error) {
-	var out Member
+func (c *Client) AddMember(ctx context.Context, req AssignMemberRequest) (*ProjectMember, error) {
+	var out ProjectMember
 	if err := c.doJSON(ctx, http.MethodPost, "/v1/members", nil, req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (c *Client) RemoveMember(ctx context.Context, id string) error {
-	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/members", id), nil, nil, nil)
+func (c *Client) RemoveMember(ctx context.Context, userID string) error {
+	return c.doJSON(ctx, http.MethodDelete, path.Join("/v1/members", userID), nil, nil, nil)
 }
 
-func (c *Client) ListRoles(ctx context.Context, projectID string) ([]Role, error) {
+func (c *Client) ListRoles(ctx context.Context, projectID string) ([]ProjectRole, error) {
 	query := url.Values{}
 	query.Set("project_id", projectID)
 
-	var out []Role
+	var out []ProjectRole
 	if err := c.doListJSON(ctx, "/v1/roles", query, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *Client) ListAuditEvents(ctx context.Context, projectID, actor, action string, limit int) ([]AuditEvent, error) {
+func (c *Client) ListAuditEvents(ctx context.Context, params ListAuditEventsParams) ([]AuditEvent, error) {
 	query := url.Values{}
-	query.Set("project_id", projectID)
-	if strings.TrimSpace(actor) != "" {
-		query.Set("actor", strings.TrimSpace(actor))
+	query.Set("project_id", params.ProjectID)
+	if strings.TrimSpace(params.ActorID) != "" {
+		query.Set("actor_id", strings.TrimSpace(params.ActorID))
 	}
-	if strings.TrimSpace(action) != "" {
-		query.Set("action", strings.TrimSpace(action))
+	if strings.TrimSpace(params.ResourceType) != "" {
+		query.Set("resource_type", strings.TrimSpace(params.ResourceType))
 	}
-	if limit > 0 {
-		query.Set("limit", fmt.Sprintf("%d", limit))
+	if strings.TrimSpace(params.ResourceID) != "" {
+		query.Set("resource_id", strings.TrimSpace(params.ResourceID))
+	}
+	if params.Limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", params.Limit))
+	}
+	if params.From != nil {
+		query.Set("from", params.From.UTC().Format(time.RFC3339Nano))
+	}
+	if params.To != nil {
+		query.Set("to", params.To.UTC().Format(time.RFC3339Nano))
+	}
+	if strings.TrimSpace(params.Order) != "" {
+		query.Set("order", strings.TrimSpace(params.Order))
 	}
 
 	var out []AuditEvent

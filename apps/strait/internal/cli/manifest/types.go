@@ -1,7 +1,5 @@
 package manifest
 
-import "time"
-
 // ProjectConfig represents the top-level strait.json or strait.config.yaml structure.
 type ProjectConfig struct {
 	Project   ProjectInfo          `json:"project" yaml:"project"`
@@ -62,7 +60,6 @@ type ProjectManifest struct {
 	ProjectName string               `json:"project_name,omitempty"`
 	Runtime     string               `json:"runtime,omitempty"`
 	Checksum    string               `json:"checksum"`
-	GeneratedAt time.Time            `json:"generated_at"`
 	Jobs        []JobDefinition      `json:"jobs,omitempty"`
 	Workflows   []WorkflowDefinition `json:"workflows,omitempty"`
 }

@@ -14,7 +14,9 @@ import (
 var configFileNames = []string{
 	"strait.json",
 	"strait.config.yaml",
+	"strait.config.yml",
 	".strait.yaml",
+	".strait.yml",
 }
 
 // FindConfigFile searches dir for a config file and returns its path.

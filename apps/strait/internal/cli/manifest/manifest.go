@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"time"
 )
 
 // BuildManifest compiles a ProjectConfig into a deterministic ProjectManifest.
@@ -27,7 +26,6 @@ func BuildManifest(cfg *ProjectConfig) *ProjectManifest {
 		ProjectID:   cfg.Project.ID,
 		ProjectName: cfg.Project.Name,
 		Runtime:     cfg.Runtime,
-		GeneratedAt: time.Now().UTC().Truncate(time.Second),
 		Jobs:        jobs,
 		Workflows:   workflows,
 	}
@@ -38,7 +36,7 @@ func BuildManifest(cfg *ProjectConfig) *ProjectManifest {
 }
 
 // computeChecksum generates a SHA-256 hash of the manifest content
-// (excluding the checksum and generated_at fields for determinism).
+// (excluding the checksum field for determinism).
 // The hashInput struct mirrors the manifest fields to ensure JSON tag
 // consistency with the source types.
 func computeChecksum(m *ProjectManifest) string {
