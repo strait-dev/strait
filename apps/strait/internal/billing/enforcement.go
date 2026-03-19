@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -200,7 +201,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 
 	// Set TTL for self-healing (in case decrements are missed).
 	if count == 1 {
-		if err := e.rdb.Expire(ctx, key, 24*time.Hour).Err(); err != nil {
+		if err := e.rdb.Expire(ctx, key, concurrentCounterTTL).Err(); err != nil {
 			e.logger.Warn("failed to set TTL on concurrent run counter", "org_id", orgID, "error", err)
 		}
 	}
@@ -323,6 +324,68 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 func (e *Enforcer) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
 	return e.store.GetProjectOrgID(ctx, projectID)
 }
+
+// CountExecutingRunsByOrg returns the count of currently executing runs for an org.
+// This is the ground-truth count from the database, used for reconciliation.
+type ExecutingRunCounter interface {
+	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
+}
+
+// ReconcileConcurrentRunCount sets the Redis concurrent run counter to the
+// actual count from the database. This corrects drift caused by process crashes
+// where DECR was never called after a run completed.
+func (e *Enforcer) ReconcileConcurrentRunCount(ctx context.Context, orgID string, actualCount int) error {
+	if orgID == "" || e.rdb == nil {
+		return nil
+	}
+	key := fmt.Sprintf("strait:org_concurrent:%s", orgID)
+	if err := e.rdb.Set(ctx, key, actualCount, concurrentCounterTTL).Err(); err != nil {
+		return fmt.Errorf("reconciling concurrent run count: %w", err)
+	}
+	return nil
+}
+
+// ReconcileAllConcurrentCounts scans all concurrent run counters in Redis and
+// reconciles each with the actual count from the database.
+func (e *Enforcer) ReconcileAllConcurrentCounts(ctx context.Context, counter ExecutingRunCounter) error {
+	if e.rdb == nil {
+		return nil
+	}
+
+	var cursor uint64
+	pattern := "strait:org_concurrent:*"
+	for {
+		keys, nextCursor, err := e.rdb.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return fmt.Errorf("scanning concurrent counter keys: %w", err)
+		}
+
+		for _, key := range keys {
+			orgID := strings.TrimPrefix(key, "strait:org_concurrent:")
+			actual, countErr := counter.CountExecutingRunsByOrg(ctx, orgID)
+			if countErr != nil {
+				e.logger.Warn("failed to count executing runs for reconciliation",
+					"org_id", orgID, "error", countErr)
+				continue
+			}
+			if err := e.ReconcileConcurrentRunCount(ctx, orgID, actual); err != nil {
+				e.logger.Warn("failed to reconcile concurrent count",
+					"org_id", orgID, "error", err)
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
+}
+
+// concurrentCounterTTL is the TTL for concurrent run counters.
+// With periodic reconciliation every 5 minutes, 1 hour is generous.
+const concurrentCounterTTL = 1 * time.Hour
 
 // GetDailyRunCount returns the current daily run count for an org.
 func (e *Enforcer) GetDailyRunCount(ctx context.Context, orgID string) (int64, error) {

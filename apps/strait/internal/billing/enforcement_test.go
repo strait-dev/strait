@@ -196,6 +196,59 @@ func TestEnforcer_GetOrgPlanLimits_Cache(t *testing.T) {
 	}
 }
 
+func TestReconcileConcurrentRunCount(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+
+	ctx := context.Background()
+
+	// Manually set Redis counter to 10
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb.Set(ctx, "strait:org_concurrent:org_recon", 10, 0)
+
+	// Reconcile with actual count of 3
+	if err := enforcer.ReconcileConcurrentRunCount(ctx, "org_recon", 3); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, err := rdb.Get(ctx, "strait:org_concurrent:org_recon").Int64()
+	if err != nil {
+		t.Fatalf("failed to get counter: %v", err)
+	}
+	if val != 3 {
+		t.Errorf("counter = %d, want 3", val)
+	}
+}
+
+func TestConcurrentCounter_CrashRecovery(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+
+	ctx := context.Background()
+
+	// Simulate 5 runs started (increment without decrement = crash scenario)
+	for range 5 {
+		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_crash"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	// Reconcile: actual executing count is 2 (3 crashed)
+	if err := enforcer.ReconcileConcurrentRunCount(ctx, "org_crash", 2); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify counter is now 2
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	val, err := rdb.Get(ctx, "strait:org_concurrent:org_crash").Int64()
+	if err != nil {
+		t.Fatalf("failed to get counter: %v", err)
+	}
+	if val != 2 {
+		t.Errorf("counter = %d after reconciliation, want 2", val)
+	}
+}
+
 func isLimitError(err error, target **LimitError) bool {
 	var le *LimitError
 	if errors.As(err, &le) {

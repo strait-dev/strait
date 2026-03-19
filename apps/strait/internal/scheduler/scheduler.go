@@ -28,15 +28,16 @@ type SchedulerStore interface {
 }
 
 type Scheduler struct {
-	cron            *CronScheduler
-	poller          *DelayedPoller
-	reaper          *Reaper
-	indexMaintainer *IndexMaintainer
-	debouncePoller  *DebouncePoller
-	batchFlusher    *BatchFlusher
-	statsAggregator *StatsAggregator
-	budgetMonitor   *BudgetMonitor
-	wg              conc.WaitGroup
+	cron                 *CronScheduler
+	poller               *DelayedPoller
+	reaper               *Reaper
+	indexMaintainer      *IndexMaintainer
+	debouncePoller       *DebouncePoller
+	batchFlusher         *BatchFlusher
+	statsAggregator      *StatsAggregator
+	budgetMonitor        *BudgetMonitor
+	concurrentReconciler *ConcurrentReconciler
+	wg                   conc.WaitGroup
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -79,6 +80,13 @@ func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerO
 	}
 }
 
+// WithConcurrentReconciler enables periodic reconciliation of concurrent run counters.
+func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption {
+	return func(s *Scheduler) {
+		s.concurrentReconciler = reconciler
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -92,6 +100,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.wg.Go(func() { s.batchFlusher.Run(ctx) })
 	s.wg.Go(func() { s.statsAggregator.Run(ctx) })
 	s.wg.Go(func() { s.budgetMonitor.Run(ctx) })
+	if s.concurrentReconciler != nil {
+		s.wg.Go(func() { s.concurrentReconciler.Run(ctx) })
+	}
 
 	slog.Info("scheduler started")
 	return nil

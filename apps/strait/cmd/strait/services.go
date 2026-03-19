@@ -541,9 +541,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
 		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter(queries)
-		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
+		schedOpts := []scheduler.SchedulerOption{
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
+		}
+		if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
+			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
+			schedOpts = append(schedOpts, scheduler.WithConcurrentReconciler(reconciler))
+			slog.Info("concurrent run reconciler enabled")
+		}
+		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
+			schedOpts...,
 		)
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
