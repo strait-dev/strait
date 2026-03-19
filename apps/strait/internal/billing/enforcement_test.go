@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
@@ -256,4 +257,160 @@ func isLimitError(err error, target **LimitError) bool {
 		return true
 	}
 	return false
+}
+
+// mockExecutingRunCounter implements ExecutingRunCounter for tests.
+type mockExecutingRunCounter struct {
+	orgCounts map[string]int
+	listOrgs  []string
+	listErr   error
+	countErr  map[string]error
+}
+
+func (m *mockExecutingRunCounter) CountExecutingRunsByOrg(_ context.Context, orgID string) (int, error) {
+	if m.countErr != nil {
+		if err, ok := m.countErr[orgID]; ok {
+			return 0, err
+		}
+	}
+	return m.orgCounts[orgID], nil
+}
+
+func (m *mockExecutingRunCounter) ListOrgsWithExecutingRuns(_ context.Context) ([]string, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return m.listOrgs, nil
+}
+
+func TestConcurrentCounterTTL_Is24Hours(t *testing.T) {
+	t.Parallel()
+	if concurrentCounterTTL != 24*time.Hour {
+		t.Errorf("concurrentCounterTTL = %v, want 24h", concurrentCounterTTL)
+	}
+}
+
+func TestReconcileAll_RestoresExpiredKey(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	// DB reports org-X has 3 executing runs. Redis has no key (expired).
+	counter := &mockExecutingRunCounter{
+		orgCounts: map[string]int{"org-X": 3},
+		listOrgs:  []string{"org-X"},
+	}
+
+	if err := enforcer.ReconcileAllConcurrentCounts(ctx, counter); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	val, err := rdb.Get(ctx, "strait:org_concurrent:org-X").Int64()
+	if err != nil {
+		t.Fatalf("key should exist: %v", err)
+	}
+	if val != 3 {
+		t.Errorf("counter = %d, want 3", val)
+	}
+}
+
+func TestReconcileAll_ResetsStaleKey(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	// Redis has stale key for org-Y, DB says 0 runs.
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	rdb.Set(ctx, "strait:org_concurrent:org-Y", 5, 0)
+
+	counter := &mockExecutingRunCounter{
+		orgCounts: map[string]int{"org-Y": 0},
+		listOrgs:  []string{},
+	}
+
+	if err := enforcer.ReconcileAllConcurrentCounts(ctx, counter); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, err := rdb.Get(ctx, "strait:org_concurrent:org-Y").Int64()
+	if err != nil {
+		t.Fatalf("key should exist: %v", err)
+	}
+	if val != 0 {
+		t.Errorf("counter = %d, want 0", val)
+	}
+}
+
+func TestReconcileAll_HandlesDBAndRedisUnion(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	// Redis has keys for org-B (stale) and org-C (stale).
+	rdb.Set(ctx, "strait:org_concurrent:org-B", 5, 0)
+	rdb.Set(ctx, "strait:org_concurrent:org-C", 2, 0)
+
+	// DB has org-A (3 runs) and org-B (1 run), org-C (0 runs).
+	counter := &mockExecutingRunCounter{
+		orgCounts: map[string]int{"org-A": 3, "org-B": 1, "org-C": 0},
+		listOrgs:  []string{"org-A", "org-B"},
+	}
+
+	if err := enforcer.ReconcileAllConcurrentCounts(ctx, counter); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for org, want := range map[string]int64{"org-A": 3, "org-B": 1, "org-C": 0} {
+		val, err := rdb.Get(ctx, "strait:org_concurrent:"+org).Int64()
+		if err != nil {
+			t.Fatalf("key for %s should exist: %v", org, err)
+		}
+		if val != want {
+			t.Errorf("%s counter = %d, want %d", org, val, want)
+		}
+	}
+}
+
+func TestReconcileAll_ContinuesOnSingleOrgError(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	counter := &mockExecutingRunCounter{
+		orgCounts: map[string]int{"org-Y": 2},
+		listOrgs:  []string{"org-X", "org-Y"},
+		countErr:  map[string]error{"org-X": errors.New("db error")},
+	}
+
+	if err := enforcer.ReconcileAllConcurrentCounts(ctx, counter); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// org-Y should still be reconciled.
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	val, err := rdb.Get(ctx, "strait:org_concurrent:org-Y").Int64()
+	if err != nil {
+		t.Fatalf("key for org-Y should exist: %v", err)
+	}
+	if val != 2 {
+		t.Errorf("org-Y counter = %d, want 2", val)
+	}
+}
+
+func TestReconcileAll_NilRedis(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, nil, slog.Default())
+
+	counter := &mockExecutingRunCounter{}
+	if err := enforcer.ReconcileAllConcurrentCounts(context.Background(), counter); err != nil {
+		t.Fatalf("expected nil error for nil Redis, got %v", err)
+	}
 }

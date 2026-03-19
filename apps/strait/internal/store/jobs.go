@@ -612,6 +612,35 @@ func (q *Queries) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	return count, nil
 }
 
+// ListOrgsWithExecutingRuns returns distinct org IDs that have at least one executing run.
+func (q *Queries) ListOrgsWithExecutingRuns(ctx context.Context) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListOrgsWithExecutingRuns")
+	defer span.End()
+
+	query := `
+		SELECT DISTINCT p.org_id
+		FROM job_runs jr
+		JOIN projects p ON p.id = jr.project_id
+		WHERE jr.status = 'executing'
+		  AND p.org_id IS NOT NULL`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing orgs with executing runs: %w", err)
+	}
+	defer rows.Close()
+
+	var orgIDs []string
+	for rows.Next() {
+		var orgID string
+		if err := rows.Scan(&orgID); err != nil {
+			return nil, fmt.Errorf("scanning org_id: %w", err)
+		}
+		orgIDs = append(orgIDs, orgID)
+	}
+	return orgIDs, rows.Err()
+}
+
 // UpdateProjectDefaultRegion sets the default_region for a project's quota row.
 // It upserts the row if it does not exist.
 func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {
