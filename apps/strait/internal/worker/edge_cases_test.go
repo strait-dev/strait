@@ -77,8 +77,8 @@ func TestClassifyError_ServerError502(t *testing.T) {
 
 func TestClassifyError_DeadlineExceeded(t *testing.T) {
 	t.Parallel()
-	if got := classifyError(context.DeadlineExceeded); got != "transient" {
-		t.Fatalf("classifyError(DeadlineExceeded) = %q, want %q", got, "transient")
+	if got := classifyError(context.DeadlineExceeded); got != "timeout" {
+		t.Fatalf("classifyError(DeadlineExceeded) = %q, want %q", got, "timeout")
 	}
 }
 
@@ -92,8 +92,8 @@ func TestClassifyError_ContextCanceled(t *testing.T) {
 func TestClassifyError_NetworkError(t *testing.T) {
 	t.Parallel()
 	err := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
-	if got := classifyError(err); got != "transient" {
-		t.Fatalf("classifyError(net.OpError) = %q, want %q", got, "transient")
+	if got := classifyError(err); got != "connection" {
+		t.Fatalf("classifyError(net.OpError connection refused) = %q, want %q", got, "connection")
 	}
 }
 
@@ -114,9 +114,13 @@ func TestShouldRetryForClass(t *testing.T) {
 	}{
 		{"client", false},
 		{"auth", false},
+		{"budget", false},
+		{"oom", false},
 		{"server", true},
 		{"transient", true},
 		{"rate_limited", true},
+		{"timeout", true},
+		{"connection", true},
 		{"unknown", true},
 	}
 	for _, tt := range tests {
@@ -134,9 +138,13 @@ func TestShouldUseFallbackForClass(t *testing.T) {
 	}{
 		{"transient", true},
 		{"rate_limited", true},
+		{"connection", true},
+		{"timeout", true},
 		{"server", false},
 		{"client", false},
 		{"auth", false},
+		{"budget", false},
+		{"oom", false},
 		{"unknown", false},
 	}
 	for _, tt := range tests {

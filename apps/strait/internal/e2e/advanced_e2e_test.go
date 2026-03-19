@@ -23,7 +23,7 @@ func mustCleanAdv(t *testing.T) {
 	}
 }
 
-func advAuthedReq(method, path, body string) *http.Request {
+func advAuthedReq(method, path, body string, projectID ...string) *http.Request {
 	var r *http.Request
 	if body != "" {
 		r = httptest.NewRequest(method, path, strings.NewReader(body))
@@ -32,13 +32,16 @@ func advAuthedReq(method, path, body string) *http.Request {
 	}
 	r.Header.Set("X-Internal-Secret", "test-secret")
 	r.Header.Set("Content-Type", "application/json")
+	if len(projectID) > 0 && projectID[0] != "" {
+		r.Header.Set("X-Project-Id", projectID[0])
+	}
 	return r
 }
 
-func advDoReq(t *testing.T, method, path, body string) *httptest.ResponseRecorder {
+func advDoReq(t *testing.T, method, path, body string, projectID ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	w := httptest.NewRecorder()
-	testServer.ServeHTTP(w, advAuthedReq(method, path, body))
+	testServer.ServeHTTP(w, advAuthedReq(method, path, body, projectID...))
 	return w
 }
 
@@ -227,7 +230,7 @@ func TestE2E_APIKey_CreateAndList(t *testing.T) {
 		t.Fatalf("missing key_prefix in response: %#v", created)
 	}
 
-	lw := advDoReq(t, http.MethodGet, "/v1/api-keys/?project_id="+projectID, "")
+	lw := advDoReq(t, http.MethodGet, "/v1/api-keys/", "", projectID)
 	if lw.Code != http.StatusOK {
 		t.Fatalf("list api keys status = %d; body = %s", lw.Code, lw.Body.String())
 	}
@@ -254,7 +257,7 @@ func TestE2E_APIKey_Authenticate(t *testing.T) {
 	}
 	rawKey := advDecodeMap(t, cw)["key"].(string)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/?project_id="+projectID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 	req.Header.Set("Authorization", "Bearer "+rawKey)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -282,7 +285,7 @@ func TestE2E_APIKey_Revoke(t *testing.T) {
 		t.Fatalf("revoke api key status = %d; body = %s", rw.Code, rw.Body.String())
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/?project_id="+projectID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 	req.Header.Set("Authorization", "Bearer "+rawKey)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -535,7 +538,7 @@ func TestE2E_CronJob(t *testing.T) {
 	cronJob := advCreateJob(t, projectID, advUnique("job-cron-enabled"), "Cron Enabled", cronExpr, 0)
 	plainJob := advCreateJob(t, projectID, advUnique("job-cron-empty"), "No Cron", "", 0)
 
-	lw := advDoReq(t, http.MethodGet, "/v1/jobs/?project_id="+projectID, "")
+	lw := advDoReq(t, http.MethodGet, "/v1/jobs/", "", projectID)
 	if lw.Code != http.StatusOK {
 		t.Fatalf("list jobs status = %d; body = %s", lw.Code, lw.Body.String())
 	}
@@ -562,7 +565,7 @@ func TestE2E_CronJob(t *testing.T) {
 
 func TestE2E_WebhookDeliveries(t *testing.T) {
 	mustCleanAdv(t)
-	w := advDoReq(t, http.MethodGet, "/v1/webhook-deliveries?project_id=proj-webhook-test", "")
+	w := advDoReq(t, http.MethodGet, "/v1/webhook-deliveries", "", "proj-webhook-test")
 	if w.Code != http.StatusOK {
 		t.Fatalf("webhook deliveries status = %d; body = %s", w.Code, w.Body.String())
 	}

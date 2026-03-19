@@ -98,7 +98,7 @@ func TestHandleListLogDrains_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/log-drains?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -110,18 +110,6 @@ func TestHandleListLogDrains_Success(t *testing.T) {
 	}
 	if len(resp) != 2 {
 		t.Fatalf("expected 2 drains, got %d", len(resp))
-	}
-}
-
-func TestHandleListLogDrains_MissingProjectID(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/log-drains", ""))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -140,7 +128,7 @@ func TestHandleGetLogDrain_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/log-drains/drain-1?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains/drain-1", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -165,7 +153,7 @@ func TestHandleGetLogDrain_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/log-drains/drain-999?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains/drain-999", "", "proj-1"))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
@@ -191,7 +179,7 @@ func TestHandleUpdateLogDrain_Success(t *testing.T) {
 
 	body := `{"name": "updated-drain"}`
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/log-drains/drain-1?project_id=proj-1", body))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/log-drains/drain-1", body, "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -211,7 +199,7 @@ func TestHandleUpdateLogDrain_EmptyPatch(t *testing.T) {
 	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/log-drains/drain-1?project_id=proj-1", `{}`))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/log-drains/drain-1", `{}`, "proj-1"))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
@@ -233,7 +221,7 @@ func TestHandleDeleteLogDrain_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/log-drains/drain-1?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/log-drains/drain-1", "", "proj-1"))
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
@@ -250,7 +238,7 @@ func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/log-drains/drain-999?project_id=proj-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/log-drains/drain-999", "", "proj-1"))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())

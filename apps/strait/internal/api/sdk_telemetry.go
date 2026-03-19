@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"strait/internal/domain"
 
@@ -57,6 +58,33 @@ func (s *Server) handleSDKUsage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Token budget check BEFORE recording usage.
+	if req.TotalTokens > 0 {
+		run, runErr := s.store.GetRun(r.Context(), runID)
+		if runErr == nil && run != nil {
+			quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
+			job, jobErr := s.store.GetJob(r.Context(), run.JobID)
+			var quotaTokens int64
+			if qErr == nil && quota != nil {
+				quotaTokens = quota.MaxTokensPerRun
+			}
+			var jobTokens int64
+			if jobErr == nil && job != nil {
+				jobTokens = job.MaxTokensPerRun
+			}
+			tokenLimit := resolveGuardrailInt64(quotaTokens, jobTokens)
+			if tokenLimit > 0 {
+				totalTokens, tokErr := s.store.SumRunTotalTokens(r.Context(), runID)
+				if tokErr == nil && totalTokens+int64(req.TotalTokens) > tokenLimit {
+					respondJSON(w, http.StatusTooManyRequests, map[string]any{
+						"error": "token_budget_exceeded", "current": totalTokens, "limit": tokenLimit,
+					})
+					return
+				}
+			}
+		}
+	}
+
 	if err := s.store.CreateRunUsage(r.Context(), usage); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to create run usage")
 		return
@@ -83,6 +111,45 @@ func (s *Server) handleSDKToolCall(w http.ResponseWriter, r *http.Request) {
 
 	if !s.validateRequest(w, r, &req) {
 		return
+	}
+
+	// Tool allowlist/blocklist and count limit checks.
+	run, runErr := s.store.GetRun(r.Context(), runID)
+	if runErr == nil && run != nil {
+		job, jobErr := s.store.GetJob(r.Context(), run.JobID)
+		if jobErr == nil && job != nil {
+			// Tool allowlist check.
+			if len(job.AllowedTools) > 0 && !slices.Contains(job.AllowedTools, req.ToolName) {
+				respondJSON(w, http.StatusForbidden, map[string]any{
+					"error": "tool_not_allowed", "tool": req.ToolName,
+				})
+				return
+			}
+			// Tool blocklist check.
+			if len(job.BlockedTools) > 0 && slices.Contains(job.BlockedTools, req.ToolName) {
+				respondJSON(w, http.StatusForbidden, map[string]any{
+					"error": "tool_blocked", "tool": req.ToolName,
+				})
+				return
+			}
+
+			// Tool call count limit check.
+			quota, qErr := s.store.GetProjectQuota(r.Context(), run.ProjectID)
+			var quotaLimit int
+			if qErr == nil && quota != nil {
+				quotaLimit = quota.MaxToolCallsPerRun
+			}
+			toolCallLimit := resolveGuardrailInt(quotaLimit, job.MaxToolCallsPerRun)
+			if toolCallLimit > 0 {
+				count, cErr := s.store.CountRunToolCalls(r.Context(), runID)
+				if cErr == nil && count >= toolCallLimit {
+					respondJSON(w, http.StatusTooManyRequests, map[string]any{
+						"error": "tool_call_limit_exceeded", "current": count, "limit": toolCallLimit,
+					})
+					return
+				}
+			}
+		}
 	}
 
 	call := &domain.RunToolCall{

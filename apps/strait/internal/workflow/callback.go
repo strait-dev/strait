@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -45,6 +46,7 @@ type CallbackStore interface {
 	CreateWorkflowStepApproval(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
+	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	ListDependentsByDependencyJob(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error)
 	ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, limit int) ([]domain.JobRun, error)
@@ -132,6 +134,71 @@ func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.Wo
 func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
 	s.metrics = m
 	return s
+}
+
+func approvalAuditActor(actor string) (string, string) {
+	if actor == "" {
+		return "system", "system"
+	}
+	switch {
+	case actor == "system" || strings.HasPrefix(actor, "system:"):
+		return actor, "system"
+	case strings.HasPrefix(actor, "apikey:"):
+		return actor, "api_key"
+	default:
+		return actor, "user"
+	}
+}
+
+func (s *StepCallback) emitApprovalAuditEvent(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	stepRun *domain.WorkflowStepRun,
+	approval *domain.WorkflowStepApproval,
+	actor,
+	action,
+	decision,
+	reason string,
+) {
+	if wfRun == nil || stepRun == nil || approval == nil {
+		return
+	}
+
+	details := map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"workflow_id":     wfRun.WorkflowID,
+		"step_ref":        stepRun.StepRef,
+		"step_run_id":     stepRun.ID,
+		"decision":        decision,
+	}
+	if reason != "" {
+		details["reason"] = reason
+	}
+
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		s.logger.Warn("failed to marshal approval audit event details",
+			"approval_id", approval.ID,
+			"action", action,
+			"error", err)
+		return
+	}
+
+	actorID, actorType := approvalAuditActor(actor)
+	if err := s.store.CreateAuditEvent(ctx, &domain.AuditEvent{
+		ProjectID:    wfRun.ProjectID,
+		ActorID:      actorID,
+		ActorType:    actorType,
+		Action:       action,
+		ResourceType: "workflow_step_approval",
+		ResourceID:   approval.ID,
+		Details:      detailsJSON,
+	}); err != nil {
+		s.logger.Warn("failed to create approval audit event",
+			"approval_id", approval.ID,
+			"action", action,
+			"error", err)
+	}
 }
 
 func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {

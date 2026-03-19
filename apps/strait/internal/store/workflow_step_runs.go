@@ -599,6 +599,29 @@ func scanWorkflowStepRun(scanner scanTarget) (*domain.WorkflowStepRun, error) {
 	return &sr, nil
 }
 
+// GetCostGateDefaultAction looks up the cost_gate_default_action for a workflow step
+// definition associated with the given step run ID. Returns empty string if not found.
+func (q *Queries) GetCostGateDefaultAction(ctx context.Context, stepRunID string) (string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetCostGateDefaultAction")
+	defer span.End()
+
+	query := `
+		SELECT COALESCE(ws.cost_gate_default_action, '')
+		FROM workflow_step_runs wsr
+		JOIN workflow_runs wr ON wr.id = wsr.workflow_run_id
+		JOIN workflow_steps ws ON ws.workflow_id = wr.workflow_id AND ws.step_ref = wsr.step_ref
+		WHERE wsr.id = $1`
+
+	var action string
+	if err := q.db.QueryRow(ctx, query, stepRunID).Scan(&action); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get cost gate default action: %w", err)
+	}
+	return action, nil
+}
+
 // OrphanedStepRun is a workflow step run whose associated job run has reached a terminal
 // state but the step itself is still marked as 'running'.
 type OrphanedStepRun struct {

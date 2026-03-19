@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,131 @@ func TestWithTx_RollsBackOnError(t *testing.T) {
 	_, err = q.GetJob(ctx, jobID)
 	if !errors.Is(err, store.ErrJobNotFound) {
 		t.Fatalf("GetJob() error = %v, want ErrJobNotFound", err)
+	}
+}
+
+func TestUpsertJobMemoryWithQuota_ConcurrentPerJobLimit(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "project-job-memory-quota-concurrent")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	keys := []string{"alpha", "beta"}
+
+	var wg sync.WaitGroup
+	for _, key := range keys {
+		key := key
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			mem := &domain.JobMemory{
+				JobID:     job.ID,
+				ProjectID: job.ProjectID,
+				MemoryKey: key,
+				Value:     json.RawMessage(`"12345678"`),
+				SizeBytes: 8,
+			}
+			errs <- store.New(testDB.Pool).UpsertJobMemoryWithQuota(ctx, mem, 1024, 10)
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	quotaErrors := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, store.ErrJobMemoryPerJobLimitExceeded):
+			quotaErrors++
+		default:
+			t.Fatalf("UpsertJobMemoryWithQuota() error = %v", err)
+		}
+	}
+
+	if successes != 1 {
+		t.Fatalf("successes = %d, want 1", successes)
+	}
+	if quotaErrors != 1 {
+		t.Fatalf("quotaErrors = %d, want 1", quotaErrors)
+	}
+
+	total, err := q.SumJobMemorySizeBytes(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("SumJobMemorySizeBytes() error = %v", err)
+	}
+	if total != 8 {
+		t.Fatalf("total size = %d, want 8", total)
+	}
+
+	items, err := q.ListJobMemory(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobMemory() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListJobMemory() len = %d, want 1", len(items))
+	}
+}
+
+func TestUpsertJobMemoryWithQuota_ReplacingExistingKeyUsesNetDelta(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "project-job-memory-quota-replace")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	initial := &domain.JobMemory{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		MemoryKey: "profile",
+		Value:     json.RawMessage(`"123456789"`),
+		SizeBytes: 9,
+	}
+	if err := q.UpsertJobMemoryWithQuota(ctx, initial, 1024, 10); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuota(initial) error = %v", err)
+	}
+
+	replacement := &domain.JobMemory{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		MemoryKey: "profile",
+		Value:     json.RawMessage(`"1234567890"`),
+		SizeBytes: 10,
+	}
+	if err := q.UpsertJobMemoryWithQuota(ctx, replacement, 1024, 10); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuota(replacement) error = %v", err)
+	}
+
+	got, err := q.GetJobMemory(ctx, job.ID, "profile")
+	if err != nil {
+		t.Fatalf("GetJobMemory() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected memory row")
+	}
+	if got.SizeBytes != 10 {
+		t.Fatalf("SizeBytes = %d, want 10", got.SizeBytes)
+	}
+
+	total, err := q.SumJobMemorySizeBytes(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("SumJobMemorySizeBytes() error = %v", err)
+	}
+	if total != 10 {
+		t.Fatalf("total size = %d, want 10", total)
 	}
 }
 
@@ -917,7 +1043,7 @@ func TestListRunsByProject(t *testing.T) {
 	}
 
 	status := domain.StatusQueued
-	filtered, err := q.ListRunsByProject(ctx, projectID, &status, nil, nil, nil, nil, nil, nil, 10, nil)
+	filtered, err := q.ListRunsByProject(ctx, projectID, &status, nil, nil, nil, nil, nil, nil, nil, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() filtered error = %v", err)
 	}
@@ -930,7 +1056,7 @@ func TestListRunsByProject(t *testing.T) {
 		}
 	}
 
-	firstPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, nil, 2, nil)
+	firstPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, nil, nil, 2, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() first page error = %v", err)
 	}
@@ -940,7 +1066,7 @@ func TestListRunsByProject(t *testing.T) {
 	assertTimesDesc(t, extractRunCreatedAt(firstPage))
 
 	cursor := firstPage[len(firstPage)-1].CreatedAt
-	secondPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, nil, 2, &cursor)
+	secondPage, err := q.ListRunsByProject(ctx, projectID, nil, nil, nil, nil, nil, nil, nil, nil, 2, &cursor)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() second page error = %v", err)
 	}
@@ -980,7 +1106,7 @@ func TestListRunsByProject_MetadataFilter(t *testing.T) {
 
 	key := "env"
 	value := "prod"
-	filtered, err := q.ListRunsByProject(ctx, projectID, nil, &key, &value, nil, nil, nil, nil, 20, nil)
+	filtered, err := q.ListRunsByProject(ctx, projectID, nil, &key, &value, nil, nil, nil, nil, nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() metadata key/value error = %v", err)
 	}
@@ -991,7 +1117,7 @@ func TestListRunsByProject_MetadataFilter(t *testing.T) {
 		t.Fatalf("ListRunsByProject() metadata key/value id = %s, want %s", filtered[0].ID, runProd.ID)
 	}
 
-	keyOnly, err := q.ListRunsByProject(ctx, projectID, nil, &key, nil, nil, nil, nil, nil, 20, nil)
+	keyOnly, err := q.ListRunsByProject(ctx, projectID, nil, &key, nil, nil, nil, nil, nil, nil, 20, nil)
 	if err != nil {
 		t.Fatalf("ListRunsByProject() metadata key error = %v", err)
 	}
@@ -4519,6 +4645,14 @@ func TestWorkflowStepApproval_CRUD(t *testing.T) {
 	if err := q.UpdateWorkflowStepApproval(ctx, newID(), "approved", "bob", &approvedAt, ""); err == nil {
 		t.Fatal("UpdateWorkflowStepApproval(unknown) error = nil, want error")
 	}
+
+	missing, err := q.GetWorkflowStepApprovalByStepRunID(ctx, newID())
+	if err != nil {
+		t.Fatalf("GetWorkflowStepApprovalByStepRunID(missing) error = %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("GetWorkflowStepApprovalByStepRunID(missing) = %#v, want nil", missing)
+	}
 }
 
 func TestListExpiredWorkflowStepApprovals(t *testing.T) {
@@ -4576,6 +4710,135 @@ func TestListExpiredWorkflowStepApprovals(t *testing.T) {
 	}
 	if expired[0].ID != a1.ID {
 		t.Fatalf("expired approval ID = %q, want %q", expired[0].ID, a1.ID)
+	}
+}
+
+func TestNotificationDeliveryClaimLifecycle(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-notification-claims"
+	channel := &domain.NotificationChannel{
+		ID:          newID(),
+		ProjectID:   projectID,
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ops",
+		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+		Enabled:     true,
+	}
+	if err := q.CreateNotificationChannel(ctx, channel); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	delivery := &domain.NotificationDelivery{
+		ID:          newID(),
+		ChannelID:   channel.ID,
+		ProjectID:   projectID,
+		EventType:   domain.NotificationEventApprovalRequested,
+		Payload:     json.RawMessage(`{"step_ref":"review"}`),
+		Status:      "pending",
+		MaxAttempts: 3,
+	}
+	if err := q.CreateNotificationDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateNotificationDelivery() error = %v", err)
+	}
+
+	firstClaim, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(first) error = %v", err)
+	}
+	if len(firstClaim) != 1 {
+		t.Fatalf("first claim len = %d, want 1", len(firstClaim))
+	}
+	if firstClaim[0].Status != "processing" {
+		t.Fatalf("first claim status = %q, want processing", firstClaim[0].Status)
+	}
+	if firstClaim[0].ClaimToken == "" {
+		t.Fatal("first claim token = empty, want non-empty")
+	}
+	if firstClaim[0].LeaseExpiry == nil {
+		t.Fatal("first claim lease expiry = nil, want non-nil")
+	}
+
+	secondClaim, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(second) error = %v", err)
+	}
+	if len(secondClaim) != 0 {
+		t.Fatalf("second claim len = %d, want 0", len(secondClaim))
+	}
+
+	expiringDelivery := &domain.NotificationDelivery{
+		ID:          newID(),
+		ChannelID:   channel.ID,
+		ProjectID:   projectID,
+		EventType:   domain.NotificationEventApprovalReminder,
+		Payload:     json.RawMessage(`{"step_ref":"review"}`),
+		Status:      "pending",
+		MaxAttempts: 3,
+	}
+	if err := q.CreateNotificationDelivery(ctx, expiringDelivery); err != nil {
+		t.Fatalf("CreateNotificationDelivery(expiring) error = %v", err)
+	}
+
+	expiredClaim, err := q.ClaimPendingNotificationDeliveries(ctx, 1, -time.Second)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(expired) error = %v", err)
+	}
+	if len(expiredClaim) != 1 {
+		t.Fatalf("expired claim len = %d, want 1", len(expiredClaim))
+	}
+
+	reclaimed, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingNotificationDeliveries(reclaimed) error = %v", err)
+	}
+	if len(reclaimed) != 1 {
+		t.Fatalf("reclaimed claim len = %d, want 1", len(reclaimed))
+	}
+	if reclaimed[0].ID != expiringDelivery.ID {
+		t.Fatalf("reclaimed delivery ID = %q, want %q", reclaimed[0].ID, expiringDelivery.ID)
+	}
+	if reclaimed[0].ClaimToken == expiredClaim[0].ClaimToken {
+		t.Fatal("reclaimed claim token was not rotated")
+	}
+
+	expiredClaim[0].Status = "failed"
+	updated, err := q.UpdateClaimedNotificationDelivery(ctx, &expiredClaim[0])
+	if err != nil {
+		t.Fatalf("UpdateClaimedNotificationDelivery(stale) error = %v", err)
+	}
+	if updated {
+		t.Fatal("UpdateClaimedNotificationDelivery(stale) = true, want false")
+	}
+
+	reclaimed[0].Status = "delivered"
+	now := time.Now().UTC()
+	reclaimed[0].DeliveredAt = &now
+	updated, err = q.UpdateClaimedNotificationDelivery(ctx, &reclaimed[0])
+	if err != nil {
+		t.Fatalf("UpdateClaimedNotificationDelivery(reclaimed) error = %v", err)
+	}
+	if !updated {
+		t.Fatal("UpdateClaimedNotificationDelivery(reclaimed) = false, want true")
+	}
+
+	deliveries, err := q.ListNotificationDeliveries(ctx, projectID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListNotificationDeliveries() error = %v", err)
+	}
+
+	byID := make(map[string]domain.NotificationDelivery, len(deliveries))
+	for _, got := range deliveries {
+		byID[got.ID] = got
+	}
+
+	if got := byID[delivery.ID]; got.Status != "processing" {
+		t.Fatalf("claimed delivery status = %q, want processing", got.Status)
+	}
+	if got := byID[expiringDelivery.ID]; got.Status != "delivered" {
+		t.Fatalf("reclaimed delivery status = %q, want delivered", got.Status)
 	}
 }
 

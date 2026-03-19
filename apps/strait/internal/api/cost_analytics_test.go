@@ -1,0 +1,204 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"strait/internal/store"
+)
+
+func TestHandleGetCostAnalytics_Success(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getCostAnalyticsFn: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
+			return &store.CostAnalytics{
+				ByModel: make([]store.CostByModel, 0),
+				ByJob:   make([]store.CostByJob, 0),
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	now := time.Now().UTC()
+	from := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	to := now.Format(time.RFC3339)
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from="+from+"&to="+to, "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostAnalytics_MissingFrom(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?to=2025-01-01T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostAnalytics_MissingTo(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostAnalytics_InvalidFromFormat(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=not-a-date&to=2025-01-01T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostAnalytics_InvalidToFormat(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z&to=not-a-date", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostAnalytics_ToBeforeFrom(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-06-01T00:00:00Z&to=2025-01-01T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostAnalytics_ExceedsMaxWindow(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "90 days") {
+		t.Fatalf("expected 90 days error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleGetCostAnalytics_ExactlyMaxWindow(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getCostAnalyticsFn: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
+			return &store.CostAnalytics{
+				ByModel: make([]store.CostByModel, 0),
+				ByJob:   make([]store.CostByJob, 0),
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from=2025-01-01T00:00:00Z&to=2025-04-01T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for exactly 90-day range, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostTrends_ExceedsMaxWindow(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs/trends?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetTopCosts_ExceedsMaxWindow(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs/top?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetComputeCostAnalytics_ExceedsMaxWindow(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/compute?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetCostInsights_ExceedsMaxWindow(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/cost-insights?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetTopCosts_ValidLimit(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getTopCostsFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopCostItem, error) {
+			return []store.TopCostItem{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	now := time.Now().UTC()
+	from := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	to := now.Format(time.RFC3339)
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs/top?from="+from+"&to="+to+"&limit=50", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetTopCosts_LimitTooHigh(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &mockAPIStore{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	now := time.Now().UTC()
+	from := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	to := now.Format(time.RFC3339)
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs/top?from="+from+"&to="+to+"&limit=200", "", "proj-1"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetTopCosts_StoreError(t *testing.T) {
+	t.Parallel()
+	ms := &mockAPIStore{
+		getTopCostsFn: func(_ context.Context, _ string, _, _ time.Time, _ int) ([]store.TopCostItem, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	now := time.Now().UTC()
+	from := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	to := now.Format(time.RFC3339)
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs/top?from="+from+"&to="+to, "", "proj-1"))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}

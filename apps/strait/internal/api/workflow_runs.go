@@ -20,7 +20,7 @@ import (
 )
 
 type approveWorkflowStepRequest struct {
-	Approver string `json:"approver" validate:"required"`
+	Approver string `json:"approver,omitempty"` // deprecated: ignored, approver is taken from auth context
 }
 
 type skipStepRequest struct {
@@ -308,6 +308,27 @@ func (s *Server) handleListWorkflowStepRuns(w http.ResponseWriter, r *http.Reque
 	}))
 }
 
+func (s *Server) loadScopedWorkflowRunForStepMutation(w http.ResponseWriter, r *http.Request, workflowRunID string) (*domain.WorkflowRun, bool) {
+	run, err := s.store.GetWorkflowRun(r.Context(), workflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			respondError(w, r, http.StatusNotFound, "workflow run not found")
+			return nil, false
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to get workflow run")
+		return nil, false
+	}
+	if run == nil {
+		respondError(w, r, http.StatusNotFound, "workflow run not found")
+		return nil, false
+	}
+	if projectID := projectIDFromContext(r.Context()); projectID != "" && run.ProjectID != projectID {
+		respondError(w, r, http.StatusNotFound, "workflow run not found")
+		return nil, false
+	}
+	return run, true
+}
+
 func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Request) {
 	if s.workflowCallback == nil {
 		respondError(w, r, http.StatusServiceUnavailable, "workflow callback unavailable")
@@ -316,22 +337,25 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	stepRef := chi.URLParam(r, "stepRef")
-	beforeRun, beforeErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
-	if beforeErr != nil {
-		slog.Warn("failed to get workflow run before approve step", "workflow_run_id", workflowRunID, "error", beforeErr)
+	beforeRun, ok := s.loadScopedWorkflowRunForStepMutation(w, r, workflowRunID)
+	if !ok {
+		return
 	}
 
+	// Decode body but ignore the approver field — use authenticated identity.
 	var req approveWorkflowStepRequest
 	if err := s.decodeJSON(r, &req); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if !s.validateRequest(w, r, &req) {
+	approver := actorFromContext(r.Context())
+	if approver == "" {
+		respondError(w, r, http.StatusUnauthorized, "authenticated identity required")
 		return
 	}
 
-	if err := s.workflowCallback.ApproveStep(r.Context(), workflowRunID, stepRef, req.Approver); err != nil {
+	if err := s.workflowCallback.ApproveStep(r.Context(), workflowRunID, stepRef, approver); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -351,7 +375,7 @@ func (s *Server) handleApproveWorkflowStep(w http.ResponseWriter, r *http.Reques
 	if afterErr != nil {
 		slog.Warn("failed to get workflow run after approve step", "workflow_run_id", workflowRunID, "error", afterErr)
 	}
-	if beforeErr == nil && afterErr == nil && beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
+	if afterErr == nil && afterRun != nil && beforeRun.Status != afterRun.Status {
 		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "approve_step")
 	}
 
@@ -369,9 +393,9 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 
 	workflowRunID := chi.URLParam(r, "workflowRunID")
 	stepRef := chi.URLParam(r, "stepRef")
-	beforeRun, beforeErr := s.store.GetWorkflowRun(r.Context(), workflowRunID)
-	if beforeErr != nil {
-		slog.Warn("failed to get workflow run before skip step", "workflow_run_id", workflowRunID, "error", beforeErr)
+	beforeRun, ok := s.loadScopedWorkflowRunForStepMutation(w, r, workflowRunID)
+	if !ok {
+		return
 	}
 
 	var req skipStepRequest
@@ -380,7 +404,7 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.workflowCallback.SkipStep(r.Context(), workflowRunID, stepRef, req.Reason); err != nil {
+	if err := s.workflowCallback.SkipStep(r.Context(), workflowRunID, stepRef, req.Reason, actorFromContext(r.Context())); err != nil {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -395,7 +419,7 @@ func (s *Server) handleSkipWorkflowStep(w http.ResponseWriter, r *http.Request) 
 	if afterErr != nil {
 		slog.Warn("failed to get workflow run after skip step", "workflow_run_id", workflowRunID, "error", afterErr)
 	}
-	if beforeErr == nil && afterErr == nil && beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
+	if afterErr == nil && afterRun != nil && beforeRun.Status != afterRun.Status {
 		s.publishWorkflowRunHook(r.Context(), afterRun, beforeRun.Status, afterRun.Status, "skip_step")
 	}
 
@@ -993,11 +1017,7 @@ func (s *Server) handleBulkCancelWorkflowRuns(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id query parameter is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	now := time.Now()
 	canceled, err := s.store.BulkCancelWorkflowRuns(r.Context(), projectID, req.WorkflowRunIDs, now)

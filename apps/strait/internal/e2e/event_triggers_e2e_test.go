@@ -289,7 +289,7 @@ func TestE2E_ApprovalStepWithParallelEventTrigger(t *testing.T) {
 		{
 			"step_ref":            "approve_step",
 			"step_type":           "approval",
-			"approval_approvers":  []string{"admin@example.com"},
+			"approval_approvers":  []string{"test:e2e-actor"},
 			"approval_timeout_secs": 3600,
 		},
 	})

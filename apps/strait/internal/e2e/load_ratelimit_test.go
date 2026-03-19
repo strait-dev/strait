@@ -71,7 +71,7 @@ func TestLoadRateLimit_SustainedRead(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
-				resp := doRequest(t, "GET", "/v1/jobs/?project_id="+projectID, "")
+				resp := doRequest(t, "GET", "/v1/jobs/", "", projectID)
 				total.Add(1)
 				if resp.Code == 200 {
 					successes.Add(1)
@@ -121,7 +121,7 @@ func TestLoadRateLimit_MixedBurstReadWrite(t *testing.T) {
 					}
 				} else {
 					reads.Add(1)
-					resp := doRequest(t, "GET", "/v1/jobs/?project_id="+projectID, "")
+					resp := doRequest(t, "GET", "/v1/jobs/", "", projectID)
 					if resp.Code == 200 {
 						readSuccess.Add(1)
 					}

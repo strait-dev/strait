@@ -11,11 +11,7 @@ import (
 )
 
 func (s *Server) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		respondError(w, r, http.StatusBadRequest, "project_id is required")
-		return
-	}
+	projectID := projectIDFromContext(r.Context())
 
 	status := r.URL.Query().Get("status")
 	if status != "" {
