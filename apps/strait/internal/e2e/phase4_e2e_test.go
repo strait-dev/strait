@@ -64,7 +64,7 @@ func TestE2E_JobGroup_ListByProject(t *testing.T) {
 		t.Fatalf("create other group status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/job-groups/?project_id="+projectID, "")
+	w = doRequest(t, http.MethodGet, "/v1/job-groups/", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list job groups status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -299,7 +299,7 @@ func TestE2E_Environment_ListByProject(t *testing.T) {
 		t.Fatalf("create other env status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/?project_id="+projectID, "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list environments status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -622,7 +622,7 @@ func TestE2E_Secret_CreateAndList(t *testing.T) {
 		t.Fatal("expected secret id")
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/secrets/?project_id="+projectID+"&job_id="+jobID+"&environment=dev", "")
+	w = doRequest(t, http.MethodGet, "/v1/secrets/?job_id="+jobID+"&environment=dev", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list secrets status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -657,7 +657,7 @@ func TestE2E_Secret_Delete(t *testing.T) {
 		t.Fatalf("delete secret status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/secrets/?project_id="+projectID+"&job_id="+jobID+"&environment=dev", "")
+	w = doRequest(t, http.MethodGet, "/v1/secrets/?job_id="+jobID+"&environment=dev", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list secrets after delete status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -680,7 +680,7 @@ func TestE2E_Secret_DefaultEnvironment(t *testing.T) {
 		t.Fatalf("create secret default env status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/secrets/?project_id="+projectID+"&job_id="+jobID+"&environment=production", "")
+	w = doRequest(t, http.MethodGet, "/v1/secrets/?job_id="+jobID+"&environment=production", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list production secrets status = %d, body = %s", w.Code, w.Body.String())
 	}

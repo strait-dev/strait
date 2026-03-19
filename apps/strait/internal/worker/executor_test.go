@@ -566,9 +566,8 @@ func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
-	exec.jobActiveRunsMu.Lock()
-	exec.jobActiveRuns["job-1"] = 1
-	exec.jobActiveRunsMu.Unlock()
+	// Pre-fill one bulkhead slot so the job is at capacity (max_concurrency=1).
+	exec.bulkhead.TryAcquire("job-1", 1)
 
 	run := testRun(1)
 	exec.execute(context.Background(), run)
@@ -617,10 +616,8 @@ func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
 		t.Fatalf("transitions = %s then %s, want executing then completed", calls[0].to, calls[1].to)
 	}
 
-	exec.jobActiveRunsMu.Lock()
-	defer exec.jobActiveRunsMu.Unlock()
-	if _, ok := exec.jobActiveRuns["job-1"]; ok {
-		t.Fatal("bulkhead active run entry still present, want released")
+	if count := exec.bulkhead.ActiveCount("job-1"); count != 0 {
+		t.Fatalf("bulkhead active count = %d, want 0 (released)", count)
 	}
 }
 

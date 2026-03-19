@@ -60,6 +60,7 @@ func wfDoReq(t *testing.T, srv *api.Server, method, path, body string) *httptest
 		req = httptest.NewRequest(method, path, strings.NewReader(body))
 	}
 	req.Header.Set("X-Internal-Secret", "test-secret")
+	req.Header.Set("X-Actor-Id", "test:e2e-actor")
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()

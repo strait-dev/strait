@@ -17,10 +17,16 @@ export type OperationPathParamsById = {
   "postSdkV1RunsByRunIDContinue": { "runID": string };
   "postSdkV1RunsByRunIDFail": { "runID": string };
   "postSdkV1RunsByRunIDHeartbeat": { "runID": string };
+  "postSdkV1RunsByRunIDIteration": { "runID": string };
   "postSdkV1RunsByRunIDLog": { "runID": string };
+  "getSdkV1RunsByRunIDMemory": { "runID": string };
+  "deleteSdkV1RunsByRunIDMemoryByKey": { "runID": string; "key": string };
+  "getSdkV1RunsByRunIDMemoryByKey": { "runID": string; "key": string };
+  "postSdkV1RunsByRunIDMemoryByKey": { "runID": string; "key": string };
   "postSdkV1RunsByRunIDOutput": { "runID": string };
   "getSdkV1RunsByRunIDPayload": { "runID": string };
   "postSdkV1RunsByRunIDProgress": { "runID": string };
+  "postSdkV1RunsByRunIDResourceSnapshot": { "runID": string };
   "postSdkV1RunsByRunIDResources": { "runID": string };
   "postSdkV1RunsByRunIDSpawn": { "runID": string };
   "getSdkV1RunsByRunIDState": { "runID": string };
@@ -31,12 +37,19 @@ export type OperationPathParamsById = {
   "postSdkV1RunsByRunIDToolCall": { "runID": string };
   "postSdkV1RunsByRunIDUsage": { "runID": string };
   "postSdkV1RunsByRunIDWaitForEvent": { "runID": string };
+  "getV1AnalyticsApprovals": undefined;
+  "getV1AnalyticsCompute": undefined;
+  "getV1AnalyticsCostInsights": undefined;
+  "getV1AnalyticsCosts": undefined;
+  "getV1AnalyticsCostsTop": undefined;
+  "getV1AnalyticsCostsTrends": undefined;
   "getV1AnalyticsPerformance": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": { "keyID": string };
   "postV1ApiKeysByKeyIDRotate": { "keyID": string };
   "getV1AuditEvents": undefined;
+  "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": { "batchID": string };
   "getV1Deployments": undefined;
@@ -102,6 +115,12 @@ export type OperationPathParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": { "userID": string };
   "postV1MembersBulk": undefined;
+  "getV1NotificationChannels": undefined;
+  "postV1NotificationChannels": undefined;
+  "deleteV1NotificationChannelsByChannelID": { "channelID": string };
+  "getV1NotificationChannelsByChannelID": { "channelID": string };
+  "patchV1NotificationChannelsByChannelID": { "channelID": string };
+  "getV1NotificationDeliveries": undefined;
   "getV1ProjectsByProjectIDSettings": { "projectID": string };
   "putV1ProjectsByProjectIDSettings": { "projectID": string };
   "getV1Regions": undefined;
@@ -129,6 +148,7 @@ export type OperationPathParamsById = {
   "postV1RunsByRunIDPause": { "runID": string };
   "postV1RunsByRunIDReplay": { "runID": string };
   "postV1RunsByRunIDReschedule": { "runID": string };
+  "getV1RunsByRunIDResources": { "runID": string };
   "postV1RunsByRunIDRestart": { "runID": string };
   "postV1RunsByRunIDResume": { "runID": string };
   "getV1RunsByRunIDState": { "runID": string };
@@ -209,10 +229,16 @@ export type OperationQueryParamsById = {
   "postSdkV1RunsByRunIDContinue": undefined;
   "postSdkV1RunsByRunIDFail": undefined;
   "postSdkV1RunsByRunIDHeartbeat": undefined;
+  "postSdkV1RunsByRunIDIteration": undefined;
   "postSdkV1RunsByRunIDLog": undefined;
+  "getSdkV1RunsByRunIDMemory": undefined;
+  "deleteSdkV1RunsByRunIDMemoryByKey": undefined;
+  "getSdkV1RunsByRunIDMemoryByKey": undefined;
+  "postSdkV1RunsByRunIDMemoryByKey": undefined;
   "postSdkV1RunsByRunIDOutput": undefined;
   "getSdkV1RunsByRunIDPayload": undefined;
   "postSdkV1RunsByRunIDProgress": undefined;
+  "postSdkV1RunsByRunIDResourceSnapshot": undefined;
   "postSdkV1RunsByRunIDResources": undefined;
   "postSdkV1RunsByRunIDSpawn": undefined;
   "getSdkV1RunsByRunIDState": undefined;
@@ -223,12 +249,19 @@ export type OperationQueryParamsById = {
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
+  "getV1AnalyticsApprovals": { "from": string; "to": string };
+  "getV1AnalyticsCompute": { "from": string; "to": string };
+  "getV1AnalyticsCostInsights": { "from": string; "to": string; "threshold"?: number };
+  "getV1AnalyticsCosts": { "from": string; "to": string };
+  "getV1AnalyticsCostsTop": { "from": string; "to": string; "limit"?: number };
+  "getV1AnalyticsCostsTrends": { "from": string; "to": string };
   "getV1AnalyticsPerformance": { "period_hours"?: number };
   "getV1ApiKeys": { "project_id": string };
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
   "postV1ApiKeysByKeyIDRotate": undefined;
   "getV1AuditEvents": { "project_id"?: string; "actor_id"?: string; "resource_type"?: string; "resource_id"?: string; "limit"?: number; "cursor"?: string; "from"?: string; "to"?: string; "order"?: "asc" | "desc" };
+  "getV1AuditEventsExport": { "from": string; "to": string; "format"?: "json" | "csv" | "ndjson" };
   "getV1BatchOperations": { "project_id": string; "limit"?: number; "cursor"?: string };
   "getV1BatchOperationsByBatchID": { "project_id": string };
   "getV1Deployments": { "project_id": string; "environment"?: string; "limit"?: number; "cursor"?: string };
@@ -294,6 +327,12 @@ export type OperationQueryParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
+  "getV1NotificationChannels": undefined;
+  "postV1NotificationChannels": undefined;
+  "deleteV1NotificationChannelsByChannelID": undefined;
+  "getV1NotificationChannelsByChannelID": undefined;
+  "patchV1NotificationChannelsByChannelID": undefined;
+  "getV1NotificationDeliveries": { "project_id": string; "limit"?: number; "cursor"?: string };
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
   "getV1Regions": undefined;
@@ -321,6 +360,7 @@ export type OperationQueryParamsById = {
   "postV1RunsByRunIDPause": undefined;
   "postV1RunsByRunIDReplay": undefined;
   "postV1RunsByRunIDReschedule": undefined;
+  "getV1RunsByRunIDResources": { "from"?: string; "to"?: string; "limit"?: number };
   "postV1RunsByRunIDRestart": undefined;
   "postV1RunsByRunIDResume": undefined;
   "getV1RunsByRunIDState": undefined;
@@ -401,10 +441,16 @@ export type OperationHeaderParamsById = {
   "postSdkV1RunsByRunIDContinue": undefined;
   "postSdkV1RunsByRunIDFail": undefined;
   "postSdkV1RunsByRunIDHeartbeat": undefined;
+  "postSdkV1RunsByRunIDIteration": undefined;
   "postSdkV1RunsByRunIDLog": undefined;
+  "getSdkV1RunsByRunIDMemory": undefined;
+  "deleteSdkV1RunsByRunIDMemoryByKey": undefined;
+  "getSdkV1RunsByRunIDMemoryByKey": undefined;
+  "postSdkV1RunsByRunIDMemoryByKey": undefined;
   "postSdkV1RunsByRunIDOutput": undefined;
   "getSdkV1RunsByRunIDPayload": undefined;
   "postSdkV1RunsByRunIDProgress": undefined;
+  "postSdkV1RunsByRunIDResourceSnapshot": undefined;
   "postSdkV1RunsByRunIDResources": undefined;
   "postSdkV1RunsByRunIDSpawn": undefined;
   "getSdkV1RunsByRunIDState": undefined;
@@ -415,12 +461,19 @@ export type OperationHeaderParamsById = {
   "postSdkV1RunsByRunIDToolCall": undefined;
   "postSdkV1RunsByRunIDUsage": undefined;
   "postSdkV1RunsByRunIDWaitForEvent": undefined;
+  "getV1AnalyticsApprovals": undefined;
+  "getV1AnalyticsCompute": undefined;
+  "getV1AnalyticsCostInsights": undefined;
+  "getV1AnalyticsCosts": undefined;
+  "getV1AnalyticsCostsTop": undefined;
+  "getV1AnalyticsCostsTrends": undefined;
   "getV1AnalyticsPerformance": undefined;
   "getV1ApiKeys": undefined;
   "postV1ApiKeys": undefined;
   "deleteV1ApiKeysByKeyID": undefined;
   "postV1ApiKeysByKeyIDRotate": undefined;
   "getV1AuditEvents": undefined;
+  "getV1AuditEventsExport": undefined;
   "getV1BatchOperations": undefined;
   "getV1BatchOperationsByBatchID": undefined;
   "getV1Deployments": undefined;
@@ -486,6 +539,12 @@ export type OperationHeaderParamsById = {
   "postV1Members": undefined;
   "deleteV1MembersByUserID": undefined;
   "postV1MembersBulk": undefined;
+  "getV1NotificationChannels": undefined;
+  "postV1NotificationChannels": undefined;
+  "deleteV1NotificationChannelsByChannelID": undefined;
+  "getV1NotificationChannelsByChannelID": undefined;
+  "patchV1NotificationChannelsByChannelID": undefined;
+  "getV1NotificationDeliveries": undefined;
   "getV1ProjectsByProjectIDSettings": undefined;
   "putV1ProjectsByProjectIDSettings": undefined;
   "getV1Regions": undefined;
@@ -513,6 +572,7 @@ export type OperationHeaderParamsById = {
   "postV1RunsByRunIDPause": undefined;
   "postV1RunsByRunIDReplay": undefined;
   "postV1RunsByRunIDReschedule": undefined;
+  "getV1RunsByRunIDResources": undefined;
   "postV1RunsByRunIDRestart": undefined;
   "postV1RunsByRunIDResume": undefined;
   "getV1RunsByRunIDState": undefined;
@@ -615,10 +675,16 @@ export const generatedOperationMetadataById = {
   "postSdkV1RunsByRunIDContinue": { functionName: "continueRun", domainName: "sdk", domainMethodName: "continueRun", pathParamNames: ["runID"], summary: "Create a continuation run" },
   "postSdkV1RunsByRunIDFail": { functionName: "failRun", domainName: "sdk", domainMethodName: "failRun", pathParamNames: ["runID"], summary: "Mark run failed" },
   "postSdkV1RunsByRunIDHeartbeat": { functionName: "heartbeatRun", domainName: "sdk", domainMethodName: "heartbeatRun", pathParamNames: ["runID"], summary: "Send heartbeat" },
+  "postSdkV1RunsByRunIDIteration": { functionName: "iterationRun", domainName: "sdk", domainMethodName: "iterationRun", pathParamNames: ["runID"], summary: "Record an agent iteration" },
   "postSdkV1RunsByRunIDLog": { functionName: "logRun", domainName: "sdk", domainMethodName: "logRun", pathParamNames: ["runID"], summary: "Log an event" },
+  "getSdkV1RunsByRunIDMemory": { functionName: "getMemory", domainName: "sdk", domainMethodName: "getMemory", pathParamNames: ["runID"], summary: "List all job memory keys" },
+  "deleteSdkV1RunsByRunIDMemoryByKey": { functionName: "deleteMemory", domainName: "sdk", domainMethodName: "deleteMemory", pathParamNames: ["runID","key"], summary: "Delete job memory key" },
+  "getSdkV1RunsByRunIDMemoryByKey": { functionName: "getMemoryByRunIDAndKey", domainName: "sdk", domainMethodName: "getMemoryByRunIdAndKey", pathParamNames: ["runID","key"], summary: "Get job memory key" },
+  "postSdkV1RunsByRunIDMemoryByKey": { functionName: "memoryRun", domainName: "sdk", domainMethodName: "memoryRun", pathParamNames: ["runID","key"], summary: "Set job memory key" },
   "postSdkV1RunsByRunIDOutput": { functionName: "outputRun", domainName: "sdk", domainMethodName: "outputRun", pathParamNames: ["runID"], summary: "Upsert structured output" },
   "getSdkV1RunsByRunIDPayload": { functionName: "getPayload", domainName: "sdk", domainMethodName: "getPayload", pathParamNames: ["runID"], summary: "Get run payload" },
   "postSdkV1RunsByRunIDProgress": { functionName: "progressRun", domainName: "sdk", domainMethodName: "progressRun", pathParamNames: ["runID"], summary: "Report progress" },
+  "postSdkV1RunsByRunIDResourceSnapshot": { functionName: "resourceSnapshotRun", domainName: "sdk", domainMethodName: "resourceSnapshotRun", pathParamNames: ["runID"], summary: "Report resource snapshot (CPU, memory, network)" },
   "postSdkV1RunsByRunIDResources": { functionName: "resourcesRun", domainName: "sdk", domainMethodName: "resourcesRun", pathParamNames: ["runID"], summary: "Report in-container resource usage" },
   "postSdkV1RunsByRunIDSpawn": { functionName: "spawnRun", domainName: "sdk", domainMethodName: "spawnRun", pathParamNames: ["runID"], summary: "Spawn a child job run" },
   "getSdkV1RunsByRunIDState": { functionName: "getStateByRunID", domainName: "sdk", domainMethodName: "getStateByRunId", pathParamNames: ["runID"], summary: "List all run state keys" },
@@ -629,12 +695,19 @@ export const generatedOperationMetadataById = {
   "postSdkV1RunsByRunIDToolCall": { functionName: "toolCallRun", domainName: "sdk", domainMethodName: "toolCallRun", pathParamNames: ["runID"], summary: "Record a tool call" },
   "postSdkV1RunsByRunIDUsage": { functionName: "usageRun", domainName: "sdk", domainMethodName: "usageRun", pathParamNames: ["runID"], summary: "Report AI model usage" },
   "postSdkV1RunsByRunIDWaitForEvent": { functionName: "waitForEventRun", domainName: "sdk", domainMethodName: "waitForEventRun", pathParamNames: ["runID"], summary: "Pause a run to wait for an external event" },
+  "getV1AnalyticsApprovals": { functionName: "listApprovals", domainName: "analytics", domainMethodName: "listApprovals", pathParamNames: [], summary: "Approval analytics" },
+  "getV1AnalyticsCompute": { functionName: "getCompute", domainName: "analytics", domainMethodName: "getCompute", pathParamNames: [], summary: "Compute cost analytics" },
+  "getV1AnalyticsCostInsights": { functionName: "listCostInsights", domainName: "analytics", domainMethodName: "listCostInsights", pathParamNames: [], summary: "Cost optimization insights" },
+  "getV1AnalyticsCosts": { functionName: "listCosts", domainName: "analytics", domainMethodName: "listCosts", pathParamNames: [], summary: "Cost analytics" },
+  "getV1AnalyticsCostsTop": { functionName: "getTop", domainName: "analytics", domainMethodName: "getTop", pathParamNames: [], summary: "Top cost items" },
+  "getV1AnalyticsCostsTrends": { functionName: "listTrends", domainName: "analytics", domainMethodName: "listTrends", pathParamNames: [], summary: "Cost trends over time" },
   "getV1AnalyticsPerformance": { functionName: "getPerformance", domainName: "analytics", domainMethodName: "getPerformance", pathParamNames: [], summary: "Performance analytics" },
   "getV1ApiKeys": { functionName: "listApiKeys", domainName: "apiKeys", domainMethodName: "list", pathParamNames: [], summary: "List API keys" },
   "postV1ApiKeys": { functionName: "createApiKey", domainName: "apiKeys", domainMethodName: "create", pathParamNames: [], summary: "Create an API key" },
   "deleteV1ApiKeysByKeyID": { functionName: "deleteApiKey", domainName: "apiKeys", domainMethodName: "delete", pathParamNames: ["keyID"], summary: "Revoke an API key" },
   "postV1ApiKeysByKeyIDRotate": { functionName: "rotateApiKey", domainName: "apiKeys", domainMethodName: "rotate", pathParamNames: ["keyID"], summary: "Rotate an API key with optional grace period" },
   "getV1AuditEvents": { functionName: "listAuditEvents", domainName: "rbac", domainMethodName: "listAuditEvents", pathParamNames: [], summary: "List audit events" },
+  "getV1AuditEventsExport": { functionName: "getExport", domainName: "rbac", domainMethodName: "getExport", pathParamNames: [], summary: "Export audit events in CSV, JSON, or NDJSON format" },
   "getV1BatchOperations": { functionName: "listBatchOperations", domainName: "batchOperations", domainMethodName: "list", pathParamNames: [], summary: "List batch operations" },
   "getV1BatchOperationsByBatchID": { functionName: "getBatchOperation", domainName: "batchOperations", domainMethodName: "get", pathParamNames: ["batchID"], summary: "Get a batch operation" },
   "getV1Deployments": { functionName: "listDeployments", domainName: "deployments", domainMethodName: "list", pathParamNames: [], summary: "List deployment versions" },
@@ -700,6 +773,12 @@ export const generatedOperationMetadataById = {
   "postV1Members": { functionName: "createMember", domainName: "rbac", domainMethodName: "createMember", pathParamNames: [], summary: "Assign member role" },
   "deleteV1MembersByUserID": { functionName: "deleteMember", domainName: "rbac", domainMethodName: "deleteMember", pathParamNames: ["userID"], summary: "Remove project member" },
   "postV1MembersBulk": { functionName: "bulkMember", domainName: "rbac", domainMethodName: "bulkMember", pathParamNames: [], summary: "Bulk assign members" },
+  "getV1NotificationChannels": { functionName: "listNotificationChannels", domainName: "notificationChannels", domainMethodName: "list", pathParamNames: [], summary: "List notification channels" },
+  "postV1NotificationChannels": { functionName: "createNotificationChannel", domainName: "notificationChannels", domainMethodName: "create", pathParamNames: [], summary: "Create a notification channel" },
+  "deleteV1NotificationChannelsByChannelID": { functionName: "deleteNotificationChannel", domainName: "notificationChannels", domainMethodName: "delete", pathParamNames: ["channelID"], summary: "Delete a notification channel" },
+  "getV1NotificationChannelsByChannelID": { functionName: "getNotificationChannel", domainName: "notificationChannels", domainMethodName: "get", pathParamNames: ["channelID"], summary: "Get a notification channel" },
+  "patchV1NotificationChannelsByChannelID": { functionName: "updateNotificationChannel", domainName: "notificationChannels", domainMethodName: "update", pathParamNames: ["channelID"], summary: "Update a notification channel" },
+  "getV1NotificationDeliveries": { functionName: "listNotificationDeliveries", domainName: "notificationChannels", domainMethodName: "listNotificationDeliveries", pathParamNames: [], summary: "List notification deliveries" },
   "getV1ProjectsByProjectIDSettings": { functionName: "listSettings", domainName: "projects", domainMethodName: "listSettings", pathParamNames: ["projectID"], summary: "Get project settings" },
   "putV1ProjectsByProjectIDSettings": { functionName: "upsertSetting", domainName: "projects", domainMethodName: "upsertSetting", pathParamNames: ["projectID"], summary: "Update project settings" },
   "getV1Regions": { functionName: "listRegions", domainName: "regions", domainMethodName: "list", pathParamNames: [], summary: "List available regions" },
@@ -727,6 +806,7 @@ export const generatedOperationMetadataById = {
   "postV1RunsByRunIDPause": { functionName: "pauseRun", domainName: "runs", domainMethodName: "pause", pathParamNames: ["runID"], summary: "Pause a managed run" },
   "postV1RunsByRunIDReplay": { functionName: "replayRun", domainName: "runs", domainMethodName: "replay", pathParamNames: ["runID"], summary: "Replay a failed run" },
   "postV1RunsByRunIDReschedule": { functionName: "rescheduleRun", domainName: "runs", domainMethodName: "reschedule", pathParamNames: ["runID"], summary: "Reschedule a run" },
+  "getV1RunsByRunIDResources": { functionName: "listResources", domainName: "runs", domainMethodName: "listResources", pathParamNames: ["runID"], summary: "List resource snapshots for a run" },
   "postV1RunsByRunIDRestart": { functionName: "restartRun", domainName: "runs", domainMethodName: "restart", pathParamNames: ["runID"], summary: "Restart a managed run with optional preset override" },
   "postV1RunsByRunIDResume": { functionName: "resumeRun", domainName: "runs", domainMethodName: "resume", pathParamNames: ["runID"], summary: "Resume a paused run" },
   "getV1RunsByRunIDState": { functionName: "getState", domainName: "runs", domainMethodName: "getState", pathParamNames: ["runID"], summary: "List run state (management API)" },

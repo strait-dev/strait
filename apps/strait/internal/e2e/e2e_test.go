@@ -73,7 +73,7 @@ func mustClean(t *testing.T) {
 	}
 }
 
-func authedRequest(method, path, body string) *http.Request {
+func authedRequest(method, path, body string, projectID ...string) *http.Request {
 	var req *http.Request
 	if body == "" {
 		req = httptest.NewRequest(method, path, nil)
@@ -82,13 +82,16 @@ func authedRequest(method, path, body string) *http.Request {
 	}
 	req.Header.Set("X-Internal-Secret", "test-secret")
 	req.Header.Set("Content-Type", "application/json")
+	if len(projectID) > 0 && projectID[0] != "" {
+		req.Header.Set("X-Project-Id", projectID[0])
+	}
 	return req
 }
 
-func doRequest(t *testing.T, method, path, body string) *httptest.ResponseRecorder {
+func doRequest(t *testing.T, method, path, body string, projectID ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	w := httptest.NewRecorder()
-	testServer.ServeHTTP(w, authedRequest(method, path, body))
+	testServer.ServeHTTP(w, authedRequest(method, path, body, projectID...))
 	return w
 }
 
@@ -245,7 +248,7 @@ func TestE2E_ListJobs(t *testing.T) {
 	createJob(t, projectID, "job-two", "job-two-"+newID())
 	createJob(t, projectID, "job-three", "job-three-"+newID())
 
-	w := doRequest(t, http.MethodGet, "/v1/jobs/?project_id="+projectID, "")
+	w := doRequest(t, http.MethodGet, "/v1/jobs/", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list jobs status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -275,7 +278,7 @@ func TestE2E_ListJobsByTag(t *testing.T) {
 		t.Fatalf("create tagged ops job status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/jobs/?project_id="+projectID+"&tag_key=team&tag_value=core", "")
+	w = doRequest(t, http.MethodGet, "/v1/jobs/?tag_key=team&tag_value=core", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list jobs by tag status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -398,7 +401,7 @@ func TestE2E_FullLifecycle(t *testing.T) {
 		t.Fatalf("expected queued status, got %s", asString(t, run, "status"))
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	w = doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -435,7 +438,7 @@ func TestE2E_IdempotentTrigger(t *testing.T) {
 		t.Fatalf("expected same run id, got %s and %s", asString(t, first, "id"), asString(t, second, "id"))
 	}
 
-	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	w := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -513,7 +516,7 @@ func TestE2E_ListRunsByProject(t *testing.T) {
 	triggerJob(t, asString(t, job1, "id"), `{"payload":{"j":1}}`, "")
 	triggerJob(t, asString(t, job2, "id"), `{"payload":{"j":2}}`, "")
 
-	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	w := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -542,7 +545,7 @@ func TestE2E_ListRunsFilterByStatus(t *testing.T) {
 		t.Fatalf("update run status: %v", err)
 	}
 
-	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&status="+string(domain.StatusCanceled), "")
+	w := doRequest(t, http.MethodGet, "/v1/runs/?status="+string(domain.StatusCanceled), "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list filtered runs status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -606,7 +609,7 @@ func TestE2E_ReplayRun(t *testing.T) {
 		t.Fatalf("expected replay idempotency key to be empty, got %q", replayKey)
 	}
 
-	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	lw := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
 	if lw.Code != http.StatusOK {
 		t.Fatalf("list runs status = %d, body = %s", lw.Code, lw.Body.String())
 	}
@@ -627,7 +630,7 @@ func TestE2E_ListRunsPagination(t *testing.T) {
 		triggerJob(t, jobID, fmt.Sprintf(`{"payload":{"idx":%d}}`, i), "")
 	}
 
-	w := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&limit=2", "")
+	w := doRequest(t, http.MethodGet, "/v1/runs/?limit=2", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list runs page1 status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -637,7 +640,7 @@ func TestE2E_ListRunsPagination(t *testing.T) {
 	}
 
 	cursor := asString(t, page1[1], "created_at")
-	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&limit=2&cursor="+url.QueryEscape(cursor), "")
+	w = doRequest(t, http.MethodGet, "/v1/runs/?limit=2&cursor="+url.QueryEscape(cursor), "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list runs page2 status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -735,7 +738,7 @@ func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
 		t.Fatalf("sdk annotate stage status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&metadata_key=env&metadata_value=prod", "")
+	w = doRequest(t, http.MethodGet, "/v1/runs/?metadata_key=env&metadata_value=prod", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list filtered runs status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -747,7 +750,7 @@ func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
 		t.Fatalf("expected run id %s, got %s", prodRunID, asString(t, runs[0], "id"))
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID+"&metadata_key=env", "")
+	w = doRequest(t, http.MethodGet, "/v1/runs/?metadata_key=env", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list metadata key-only runs status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -816,7 +819,7 @@ func TestE2E_AuthRequired(t *testing.T) {
 	mustClean(t)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/?project_id=proj", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 	testServer.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -828,8 +831,9 @@ func TestE2E_AuthInvalidSecret(t *testing.T) {
 	mustClean(t)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/?project_id=proj", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 	req.Header.Set("X-Internal-Secret", "wrong-secret")
+	req.Header.Set("X-Project-Id", "proj")
 	testServer.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -1149,7 +1153,7 @@ func TestE2E_TagFilteringWorkflows(t *testing.T) {
 	}
 
 	// Filter by team=core.
-	fw := doRequest(t, http.MethodGet, "/v1/workflows/?project_id="+projectID+"&tag_key=team&tag_value=core", "")
+	fw := doRequest(t, http.MethodGet, "/v1/workflows/?tag_key=team&tag_value=core", "", projectID)
 	if fw.Code != http.StatusOK {
 		t.Fatalf("filter workflows status = %d, body = %s", fw.Code, fw.Body.String())
 	}
@@ -1177,7 +1181,7 @@ func TestE2E_IdempotencyKeyHitReturnsOriginal(t *testing.T) {
 	}
 
 	// Only 1 run should exist.
-	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	lw := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
 	if lw.Code != http.StatusOK {
 		t.Fatalf("list runs status = %d", lw.Code)
 	}
@@ -1240,7 +1244,7 @@ func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
 	}
 
 	// Verify 2 runs exist.
-	lw := doRequest(t, http.MethodGet, "/v1/runs/?project_id="+projectID, "")
+	lw := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
 	if lw.Code != http.StatusOK {
 		t.Fatalf("list runs status = %d", lw.Code)
 	}

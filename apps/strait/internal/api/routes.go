@@ -180,6 +180,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/restart", s.handleRestartRun)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", s.handleListRunState)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/resources", s.handleListRunResources)
 			})
 		})
 
@@ -206,6 +207,17 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 
+		r.Route("/notification-channels", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateNotificationChannel)
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListNotificationChannels)
+			r.Route("/{channelID}", func(r chi.Router) {
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleGetNotificationChannel)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", s.handleUpdateNotificationChannel)
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", s.handleDeleteNotificationChannel)
+			})
+		})
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/notification-deliveries", s.handleListNotificationDeliveries)
+
 		r.Route("/log-drains", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleListLogDrains)
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", s.handleCreateLogDrain)
@@ -227,6 +239,12 @@ func (s *Server) routes() chi.Router {
 
 		r.Route("/analytics", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/performance", s.handleGetPerformanceAnalytics)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs", s.handleGetCostAnalytics)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/trends", s.handleGetCostTrends)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/top", s.handleGetTopCosts)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/compute", s.handleGetComputeCostAnalytics)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/approvals", s.handleGetApprovalStats)
+			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-insights", s.handleGetCostInsights)
 		})
 
 		r.Route("/roles", func(r chi.Router) {
@@ -245,7 +263,10 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.With(s.requirePermission(domain.ScopeRBACManage), rateLimit(5, time.Minute)).Post("/seed-roles", s.handleSeedSystemRoles)
-		r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/audit-events", s.handleListAuditEvents)
+		r.Route("/audit-events", func(r chi.Router) {
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", s.handleListAuditEvents)
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/export", s.handleExportAuditEvents)
+		})
 
 		r.Route("/resource-policies", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Post("/", s.handleCreateResourcePolicy)
@@ -372,6 +393,14 @@ func (s *Server) routes() chi.Router {
 			r.Delete("/state/{key}", s.handleSDKDeleteState)
 			r.Post("/stream", s.handleSDKStreamChunk)
 			r.Post("/resources", s.handleSDKResources)
+			r.Post("/resource-snapshot", s.handleSDKResourceSnapshot)
+			r.Post("/iteration", s.handleSDKIteration)
+			r.Route("/memory", func(r chi.Router) {
+				r.Post("/{key}", s.handleSDKSetMemory)
+				r.Get("/{key}", s.handleSDKGetMemory)
+				r.Get("/", s.handleSDKListMemory)
+				r.Delete("/{key}", s.handleSDKDeleteMemory)
+			})
 		})
 	})
 

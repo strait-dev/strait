@@ -1473,7 +1473,7 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1499,7 +1499,7 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&status=pending", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?status=pending", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1522,7 +1522,7 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=10", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=10", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1545,7 +1545,7 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1568,7 +1568,7 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=200", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=200", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1584,7 +1584,7 @@ func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=abc", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=abc", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1597,7 +1597,7 @@ func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 	t.Parallel()
 	ms := &mockAPIStore{}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1&limit=-5", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=-5", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1615,25 +1615,12 @@ func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries?project_id=proj-1", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w.Code)
-	}
-}
-
-func TestHandleListWebhookDeliveries_MissingProjectID(t *testing.T) {
-	t.Parallel()
-	ms := &mockAPIStore{}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhook-deliveries", "")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 
@@ -1650,7 +1637,7 @@ func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries?project_id=proj-1", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/webhooks/deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

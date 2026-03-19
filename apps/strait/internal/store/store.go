@@ -15,21 +15,24 @@ import (
 )
 
 var (
-	ErrJobSlugConflict             = errors.New("job slug conflict")
-	ErrJobNotFound                 = errors.New("job not found")
-	ErrJobGroupNotFound            = errors.New("job group not found")
-	ErrWebhookSubscriptionNotFound = errors.New("webhook subscription not found")
-	ErrEnvironmentNotFound         = errors.New("environment not found")
-	ErrJobSecretNotFound           = errors.New("job secret not found")
-	ErrRunNotFound                 = errors.New("run not found")
-	ErrRunConflict                 = errors.New("run status update conflict")
-	ErrWorkflowNotFound            = errors.New("workflow not found")
-	ErrWorkflowStepNotFound        = errors.New("workflow step not found")
-	ErrWorkflowRunNotFound         = errors.New("workflow run not found")
-	ErrWorkflowStepRunNotFound     = errors.New("workflow step run not found")
-	ErrEventKeyConflict            = errors.New("event key conflict")
-	ErrWorkflowVersionNotFound     = errors.New("workflow version not found")
-	ErrDeploymentVersionNotFound   = errors.New("deployment version not found")
+	ErrJobSlugConflict              = errors.New("job slug conflict")
+	ErrJobNotFound                  = errors.New("job not found")
+	ErrJobGroupNotFound             = errors.New("job group not found")
+	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
+	ErrEnvironmentNotFound          = errors.New("environment not found")
+	ErrJobSecretNotFound            = errors.New("job secret not found")
+	ErrRunNotFound                  = errors.New("run not found")
+	ErrRunConflict                  = errors.New("run status update conflict")
+	ErrWorkflowNotFound             = errors.New("workflow not found")
+	ErrWorkflowStepNotFound         = errors.New("workflow step not found")
+	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
+	ErrWorkflowStepRunNotFound      = errors.New("workflow step run not found")
+	ErrEventKeyConflict             = errors.New("event key conflict")
+	ErrWorkflowVersionNotFound      = errors.New("workflow version not found")
+	ErrDeploymentVersionNotFound    = errors.New("deployment version not found")
+	ErrNotificationChannelNotFound  = errors.New("notification channel not found")
+	ErrJobMemoryPerKeyLimitExceeded = errors.New("job memory per-key limit exceeded")
+	ErrJobMemoryPerJobLimitExceeded = errors.New("job memory per-job limit exceeded")
 )
 
 type DBTX interface {
@@ -91,7 +94,7 @@ type RunStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
@@ -134,6 +137,12 @@ type RunStore interface {
 	ResetRunIdempotencyKey(ctx context.Context, runID string) error
 	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
 	BulkCancelByFilter(ctx context.Context, projectID string, f BulkCancelFilter, now time.Time, reason string) ([]string, error)
+	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
+	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
+	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
+	CountRunToolCalls(ctx context.Context, runID string) (int, error)
+	CountRunIterations(ctx context.Context, runID string) (int, error)
+	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 }
 
 type ProjectQuota struct {
@@ -150,6 +159,11 @@ type ProjectQuota struct {
 	RateLimitWindowSecs           int
 	DefaultRegion                 string
 	PlanTier                      string
+	MaxTokensPerRun               int64
+	MaxToolCallsPerRun            int
+	MaxIterationsPerRun           int
+	MaxMemoryPerKeyBytes          int
+	MaxMemoryPerJobBytes          int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -327,6 +341,38 @@ type EventSourceStore interface {
 	DeleteEventSubscription(ctx context.Context, subID string) error
 }
 
+// JobMemoryStore defines operations for job-level persistent memory.
+type JobMemoryStore interface {
+	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
+	UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
+	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
+	ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error)
+	DeleteJobMemory(ctx context.Context, jobID, key string) error
+	SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error)
+	DeleteExpiredJobMemory(ctx context.Context) (int64, error)
+}
+
+// CostEstimateStore defines operations for job cost estimates.
+type CostEstimateStore interface {
+	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
+	UpsertJobCostEstimate(ctx context.Context, jobID string) error
+	ListActiveJobIDs(ctx context.Context) ([]string, error)
+}
+
+// NotificationStore handles notification channel and delivery operations.
+type NotificationStore interface {
+	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error)
+	ListNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	UpdateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
+	DeleteNotificationChannel(ctx context.Context, id, projectID string) error
+	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
+	ClaimPendingNotificationDeliveries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.NotificationDelivery, error)
+	UpdateClaimedNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) (bool, error)
+	ListNotificationDeliveries(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error)
+}
+
 type Store interface {
 	JobStore
 	JobGroupStore
@@ -348,6 +394,9 @@ type Store interface {
 	DeploymentStore
 	LogDrainStore
 	EventSourceStore
+	CostEstimateStore
+	JobMemoryStore
+	NotificationStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 

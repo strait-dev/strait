@@ -279,10 +279,11 @@ func TestMachinePool_PruneDuringConcurrentAccess(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		// Concurrent Release/Acquire while pruning.
+		// Concurrent Release/Acquire on a different key so it doesn't
+		// drain the entries that Prune targets.
 		for i := range 100 {
-			pool.Release("img:latest", "iad", fmt.Sprintf("new-%d", i))
-			pool.Acquire("img:latest", "iad")
+			pool.Release("img:other", "iad", fmt.Sprintf("new-%d", i))
+			pool.Acquire("img:other", "iad")
 		}
 		close(done)
 	}()
